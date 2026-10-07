@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 from flax import struct
-from boonta.utils import Array, Key, PyTree, Timestep, Transition, concatenate, place, take
+from boonta.utils import (Array, Key, PyTree, Timestep, Transition,
+                          canonicalize_dtype, concatenate, place, take)
 
 from ..algorithm import Algorithm
 from .wrapper import Wrapper
@@ -42,21 +43,28 @@ class Ensemble(Wrapper):
                 )
                 for index in range(self.count)
             ),
-            step=jnp.array(0),
+            step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
+        )
+
+    def synchronize(self, state: EnsembleState) -> EnsembleState:
+        return state.replace(
+            algorithm_states=tuple(
+                algorithm_state.replace(step=state.step)
+                for algorithm_state in state.algorithm_states
+            )
         )
 
     def step(
         self, state: EnsembleState, key: Key, timestep: Timestep, temperature=1.0
     ) -> tuple[EnsembleState, Array, PyTree]:
+        state = self.synchronize(state)
         algorithm_states, actions, auxes = [], [], []
         for index, algorithm_state in enumerate(state.algorithm_states):
             view = take(timestep, index, self.count)
             algorithm_state, action, aux = self.algorithm.step(
                 algorithm_state, jax.random.fold_in(key, index), view, temperature
             )
-            algorithm_states.append(
-                algorithm_state.replace(step=algorithm_state.step + action.shape[0])
-            )
+            algorithm_states.append(algorithm_state)
             actions.append(action)
             auxes.append(aux)
         return (
@@ -86,6 +94,7 @@ class Ensemble(Wrapper):
     def update(
         self, state: EnsembleState, key: Key, transitions: Transition
     ) -> EnsembleState:
+        state = self.synchronize(state)
         for index in range(self.count):
             state = self.respond(
                 state,

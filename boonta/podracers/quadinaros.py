@@ -51,6 +51,9 @@ class Quadinaros:
         algorithm_state = self.algorithm.update(
             state.algorithm_state, update_key, batch
         )
+        algorithm_state = algorithm_state.replace(
+            step=algorithm_state.step + self.batch_size
+        )
         return self.pit(state.replace(algorithm_state=algorithm_state)), None
 
     def rollout(self, state: QuadinarosState, key, temperature):

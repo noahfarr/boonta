@@ -7,7 +7,8 @@ import jax
 import jax.numpy as jnp
 import lox
 from flax import struct
-from boonta.utils import Array, Key, PyTree, Timestep, Transition, conditional_update, place
+from boonta.utils import (Array, Key, PyTree, Timestep, Transition,
+                          canonicalize_dtype, conditional_update, place)
 
 from ..algorithm import Algorithm
 from ..auxiliary_losses import Anchor
@@ -406,16 +407,25 @@ class PSRO(Wrapper):
             lineages=jnp.full(self.capacity, -1).at[:occupied].set(lineages),
             cursor=jnp.array(occupied),
             iteration=jnp.array(0),
-            step=jnp.array(0),
+            step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
+        )
+
+    def synchronize(self, state: PSROState) -> PSROState:
+        return state.replace(
+            algorithm_state=self.algorithm.synchronize(
+                state.algorithm_state.replace(step=state.step)
+            )
         )
 
     def step(self, state: PSROState, key: Key, timestep: Timestep, temperature=1.0):
+        state = self.synchronize(state)
         ensemble_state, action, aux = self.algorithm.step(
             state.algorithm_state, key, timestep, temperature
         )
         return state.replace(algorithm_state=ensemble_state), action, aux
 
     def update(self, state: PSROState, key: Key, transitions: Transition) -> PSROState:
+        state = self.synchronize(state)
         for index, learner in enumerate(self.learners):
             state = self.iterate(
                 state, index, learner, transitions, jax.random.fold_in(key, index)

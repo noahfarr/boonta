@@ -114,7 +114,6 @@ class RecurrentBC:
             grads["params"], state.optimizer_state, state.params["params"]
         )
         return state.replace(
-            step=state.step + 1,
             params={
                 **state.params,
                 "params": optax.apply_updates(state.params["params"], updates),
