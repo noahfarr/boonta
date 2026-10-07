@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - ppo/isaaclab
+  - _self_
+
+algorithm:
+  entropy_coefficient: 0.0
+
+optimizer:
+  lr: 5.0e-4
+
+total_timesteps: 20_000_000

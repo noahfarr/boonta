@@ -1,0 +1,11 @@
+# @package _global_
+
+num_layers: 2
+
+stack:
+  _target_: boonta.networks.llama
+  block: ${torso}
+  num_layers: ${num_layers}
+  dtype: ${oc.select:network.dtype,null}
+  features: ${cell.features}
+  expansion_factor: 4

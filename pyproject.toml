@@ -1,0 +1,168 @@
+[project]
+name = "boonta"
+version = "0.1.0"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "distrax>=0.1.9",
+    "flashbax>=0.1.3",
+    "flax>=0.12.7",
+    "gymnax>=0.0.9",
+    "h5py>=3.0",
+    "huggingface-hub>=1.24.0",
+    "hydra-core>=1.3.4",
+    "jax[cpu]>=0.10.2; sys_platform == 'darwin'",
+    "jax[cuda12]>=0.10.2; sys_platform == 'linux'",
+    "jinja2>=3.1",
+    "joblib>=1.0",
+    "kaggle>=2.2.3",
+    "lox",
+    "mctx>=0.0.5",
+    "minari[hdf5]>=0.5.3",
+    "numpy>=2.0",
+    "nvidia-ml-py>=12.0",
+    "omegaconf>=2.3.1",
+    "optax>=0.2.8",
+    "orbax-checkpoint>=0.12.1",
+    "pandas>=2.0",
+    "pillow>=10.0",
+    "psutil>=5.9.8",
+    "rich>=15.0.0",
+    "safetensors>=0.8.0",
+    "textual>=8.2.8",
+    "tokenizers>=0.20",
+    "tqdm>=4.0",
+    "tqdx>=0.1.5",
+    "trueskill>=0.4.5",
+    "wandb>=0.28.0",
+]
+
+[project.optional-dependencies]
+ale = [
+    "ale_py[xla]>=0.12.0",
+]
+brax = [
+    "brax",
+]
+craftax = [
+    "craftax<1.6",
+]
+isaaclab = [
+    "isaaclab[isaacsim]==2.3.2.post1; python_full_version < '3.12' and sys_platform == 'linux'",
+    "torch==2.7.0; python_full_version < '3.12' and sys_platform == 'linux'",
+    "torchvision==0.22.0; python_full_version < '3.12' and sys_platform == 'linux'",
+]
+isaaclab-arena = [
+    "isaaclab-arena; python_full_version >= '3.12' and python_full_version < '3.13'",
+]
+jaxmarl = [
+    "jaxmarl",
+]
+jumanji = [
+    "jumanji",
+]
+kinetix = [
+    "kinetix-env",
+]
+libero = [
+    "libero",
+    "robosuite==1.4.1",
+    "bddl",
+]
+mapox = [
+    "mapox",
+]
+mujoco-playground = [
+    "ml-collections",
+    "playground",
+]
+slurm = [
+    "slurmpilot; python_full_version >= '3.12'",
+    "hydra-slurmpilot-launcher; python_full_version >= '3.12'",
+]
+xland-minigrid = [
+    "xminigrid",
+]
+
+[tool.uv]
+conflicts = [
+    [
+      { extra = "slurm" },
+      { extra = "isaaclab" },
+      { extra = "isaaclab-arena" },
+    ],
+    [
+      { extra = "mapox" },
+      { extra = "isaaclab" },
+    ],
+]
+override-dependencies = [
+    "jax[cpu]>=0.10.2,<0.11; sys_platform == 'darwin'",
+    "jax[cuda12]>=0.10.2,<0.11; sys_platform == 'linux'",
+    "scipy>=1.14",
+    "brax>=0.13",
+    "mujoco>=3.3",
+    "numpy>=2.0",
+    "huggingface-hub>=1.24.0",
+    "click>=8.1.7",
+    "nvidia-cudnn-cu12>=9.8; sys_platform == 'linux'",
+]
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+carbs = { git = "https://github.com/imbue-ai/carbs.git" }
+hydra-carbs-sweeper = { git = "https://github.com/noahfarr/hydra-carbs-sweeper.git" }
+hydra-slurmpilot-launcher = { git = "ssh://git@github.com/noahfarr/hydra-slurmpilot-launcher.git" }
+isaaclab-arena = { git = "https://github.com/isaac-sim/IsaacLab-Arena" }
+libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
+lox = { git = "https://github.com/huterguier/lox" }
+mapox = { git = "https://github.com/gabe00122/mapox" }
+slurmpilot = { git = "https://github.com/noahfarr/slurmpilot.git", branch = "feat/spignore" }
+torch = [
+    { index = "pytorch-cu128", marker = "python_full_version < '3.12'" },
+    { index = "pytorch-cpu", marker = "python_full_version >= '3.12'" },
+]
+torchvision = [{ index = "pytorch-cu128", marker = "python_full_version < '3.12'" }]
+
+[project.entry-points.submitit]
+executor = "hydra_plugins.hydra_determined_launcher._launcher:DeterminedExecutor"
+job_environment = "hydra_plugins.hydra_determined_launcher._launcher:DeterminedJobEnvironment"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "boonta",
+    "hangar",
+    "hydra_plugins",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+sweep = [
+    "carbs",
+    "determined==0.35.0",
+    "hydra-carbs-sweeper",
+    "hydra-submitit-launcher>=1.2",
+    "pyyaml>=6.0",
+    "submitit>=1.5",
+    "torch; python_full_version >= '3.12'",
+]

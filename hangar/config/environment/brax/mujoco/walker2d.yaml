@@ -1,0 +1,5 @@
+namespace: brax
+suite: mujoco
+env_id: walker2d
+kwargs:
+  backend: generalized

@@ -1,0 +1,20 @@
+# @package _global_
+
+total_timesteps: 60_000_000
+
+algorithm:
+  gamma: 0.995
+  gae_lambda: 0.95
+  num_minibatches: 32
+  update_epochs: 4
+  normalize_advantage: True
+  clip_coefficient: 0.2
+  clip_value_loss: True
+  entropy_coefficient: 0.0
+
+rollout:
+  num_steps: 16
+
+environment:
+  num_envs: 4096
+

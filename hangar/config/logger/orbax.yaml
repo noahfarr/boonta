@@ -1,0 +1,4 @@
+# @package loggers.orbax
+_target_: boonta.loggers.OrbaxLogger
+directory: ${hydra:runtime.output_dir}/checkpoints
+max_to_keep: 100

@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - override /torso: ssm
+
+cell:
+  _target_: boonta.networks.MinGRUCell
+  features: 128
