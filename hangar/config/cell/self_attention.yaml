@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - override /torso: default
+
+cell:
+  _target_: boonta.networks.SelfAttention
+  features: 128
+  num_heads: 4
+  context_length: ${rollout.num_steps}
+  attention_mask:
+    _target_: boonta.networks.causal_attention_mask
+    _partial_: true

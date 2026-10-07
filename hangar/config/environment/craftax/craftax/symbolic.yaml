@@ -1,0 +1,4 @@
+namespace: craftax
+suite: craftax
+env_id: Craftax-Symbolic-v1
+reset_ratio: 64

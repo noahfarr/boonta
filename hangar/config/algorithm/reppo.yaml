@@ -1,0 +1,26 @@
+# @package _global_
+
+algorithm:
+  _target_: boonta.algorithms.reppo.REPPOConfig
+  num_minibatches: 128
+  update_epochs: 4
+  gamma: 0.99
+  td_lambda: 0.95
+  target_kl: 0.1
+  target_entropy_scale: 0.5
+  num_kl_samples: 16
+  vmin: 0.0
+  vmax: 150.0
+  num_bins: 151
+
+rollout:
+  num_steps: 128
+
+environment:
+  num_envs: 1024
+
+optimizer:
+  actor_lr: 3e-4
+  critic_lr: 3e-4
+  alpha_lr: 3e-4
+  lagrangian_lr: 3e-4

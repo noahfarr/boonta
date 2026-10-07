@@ -1,0 +1,5 @@
+namespace: jaxmarl
+suite: smax
+env_id: HeuristicEnemySMAX
+kwargs:
+  scenario: 8m

@@ -1,0 +1,88 @@
+from hydra.core.hydra_config import HydraConfig
+from hydra.utils import instantiate
+
+from . import resolvers  # noqa: F401 -- registers OmegaConf resolvers on import
+from . import (
+    bc_mujoco,
+    dqn_minatar,
+    grpo_minatar,
+    ippo_mapox,
+    ippo_smax,
+    iql_mujoco,
+    mappo_smax,
+    ppo_cartpole,
+    ppo_craftax,
+    ppo_deep_sea,
+    ppo_gymnasium,
+    ppo_isaac_lab,
+    ppo_minatar,
+    ppo_sokoban,
+    recurrent_pupo_sokoban,
+    ppo_mujoco,
+    ppo_xland_minigrid,
+    pqn_minatar,
+    recurrent_dqn_minatar,
+    recurrent_grpo_wordle,
+    recurrent_ppo_minatar,
+    recurrent_ppo_pokemon_red,
+    recurrent_pupo_ale,
+    recurrent_pupo_craftax,
+    recurrent_pupo_mapox,
+    recurrent_pupo_minatar,
+    recurrent_ppo_wordle,
+    recurrent_pqn_minatar,
+    recurrent_sac_mujoco,
+    reppo_mujoco,
+    sac_mujoco,
+)
+
+register = {
+    ("bc", "brax", "mujoco"): bc_mujoco.make,
+    ("dqn", "gymnax", "minatar"): dqn_minatar.make,
+    ("grpo", "gymnax", "minatar"): grpo_minatar.make,
+    ("ippo", "jaxmarl", "smax"): ippo_smax.make,
+    ("ippo", "mapox", "mapox"): ippo_mapox.make,
+    ("iql", "brax", "mujoco"): iql_mujoco.make,
+    ("mappo", "jaxmarl", "smax"): mappo_smax.make,
+    ("ppo", "brax", "mujoco"): ppo_mujoco.make,
+    ("ppo", "craftax", "craftax"): ppo_craftax.make,
+    ("ppo", "craftax", "craftax_classic"): ppo_craftax.make,
+    ("ppo", "gymnasium", "gymnasium"): ppo_gymnasium.make,
+    ("ppo", "gymnax", "bsuite"): ppo_deep_sea.make,
+    ("ppo", "gymnax", "classic_control"): ppo_cartpole.make,
+    ("ppo", "gymnax", "minatar"): ppo_minatar.make,
+    ("ppo", "jumanji", "sokoban"): ppo_sokoban.make,
+    ("ppo", "isaaclab", "classic"): ppo_isaac_lab.make,
+    ("ppo", "isaaclab", "isaaclab"): ppo_isaac_lab.make,
+    ("ppo", "isaaclab", "locomotion"): ppo_isaac_lab.make,
+    ("ppo", "isaaclab", "manipulation"): ppo_isaac_lab.make,
+    ("ppo", "isaaclab", "multirotor"): ppo_isaac_lab.make,
+    ("ppo", "isaaclab_arena", "isaaclab_arena"): ppo_isaac_lab.make,
+    ("ppo", "mujoco_playground", "dm_control_suite"): ppo_mujoco.make,
+    ("ppo", "xland_minigrid", "minigrid"): ppo_xland_minigrid.make,
+    ("ppo", "xland_minigrid", "xland"): ppo_xland_minigrid.make,
+    ("pqn", "gymnax", "minatar"): pqn_minatar.make,
+    ("recurrent_dqn", "gymnax", "minatar"): recurrent_dqn_minatar.make,
+    ("recurrent_grpo", "wordle", "wordle"): recurrent_grpo_wordle.make,
+    ("recurrent_ppo", "gymnax", "minatar"): recurrent_ppo_minatar.make,
+    ("recurrent_ppo", "peanut_gb", "pokemon_red"): recurrent_ppo_pokemon_red.make,
+    ("recurrent_pupo", "ale", "ale"): recurrent_pupo_ale.make,
+    ("recurrent_pupo", "craftax", "craftax"): recurrent_pupo_craftax.make,
+    ("recurrent_pupo", "craftax", "craftax_classic"): recurrent_pupo_craftax.make,
+    ("recurrent_pupo", "jumanji", "sokoban"): recurrent_pupo_sokoban.make,
+    ("recurrent_pupo", "gymnax", "minatar"): recurrent_pupo_minatar.make,
+    ("recurrent_pupo", "mapox", "mapox"): recurrent_pupo_mapox.make,
+    ("recurrent_ppo", "wordle", "wordle"): recurrent_ppo_wordle.make,
+    ("recurrent_pqn", "gymnax", "minatar"): recurrent_pqn_minatar.make,
+    ("recurrent_sac", "brax", "mujoco"): recurrent_sac_mujoco.make,
+    ("reppo", "brax", "mujoco"): reppo_mujoco.make,
+    ("sac", "brax", "mujoco"): sac_mujoco.make,
+}
+
+
+def make(cfg):
+    namespace = cfg.environment.namespace
+    suite = cfg.environment.get("suite", namespace)
+    name = HydraConfig.get().runtime.choices["algorithm"]
+    components = register[(name, namespace, suite)](cfg)
+    return instantiate(cfg.podracer)(**components)

@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - libero/libero
+  - _self_
+
+environment:
+  suite: libero_spatial
+  env_id: 0

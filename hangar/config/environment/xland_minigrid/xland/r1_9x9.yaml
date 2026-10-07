@@ -1,0 +1,5 @@
+namespace: xland_minigrid
+suite: xland
+env_id: XLand-MiniGrid-R1-9x9
+kwargs:
+  benchmark: trivial-21k

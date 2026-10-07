@@ -1,0 +1,5 @@
+namespace: gymnax
+suite: bsuite
+env_id: DeepSea-bsuite
+kwargs:
+  size: 20

@@ -1,0 +1,6 @@
+namespace: gymnasium
+env_id: CartPole-v1
+num_envs: 16
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: async

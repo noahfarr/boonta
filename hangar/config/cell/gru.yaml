@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - override /torso: rnn
+
+cell:
+  _target_: flax.linen.GRUCell
+  features: 128

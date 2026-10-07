@@ -1,0 +1,17 @@
+# @package _global_
+
+total_timesteps: 500_000
+
+algorithm:
+  num_minibatches: 4
+  update_epochs: 4
+  normalize_advantage: True
+
+rollout:
+  num_steps: 128
+
+environment:
+  num_envs: 16
+
+optimizer:
+  lr: 3e-3

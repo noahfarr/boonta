@@ -1,0 +1,13 @@
+_target_: boonta.podracers.sebulba.make
+_partial_: true
+config:
+  _target_: boonta.podracers.sebulba.SebulbaConfig
+  num_envs: ${environment.num_envs}
+  num_steps: ${rollout.num_steps}
+  learner:
+    _target_: boonta.utils.mesh
+    count: 1
+  actor:
+    _target_: boonta.utils.mesh
+    start: 0
+    count: 1

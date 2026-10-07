@@ -1,0 +1,89 @@
+diff --git a/src/ale/emucore/TIA.cxx b/src/ale/emucore/TIA.cxx
+index 3dad8f1..886cc2b 100644
+--- a/src/ale/emucore/TIA.cxx
++++ b/src/ale/emucore/TIA.cxx
+@@ -465,6 +465,12 @@ bool TIA::load(Deserializer& in)
+     myPOSM1 = (int16_t) in.getInt();
+     myPOSBL = (int16_t) in.getInt();
+ 
++    myPOSP0 = ((myPOSP0 % 160) + 160) % 160;
++    myPOSP1 = ((myPOSP1 % 160) + 160) % 160;
++    myPOSM0 = ((myPOSM0 % 160) + 160) % 160;
++    myPOSM1 = ((myPOSM1 % 160) + 160) % 160;
++    myPOSBL = ((myPOSBL % 160) + 160) % 160;
++
+     myCurrentGRP0 = (uint8_t) in.getInt();
+     myCurrentGRP1 = (uint8_t) in.getInt();
+ 
+@@ -489,6 +495,8 @@ bool TIA::load(Deserializer& in)
+ 
+     // Reset TIA bits to be on
+     enableBits(true);
++
++    myFramePointer = myCurrentFrameBuffer;
+   }
+   catch(char *msg)
+   {
+@@ -1117,6 +1125,12 @@ void TIA::computePlayfieldMaskTable()
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ inline void TIA::updateFrameScanline(uint32_t clocksToUpdate, uint32_t hpos)
+ {
++  uint8_t* bufferEnd = myCurrentFrameBuffer + 160 * 300;
++  if(myFramePointer >= bufferEnd)
++    return;
++  if(clocksToUpdate > (uint32_t)(bufferEnd - myFramePointer))
++    clocksToUpdate = (uint32_t)(bufferEnd - myFramePointer);
++
+   // Calculate the ending frame pointer value
+   uint8_t* ending = myFramePointer + clocksToUpdate;
+ 
+@@ -1780,7 +1794,13 @@ inline void TIA::updateFrame(int clock)
+         (clocksFromStartOfScanLine < (HBLANK + 8)))
+     {
+       int blanks = (HBLANK + 8) - clocksFromStartOfScanLine;
+-      std::memset(oldFramePointer, 0, blanks);
++      uint8_t* bufferEnd = myCurrentFrameBuffer + 160 * 300;
++      if(oldFramePointer >= myCurrentFrameBuffer && oldFramePointer < bufferEnd)
++      {
++        if(blanks > (int)(bufferEnd - oldFramePointer))
++          blanks = (int)(bufferEnd - oldFramePointer);
++        std::memset(oldFramePointer, 0, blanks);
++      }
+ 
+       if((clocksToUpdate + clocksFromStartOfScanLine) >= (HBLANK + 8))
+       {
+@@ -2731,7 +2751,7 @@ void TIA::poke(uint16_t addr, uint8_t value)
+     case 0x2A:    // Apply horizontal motion
+     {
+       // Figure out what cycle we're at
+-      int x = ((clock - myClockWhenFrameStarted) % 228) / 3;
++      int x = ((((clock - myClockWhenFrameStarted) % 228) + 228) % 228) / 3;
+ 
+       // See if we need to enable the HMOVE blank bug
+       if(myAllowHMOVEBlanks && ourHMOVEBlankEnableCycles[x])
+@@ -2746,6 +2766,12 @@ void TIA::poke(uint16_t addr, uint8_t value)
+       myPOSM1 += ourCompleteMotionTable[x][myHMM1];
+       myPOSBL += ourCompleteMotionTable[x][myHMBL];
+ 
++      myPOSP0 = ((myPOSP0 % 160) + 160) % 160;
++      myPOSP1 = ((myPOSP1 % 160) + 160) % 160;
++      myPOSM0 = ((myPOSM0 % 160) + 160) % 160;
++      myPOSM1 = ((myPOSM1 % 160) + 160) % 160;
++      myPOSBL = ((myPOSBL % 160) + 160) % 160;
++
+       if(myPOSP0 >= 160)
+         myPOSP0 -= 160;
+       else if(myPOSP0 < 0)
+@@ -2967,6 +2993,12 @@ TIA& TIA::operator = (const TIA&)
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ inline void TIA::updateFrameScanlineFast(uint32_t clocksToUpdate, uint32_t hpos)
+ {
++  uint8_t* bufferEnd = myCurrentFrameBuffer + 160 * 300;
++  if(myFramePointer >= bufferEnd)
++    return;
++  if(clocksToUpdate > (uint32_t)(bufferEnd - myFramePointer))
++    clocksToUpdate = (uint32_t)(bufferEnd - myFramePointer);
++
+   // Calculate the ending frame pointer value
+   uint8_t* ending = myFramePointer + clocksToUpdate;
+ 

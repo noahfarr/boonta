@@ -1,0 +1,18 @@
+# @package _global_
+
+environment:
+  namespace: libero
+  suite: ???
+  env_id: 0
+  num_envs: 8
+  horizon: 300
+  kwargs:
+    task_suite_name: ${environment.suite}
+    image_size: 224
+    num_envs: ${environment.num_envs}
+
+algorithm:
+  action_horizon: 50
+
+dataloader:
+  path: ???

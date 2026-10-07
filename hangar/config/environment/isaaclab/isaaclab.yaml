@@ -1,0 +1,11 @@
+# @package _global_
+
+environment:
+  namespace: isaaclab
+  suite: isaaclab
+  env_id: ???
+  num_envs: 4096
+  kwargs:
+    num_envs: ${environment.num_envs}
+    device: cuda:0
+    headless: true

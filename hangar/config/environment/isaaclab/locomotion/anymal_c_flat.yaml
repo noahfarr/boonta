@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - isaaclab/isaaclab
+  - _self_
+
+environment:
+  suite: locomotion
+  env_id: Isaac-Velocity-Flat-Anymal-C-v0

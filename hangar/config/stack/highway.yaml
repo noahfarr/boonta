@@ -1,0 +1,11 @@
+# @package _global_
+
+num_layers: 1
+
+stack:
+  _target_: boonta.networks.Tower
+  block:
+    _target_: boonta.networks.Highway
+    blocks: ${torso}
+    dtype: ${oc.select:network.dtype,null}
+  num_layers: ${num_layers}

@@ -1,0 +1,3 @@
+# @package artisans.generation
+_target_: boonta.artisans.Transcript
+repo_id: Qwen/Qwen3-0.6B-Base
