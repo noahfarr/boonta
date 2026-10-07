@@ -442,6 +442,20 @@ def test_a_vector_environment_that_resets_on_the_next_step_is_refused():
         Gymnasium(lambda: gym.make_vec("CartPole-v1", num_envs=2, vectorization_mode="sync"))
 
 
+def sokoban(**kwargs):
+    pytest.importorskip("jumanji")
+    from jumanji.environments.routing.sokoban.generator import SimpleSolveGenerator
+
+    from boonta.environments import jumanji
+
+    return jumanji.make("Sokoban-v0", generator=SimpleSolveGenerator(), **kwargs)
+
+
+def test_a_jumanji_episode_opens_with_a_start_flag():
+    _, timestep = sokoban().init(jax.random.key(0))
+    assert bool(timestep.terminated) and not bool(timestep.truncated)
+
+
 def statistics_only(environment, num_envs):
     return RecordEpisodeStatistics(environment)
 
