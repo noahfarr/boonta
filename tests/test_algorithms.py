@@ -1,8 +1,6 @@
-import dataclasses
 import re
 from functools import partial
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -11,8 +9,6 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 import zoo
-from boonta.algorithms.muzero import inverse, transform, two_hot
-from boonta.environments.wrappers import Vectorize
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous)
@@ -24,7 +20,6 @@ LEARNERS = [
     pytest.param(zoo.grpo, corridor, 100, id="grpo-corridor"),
     pytest.param(zoo.pqn, corridor, 100, id="pqn-corridor"),
     pytest.param(zoo.dqn, corridor, 400, id="dqn-corridor"),
-    pytest.param(zoo.muzero, corridor, 300, id="muzero-corridor"),
     pytest.param(zoo.sac, reach, 1000, id="sac-reach"),
     pytest.param(zoo.reppo, reach, 300, id="reppo-reach"),
     pytest.param(zoo.recurrent_ppo, recall, 100, id="recurrent_ppo-recall"),
@@ -66,47 +61,6 @@ def test_learns_with_several_agents_and_counts_each_of_their_steps(build, enviro
     assert np.nanmean(returns) >= environment.solved
 
 
-class Paying(nn.Module):
-    support: tuple
-
-    @nn.compact
-    def __call__(self, embedding, action):
-        self.param("unused", nn.initializers.zeros, (1,))
-        payoff = (action == 1).astype(jnp.float32)
-        return embedding, jnp.log(two_hot(transform(payoff), jnp.array(self.support)) + 1e-9)
-
-
-class Indifferent(nn.Module):
-    num_actions: int
-    support: tuple
-
-    @nn.compact
-    def __call__(self, embedding):
-        self.param("unused", nn.initializers.zeros, (1,))
-        shape = embedding.shape[:-1]
-        nothing = two_hot(jnp.zeros(shape), jnp.array(self.support))
-        return jnp.zeros((*shape, self.num_actions)), jnp.log(nothing + 1e-9)
-
-
-def test_muzero_search_finds_the_paying_action_given_a_correct_model():
-    environment = match()
-    algorithm = zoo.muzero(environment, num_envs=16).algorithm
-    support = tuple(np.asarray(algorithm.cfg.support).tolist())
-    algorithm = dataclasses.replace(
-        algorithm,
-        dynamics=Paying(support),
-        prediction=Indifferent(algorithm.cfg.num_actions, support),
-    )
-    _, timestep = Vectorize(environment, 16).init(jax.random.key(0))
-    state = algorithm.init(jax.random.key(1), timestep)
-    _, action, aux = algorithm.step(state, jax.random.key(2), timestep)
-
-    weights = np.asarray(aux["policy"]).mean(0)
-    np.testing.assert_allclose(np.asarray(aux["policy"]).sum(-1), 1.0, atol=1e-5)
-    assert weights.argmax() == 1 and weights[1] > 0.5
-    assert np.any(np.asarray(action) == 1)
-
-
 @pytest.mark.parametrize("build, environment, num_updates", LEARNERS)
 def test_learns(build, environment, num_updates):
     environment = environment()
@@ -127,7 +81,6 @@ SHAPE = re.compile(r"\[([0-9,]*)\]")
 REPLAYS = [
     pytest.param(zoo.dqn, corridor, id="dqn"),
     pytest.param(zoo.sac, reach, id="sac"),
-    pytest.param(zoo.muzero, corridor, id="muzero"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
     pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),
 ]
@@ -247,19 +200,6 @@ def test_recurrent_bc_learns_only_from_weighted_steps(weight, moves):
         for before, after in zip(jax.tree.leaves(state.params), jax.tree.leaves(updated.params))
     ]
     assert any(changed) == moves
-
-
-def test_muzero_value_transform_round_trips_and_two_hot_recovers_the_scalar():
-    values = jnp.array([-100.0, -3.0, -0.5, 0.0, 0.5, 3.0, 100.0])
-    np.testing.assert_allclose(inverse(transform(values)), values, atol=1e-3)
-
-    support = jnp.linspace(-5.0, 5.0, 21)
-    scalars = jnp.array([-5.0, -2.3, 0.0, 1.7, 5.0])
-    encoded = two_hot(scalars, support)
-    assert np.all(np.asarray(encoded) >= 0.0)
-    assert np.all(np.count_nonzero(np.asarray(encoded), axis=-1) <= 2)
-    np.testing.assert_allclose(encoded.sum(-1), 1.0, atol=1e-5)
-    np.testing.assert_allclose(jnp.sum(encoded * support, axis=-1), scalars, atol=1e-5)
 
 
 def log_prob_gap(transitions, dist, **kwargs):
