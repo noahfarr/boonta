@@ -101,6 +101,7 @@ class MCP(Wrapper):
         obs = select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32))
         reward = select(stepped.reward, jnp.zeros_like(stepped.reward))
         terminated = select(stepped.terminated, jnp.zeros_like(stepped.terminated))
+        truncated = select(stepped.truncated, jnp.zeros_like(stepped.truncated))
         info = jax.tree.map(
             lambda leaf: select(leaf, jnp.zeros_like(leaf)), stepped.info
         )
@@ -117,7 +118,7 @@ class MCP(Wrapper):
             action=token,
             reward=reward,
             terminated=terminated,
-            truncated=jnp.zeros_like(terminated),
+            truncated=truncated,
             info=info,
         )
         return state, timestep

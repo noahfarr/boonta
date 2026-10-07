@@ -8,7 +8,7 @@ import pytest
 
 import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
-from boonta.environments.wrappers import (PBRS, ClipAction, ClipReward,
+from boonta.environments.wrappers import (MCP, PBRS, ClipAction, ClipReward,
                                           FlattenObservation, GroupedAutoReset,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
@@ -279,6 +279,27 @@ def test_a_reasoning_token_freezes_the_game_and_costs_its_price():
     assert float(thought.reward) == -0.5 and float(thought.info["clock"]) == 0.0
     assert float(action.info["clock"]) == 1.0
     assert environment.action_space().num_actions == 4
+
+
+def tool(environment, start=0, end=0):
+    return MCP(
+        environment,
+        to_action=lambda arguments, cursor: jnp.int32(0),
+        to_tokens=lambda obs: obs.astype(jnp.int32),
+        start=start,
+        end=end,
+        pad=0,
+        vocab_size=4,
+        capacity=4,
+        observation_shape=(3,),
+    )
+
+
+def test_a_tool_call_reports_the_truncation_of_the_step_it_fires():
+    environment = tool(TimeLimit(Dial(), 2), start=1, end=2)
+    state, _ = environment.init(jax.random.key(0))
+    _, timesteps = play(environment, state, [jnp.int32(token) for token in (1, 2, 1, 2)])
+    np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, False, True])
 
 
 def test_flatten_observation_flattens_the_space_too():
