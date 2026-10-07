@@ -12,7 +12,8 @@ from rich.progress import (BarColumn, Progress, SpinnerColumn, TextColumn,
                            TimeElapsedColumn, TimeRemainingColumn)
 from rich.table import Table
 
-from boonta.utils import PyTree, Text
+from boonta.artisans import Text
+from boonta.utils import PyTree
 
 
 def uncover() -> None:

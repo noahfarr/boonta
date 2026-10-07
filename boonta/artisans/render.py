@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 
-from boonta.utils import Video
+from .artifact import Video
 
 
 class Render:

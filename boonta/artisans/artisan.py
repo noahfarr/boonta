@@ -1,6 +1,6 @@
 from typing import Protocol, runtime_checkable
 
-from boonta.utils import Artifact
+from .artifact import Artifact
 
 
 @runtime_checkable

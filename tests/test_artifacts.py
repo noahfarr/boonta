@@ -17,7 +17,8 @@ import zoo
 from boonta.algorithms.wrappers.ensemble import Ensemble
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.utils import Checkpoint, Video, brief, load_checkpoint, newest, sharded
+from boonta.artisans import Checkpoint, Video
+from boonta.utils import brief, load_checkpoint, newest, sharded
 from dummies import corridor
 
 NUM_ENVS, NUM_STEPS = 8, 4

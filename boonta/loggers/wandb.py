@@ -2,7 +2,8 @@ import jax
 import numpy as np
 import wandb
 
-from boonta.utils import Checkpoint, PyTree, Text, Video
+from boonta.artisans import Checkpoint, Text, Video
+from boonta.utils import PyTree
 
 
 class WandbLogger:

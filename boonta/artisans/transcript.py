@@ -1,6 +1,8 @@
 import numpy as np
 
-from boonta.utils import Text, load_tokenizer
+from boonta.utils import load_tokenizer
+
+from .artifact import Text
 
 
 class Transcript:
