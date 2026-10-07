@@ -3,7 +3,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: [site/**]
+    paths: [docs/**]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: docs
       - id: deployment
         uses: actions/deploy-pages@v4
