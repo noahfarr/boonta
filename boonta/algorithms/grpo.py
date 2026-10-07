@@ -79,7 +79,12 @@ class GRPO:
             valid = transitions.aux["valid"]
             num_valid = jnp.maximum(valid.sum(), 1.0)
 
-            dist = self.network.apply(params, transitions.first.obs, temperature=1.0)
+            dist, intermediates = self.network.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = (dist.entropy() * valid).sum() / num_valid
@@ -125,6 +130,7 @@ class GRPO:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
+                    intermediates=intermediates,
                 )
             return loss, (
                 actor_loss,

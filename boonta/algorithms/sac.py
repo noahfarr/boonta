@@ -117,7 +117,12 @@ class SAC:
         ) -> tuple[Array, Array]:
             alpha = jnp.exp(self.alpha.apply(state.alpha_params))
 
-            dist = self.actor.apply(params, transitions.first.obs, temperature=1.0)
+            dist, intermediates = self.actor.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
             action, log_prob = dist.sample_and_log_prob(seed=key)
 
             q_value = remove_feature_axis(
@@ -136,6 +141,7 @@ class SAC:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
+                    intermediates=intermediates,
                 )
             return loss, log_prob
 

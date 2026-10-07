@@ -137,7 +137,12 @@ class IQL:
                 jnp.exp(self.cfg.beta * advantage), self.cfg.max_advantage_weight
             )
 
-            dist = self.actor.apply(params, transitions.first.obs, temperature=1.0)
+            dist, intermediates = self.actor.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
             log_prob = dist.log_prob(transitions.second.action)
 
             loss = -(weight * log_prob).mean()
@@ -153,6 +158,7 @@ class IQL:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
+                    intermediates=intermediates,
                 )
             return loss, log_prob
 

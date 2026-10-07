@@ -12,6 +12,8 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import generalized_advantage_estimation
+
 
 @struct.dataclass(frozen=True)
 class RecurrentPuPOConfig:
@@ -26,6 +28,7 @@ class RecurrentPuPOConfig:
     advantage_clip: float = 1.0
     trace_clip: float = 1.0
     priority_exponent: float = 0.8
+    normalize_advantage: bool = True
 
 
 @struct.dataclass(frozen=True)
@@ -33,7 +36,7 @@ class RecurrentPuPOState:
     step: Array
     params: PyTree
     optimizer_state: optax.OptState
-    carry: PyTree
+    carry: PyTree = struct.field(metadata={"axis": "data"})
     rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
 
 
@@ -46,10 +49,14 @@ class RecurrentPuPO:
     auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPuPOState:
+        network_key, carry_key = jax.random.split(key)
+
+        carry = self.network.initialize_carry(
+            carry_key, (*timestep.reward.shape, 1)
+        )
         sequence = timestep.to_sequence()
-        carry = self.network.initialize_carry(key, (*timestep.reward.shape, 1))
         params = self.network.init(
-            key,
+            network_key,
             sequence.obs,
             sequence.action,
             sequence.reward,
@@ -100,7 +107,7 @@ class RecurrentPuPO:
             returns = trajectory.aux["returns"]
 
             timesteps = trajectory.first
-            _, (dist, values) = self.network.apply(
+            (_, (dist, values)), intermediates = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -108,6 +115,7 @@ class RecurrentPuPO:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
 
             log_probs = dist.log_prob(trajectory.second.action)
@@ -166,6 +174,7 @@ class RecurrentPuPO:
                     dist=dist,
                     value=values,
                     carry=carry,
+                    intermediates=intermediates,
                 )
             return loss, (
                 actor_loss,
@@ -200,48 +209,16 @@ class RecurrentPuPO:
         beta = self.importance_exponent(state.step)
 
         def vtrace(ratio: Array) -> tuple[Array, Array]:
-            gamma, gae_lambda = self.cfg.gamma, self.cfg.gae_lambda
-            rewards = transitions.second.reward
-            values = transitions.aux["value"]
-            dtype = jnp.result_type(values, bootstrap, rewards, jnp.float32)
-            rewards, values = rewards.astype(dtype), values.astype(dtype)
-            value = bootstrap.astype(dtype)
-            ratio = jnp.moveaxis(ratio, 0, 1).astype(dtype)
-            rho = jnp.minimum(ratio, self.cfg.advantage_clip)
-            c = jnp.minimum(ratio, self.cfg.trace_clip)
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple:
-                advantage, next_value = carry
-                reward, terminated, truncated, value, rho_t, c_t = x
-                delta = rho_t * (
-                    reward + gamma * (1.0 - terminated) * next_value - value
-                )
-                delta *= 1.0 - truncated
-                advantage = (
-                    delta
-                    + gamma
-                    * gae_lambda
-                    * c_t
-                    * (1.0 - terminated)
-                    * (1.0 - truncated)
-                    * advantage
-                )
-                return (advantage, value), advantage
-
-            _, advantages = jax.lax.scan(
-                scan_fn,
-                (jnp.zeros_like(value), value),
-                (
-                    rewards,
-                    transitions.second.terminated,
-                    transitions.second.truncated,
-                    values,
-                    rho,
-                    c,
-                ),
-                reverse=True,
+            ratio = jnp.moveaxis(ratio, 0, 1)
+            return generalized_advantage_estimation(
+                transitions,
+                transitions.aux["value"],
+                bootstrap,
+                self.cfg.gamma,
+                self.cfg.gae_lambda,
+                importance=jnp.minimum(ratio, self.cfg.advantage_clip),
+                trace=jnp.minimum(ratio, self.cfg.trace_clip),
             )
-            return advantages, advantages + values
 
         def minibatch_fn(
             carry_state: tuple, key: Key
@@ -266,8 +243,9 @@ class RecurrentPuPO:
                 lambda leaf: jnp.moveaxis(jnp.take(leaf, indices, axis=1), 0, 1), epoch
             )
             scaled = trajectory.aux["advantages"]
-            scaled = (scaled - scaled.mean()) / (scaled.std() + 1e-8)
-            scaled = jnp.reshape(weight, (-1,) + (1,) * (scaled.ndim - 1)) * scaled
+            if self.cfg.normalize_advantage:
+                scaled = (scaled - scaled.mean()) / (scaled.std() + 1e-8)
+            scaled =jnp.reshape(weight, (-1,) + (1,) * (scaled.ndim - 1)) * scaled
             trajectory = trajectory.replace(
                 aux={**trajectory.aux, "advantages": scaled}
             )

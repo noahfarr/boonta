@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import flax.linen as nn
@@ -29,6 +30,7 @@ class BC:
     cfg: BCConfig
     network: nn.Module
     optimizer: optax.GradientTransformation
+    auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> BCState:
         params = self.network.init(key, timestep.obs, temperature=1.0)
@@ -48,13 +50,30 @@ class BC:
         del key
 
         def loss_fn(params: PyTree) -> tuple[Array, tuple[Array, Array]]:
-            dist = self.network.apply(params, transitions.first.obs, temperature=1.0)
+            dist, intermediates = self.network.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
             likelihood = -jnp.mean(dist.log_prob(transitions.second.action))
             entropy = jnp.mean(dist.entropy())
-            return likelihood - self.cfg.entropy_coefficient * entropy, (
-                likelihood,
-                entropy,
-            )
+            loss = likelihood - self.cfg.entropy_coefficient * entropy
+
+            def apply(params: PyTree) -> PyTree:
+                return self.network.apply(
+                    params, transitions.first.obs, temperature=1.0
+                )
+
+            for auxiliary_loss in self.auxiliary_losses:
+                loss = loss + auxiliary_loss(
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    intermediates=intermediates,
+                )
+            return loss, (likelihood, entropy)
 
         (loss, (likelihood, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True
