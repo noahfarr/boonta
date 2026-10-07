@@ -1,0 +1,2 @@
+_target_: operator.itemgetter
+_args_: [-1]
