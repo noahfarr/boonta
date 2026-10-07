@@ -3,7 +3,8 @@ from pathlib import Path
 
 import numpy as np
 
-from boonta.utils import PyTree, Video
+from boonta.artisans import Video
+from boonta.utils import PyTree
 
 
 class FileLogger:
