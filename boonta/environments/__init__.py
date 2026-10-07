@@ -46,7 +46,6 @@ def register_targets(lib, targets):
 from . import (ale, brax, craftax, gymnasium, gymnax, isaaclab, isaaclab_arena,
                jaxmarl, jumanji, kinetix, libero, mapox,
                mujoco_playground, peanut_gb, wordle, xland_minigrid)
-from .dataset import Dataset, DatasetState
 
 registry = {
     "ale": ale.make,
