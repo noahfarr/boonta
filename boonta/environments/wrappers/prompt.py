@@ -56,6 +56,9 @@ class Prompt(Wrapper):
             terminated=jnp.where(
                 reading, jnp.zeros_like(timestep.terminated), timestep.terminated
             ),
+            truncated=jnp.where(
+                reading, jnp.zeros_like(timestep.truncated), timestep.truncated
+            ),
             info=jax.tree.map(
                 lambda leaf: jnp.where(reading, jnp.zeros_like(leaf), leaf),
                 timestep.info,
