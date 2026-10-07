@@ -1,0 +1,34 @@
+--- peanut_gb.h
++++ peanut_gb.h
+@@ -109,6 +109,10 @@
+  * defined. */
+ // #define PEANUT_GB_HEADER_ONLY
+ 
++#ifndef PEANUT_GB_ROM_READ
++# define PEANUT_GB_ROM_READ(gb, addr) (gb)->gb_rom_read(gb, addr)
++#endif
++
+ /** Internal source code. **/
+ /* Interrupt masks */
+ #define VBLANK_INTR	0x01
+@@ -796,17 +800,17 @@
+ 	case 0x1:
+ 	case 0x2:
+ 	case 0x3:
+-		return gb->gb_rom_read(gb, addr);
++		return PEANUT_GB_ROM_READ(gb, addr);
+ 
+ 	case 0x4:
+ 	case 0x5:
+ 	case 0x6:
+ 	case 0x7:
+ 		if(gb->mbc == 1 && gb->cart_mode_select)
+-			return gb->gb_rom_read(gb,
++			return PEANUT_GB_ROM_READ(gb,
+ 					       addr + ((gb->selected_rom_bank & 0x1F) - 1) * ROM_BANK_SIZE);
+ 		else
+-			return gb->gb_rom_read(gb, addr + (gb->selected_rom_bank - 1) * ROM_BANK_SIZE);
++			return PEANUT_GB_ROM_READ(gb, addr + (gb->selected_rom_bank - 1) * ROM_BANK_SIZE);
+ 
+ 	case 0x8:
+ 	case 0x9:

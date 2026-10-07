@@ -1,0 +1,8 @@
+# @package _global_
+
+num_layers: 1
+
+stack:
+  _target_: boonta.networks.repeat
+  block: ${torso}
+  num_layers: ${num_layers}

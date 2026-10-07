@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - ppo/isaaclab
+  - _self_
+
+rollout:
+  num_steps: 16
+
+total_timesteps: 10_000_000

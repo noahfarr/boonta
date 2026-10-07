@@ -1,0 +1,39 @@
+# @package _global_
+
+total_timesteps: 1_000_000_000
+
+training:
+  num_epochs: 635
+
+environment:
+  num_envs: 1024
+
+rollout:
+  num_steps: 128
+
+cell:
+  features: 256
+  dtype: bfloat16
+
+network:
+  dtype: bfloat16
+
+algorithm:
+  num_minibatches: 16
+  update_epochs: 1
+  clip_coefficient: 0.2
+  clip_value_loss: true
+  entropy_coefficient: 2.5e-4
+  value_coefficient: 0.5
+  gamma: 0.999
+  gae_lambda: 0.95
+  normalize_advantage: false
+
+optimizer:
+  name: muon
+  lr: 5e-3
+  anneal: true
+  min_lr_ratio: 0.0
+  beta: 0.95
+  weight_decay: 0.01
+  max_grad_norm: 0.5

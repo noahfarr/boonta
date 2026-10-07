@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /torso: default
+  - /cell: gru
+  - /stack: default
+  - override /podracer: quadinaros
+
+algorithm:
+  _target_: boonta.algorithms.recurrent_bc.RecurrentBCConfig
+  batch_size: 32
+  entropy_coefficient: 0.0
+
+optimizer:
+  lr: 3e-4
+  max_grad_norm: 0.5

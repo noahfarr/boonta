@@ -1,0 +1,34 @@
+# @package _global_
+
+defaults:
+  - /torso: default
+  - /cell: min_gru
+  - /stack: highway
+
+algorithm:
+  _target_: boonta.algorithms.recurrent_pupo.RecurrentPuPOConfig
+  num_minibatches: 8
+  update_epochs: 4
+  clip_coefficient: 0.2
+  clip_value_loss: True
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.99
+  gae_lambda: 0.95
+  advantage_clip: 1.0
+  trace_clip: 1.0
+  priority_exponent: 0.8
+
+importance_exponent:
+  _target_: optax.constant_schedule
+  value: 0.2
+
+rollout:
+  num_steps: 128
+
+environment:
+  num_envs: 64
+
+optimizer:
+  lr: 2.5e-4
+  max_grad_norm: 0.5

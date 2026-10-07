@@ -1,0 +1,10 @@
+defaults:
+  - config
+  - override hydra/sweeper: carbs
+  - _self_
+
+seed: ${hydra:job.num}
+
+hydra:
+  sweep:
+    dir: sweeps/${hydra.runtime.choices.algorithm}/${hydra.runtime.choices.environment}/${now:%Y-%m-%d_%H-%M-%S}

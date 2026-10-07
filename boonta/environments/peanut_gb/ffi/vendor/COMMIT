@@ -1,0 +1,3 @@
+8e656982f0
+sprites.patch applied (Peanut-GB issue 152, pull request 153)
+rom_read.patch applied (PEANUT_GB_ROM_READ hook so peanut.c reads the ROM directly)

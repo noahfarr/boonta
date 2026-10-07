@@ -1,0 +1,10 @@
+# @package _global_
+
+buffer:
+  _target_: flashbax.make_trajectory_buffer
+  max_length_time_axis: ${eval:'${replay.capacity} // ${environment.num_envs}'}
+  min_length_time_axis: ${buffer.sample_sequence_length}
+  sample_batch_size: 256
+  add_batch_size: ${environment.num_envs}
+  sample_sequence_length: 16
+  period: 1

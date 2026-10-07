@@ -1,0 +1,35 @@
+from typing import Protocol
+
+import jax
+
+from boonta.utils import Artifact, PyTree
+
+
+class Logger(Protocol):
+    def log(self, data: PyTree, steps: PyTree, **kwargs) -> None: ...
+    def log_summary(self, data: PyTree, **kwargs) -> None: ...
+    def log_artifact(self, artifact: Artifact, step: int, **kwargs) -> None: ...
+    def finish(self) -> None: ...
+
+
+class MultiLogger:
+    def __init__(self, loggers: list[Logger]):
+        self.loggers = loggers
+
+    def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
+        data, steps = jax.device_get((data, steps))
+        for logger in self.loggers:
+            logger.log(data, steps, **kwargs)
+
+    def log_summary(self, data: PyTree, **kwargs) -> None:
+        data = jax.device_get(data)
+        for logger in self.loggers:
+            logger.log_summary(data, **kwargs)
+
+    def log_artifact(self, artifact: Artifact, step: int, **kwargs) -> None:
+        for logger in self.loggers:
+            logger.log_artifact(artifact, step, **kwargs)
+
+    def finish(self) -> None:
+        for logger in self.loggers:
+            logger.finish()

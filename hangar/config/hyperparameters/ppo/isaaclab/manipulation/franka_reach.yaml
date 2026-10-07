@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - ppo/isaaclab
+  - _self_
+
+algorithm:
+  update_epochs: 8
+  entropy_coefficient: 0.001
+
+total_timesteps: 98_000_000

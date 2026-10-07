@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - /torso: default
+  - /cell: min_gru
+  - /stack: default
+  - /buffer: trajectory
+
+algorithm:
+  _target_: boonta.algorithms.recurrent_sac.RecurrentSACConfig
+  updates_per_step: 64
+  gamma: 0.997
+  tau: 0.005
+
+rollout:
+  num_steps: 1
+
+environment:
+  num_envs: 128
+
+replay:
+  capacity: 1_048_576
+
+optimizer:
+  actor_lr: 6e-4
+  critic_lr: 6e-4
+  alpha_lr: 6e-4
