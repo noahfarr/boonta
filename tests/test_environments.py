@@ -13,7 +13,8 @@ from boonta.environments.wrappers import (MCP, PBRS, ClipAction, ClipReward,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
-                                          Opponent, OptimisticAutoReset, Reasoning,
+                                          Opponent, OptimisticAutoReset, Prompt,
+                                          Reasoning,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, Stagger, StickyAction,
                                           TimeAwareObservation, TimeLimit,
@@ -300,6 +301,13 @@ def test_a_tool_call_reports_the_truncation_of_the_step_it_fires():
     state, _ = environment.init(jax.random.key(0))
     _, timesteps = play(environment, state, [jnp.int32(token) for token in (1, 2, 1, 2)])
     np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, False, True])
+
+
+def test_reading_the_prompt_never_ends_the_episode():
+    environment = Prompt(TimeLimit(Dial(), 1), np.arange(7), pad=0)
+    state, _ = environment.init(jax.random.key(0))
+    _, timesteps = play(environment, state, [jnp.int32(0)] * 3)
+    np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, True])
 
 
 def test_flatten_observation_flattens_the_space_too():
