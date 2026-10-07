@@ -12,6 +12,7 @@ gmon.out
 *.gb
 *.gbc
 *.nes
+start_states/
 
 # Local notes for coding assistants
 CLAUDE.md
