@@ -117,7 +117,8 @@ class Jumanji(Environment):
                     step_count=state.step_count,
                 )
             )
-        return state, self.frame(timestep, jnp.int32(0))
+        first = self.frame(timestep, jnp.int32(0))
+        return state, first.replace(terminated=jnp.ones_like(first.terminated))
 
     def step(self, key: Key, state, action: Array):
         action = jnp.asarray(action, jnp.int32)
