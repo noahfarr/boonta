@@ -11,6 +11,7 @@ pokemon = gb.pokemon_red
 
 ROM = gb.ROMS / "pokemon_red.gb"
 needs_rom = pytest.mark.skipif(not ROM.exists(), reason=f"no Pokemon Red ROM at {ROM}")
+START = gb.START_STATES / "pokemon_red.bin"
 LEADER, STARTER = pokemon.LEADER_LEVELS, pokemon.STARTER_LEVEL
 
 
@@ -262,6 +263,8 @@ def test_penalties_and_heals_follow_the_party_without_ending_the_episode(pay, ra
 
 @pytest.fixture(scope="module")
 def env():
+    if not START.exists():
+        pytest.skip(f"no opening state at {START}; make it with hangar/scripts/opening_pokemon_red.py")
     held = gb.make("pokemon_red", num_envs=1, num_threads=1, menu_penalty=0.01, tile_reward=1.0)
     yield held
     held.pool.close()
