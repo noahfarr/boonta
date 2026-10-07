@@ -92,9 +92,13 @@ class PQN:
             return target_q_value
 
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, Array]:
-            q_values = self.network.apply(
-                params, transitions.first.obs, temperature=1.0
-            ).preferences
+            dist, intermediates = self.network.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
+            q_values = dist.preferences
             q_value = remove_feature_axis(
                 jnp.take_along_axis(
                     q_values, add_feature_axis(transitions.second.action), axis=-1
@@ -103,16 +107,28 @@ class PQN:
             target_q_value = transitions.aux["target_q_value"]
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
+            def apply(params: PyTree) -> PyTree:
+                return self.network.apply(
+                    params, transitions.first.obs, temperature=1.0
+                )
+
             for auxiliary_loss in self.auxiliary_losses:
                 loss = loss + auxiliary_loss(
-                    params=params, transitions=transitions, q_values=q_values
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    q_values=q_values,
+                    intermediates=intermediates,
                 )
             return loss, q_value
 
         num_steps, num_envs = transitions.second.reward.shape
         batch_size = num_steps * num_envs
 
-        *_, obs = transitions.second.obs
+        obs = jax.tree.map(
+            lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second.obs
+        )
         q_values = self.network.apply(
             state.params, obs, temperature=1.0
         ).preferences

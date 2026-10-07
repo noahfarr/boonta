@@ -124,7 +124,7 @@ class RecurrentDQN:
             ) * jnp.max(next_q_values, axis=-1)
 
             timesteps = transitions.first
-            _, dist = self.network.apply(
+            (_, dist), intermediates = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -132,6 +132,7 @@ class RecurrentDQN:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
             q_values = dist.preferences
             q_value = remove_feature_axis(
@@ -141,12 +142,28 @@ class RecurrentDQN:
             )
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
+
+            def apply(params: PyTree) -> PyTree:
+                _, dist = self.network.apply(
+                    params,
+                    timesteps.obs,
+                    timesteps.action,
+                    timesteps.reward,
+                    timesteps.done,
+                    carry=carry,
+                    temperature=1.0,
+                )
+                return dist
+
             for auxiliary_loss in self.auxiliary_losses:
                 loss = loss + auxiliary_loss(
                     params=params,
+                    apply=apply,
                     transitions=transitions,
+                    dist=dist,
                     q_values=q_values,
                     carry=carry,
+                    intermediates=intermediates,
                 )
             return loss, q_value
 

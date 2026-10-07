@@ -311,7 +311,7 @@ def pqn(
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
 
 
-def dqn(environment, num_envs=32, podracer=online):
+def dqn(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     algorithm = DQN(
         cfg=DQNConfig(updates_per_step=4, gamma=0.99, tau=0.05),
         network=Network(
@@ -321,11 +321,12 @@ def dqn(environment, num_envs=32, podracer=online):
         exploration_schedule=explore(num_envs * 300),
         buffer=transitions(num_envs),
         optimizer=adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
-def sac(environment, num_envs=32, podracer=online):
+def sac(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     algorithm = SAC(
         cfg=SACConfig(
             updates_per_step=4,
@@ -343,6 +344,7 @@ def sac(environment, num_envs=32, podracer=online):
         actor_optimizer=optax.adam(1e-3),
         critic_optimizer=optax.adam(1e-3),
         alpha_optimizer=optax.adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
@@ -514,7 +516,7 @@ def recurrent_pqn(
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
 
 
-def recurrent_dqn(environment, num_envs=32, podracer=online):
+def recurrent_dqn(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     algorithm = RecurrentDQN(
         cfg=RecurrentDQNConfig(updates_per_step=4, gamma=0.99, tau=0.05),
         network=Network(
@@ -525,11 +527,12 @@ def recurrent_dqn(environment, num_envs=32, podracer=online):
         exploration_schedule=explore(num_envs * 300),
         buffer=trajectories(num_envs),
         optimizer=adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
-def recurrent_sac(environment, num_envs=32, podracer=online):
+def recurrent_sac(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     algorithm = RecurrentSAC(
         cfg=RecurrentSACConfig(
             updates_per_step=4,
@@ -548,21 +551,23 @@ def recurrent_sac(environment, num_envs=32, podracer=online):
         actor_optimizer=optax.adam(1e-3),
         critic_optimizer=optax.adam(1e-3),
         alpha_optimizer=optax.adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
-def bc(environment, batch_size=64):
+def bc(environment, batch_size=64, auxiliary_losses=()):
     algorithm = BC(
         cfg=BCConfig(batch_size=batch_size),
         network=Network(feature_extractor=encoder(), head=policy(environment)),
         optimizer=adam(),
+        auxiliary_losses=auxiliary_losses,
     )
     dataset = Minari(flatten(demonstrations(environment, jax.random.key(7), 256)))
     return offline(algorithm, environment, dataset, (batch_size,))
 
 
-def iql(environment, batch_size=64):
+def iql(environment, batch_size=64, auxiliary_losses=()):
     algorithm = IQL(
         cfg=IQLConfig(gamma=0.99, tau=0.05, batch_size=batch_size),
         actor=Network(feature_extractor=encoder(), head=policy(environment)),
@@ -571,18 +576,20 @@ def iql(environment, batch_size=64):
         actor_optimizer=optax.adam(1e-3),
         critic_optimizer=optax.adam(1e-3),
         value_optimizer=optax.adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
     )
     dataset = Minari(flatten(demonstrations(environment, jax.random.key(7), 256)))
     return offline(algorithm, environment, dataset, (batch_size,))
 
 
-def recurrent_bc(environment, batch_size=32):
+def recurrent_bc(environment, batch_size=32, auxiliary_losses=()):
     algorithm = RecurrentBC(
         cfg=RecurrentBCConfig(batch_size=batch_size),
         network=Network(
             feature_extractor=encoder(), torso=gru(), head=policy(environment)
         ),
         optimizer=adam(),
+        auxiliary_losses=auxiliary_losses,
     )
     dataset = Episodes(demonstrations(environment, jax.random.key(7), 256))
     return offline(
