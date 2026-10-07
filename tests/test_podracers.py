@@ -82,19 +82,12 @@ def test_train_runs_exactly_num_updates(build):
     assert float(state.algorithm_state.version) == 6.0
 
 
-@pytest.mark.parametrize("build", ONLINE)
-def test_step_counts_every_environment_step(build):
+@pytest.mark.parametrize("build", EVERY)
+def test_step_counts_the_samples_every_update_trains_on(build):
     podracer = build()
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 3)
     assert int(state.algorithm_state.step) == 3 * podracer.batch_size
-
-
-def test_quadinaros_training_takes_no_environment_steps():
-    podracer = on_quadinaros()
-    state = podracer.init(jax.random.key(0))
-    state, _ = podracer.train(state, jax.random.key(1), 3)
-    assert int(state.algorithm_state.step) == 0
 
 
 @pytest.mark.parametrize("build", EVERY)
@@ -103,7 +96,7 @@ def test_lap_fires_after_every_environment_step(build):
     actors = ACTORS if build is on_sebulba else 1
     offline = build is on_quadinaros
     laps = 0 if offline else 2 * actors * NUM_STEPS
-    steps = 0 if offline else 2 * podracer.batch_size
+    steps = 2 * podracer.batch_size
 
     state = podracer.init(jax.random.key(0))
     assert int(state.algorithm_state.step) == actors * 1000

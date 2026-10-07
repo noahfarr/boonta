@@ -74,6 +74,4 @@ class BC:
             **state.params,
             "params": optax.apply_updates(state.params["params"], updates),
         }
-        return state.replace(
-            step=state.step + 1, params=params, optimizer_state=optimizer_state
-        )
+        return state.replace(params=params, optimizer_state=optimizer_state)

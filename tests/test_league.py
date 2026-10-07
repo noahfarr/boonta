@@ -357,14 +357,14 @@ def test_a_league_trains_its_learners_and_keeps_the_meta_game():
     podracer.close(state)
 
 
-def test_each_learner_steps_only_its_own_slice_of_the_environments():
-    config, podracer = build([entry("main"), entry("exploiter", latest())])
+def test_every_learner_reads_the_step_count_of_the_whole_run():
+    _, podracer = build([entry("main"), entry("exploiter", latest())])
     state = podracer.init(jax.random.key(0))
-    state, _ = podracer.train(state, jax.random.key(1), 1)
+    state, _ = podracer.train(state, jax.random.key(1), 2)
 
-    width = config.num_envs // 2
+    assert int(state.algorithm_state.step) == 2 * podracer.batch_size
     for inner in state.algorithm_state.algorithm_states:
-        assert int(inner.step) == width * config.num_steps
+        assert int(inner.step) == 2 * podracer.batch_size
     podracer.close(state)
 
 
@@ -604,13 +604,14 @@ def test_each_ensemble_copy_acts_and_learns_on_its_own_slice():
         algorithm_states=tuple(
             inner.replace(params=jnp.array([value]))
             for inner, value in zip(state.algorithm_states, (1.0, 2.0))
-        )
+        ),
+        step=jnp.array(40, state.step.dtype),
     )
 
     state, action, _ = ensemble.step(state, jax.random.key(1), timestep)
     np.testing.assert_allclose(np.asarray(action), [-1.0] * 4 + [2.0] * 4)
     first, second = state.algorithm_states
-    assert (int(first.step), int(second.step)) == (4, 4)
+    assert (int(first.step), int(second.step)) == (40, 40)
 
     window = jax.tree.map(lambda leaf: leaf[None], timestep)
     target = jnp.concatenate([jnp.full(4, 5.0), jnp.zeros(4)])
