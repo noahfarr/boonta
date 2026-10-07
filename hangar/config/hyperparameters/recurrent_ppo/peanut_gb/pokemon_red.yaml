@@ -30,7 +30,6 @@ algorithm:
   normalize_advantage: false
 
 optimizer:
-  name: muon
   lr: 5e-3
   anneal: true
   min_lr_ratio: 0.0
