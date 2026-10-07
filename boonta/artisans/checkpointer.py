@@ -3,7 +3,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
-from boonta.utils import Checkpoint
+from .artifact import Checkpoint
 
 
 class Checkpointer:

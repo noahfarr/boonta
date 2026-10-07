@@ -6,7 +6,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import trueskill
-from boonta.utils import Array, Key, Metrics, PyTree
+from boonta.utils import Array, Key, PyTree
+
+from .artifact import Metrics
 
 Scores = np.ndarray
 

@@ -3,7 +3,8 @@ import os
 
 import orbax.checkpoint as ocp
 
-from boonta.utils import Checkpoint, PyTree
+from boonta.artisans import Checkpoint
+from boonta.utils import PyTree
 
 
 class OrbaxLogger:

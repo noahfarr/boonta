@@ -2,7 +2,8 @@ from typing import Protocol
 
 import jax
 
-from boonta.utils import Artifact, PyTree
+from boonta.artisans import Artifact
+from boonta.utils import PyTree
 
 
 class Logger(Protocol):
