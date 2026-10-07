@@ -1,0 +1,115 @@
+# @package _global_
+
+defaults:
+  - override /algorithm: ippo
+  - override /environment: connectx/connectx
+  - override /logger: file
+  - override /scoring: final
+  - override /hydra/sweeper: carbs
+  - override /hydra/launcher: submitit_local
+
+loggers:
+  orbax:
+    _target_: boonta.loggers.OrbaxLogger
+    directory: ${hydra:runtime.output_dir}/checkpoints
+    max_to_keep: 1
+    best: false
+
+artisans:
+  checkpointer:
+    _target_: boonta.artisans.Checkpointer
+
+hydra:
+  launcher:
+    gpus_per_node: 1
+    timeout_min: 30
+  sweeper:
+    metric: score
+    cost: cost
+    direction: maximize
+    n_trials: 1024
+    n_jobs: 1
+    num_random_samples: 16
+    resample_frequency: 16
+    max_failure_rate: 0.5
+    seed: 0
+    max_suggestion_cost: 900
+    params:
+      total_timesteps:
+        distribution: log_normal
+        min: 5e7
+        max: 2e9
+        center: 7.14e8
+        scale: 1.92
+      environment.num_envs:
+        distribution: uniform_pow2
+        min: 512
+        max: 65536
+        center: 16384
+        scale: 8.33
+      rollout.num_steps:
+        distribution: uniform_pow2
+        min: 2
+        max: 32
+        center: 8
+        scale: 3.33
+      algorithm.num_minibatches:
+        distribution: uniform_pow2
+        min: 1
+        max: 32
+        center: 4
+        scale: 5.0
+      algorithm.update_epochs:
+        distribution: int_uniform
+        min: 1
+        max: 8
+        center: 6
+        scale: 8.33
+      network.features:
+        distribution: uniform_pow2
+        min: 64
+        max: 1024
+        center: 512
+        scale: 5.0
+      network.layers:
+        distribution: int_uniform
+        min: 1
+        max: 4
+        center: 2
+        scale: 3.33
+      optimizer.lr:
+        distribution: log_normal
+        min: 1e-5
+        max: 3e-3
+        center: 1.46e-3
+        scale: 3.61
+      optimizer.max_grad_norm:
+        distribution: log_normal
+        min: 0.05
+        max: 5.0
+        center: 2.44
+        scale: 2.81
+      algorithm.entropy_coefficient:
+        distribution: log_normal
+        min: 1e-5
+        max: 0.5
+        center: 0.0994
+        scale: 6.66
+      algorithm.gae_lambda:
+        distribution: logit_normal
+        min: 0.5
+        max: 0.995
+        center: 0.989
+        scale: 3.26
+      algorithm.clip_coefficient:
+        distribution: uniform
+        min: 0.1
+        max: 0.5
+        center: 0.155
+        scale: 0.57
+      algorithm.value_coefficient:
+        distribution: log_normal
+        min: 0.1
+        max: 10.0
+        center: 0.723
+        scale: 1.9
