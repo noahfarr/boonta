@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import flax.linen as nn
@@ -30,6 +31,7 @@ class RecurrentBC:
     cfg: RecurrentBCConfig
     network: nn.Module
     optimizer: optax.GradientTransformation
+    auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentBCState:
         network_key, carry_key = jax.random.split(key)
@@ -79,7 +81,7 @@ class RecurrentBC:
         carry = self.network.initialize_carry(key, (batch_size, 1))
 
         def loss_fn(params: PyTree) -> tuple[Array, tuple[Array, Array]]:
-            _, dist = self.network.apply(
+            (_, dist), intermediates = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -87,6 +89,7 @@ class RecurrentBC:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
             log_prob = dist.log_prob(transitions.second.action)
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
@@ -94,10 +97,30 @@ class RecurrentBC:
             total = jnp.maximum(jnp.sum(weight), 1.0)
             likelihood = -jnp.sum(log_prob * weight) / total
             entropy = jnp.sum(dist.entropy() * weight) / total
-            return likelihood - self.cfg.entropy_coefficient * entropy, (
-                likelihood,
-                entropy,
-            )
+            loss = likelihood - self.cfg.entropy_coefficient * entropy
+
+            def apply(params: PyTree) -> PyTree:
+                _, dist = self.network.apply(
+                    params,
+                    timesteps.obs,
+                    timesteps.action,
+                    timesteps.reward,
+                    timesteps.done,
+                    carry=carry,
+                    temperature=1.0,
+                )
+                return dist
+
+            for auxiliary_loss in self.auxiliary_losses:
+                loss = loss + auxiliary_loss(
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    carry=carry,
+                    intermediates=intermediates,
+                )
+            return loss, (likelihood, entropy)
 
         (loss, (likelihood, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True

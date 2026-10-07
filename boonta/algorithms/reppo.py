@@ -185,7 +185,12 @@ class REPPO:
                 jnp.exp(self.lagrangian.apply(state.lagrangian_params))
             )
 
-            dist = self.actor.apply(params, transitions.first.obs, temperature=1.0)
+            dist, intermediates = self.actor.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
             action, log_prob = dist.sample_and_log_prob(seed=action_key)
 
             logits = self.critic.apply(
@@ -211,8 +216,20 @@ class REPPO:
             actor_loss = jnp.where(kl < self.cfg.target_kl, pathwise_loss, kl_loss)
 
             loss = actor_loss.mean()
+
+            def apply(params: PyTree) -> PyTree:
+                return self.actor.apply(
+                    params, transitions.first.obs, temperature=1.0
+                )
+
             for auxiliary_loss in self.auxiliary_losses:
-                loss = loss + auxiliary_loss(params=params, transitions=transitions)
+                loss = loss + auxiliary_loss(
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    intermediates=intermediates,
+                )
             return loss, (log_prob, kl)
 
         def alpha_loss_fn(alpha_params: PyTree, log_prob: Array) -> Array:

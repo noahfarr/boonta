@@ -189,7 +189,7 @@ class RecurrentSAC:
             timesteps = trajectory.first
             batch, _, *num_agents = trajectory.second.reward.shape
             carry = self.actor.initialize_carry(actor_key, (batch, *num_agents, 1))
-            _, dist = self.actor.apply(
+            (_, dist), intermediates = self.actor.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -197,17 +197,20 @@ class RecurrentSAC:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
             action, log_prob = dist.sample_and_log_prob(seed=action_key)
 
-            carry = self.critic.initialize_carry(critic_key, (batch, *num_agents, 1))
+            critic_carry = self.critic.initialize_carry(
+                critic_key, (batch, *num_agents, 1)
+            )
             _, q_value = self.critic.apply(
                 state.critic_params,
                 timesteps.obs,
                 action,
                 timesteps.reward,
                 timesteps.done,
-                carry=carry,
+                carry=critic_carry,
             )
             q_value = remove_feature_axis(q_value)
             loss = (alpha * log_prob - jnp.min(q_value, axis=0)).mean()
@@ -231,6 +234,7 @@ class RecurrentSAC:
                     transitions=trajectory,
                     dist=dist,
                     carry=carry,
+                    intermediates=intermediates,
                 )
             return loss, log_prob
 

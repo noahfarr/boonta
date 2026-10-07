@@ -118,7 +118,7 @@ class RecurrentGRPO:
             num_valid = jnp.maximum(valid.sum(), 1.0)
 
             timesteps = trajectory.first
-            _, dist = self.network.apply(
+            (_, dist), intermediates = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -126,6 +126,7 @@ class RecurrentGRPO:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
 
             log_probs = dist.log_prob(trajectory.second.action)
@@ -180,6 +181,7 @@ class RecurrentGRPO:
                     transitions=trajectory,
                     dist=dist,
                     carry=carry,
+                    intermediates=intermediates,
                 )
             return loss, (
                 actor_loss,

@@ -8,7 +8,7 @@ import pytest
 import zoo
 from boonta.algorithms import DR3
 from boonta.utils import Timestep, Transition
-from dummies import corridor
+from dummies import corridor, reach, recall, recall_continuous
 
 NUM_ENVS, NUM_STEPS, MINIBATCHES = 8, 4, 4
 
@@ -81,6 +81,49 @@ def test_a_loss_on_the_sown_features_trains_the_network(build):
     plain, shrunk = np.asarray(plain["features/energy"]), np.asarray(shrunk["features/energy"])
     np.testing.assert_allclose(shrunk[0], plain[0], rtol=1e-5)
     assert shrunk.mean() < plain.mean()
+
+
+SHARED = {"params", "apply", "transitions", "dist", "intermediates"}
+
+EVERY = [
+    pytest.param(zoo.ppo, corridor, {"value"}, id="ppo"),
+    pytest.param(zoo.mmd, corridor, {"value"}, id="mmd"),
+    pytest.param(zoo.grpo, corridor, set(), id="grpo"),
+    pytest.param(zoo.pqn, corridor, {"q_values"}, id="pqn"),
+    pytest.param(zoo.dqn, corridor, {"q_values"}, id="dqn"),
+    pytest.param(zoo.sac, reach, set(), id="sac"),
+    pytest.param(zoo.reppo, reach, set(), id="reppo"),
+    pytest.param(zoo.recurrent_ppo, recall, {"value", "carry"}, id="recurrent_ppo"),
+    pytest.param(zoo.recurrent_pupo, recall, {"value", "carry"}, id="recurrent_pupo"),
+    pytest.param(zoo.recurrent_grpo, recall, {"carry"}, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_pqn, recall, {"q_values", "carry"}, id="recurrent_pqn"),
+    pytest.param(zoo.recurrent_dqn, recall, {"q_values", "carry"}, id="recurrent_dqn"),
+    pytest.param(zoo.recurrent_sac, recall_continuous, {"carry"}, id="recurrent_sac"),
+    pytest.param(zoo.bc, corridor, set(), id="bc"),
+    pytest.param(zoo.iql, reach, set(), id="iql"),
+    pytest.param(zoo.recurrent_bc, recall, {"carry"}, id="recurrent_bc"),
+]
+
+
+@pytest.mark.parametrize("build, environment, extra", EVERY)
+def test_every_algorithm_hands_its_auxiliary_losses_the_same_inputs(
+    build, environment, extra
+):
+    received, replayed = [], []
+
+    def record(params, apply, transitions, dist, intermediates, **kwargs):
+        received.append({"params", "apply", "transitions", "dist", "intermediates", *kwargs})
+        replayed.append(apply(params).log_prob(transitions.second.action).shape)
+        assert set(intermediates["intermediates"]) == {"features"}
+        return 0.0
+
+    podracer = build(environment(), auxiliary_losses=(record,))
+    state = podracer.init(jax.random.key(0))
+    podracer.train(state, jax.random.key(1), 1)
+
+    assert received
+    assert all(keywords == SHARED | extra for keywords in received)
+    assert all(shape == replayed[0] for shape in replayed)
 
 
 def trajectory(flags, ending="terminated"):

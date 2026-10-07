@@ -12,6 +12,8 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import generalized_advantage_estimation
+
 
 @struct.dataclass(frozen=True)
 class RecurrentPPOConfig:
@@ -92,42 +94,6 @@ class RecurrentPPO:
     def update(
         self, state: RecurrentPPOState, key: Key, transitions: Transition
     ) -> RecurrentPPOState:
-        def generalized_advantage_estimation(
-            trajectory: Transition, value: Array
-        ) -> tuple[Array, Array]:
-            gamma, gae_lambda = self.cfg.gamma, self.cfg.gae_lambda
-            values = trajectory.aux["value"]
-            dtype = jnp.result_type(values, value, trajectory.second.reward, jnp.float32)
-            values, value = values.astype(dtype), value.astype(dtype)
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple:
-                advantage, next_value = carry
-                reward, terminated, truncated, value = x
-                delta = reward + gamma * (1.0 - terminated) * next_value - value
-                delta *= 1.0 - truncated
-                advantage = (
-                    delta
-                    + gamma
-                    * gae_lambda
-                    * (1.0 - terminated)
-                    * (1.0 - truncated)
-                    * advantage
-                )
-                return (advantage, value), advantage
-
-            _, advantages = jax.lax.scan(
-                scan_fn,
-                (jnp.zeros_like(value), value),
-                (
-                    trajectory.second.reward,
-                    trajectory.second.terminated,
-                    trajectory.second.truncated,
-                    values,
-                ),
-                reverse=True,
-            )
-            return advantages, advantages + values
-
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, tuple]:
@@ -228,7 +194,13 @@ class RecurrentPPO:
             temperature=1.0,
         )
         value = remove_time_axis(remove_feature_axis(values))
-        advantages, returns = generalized_advantage_estimation(transitions, value)
+        advantages, returns = generalized_advantage_estimation(
+            transitions,
+            transitions.aux["value"],
+            value,
+            self.cfg.gamma,
+            self.cfg.gae_lambda,
+        )
         if self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         transitions = transitions.replace(

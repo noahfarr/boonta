@@ -11,6 +11,8 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import generalized_advantage_estimation
+
 
 @struct.dataclass(frozen=True)
 class MMDConfig:
@@ -70,40 +72,6 @@ class MMD:
         )
 
     def update(self, state: MMDState, key: Key, transitions: Transition) -> MMDState:
-        def generalized_advantage_estimation(
-            transitions: Transition, value: Array
-        ) -> tuple[Array, Array]:
-            gamma, gae_lambda = self.cfg.gamma, self.cfg.gae_lambda
-            values = transitions.aux["value"]
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple:
-                advantage, next_value = carry
-                reward, terminated, truncated, value = x
-                delta = reward + gamma * (1.0 - terminated) * next_value - value
-                delta *= 1.0 - truncated
-                advantage = (
-                    delta
-                    + gamma
-                    * gae_lambda
-                    * (1.0 - terminated)
-                    * (1.0 - truncated)
-                    * advantage
-                )
-                return (advantage, value), advantage
-
-            _, advantages = jax.lax.scan(
-                scan_fn,
-                (jnp.zeros_like(value), value),
-                (
-                    transitions.second.reward,
-                    transitions.second.terminated,
-                    transitions.second.truncated,
-                    values,
-                ),
-                reverse=True,
-            )
-            return advantages, advantages + values
-
         def loss_fn(
             params: PyTree,
             magnet_params: PyTree,
@@ -113,8 +81,11 @@ class MMD:
             advantages = transitions.aux["advantages"]
             returns = transitions.aux["returns"]
 
-            dist, value = self.network.apply(
-                params, transitions.first.obs, temperature=1.0
+            (dist, value), intermediates = self.network.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
             )
 
             log_probs = dist.log_prob(transitions.second.action)
@@ -162,9 +133,20 @@ class MMD:
                 + self.cfg.value_coefficient * critic_loss
                 + alpha * magnet_kl
             )
+            def apply(params: PyTree) -> PyTree:
+                dist, _ = self.network.apply(
+                    params, transitions.first.obs, temperature=1.0
+                )
+                return dist
+
             for auxiliary_loss in self.auxiliary_losses:
                 loss = loss + auxiliary_loss(
-                    params=params, transitions=transitions, dist=dist, value=value
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    value=value,
+                    intermediates=intermediates,
                 )
             return loss, (
                 actor_loss,
@@ -184,7 +166,13 @@ class MMD:
         )
         _, value = self.network.apply(state.params, obs, temperature=1.0)
         value = remove_feature_axis(value)
-        advantages, returns = generalized_advantage_estimation(transitions, value)
+        advantages, returns = generalized_advantage_estimation(
+            transitions,
+            transitions.aux["value"],
+            value,
+            self.cfg.gamma,
+            self.cfg.gae_lambda,
+        )
         if self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         transitions = transitions.replace(

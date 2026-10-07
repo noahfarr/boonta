@@ -117,7 +117,7 @@ class RecurrentPQN:
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, Array]:
             timesteps = trajectory.first
-            _, dist = self.network.apply(
+            (_, dist), intermediates = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -125,6 +125,7 @@ class RecurrentPQN:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
+                mutable="intermediates",
             )
             q_values = dist.preferences
             q_value = remove_feature_axis(
@@ -135,12 +136,28 @@ class RecurrentPQN:
             target_q_value = trajectory.aux["target_q_value"]
             td_error = (q_value - target_q_value) * (1.0 - trajectory.second.truncated)
             loss = 0.5 * (td_error**2).mean()
+
+            def apply(params: PyTree) -> PyTree:
+                _, dist = self.network.apply(
+                    params,
+                    timesteps.obs,
+                    timesteps.action,
+                    timesteps.reward,
+                    timesteps.done,
+                    carry=carry,
+                    temperature=1.0,
+                )
+                return dist
+
             for auxiliary_loss in self.auxiliary_losses:
                 loss = loss + auxiliary_loss(
                     params=params,
+                    apply=apply,
                     transitions=trajectory,
+                    dist=dist,
                     q_values=q_values,
                     carry=carry,
+                    intermediates=intermediates,
                 )
             return loss, q_value
 

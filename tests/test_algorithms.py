@@ -9,6 +9,7 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 import zoo
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous)
@@ -73,6 +74,103 @@ def test_learns(build, environment, num_updates):
 
     returns = np.asarray(logs["episode_statistics/episode_return"])
     assert np.nanmean(returns) >= environment.solved
+
+
+RECURRENT = [
+    pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
+    pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
+    pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
+    pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
+    pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),
+]
+
+
+@pytest.mark.parametrize("build, environment", RECURRENT)
+def test_every_recurrent_carry_shards_with_its_environments(build, environment):
+    podracer = build(environment(), num_envs=8, podracer=partial(zoo.online, devices=4))
+    state = podracer.init(jax.random.key(0))
+    state, _ = podracer.train(state, jax.random.key(1), 1)
+
+    carries = [
+        getattr(state.algorithm_state, name)
+        for name in ("carry", "rollout_carry")
+        if hasattr(state.algorithm_state, name)
+    ]
+    for leaf in jax.tree.leaves(carries):
+        assert leaf.sharding.spec == P("data")
+
+
+def reference_advantages(reward, values, bootstrap, terminated, truncated, importance, trace):
+    gamma, gae_lambda = 0.9, 0.8
+    advantages = np.zeros_like(values)
+    advantage, next_value = np.zeros_like(bootstrap), bootstrap
+    for index in reversed(range(len(values))):
+        alive = (1.0 - terminated[index]) * (1.0 - truncated[index])
+        delta = importance[index] * (
+            reward[index] + gamma * (1.0 - terminated[index]) * next_value - values[index]
+        )
+        delta = delta * (1.0 - truncated[index])
+        advantage = delta + gamma * gae_lambda * trace[index] * alive * advantage
+        advantages[index] = advantage
+        next_value = values[index]
+    return advantages
+
+
+@pytest.mark.parametrize("weighted", [False, True], ids=["gae", "vtrace"])
+def test_generalized_advantage_estimation_follows_the_recursion(weighted):
+    generator = np.random.default_rng(0)
+    shape = (6, 3)
+    reward, values = generator.normal(size=shape), generator.normal(size=shape)
+    bootstrap = generator.normal(size=shape[1:])
+    terminated = generator.random(shape) < 0.2
+    truncated = (generator.random(shape) < 0.2) & ~terminated
+    importance, trace = (
+        generator.uniform(0.5, 1.5, shape) if weighted else np.ones(shape)
+        for _ in range(2)
+    )
+    timestep = Timestep(
+        obs=jnp.zeros(shape),
+        action=jnp.zeros(shape),
+        reward=jnp.asarray(reward, jnp.float32),
+        terminated=jnp.asarray(terminated),
+        truncated=jnp.asarray(truncated),
+    )
+
+    advantages, returns = generalized_advantage_estimation(
+        Transition(first=timestep, second=timestep),
+        jnp.asarray(values, jnp.float32),
+        jnp.asarray(bootstrap, jnp.float32),
+        0.9,
+        0.8,
+        importance=jnp.asarray(importance, jnp.float32),
+        trace=jnp.asarray(trace, jnp.float32),
+    )
+
+    expected = reference_advantages(
+        reward, values, bootstrap, terminated, truncated, importance, trace
+    )
+    np.testing.assert_allclose(advantages, expected, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(returns, expected + values, rtol=1e-5, atol=1e-6)
+
+
+def test_generalized_advantage_estimation_accumulates_a_bf16_critic_in_fp32():
+    shape = (4, 2)
+    timestep = Timestep(
+        obs=jnp.zeros(shape),
+        action=jnp.zeros(shape),
+        reward=jnp.ones(shape, jnp.bfloat16),
+        terminated=jnp.zeros(shape, bool),
+        truncated=jnp.zeros(shape, bool),
+    )
+    advantages, returns = generalized_advantage_estimation(
+        Transition(first=timestep, second=timestep),
+        jnp.ones(shape, jnp.bfloat16),
+        jnp.ones(shape[1:], jnp.bfloat16),
+        0.99,
+        0.95,
+    )
+    assert advantages.dtype == returns.dtype == jnp.float32
 
 
 COLLECTIVE = re.compile(r"(all-gather|all-reduce|collective-permute|all-to-all)\(")

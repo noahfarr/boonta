@@ -83,9 +83,13 @@ class DQN:
                 1.0 - transitions.second.terminated
             ) * jnp.max(next_q_values, axis=-1)
 
-            q_values = self.network.apply(
-                params, transitions.first.obs, temperature=1.0
-            ).preferences
+            dist, intermediates = self.network.apply(
+                params,
+                transitions.first.obs,
+                temperature=1.0,
+                mutable="intermediates",
+            )
+            q_values = dist.preferences
             q_value = remove_feature_axis(
                 jnp.take_along_axis(
                     q_values, add_feature_axis(transitions.second.action), axis=-1
@@ -93,9 +97,20 @@ class DQN:
             )
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
+
+            def apply(params: PyTree) -> PyTree:
+                return self.network.apply(
+                    params, transitions.first.obs, temperature=1.0
+                )
+
             for auxiliary_loss in self.auxiliary_losses:
                 loss = loss + auxiliary_loss(
-                    params=params, transitions=transitions, q_values=q_values
+                    params=params,
+                    apply=apply,
+                    transitions=transitions,
+                    dist=dist,
+                    q_values=q_values,
+                    intermediates=intermediates,
                 )
             return loss, q_value
 
