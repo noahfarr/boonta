@@ -1,0 +1,335 @@
+{
+ "podracers": [
+  {
+   "id": "anakin",
+   "name": "Anakin",
+   "blurb": "On-policy and fused: rollout and update compiled into one program, run in one worker."
+  },
+  {
+   "id": "sebulba",
+   "name": "Sebulba",
+   "blurb": "Actor and learner in two workers. Parameters cross by message with a fixed one-update lag, as in Cleanba."
+  },
+  {
+   "id": "quadinaros",
+   "name": "Quadinaros",
+   "blurb": "Offline: learns from a bundled dataset and never steps the environment while training."
+  }
+ ],
+ "pilots": [
+  {
+   "id": "ppo",
+   "name": "PPO",
+   "blurb": "Proximal policy optimisation: clipped policy gradient with a learned value baseline."
+  },
+  {
+   "id": "pqn",
+   "name": "PQN",
+   "blurb": "Parallel Q-network: Q(lambda) on fresh rollouts with LayerNorm, no replay buffer, no target network."
+  },
+  {
+   "id": "dqn",
+   "name": "DQN",
+   "blurb": "Deep Q-network: epsilon-greedy acting, a replay buffer and a Polyak-averaged target network."
+  },
+  {
+   "id": "bc",
+   "name": "BC",
+   "blurb": "Behaviour cloning: maximum likelihood on the actions of a trained policy."
+  },
+  {
+   "id": "iql",
+   "name": "IQL",
+   "blurb": "Implicit Q-learning: expectile value regression and advantage-weighted cloning."
+  }
+ ],
+ "tracks": [
+  {
+   "id": "cartpole",
+   "name": "CartPole",
+   "blurb": "Balance a pole on a cart for 500 steps. Gymnax CartPole-v1.",
+   "frame": "cartpole",
+   "fps": 50
+  },
+  {
+   "id": "breakout",
+   "name": "Breakout",
+   "blurb": "MinAtar Breakout: a 10x10 brick breaker with four object channels.",
+   "frame": "grid",
+   "fps": 15
+  },
+  {
+   "id": "acrobot",
+   "name": "Acrobot",
+   "blurb": "Swing a two-link pendulum's tip above the bar. Gymnax Acrobot-v1, -500 to 0.",
+   "frame": "acrobot",
+   "fps": 30
+  }
+ ],
+ "runs": [
+  {
+   "podracer": "anakin",
+   "pilot": "ppo",
+   "track": "cartpole",
+   "num_envs": 128,
+   "steps_per_update": 4096,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/anakin-ppo-cartpole/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "ppo",
+   "track": "breakout",
+   "num_envs": 64,
+   "steps_per_update": 2048,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/anakin-ppo-breakout/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "ppo",
+   "track": "acrobot",
+   "num_envs": 64,
+   "steps_per_update": 2048,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/anakin-ppo-acrobot/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "pqn",
+   "track": "cartpole",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/anakin-pqn-cartpole/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "pqn",
+   "track": "breakout",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/anakin-pqn-breakout/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "pqn",
+   "track": "acrobot",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/anakin-pqn-acrobot/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "dqn",
+   "track": "cartpole",
+   "num_envs": 16,
+   "steps_per_update": 16,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/anakin-dqn-cartpole/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "dqn",
+   "track": "breakout",
+   "num_envs": 16,
+   "steps_per_update": 128,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/anakin-dqn-breakout/"
+  },
+  {
+   "podracer": "anakin",
+   "pilot": "dqn",
+   "track": "acrobot",
+   "num_envs": 16,
+   "steps_per_update": 16,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/anakin-dqn-acrobot/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "ppo",
+   "track": "cartpole",
+   "num_envs": 128,
+   "steps_per_update": 4096,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/sebulba-ppo-cartpole/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "ppo",
+   "track": "breakout",
+   "num_envs": 64,
+   "steps_per_update": 2048,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/sebulba-ppo-breakout/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "ppo",
+   "track": "acrobot",
+   "num_envs": 64,
+   "steps_per_update": 2048,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/sebulba-ppo-acrobot/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "pqn",
+   "track": "cartpole",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/sebulba-pqn-cartpole/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "pqn",
+   "track": "breakout",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/sebulba-pqn-breakout/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "pqn",
+   "track": "acrobot",
+   "num_envs": 32,
+   "steps_per_update": 1024,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/sebulba-pqn-acrobot/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "dqn",
+   "track": "cartpole",
+   "num_envs": 16,
+   "steps_per_update": 128,
+   "solved": 300,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/sebulba-dqn-cartpole/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "dqn",
+   "track": "breakout",
+   "num_envs": 16,
+   "steps_per_update": 128,
+   "solved": 5,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/sebulba-dqn-breakout/"
+  },
+  {
+   "podracer": "sebulba",
+   "pilot": "dqn",
+   "track": "acrobot",
+   "num_envs": 16,
+   "steps_per_update": 128,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/sebulba-dqn-acrobot/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "bc",
+   "track": "cartpole",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": 475,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/quadinaros-bc-cartpole/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "bc",
+   "track": "breakout",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": 15,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/quadinaros-bc-breakout/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "bc",
+   "track": "acrobot",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/quadinaros-bc-acrobot/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "iql",
+   "track": "cartpole",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": 475,
+   "baseline": 22,
+   "learned": 150,
+   "path": "build/quadinaros-iql-cartpole/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "iql",
+   "track": "breakout",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": 15,
+   "baseline": 0.5,
+   "learned": 3,
+   "path": "build/quadinaros-iql-breakout/"
+  },
+  {
+   "podracer": "quadinaros",
+   "pilot": "iql",
+   "track": "acrobot",
+   "num_envs": 16,
+   "steps_per_update": 64,
+   "solved": -100,
+   "baseline": -480,
+   "learned": -200,
+   "path": "build/quadinaros-iql-acrobot/"
+  }
+ ]
+}
