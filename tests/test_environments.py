@@ -216,7 +216,7 @@ def test_grouped_auto_reset_restarts_each_group_from_one_start():
     state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 4)
     noise = np.asarray(state.env_state.noise).reshape(-1, 2)
 
-    assert bool(timesteps[-1].terminated.all())
+    assert bool(timesteps[-1].truncated.all()) and not bool(timesteps[-1].terminated.any())
     np.testing.assert_array_equal(state.env_state.clock, 0)
     np.testing.assert_array_equal(noise[:, 0], noise[:, 1])
     assert len(np.unique(noise[:, 0])) > 1
