@@ -18,7 +18,7 @@ Hydra resolves the config relative to `main.py`, so the command works from any d
 | `total_timesteps=100_000_000` | Environment steps in total |
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
 | `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
-| `+resume=<path>` | Resume from a run directory (its latest checkpoint) or from a checkpoint step directory |
+| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory |
 
 ### Several machines
 
