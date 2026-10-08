@@ -22,7 +22,7 @@ Hydra resolves the config relative to `main.py`, so the command works from any d
 
 ### Several machines
 
-`srun` with more than one task runs one training across all of them. `main.py` sees `SLURM_STEP_NUM_TASKS` above 1 and calls `jax.distributed.initialize()`, which reads the rest from SLURM. JAX gives each task the one GPU at its `SLURM_LOCALID`, so launch one task per GPU. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
+`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 python hangar/main.py num_processes=8`. `main.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
 
 ## Config groups
 
