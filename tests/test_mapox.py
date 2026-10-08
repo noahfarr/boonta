@@ -36,9 +36,9 @@ def test_an_episode_ends_exactly_at_the_declared_horizon_and_a_new_one_starts(en
     step = jax.jit(env.step)
     ends = []
 
-    for index in range(env.horizon() + 1):
+    for index in range(env.time_limit() + 1):
         state, timestep = step(jax.random.key(index), state, jnp.zeros((AGENTS,), jnp.int32))
         assert not timestep.truncated.any()
         ends.append(bool(timestep.terminated.all()))
 
-    assert ends == [False] * (env.horizon() - 1) + [True, False]
+    assert ends == [False] * (env.time_limit() - 1) + [True, False]

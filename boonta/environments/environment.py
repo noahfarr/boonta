@@ -35,6 +35,9 @@ class Environment(ABC, Generic[State]):
             return None
         return jnp.ones((*space.shape, space.num_actions), dtype=bool)
 
+    def time_limit(self) -> int:
+        raise NotImplementedError
+
     def render(self, state: State):
         raise NotImplementedError
 

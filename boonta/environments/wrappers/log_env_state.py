@@ -22,3 +22,6 @@ class LogEnvState(Wrapper):
 
     def update(self, state, **kwargs):
         return self._env.update(state, **kwargs)
+
+    def action_mask(self, state):
+        return self._env.action_mask(state)

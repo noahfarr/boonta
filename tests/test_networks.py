@@ -154,6 +154,17 @@ def test_every_scan_matches_the_reference(name):
         np.testing.assert_allclose(got, expected, atol=1e-4)
 
 
+def test_the_pallas_scan_hands_widths_its_blocks_cannot_tile_to_the_associative_scan():
+    keys = jax.random.split(jax.random.key(6), 3)
+    a = jax.random.uniform(keys[0], (2, 8, 100), jnp.bfloat16)
+    b = jax.random.uniform(keys[1], (2, 8, 100), jnp.bfloat16)
+    init = jax.random.normal(keys[2], (2, 100), jnp.bfloat16)
+    out = get_scan_implementation("pallas")(a, b, init)
+    assert out.dtype == jnp.bfloat16
+    exact = reference(*(x.astype(jnp.float32) for x in (a, b, init)))
+    np.testing.assert_allclose(out.astype(jnp.float32), exact, rtol=1e-2, atol=1e-2)
+
+
 def half_problem():
     keys = jax.random.split(jax.random.key(5), 3)
     a = jax.random.uniform(keys[0], (8, 64, 256)) * 0.9 + 0.05
@@ -295,6 +306,15 @@ def test_actor_critic_tempers_only_the_actor():
     greedy, greedy_value = network.apply(params, x, temperature=0.0)
     np.testing.assert_array_equal(greedy.sample(seed=KEY), jnp.argmax(distribution.logits, axis=-1))
     np.testing.assert_array_equal(value, greedy_value)
+
+
+def test_a_half_precision_critic_reports_its_value_in_single_precision():
+    x = jax.random.normal(jax.random.key(6), (3, 8))
+    critic = nn.Dense(1, dtype=jnp.bfloat16)
+    network = Network(head=ActorCritic(actor=Categorical(nn.Dense(5)), critic=critic))
+    params = network.init(jax.random.key(4), x, temperature=1.0)
+    _, value = network.apply(params, x, temperature=1.0)
+    assert value.dtype == jnp.float32
 
 
 @pytest.mark.parametrize("name", zoo.TORSOS)

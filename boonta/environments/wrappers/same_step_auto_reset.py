@@ -28,3 +28,6 @@ class SameStepAutoReset(Wrapper):
 
     def update(self, state: PyTree, **kwargs) -> PyTree:
         return self._env.update(state, **kwargs)
+
+    def action_mask(self, state: PyTree) -> Array | None:
+        return self._env.action_mask(state)

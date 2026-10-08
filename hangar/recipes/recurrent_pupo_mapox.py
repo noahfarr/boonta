@@ -15,6 +15,8 @@ from boonta.environments.wrappers import (GroupedAutoReset,
 from boonta.networks import ActorCritic, Categorical, Network
 from boonta.networks.layers import Flatten
 
+from . import schedules
+
 MASKED_LOGIT = -1e9
 
 
@@ -77,10 +79,10 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     sizes = tuple(int(size) for size in env.observation_space()["view"].high + 1)
     hidden_dim = cfg.cell.features
-    horizon = env.horizon()
+    time_limit = env.time_limit()
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = GroupedAutoReset(env, num_steps=horizon)
+    env = GroupedAutoReset(env, num_steps=time_limit)
     env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
@@ -102,15 +104,10 @@ def make(cfg):
         ),
     )
 
-    learning_rate = cfg.optimizer.lr
-    if cfg.optimizer.get("anneal"):
-        batch = cfg.environment.num_envs * cfg.rollout.num_steps * env.num_agents
-        updates = int(cfg.total_timesteps) // batch
-        learning_rate = optax.cosine_decay_schedule(
-            learning_rate,
-            updates * cfg.algorithm.update_epochs * cfg.algorithm.num_minibatches,
-            alpha=cfg.optimizer.get("min_lr_ratio", 0.0),
-        )
+    learning_rate = schedules.learning_rate(
+        cfg,
+        batch_size=cfg.environment.num_envs * cfg.rollout.num_steps * env.num_agents,
+    )
 
     return {
         "algorithm": RecurrentPuPO(

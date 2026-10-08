@@ -13,6 +13,8 @@ from boonta.environments.wrappers import (LogInfo, RecordEpisodeStatistics,
                                           TimeLimit, Vectorize)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
+from . import schedules
+
 
 class NatureCNN(nn.Module):
     features: int
@@ -49,10 +51,10 @@ class Senses(nn.Module):
 def make(cfg):
     dtype = (cfg.get("network") or {}).get("dtype")
     env = environments.make(**cfg.environment)
-    horizon = env.horizon()
-    env = TimeLimit(env, horizon)
+    time_limit = env.time_limit()
+    env = TimeLimit(env, time_limit)
     env = SameStepAutoReset(env)
-    env = Stagger(env, spread=horizon)
+    env = Stagger(env, spread=time_limit)
     num_actions = env.action_space().num_actions
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
     env = LogInfo(env, keys=pokemon_red.KEYS)
@@ -70,15 +72,9 @@ def make(cfg):
         ),
     )
 
-    learning_rate = cfg.optimizer.lr
-    if cfg.optimizer.get("anneal"):
-        batch = cfg.environment.num_envs * cfg.rollout.num_steps
-        updates = int(cfg.total_timesteps) // batch
-        learning_rate = optax.cosine_decay_schedule(
-            learning_rate,
-            updates * cfg.algorithm.update_epochs * cfg.algorithm.num_minibatches,
-            alpha=cfg.optimizer.get("min_lr_ratio", 0.0),
-        )
+    learning_rate = schedules.learning_rate(
+        cfg, batch_size=cfg.environment.num_envs * cfg.rollout.num_steps
+    )
 
     return {
         "algorithm": RecurrentPPO(

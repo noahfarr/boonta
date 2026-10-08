@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax.numpy as jnp
 
 from boonta.utils.typing import Array
 
@@ -9,4 +10,5 @@ class ActorCritic(nn.Module):
 
     @nn.compact
     def __call__(self, x: Array, temperature: float | Array) -> tuple:
-        return self.actor(x, temperature=temperature), self.critic(x)
+        distribution = self.actor(x, temperature=temperature)
+        return distribution, self.critic(x).astype(jnp.float32)

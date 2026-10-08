@@ -153,7 +153,6 @@ def make(
     dataset: Dataset,
     pit: Pit[QuadinarosState] = lambda state: state,
     lap: Lap[QuadinarosState] = lambda state: state,
-    **kwargs,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)

@@ -99,7 +99,7 @@ class JaxMARL(Environment):
             case _:
                 raise ValueError(f"Unsupported action space type: {type(space)}")
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return int(self._env.max_steps)
 
 
