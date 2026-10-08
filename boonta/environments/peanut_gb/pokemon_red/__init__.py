@@ -248,3 +248,9 @@ class LogFlags(Wrapper):
             tags=self.tags,
         )
         return state, timestep
+
+    def update(self, state: Any, **kwargs) -> Any:
+        return self._env.update(state, **kwargs)
+
+    def action_mask(self, state: Any) -> Array | None:
+        return self._env.action_mask(state)

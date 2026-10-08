@@ -90,10 +90,11 @@ scan.defvjp(_scan_fwd, _scan_bwd)
 
 
 def pallas(a: Array, b: Array, init: Array) -> Array:
+    batch, steps, *extra, features = a.shape
+    if features % BLOCK:
+        return associative(a, b, init).astype(a.dtype)
     if a.ndim == 3:
         return scan(a, b, init)
-
-    batch, steps, *extra, features = a.shape
 
     def fold(x):
         return jnp.moveaxis(x, 1, -2).reshape(-1, steps, features)

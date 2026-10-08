@@ -136,5 +136,8 @@ class MCP(Wrapper):
             shape=self._action_shape, dtype=jnp.int32, low=0, high=self._vocab_size - 1
         )
 
+    def action_mask(self, state: MCPState) -> Array:
+        return jnp.ones((*self._action_shape, self._vocab_size), dtype=bool)
+
     def time_limit(self) -> int:
         return int(self._env.time_limit()) * self._tokens_per_call

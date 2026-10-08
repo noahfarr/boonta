@@ -128,3 +128,47 @@ def test_every_recipe_builds_and_runs_one_update(algorithm, environment, missing
         values = np.asarray(values, dtype=np.float64)
         assert not np.isinf(values).any(), name
     podracer.close(state)
+
+
+@pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo"])
+def test_a_wordle_recipe_loads_the_model_its_config_names(algorithm, monkeypatch):
+    cfg = configure(algorithm, "wordle/wordle", "network.repo_id=someone/else")
+    recipe = importlib.import_module(f"hangar.recipes.{algorithm}_wordle")
+    loaded = []
+
+    def refuse(repo_id):
+        loaded.append(repo_id)
+        raise LookupError(repo_id)
+
+    monkeypatch.setattr(recipe, "load_config", refuse)
+    with pytest.raises(LookupError):
+        recipe.make(cfg)
+    assert loaded == ["someone/else"]
+
+
+def test_every_recipe_takes_its_learning_rate_from_one_schedule():
+    copies = [
+        path.name
+        for path in (ROOT / "hangar/recipes").glob("*.py")
+        if path.name != "schedules.py" and "cosine_decay_schedule" in path.read_text()
+    ]
+    assert copies == []
+
+
+def test_an_annealed_learning_rate_decays_over_every_gradient_step():
+    from omegaconf import OmegaConf
+
+    from hangar.recipes.schedules import learning_rate
+
+    cfg = OmegaConf.create(
+        {
+            "total_timesteps": 100,
+            "optimizer": {"lr": 1.0, "anneal": True, "min_lr_ratio": 0.25},
+            "algorithm": {"update_epochs": 2, "num_minibatches": 3},
+        }
+    )
+    schedule = learning_rate(cfg, batch_size=10)
+    np.testing.assert_allclose([schedule(0), schedule(60)], [1.0, 0.25])
+
+    cfg.optimizer.anneal = False
+    assert learning_rate(cfg, batch_size=10) == 1.0

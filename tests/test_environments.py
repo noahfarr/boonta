@@ -5,30 +5,41 @@ import jax.numpy as jnp
 import lox
 import numpy as np
 import pytest
+from flax import struct
 
 import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
-from boonta.environments.wrappers import (MCP, PBRS, ClipAction, ClipReward,
+from boonta.environments import wrappers
+from boonta.environments.spaces import Space
+from boonta.environments.wrappers import (MCP, PBRS, Batched, ClipAction,
+                                          ClipReward, DomainRandomization,
                                           FlattenObservation, GroupedAutoReset,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
-                                          Opponent, OptimisticAutoReset, Prompt,
-                                          Reasoning,
-                                          RecordEpisodeStatistics,
+                                          Opponent, OptimisticAutoReset,
+                                          PadAction, PadObservation, Prompt,
+                                          Reasoning, RecordEpisodeStatistics,
+                                          RecordMultiAgentEpisodeStatistics,
+                                          RecordRestartStatistics,
                                           SameStepAutoReset, Stagger, StickyAction,
                                           TimeAwareObservation, TimeLimit,
                                           TransformAction, TransformObservation,
-                                          TransformReward, Vectorize)
+                                          TransformReward, Vectorize, Wrapper)
 from boonta.utils import Timestep, sharded
 
-from dummies import Corridor, Dial, recall, reach
+from dummies import Corridor, Dial, Team, recall, reach
 
 NUM_ENVS = 8
 
 
 def identity(value):
     return value
+
+
+class Lever(Dial):
+    def action_space(self) -> Space:
+        return Space((1,), jnp.float32, -1.0, 1.0)
 
 
 STACKS = [
@@ -64,6 +75,33 @@ STACKS = [
         id="transform_observation",
     ),
     pytest.param(lambda: Vectorize(TransformReward(Dial(), identity), NUM_ENVS), id="transform_reward"),
+    pytest.param(lambda: Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), id="batched"),
+    pytest.param(
+        lambda: Vectorize(DomainRandomization(Dial(), lambda key, params: params + 1.0), NUM_ENVS),
+        id="domain_randomization",
+    ),
+    pytest.param(lambda: Vectorize(tool(Dial()), NUM_ENVS), id="mcp"),
+    pytest.param(lambda: Vectorize(Prompt(Dial(), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
+    pytest.param(lambda: Opponent(Vectorize(Team(Dial(), 2), NUM_ENVS), rival, blank), id="opponent"),
+    pytest.param(lambda: Vectorize(PadAction(Lever(), 3), NUM_ENVS), id="pad_action"),
+    pytest.param(
+        lambda: Vectorize(
+            PadObservation(TransformObservation(Dial(), lambda obs: {"dial": obs}), "dial", 5),
+            NUM_ENVS,
+        ),
+        id="pad_observation",
+    ),
+    pytest.param(
+        lambda: RecordMultiAgentEpisodeStatistics(Vectorize(Team(Dial(), 2), NUM_ENVS)),
+        id="record_multi_agent_episode_statistics",
+    ),
+    pytest.param(
+        lambda: RecordRestartStatistics(
+            Vectorize(TransformObservation(Dial(), lambda obs: obs.astype(jnp.int32)), NUM_ENVS),
+            room_byte=0,
+        ),
+        id="record_restart_statistics",
+    ),
     pytest.param(
         lambda: RecordEpisodeStatistics(LogInfo(Vectorize(TimeLimit(Dial(), 100), NUM_ENVS))),
         id="a_mixed_stack",
@@ -71,18 +109,60 @@ STACKS = [
 ]
 
 
+def idle(environment):
+    space = environment.action_space()
+    agents = (environment.num_agents,) if environment.num_agents > 1 else ()
+    return jnp.zeros((NUM_ENVS, *agents, *space.shape), space.dtype)
+
+
+def test_the_stacks_cover_every_wrapper():
+    covered = set()
+    for param in STACKS:
+        (build,) = param.values
+        environment = build()
+        while isinstance(environment, Wrapper):
+            covered.add(type(environment))
+            environment = environment._env
+    exported = {getattr(wrappers, name) for name in wrappers.__all__}
+    expected = {kind for kind in exported if isinstance(kind, type) and issubclass(kind, Wrapper)}
+    assert expected - covered == {Wrapper}
+
+
 @pytest.mark.parametrize("build", STACKS)
 def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
     state = environment.update(state, setting=7.0)
-    _, timestep = environment.step(jax.random.key(1), state, jnp.zeros(NUM_ENVS, jnp.int32))
+    _, timestep = environment.step(jax.random.key(1), state, idle(environment))
     np.testing.assert_array_equal(timestep.info["clock"] > 0, True)
     unwrapped = jax.tree.leaves(state, is_leaf=lambda leaf: hasattr(leaf, "setting"))
     settings = [leaf.setting for leaf in unwrapped if hasattr(leaf, "setting")]
     assert settings
     for setting in settings:
         np.testing.assert_array_equal(setting, 7.0)
+
+
+@pytest.mark.parametrize("build", STACKS)
+def test_every_wrapper_shows_the_action_mask_of_the_game(build):
+    environment = build()
+    state, _ = environment.init(jax.random.key(0))
+    state = environment.update(state, setting=7.0)
+    mask = environment.action_mask(state)
+    if jnp.issubdtype(environment.action_space().dtype, jnp.integer):
+        assert mask.shape[:-1] == idle(environment).shape
+    mask = mask[..., :2]
+    shown = [True, True] if environment.wraps(MCP) else [True, False]
+    np.testing.assert_array_equal(mask, np.broadcast_to(shown, mask.shape))
+
+
+def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
+    from boonta.environments.peanut_gb import pokemon_red
+
+    environment = pokemon_red.LogFlags(Dial())
+    state, _ = environment.init(jax.random.key(0))
+    state = environment.update(state, setting=7.0)
+    assert float(state.setting) == 7.0
+    np.testing.assert_array_equal(environment.action_mask(state), [True, False])
 
 
 def play(environment, state, actions, step=None):
@@ -120,6 +200,16 @@ def test_next_step_auto_reset_spends_one_empty_step_on_the_reset():
     assert int(state.env_state.clock) == 0
 
 
+def test_next_step_auto_reset_restarts_a_team_once_every_agent_is_done():
+    environment = NextStepAutoReset(TimeLimit(Team(Dial(), 2), 2))
+    state, _ = environment.init(jax.random.key(0))
+    state, (_, last, reset) = play(environment, state, [jnp.zeros(2, jnp.int32)] * 3)
+
+    assert bool(last.truncated.all())
+    assert not bool(reset.done.any())
+    np.testing.assert_array_equal(state.env_state.env_state.clock, 0)
+
+
 def test_optimistic_auto_reset_restarts_every_finished_environment():
     environment = OptimisticAutoReset(recall(), NUM_ENVS, ratio=2)
     state, _ = environment.init(jax.random.key(0))
@@ -136,10 +226,35 @@ def test_grouped_auto_reset_restarts_each_group_from_one_start():
     state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 4)
     noise = np.asarray(state.env_state.noise).reshape(-1, 2)
 
-    assert bool(timesteps[-1].terminated.all())
+    assert bool(timesteps[-1].truncated.all()) and not bool(timesteps[-1].terminated.any())
     np.testing.assert_array_equal(state.env_state.clock, 0)
     np.testing.assert_array_equal(noise[:, 0], noise[:, 1])
     assert len(np.unique(noise[:, 0])) > 1
+
+
+def test_a_batched_environment_restarts_its_groups_from_one_start():
+    environment = GroupedAutoReset(
+        Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=100),
+        num_steps=4,
+        group_size=2,
+    )
+    state, _ = environment.init(jax.random.key(0))
+    noise = np.asarray(state.env_state.env_state.noise).reshape(-1, 2)
+    np.testing.assert_array_equal(noise[:, 0], noise[:, 1])
+    assert len(np.unique(noise[:, 0])) > 1
+
+
+def test_stagger_cuts_each_environment_of_a_batch_once():
+    environment = Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=4)
+    state, _ = environment.init(jax.random.key(0))
+    budget = np.asarray(state.budget)
+    state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 6)
+    cuts = np.stack([np.asarray(timestep.truncated) for timestep in timesteps])
+    np.testing.assert_array_equal(cuts.sum(axis=0), 1)
+    np.testing.assert_array_equal(cuts.argmax(axis=0), budget)
+    for index, timestep in enumerate(timesteps):
+        clocks = np.asarray(timestep.obs[:, 0])
+        np.testing.assert_array_equal(clocks[cuts[index]], 0)
 
 
 def statistics(environment, actions):
@@ -237,6 +352,17 @@ def test_normalized_rewards_divide_by_the_spread_of_returns():
     assert abs(rewards.std() - 1.0) < 0.2
 
 
+def test_each_agent_normalizes_its_rewards_by_its_own_spread():
+    scales = jnp.array([1.0, 10.0])
+    team = TransformReward(Team(Dial(), 2), lambda reward: reward + scales)
+    environment = NormalizeReward(Vectorize(team, NUM_ENVS))
+    state, timestep = environment.init(jax.random.key(0))
+    state, timesteps = play(environment, state, [jnp.zeros((NUM_ENVS, 2), jnp.int32)] * 5)
+    rewards = np.asarray(timesteps[-1].reward)
+    assert rewards.shape == (NUM_ENVS, 2)
+    np.testing.assert_allclose(rewards[:, 0], rewards[:, 1], rtol=1e-4)
+
+
 def test_clip_action_clips_what_runs_and_reports_what_was_asked():
     environment = ClipAction(reach())
     state, _ = environment.init(jax.random.key(0))
@@ -308,6 +434,23 @@ def test_reading_the_prompt_never_ends_the_episode():
     state, _ = environment.init(jax.random.key(0))
     _, timesteps = play(environment, state, [jnp.int32(0)] * 3)
     np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, True])
+
+
+def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
+    from boonta.environments import gymnax
+
+    cartpole = gymnax.make("CartPole-v1", params={"max_steps_in_episode": 7})
+    assert RecordEpisodeStatistics(Vectorize(SameStepAutoReset(cartpole), 2)).time_limit() == 7
+    assert Vectorize(TimeLimit(cartpole, 5), 2).time_limit() == 5
+
+    with pytest.raises(NotImplementedError):
+        Vectorize(Dial(), 2).time_limit()
+
+
+def test_prompt_and_tool_calls_stretch_the_time_limit():
+    calls = tool(TimeLimit(Dial(), 4))
+    assert calls.time_limit() == 4 * 32
+    assert Prompt(calls, np.arange(7), pad=0).time_limit() == 4 * 32 + 3
 
 
 def test_flatten_observation_flattens_the_space_too():
@@ -483,6 +626,38 @@ def sokoban(**kwargs):
 def test_a_jumanji_episode_opens_with_a_start_flag():
     _, timestep = sokoban().init(jax.random.key(0))
     assert bool(timestep.terminated) and not bool(timestep.truncated)
+
+
+@struct.dataclass
+class Grid:
+    observation: jax.Array
+    reward: jax.Array
+    discount: jax.Array
+    clock: jax.Array
+
+    def last(self):
+        return self.clock >= 2
+
+
+class MiniGrid:
+    def reset(self, params, key):
+        return Grid(jnp.zeros((5, 5, 2), jnp.uint8), jnp.float32(0.0), jnp.float32(1.0), jnp.int32(0))
+
+    def step(self, params, grid, action):
+        return grid.replace(clock=grid.clock + 1)
+
+    def num_actions(self, params):
+        return 6
+
+
+def test_xland_minigrid_hands_its_wrappers_an_info_dict():
+    from boonta.environments.xland_minigrid import XLandMiniGrid
+
+    environment = LogInfo(XLandMiniGrid(MiniGrid(), params=None))
+    state, timestep = environment.init(jax.random.key(0))
+    assert timestep.info == {}
+    _, timestep = environment.step(jax.random.key(1), state, jnp.int32(0))
+    assert timestep.info == {}
 
 
 def statistics_only(environment, num_envs):

@@ -130,7 +130,6 @@ def make(
     environment: Environment,
     pit: Pit[AnakinState] = lambda state: state,
     lap: Lap[AnakinState] = lambda state: state,
-    **kwargs,
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 

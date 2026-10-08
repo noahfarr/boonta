@@ -1,0 +1,13 @@
+import optax
+
+
+def learning_rate(cfg, batch_size: int):
+    rate = cfg.optimizer.lr
+    if not cfg.optimizer.get("anneal"):
+        return rate
+    updates = int(cfg.total_timesteps) // batch_size
+    return optax.cosine_decay_schedule(
+        rate,
+        updates * cfg.algorithm.update_epochs * cfg.algorithm.num_minibatches,
+        alpha=cfg.optimizer.get("min_lr_ratio", 0.0),
+    )
