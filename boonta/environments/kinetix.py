@@ -76,12 +76,13 @@ class Kinetix(Environment):
 
 
 def make(
-    env_id: str | None = None,
+    env_id: str | list[str] | None = None,
     action_type: str = "discrete",
     observation_type: str = "symbolic_flat",
     env_params=None,
     static_env_params=None,
     ued_params=None,
+    levels=None,
 ):
     from jax2d.engine import PhysicsEngine
     from kinetix.environment import (ActionType, EnvParams, ObservationType,
@@ -93,19 +94,29 @@ def make(
     ued_params = ued_params or UEDParams()
     physics_engine = PhysicsEngine(static_env_params)
 
-    if env_id is None:
+    if levels is not None:
+        count = jax.tree.leaves(levels)[0].shape[0]
+
+        def reset_fn(key):
+            drawn = jax.random.randint(key, (), 0, count)
+            return jax.tree.map(lambda leaf: leaf[drawn], levels)
+    elif env_id is None:
 
         def reset_fn(key):
             return sample_kinetix_level(
                 key, physics_engine, env_params, static_env_params, ued_params
             )
     else:
-        from kinetix.util.saving import get_env_state_from_json
+        from kinetix.util.saving import load_evaluation_levels
 
-        level = get_env_state_from_json(env_id)
+        names = [env_id] if isinstance(env_id, str) else list(env_id)
+        levels, static_env_params = load_evaluation_levels(
+            names, static_env_params_override=static_env_params
+        )
 
         def reset_fn(key):
-            return level
+            drawn = jax.random.randint(key, (), 0, len(names))
+            return jax.tree.map(lambda leaf: leaf[drawn], levels)
 
     env = make_kinetix_env(
         action_type=ActionType.from_string(action_type),
@@ -113,7 +124,6 @@ def make(
         reset_fn=reset_fn,
         env_params=env_params,
         static_env_params=static_env_params,
-        physics_engine=physics_engine,
         auto_reset=False,
     )
     return Kinetix(env, env_params)
