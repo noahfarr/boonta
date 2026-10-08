@@ -44,14 +44,13 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 
 ## Sweeps
 
-Pick a sweeper with `hydra/sweeper` and run with `-m`. Every trial is one run, and its seed is its trial number unless you set `seed`. The CARBS sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
+A sweep is an experiment: a file `config/experiment/<name>.yaml` that picks the algorithm and environment, the sweeper, its search space, the number of trials and the launcher. Run it with `-m`. Every trial is one run, and its seed is its trial number unless you set `seed`. The CARBS sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
 
 ```bash
 uv sync --group sweep
-python hangar/main.py -m hydra/sweeper=carbs algorithm=ppo environment=gymnax/classic_control/cartpole hydra.sweeper.params=...
-python hangar/main.py -m +sweep=connectx
+python hangar/main.py -m +experiment=connectx
 ```
 
-A file `config/sweep/<name>.yaml` keeps a whole search: the sweeper, the search space, the number of trials and the launcher. Trials run locally or on Slurm through the launchers in `config/hydra/launcher/`. Results go to `sweeps/<algorithm>/<environment>/<time>/`.
+Trials run locally or on Slurm through the launchers in `config/hydra/launcher/`. Results go to `sweeps/<algorithm>/<environment>/<time>/`.
 
 Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.
