@@ -1,8 +1,0 @@
-# @package _global_
-
-defaults:
-  - override /torso: rnn
-
-cell:
-  _target_: boonta.networks.RTUCell
-  features: 128

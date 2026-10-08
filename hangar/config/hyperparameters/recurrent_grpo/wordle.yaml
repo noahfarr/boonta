@@ -1,9 +1,0 @@
-# @package _global_
-
-environment:
-  num_envs: 32
-
-network:
-  repo_id: Qwen/Qwen3-0.6B-Base
-  dtype: bfloat16
-  param_dtype: bfloat16

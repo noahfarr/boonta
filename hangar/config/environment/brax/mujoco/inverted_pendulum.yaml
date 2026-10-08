@@ -1,5 +1,0 @@
-namespace: brax
-suite: mujoco
-env_id: inverted_pendulum
-kwargs:
-  backend: generalized

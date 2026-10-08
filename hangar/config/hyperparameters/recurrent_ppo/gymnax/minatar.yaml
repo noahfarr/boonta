@@ -1,9 +1,0 @@
-# @package _global_
-
-total_timesteps: 10_000_000
-
-environment:
-  num_envs: 512
-
-rollout:
-  num_steps: 16

@@ -1,6 +1,0 @@
-namespace: mujoco_playground
-suite: dm_control_suite
-env_id: CartpoleBalance
-kwargs:
-  config_overrides:
-    impl: jax

@@ -1,8 +1,0 @@
-namespace: kinetix
-suite: kinetix
-env_id: null
-holdout_levels: true
-num_envs: 256
-kwargs:
-  action_type: multi_discrete
-  observation_type: symbolic_entity

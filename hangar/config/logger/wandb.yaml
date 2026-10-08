@@ -1,7 +1,0 @@
-# @package loggers.wandb
-_target_: boonta.loggers.WandbLogger
-project: reinforcement-learning
-name: ${hydra:runtime.choices.algorithm}_${environment.env_id}_${seed}
-mode: online
-directory: ${hydra:runtime.output_dir}
-seed: ${seed}

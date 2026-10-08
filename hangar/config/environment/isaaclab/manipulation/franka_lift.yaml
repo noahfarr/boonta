@@ -1,9 +1,0 @@
-# @package _global_
-
-defaults:
-  - isaaclab/isaaclab
-  - _self_
-
-environment:
-  suite: manipulation
-  env_id: Isaac-Lift-Cube-Franka-v0

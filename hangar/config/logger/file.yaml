@@ -1,4 +1,0 @@
-# @package loggers.file
-_target_: boonta.loggers.FileLogger
-directory: ${hydra:runtime.output_dir}
-filename: metrics.npz

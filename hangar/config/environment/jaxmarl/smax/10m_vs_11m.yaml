@@ -1,5 +1,0 @@
-namespace: jaxmarl
-suite: smax
-env_id: HeuristicEnemySMAX
-kwargs:
-  scenario: 10m_vs_11m

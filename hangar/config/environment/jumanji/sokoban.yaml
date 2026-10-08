@@ -1,4 +1,0 @@
-namespace: jumanji
-suite: sokoban
-env_id: Sokoban-v0
-kwargs: {}

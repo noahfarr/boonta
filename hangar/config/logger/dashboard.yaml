@@ -1,9 +1,0 @@
-# @package loggers.dashboard
-_target_: boonta.loggers.DashboardLogger
-total_timesteps: ${total_timesteps}
-refresh_per_second: 1
-summary:
-  Algorithm: ${hydra:runtime.choices.algorithm}
-  Environment: ${environment.env_id}
-  Total Timesteps: ${total_timesteps}
-  Seed: ${seed}

@@ -1,9 +1,0 @@
-_target_: boonta.podracers.anakin.make
-_partial_: true
-config:
-  _target_: boonta.podracers.anakin.AnakinConfig
-  num_envs: ${environment.num_envs}
-  num_steps: ${rollout.num_steps}
-  mesh:
-    _target_: boonta.utils.mesh
-    count: 1

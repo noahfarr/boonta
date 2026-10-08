@@ -1,6 +1,0 @@
-defaults:
-  - /artisan/transcript
-
-namespace: wordle
-suite: wordle
-env_id: Wordle-v0

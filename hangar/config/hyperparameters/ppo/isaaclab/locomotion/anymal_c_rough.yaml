@@ -1,7 +1,0 @@
-# @package _global_
-
-defaults:
-  - ppo/isaaclab
-  - _self_
-
-total_timesteps: 147_000_000

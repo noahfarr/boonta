@@ -1,9 +1,0 @@
-# @package _global_
-
-defaults:
-  - libero/libero
-  - _self_
-
-environment:
-  suite: libero_object
-  env_id: 0

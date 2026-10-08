@@ -1,4 +1,0 @@
-namespace: minari
-dataset_id: mujoco/${environment.env_id}/expert-v0
-kwargs:
-  num_devices: ${podracer.config.mesh.count}
