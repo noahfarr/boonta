@@ -37,7 +37,7 @@ algorithm:
 optimizer:
   lr: 5e-3
   anneal: true
-  min_lr_ratio: 0.0
+  alpha: 0.0
   beta: 0.95
   weight_decay: 0.01
   max_grad_norm: 0.5

@@ -257,7 +257,7 @@ def test_an_annealed_learning_rate_decays_over_every_gradient_step():
     cfg = OmegaConf.create(
         {
             "total_timesteps": 100,
-            "optimizer": {"lr": 1.0, "anneal": True, "min_lr_ratio": 0.25},
+            "optimizer": {"lr": 1.0, "anneal": True, "alpha": 0.25},
             "algorithm": {"update_epochs": 2, "num_minibatches": 3},
         }
     )
