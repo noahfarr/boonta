@@ -8,7 +8,7 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 from boonta.algorithms.wrappers.ensemble import Ensemble
-from boonta.datasets.disk import Disk, write
+from boonta.datasets.disk import Stream, write
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
@@ -327,7 +327,7 @@ def test_quadinaros_pit_steers_the_data():
 
 def test_quadinaros_streams_a_pool_from_disk(tmp_path, assert_sharded):
     write(tmp_path, recordings(demonstrations(Dial(), jax.random.key(0), 8)))
-    dataset = Disk(tmp_path, pool_size=16, num_devices=2)
+    dataset = Stream(tmp_path, pool_size=16, num_devices=2)
     podracer = on_quadinaros(dataset=dataset)
     state = podracer.init(jax.random.key(0))
     for epoch in range(3):

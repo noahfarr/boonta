@@ -10,7 +10,7 @@ from jax.sharding import PartitionSpec as P
 from omegaconf import OmegaConf
 
 from boonta import datasets
-from boonta.datasets.disk import Disk, write
+from boonta.datasets.disk import Disk, Stream, write
 from boonta.datasets.kinetix import Kinetix
 from boonta.datasets.minari import Minari, convert, load, stack
 from boonta.utils import mesh
@@ -58,7 +58,7 @@ def from_disk(directory, monkeypatch, dict_obs=False):
 
 def from_a_streamed_pool(directory, monkeypatch, dict_obs=False):
     write(directory, episodes(dict_obs))
-    dataset = Disk(directory, pool_size=sum(LENGTHS) - 1)
+    dataset = Stream(directory, pool_size=sum(LENGTHS) - 1)
     sharding = jax.tree.map(lambda _: None, dataset.init())
     pool = dataset.update(dataset.init(), jax.random.key(0), sharding).transitions
     dataset.close()
@@ -135,7 +135,7 @@ def test_whole_datasets_trim_rows_to_the_device_count(devices, tmp_path, monkeyp
 
 def test_a_streamed_pool_holds_distinct_transitions_placed_as_asked(tmp_path):
     write(tmp_path, episodes())
-    dataset = Disk(tmp_path, pool_size=6, num_devices=2)
+    dataset = Stream(tmp_path, pool_size=6, num_devices=2)
     sharding = jax.tree.map(lambda _: NamedSharding(mesh(2), P("data")), dataset.init())
     pool = dataset.update(dataset.init(), jax.random.key(0), sharding).transitions
     dataset.close()
@@ -147,7 +147,7 @@ def test_a_streamed_pool_holds_distinct_transitions_placed_as_asked(tmp_path):
 
 def test_each_update_hands_over_the_pool_staged_the_call_before(tmp_path):
     write(tmp_path, episodes())
-    dataset = Disk(tmp_path, pool_size=4)
+    dataset = Stream(tmp_path, pool_size=4)
     sharding = jax.tree.map(lambda _: None, dataset.init())
     first, second = jax.random.key(1), jax.random.key(2)
 
@@ -179,9 +179,17 @@ def test_minari_export_writes_what_minari_loads(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "config, namespace", [("minari/mujoco/expert.yaml", "minari"), ("disk.yaml", "disk")]
+    "config, namespace, overrides",
+    [
+        ("minari/mujoco/expert.yaml", "minari", {}),
+        ("disk.yaml", "disk", {"dataset_id": "somewhere"}),
+        ("stream.yaml", "stream", {"dataset_id": "somewhere", "kwargs": {"pool_size": 8}}),
+    ],
+    ids=["minari", "disk", "stream"],
 )
-def test_the_config_hands_the_device_count_to_the_dataset(config, namespace, monkeypatch):
+def test_the_config_hands_the_device_count_to_the_dataset(
+    config, namespace, overrides, monkeypatch
+):
     received = {}
     monkeypatch.setitem(
         datasets.registry, namespace, lambda dataset_id, **kwargs: received.update(kwargs)
@@ -189,11 +197,16 @@ def test_the_config_hands_the_device_count_to_the_dataset(config, namespace, mon
     run = OmegaConf.merge(
         {"environment": {"env_id": "hopper"}, "podracer": {"config": {"mesh": {"count": 2}}}},
         {"dataset": OmegaConf.load(CONFIGS / config)},
+        {"dataset": overrides},
     )
-    if namespace == "disk":
-        run.dataset.dataset_id = "somewhere"
     datasets.make(**run.dataset)
     assert received["num_devices"] == 2
+
+
+def test_a_stream_refuses_a_pool_it_cannot_fill(tmp_path):
+    write(tmp_path, episodes())
+    with pytest.raises(AssertionError, match="use disk"):
+        Stream(tmp_path, pool_size=sum(LENGTHS) + 1)
 
 
 TRAJECTORIES, STEPS, DIMS = 2, 6, 3

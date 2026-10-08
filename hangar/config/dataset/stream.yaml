@@ -1,4 +1,5 @@
-namespace: disk
+namespace: stream
 dataset_id: ???
 kwargs:
+  pool_size: ???
   num_devices: ${podracer.config.mesh.count}

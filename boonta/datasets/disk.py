@@ -50,17 +50,12 @@ def write(directory: str | Path, episodes) -> None:
     np.save(directory / "starts.npy", np.asarray(starts, np.int64))
 
 
-class Disk:
-    def __init__(self, directory: str | Path, pool_size: int = 0, num_devices: int = 1):
+class Columns:
+    def __init__(self, directory: str | Path):
         directory = Path(directory)
-        self.columns = {name: mount(directory / name) for name in FIELDS}
+        self.fields = {name: mount(directory / name) for name in FIELDS}
         self.starts = np.load(directory / "starts.npy")
-        self.size = len(self.columns["reward"])
-        whole = not 0 < pool_size < self.size
-        self.rows = (self.size if whole else pool_size) // num_devices * num_devices
-        self.transitions = self.gather(np.arange(self.rows)) if whole else None
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="disk")
-        self.pending = None
+        self.size = len(self.fields["reward"])
 
     def gather(self, index: np.ndarray) -> Transition:
         episode = np.searchsorted(self.starts, index, side="right") - 1
@@ -68,7 +63,7 @@ class Disk:
         row = index + episode
         before = np.maximum(index - 1, 0)
         obs, action, reward, terminated, truncated = (
-            self.columns[name] for name in FIELDS
+            self.fields[name] for name in FIELDS
         )
 
         def prior(leaf):
@@ -93,15 +88,56 @@ class Disk:
             ),
         )
 
-    def stage(self, key: Key, sharding) -> DiskState:
-        generator = np.random.default_rng(np.asarray(jax.random.key_data(key)))
-        index = np.sort(generator.choice(self.size, self.rows, replace=False))
-        return jax.device_put(DiskState(self.gather(index)), sharding)
+
+def draw(state: DiskState, key: Key, batch_shape: tuple[int, ...]) -> Transition:
+    assert len(batch_shape) == 1, (
+        f"a disk dataset samples single transitions, so batch_shape must be "
+        f"(batch,), got {batch_shape}"
+    )
+    rows, *_ = state.transitions.second.reward.shape
+    index = jax.random.randint(key, batch_shape, 0, rows)
+    return jax.tree.map(lambda leaf: leaf[index], state.transitions)
+
+
+class Disk:
+    def __init__(self, directory: str | Path, num_devices: int = 1):
+        columns = Columns(directory)
+        rows = columns.size // num_devices * num_devices
+        self.transitions = columns.gather(np.arange(rows))
 
     def init(self) -> DiskState:
-        if self.transitions is not None:
-            return DiskState(self.transitions)
-        empty = self.gather(np.arange(0))
+        return DiskState(self.transitions)
+
+    def update(self, state: DiskState, key: Key, sharding) -> DiskState:
+        return state
+
+    def sample(
+        self, state: DiskState, key: Key, batch_shape: tuple[int, ...]
+    ) -> Transition:
+        return draw(state, key, batch_shape)
+
+    def close(self) -> None:
+        pass
+
+
+class Stream:
+    def __init__(self, directory: str | Path, pool_size: int, num_devices: int = 1):
+        self.columns = Columns(directory)
+        self.rows = pool_size // num_devices * num_devices
+        assert 0 < self.rows <= self.columns.size, (
+            f"a pool of {pool_size} on {num_devices} devices holds {self.rows} rows, "
+            f"but the dataset has {self.columns.size}; use disk to load all of it"
+        )
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stream")
+        self.pending = None
+
+    def stage(self, key: Key, sharding) -> DiskState:
+        generator = np.random.default_rng(np.asarray(jax.random.key_data(key)))
+        index = np.sort(generator.choice(self.columns.size, self.rows, replace=False))
+        return jax.device_put(DiskState(self.columns.gather(index)), sharding)
+
+    def init(self) -> DiskState:
+        empty = self.columns.gather(np.arange(0))
         return DiskState(
             jax.tree.map(
                 lambda leaf: np.zeros((self.rows, *leaf.shape[1:]), leaf.dtype), empty
@@ -109,8 +145,6 @@ class Disk:
         )
 
     def update(self, state: DiskState, key: Key, sharding) -> DiskState:
-        if self.transitions is not None:
-            return state
         if self.pending is None:
             self.pending = self.executor.submit(self.stage, key, sharding)
         state = self.pending.result()
@@ -122,16 +156,15 @@ class Disk:
     def sample(
         self, state: DiskState, key: Key, batch_shape: tuple[int, ...]
     ) -> Transition:
-        assert len(batch_shape) == 1, (
-            f"disk samples single transitions, so batch_shape must be "
-            f"(batch,), got {batch_shape}"
-        )
-        index = jax.random.randint(key, batch_shape, 0, self.rows)
-        return jax.tree.map(lambda x: x[index], state.transitions)
+        return draw(state, key, batch_shape)
 
     def close(self) -> None:
         self.executor.shutdown(wait=True, cancel_futures=True)
 
 
-def make(dataset_id: str, pool_size: int = 0, num_devices: int = 1, **kwargs) -> Disk:
-    return Disk(dataset_id, pool_size, num_devices)
+def make(dataset_id: str, num_devices: int = 1, **kwargs) -> Disk:
+    return Disk(dataset_id, num_devices)
+
+
+def stream(dataset_id: str, pool_size: int, num_devices: int = 1, **kwargs) -> Stream:
+    return Stream(dataset_id, pool_size, num_devices)

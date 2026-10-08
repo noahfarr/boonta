@@ -3,6 +3,7 @@ from .dataset import Dataset, DatasetState
 
 registry = {
     "disk": disk.make,
+    "stream": disk.stream,
     "kinetix": kinetix.make,
     "minari": minari.make,
 }
