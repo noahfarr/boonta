@@ -924,7 +924,7 @@ export function createWorld(canvas, options) {
   const wantFocus = new THREE.Vector3();
   let width = 1, height = 1, aspect = 1;
 
-  const state = { mode: "garage", hovered: null, focused: null, cursor: false, row: "podracer", selection: {}, race: null, view: "auto", shot: null, shots: 0, clock: 0 };
+  const state = { mode: "garage", hovered: null, focused: null, cursor: false, row: "podracer", selection: {}, race: null, view: "chase", clock: 0 };
 
   paints.forEach(({ material: made, token }) => {
     if ((token === "--ground3d" || token === "--ridge3d") && made.isMeshPhysicalMaterial) {
@@ -1154,16 +1154,6 @@ export function createWorld(canvas, options) {
     wantEye.copy(wantFocus).addScaledVector(direction, distance);
   }
 
-  const LAP_SHOTS = ["chase", "trackside", "heli", "chase", "flyby", "trackside"];
-  const PIT_SHOTS = ["pits", "reel", "screen", "pits"];
-  function cut(raceState) {
-    const list = raceState.style === "dyno" ? PIT_SHOTS : LAP_SHOTS;
-    state.shots += 1;
-    let kind = list[state.shots % list.length];
-    if (kind === "flyby" && !(place(raceState.distance + 40).position.z < -80)) kind = "trackside";
-    state.shot = makeShot(kind, raceState.distance, hash(`side-${state.shots}`) < 0.5 ? -1 : 1, state.clock + 5 + 3 * hash(`shot-${state.shots}`));
-    snap = true;
-  }
   const viewer = new THREE.PerspectiveCamera(40, 16 / 9, 0.5, 600);
   const frustum = new THREE.Frustum();
   const viewMatrix = new THREE.Matrix4();
@@ -1186,46 +1176,12 @@ export function createWorld(canvas, options) {
     });
     return count;
   }
-  function shotView(shot, distance) {
-    const saved = state.shot;
-    state.shot = shot;
-    const race = state.race;
-    const savedDistance = race ? race.distance : 0;
-    if (race) race.distance = distance;
-    raceCamera();
-    if (race) race.distance = savedDistance;
-    state.shot = saved;
-    return { eye: wantEye.clone(), focus: wantFocus.clone(), fov: camera.fov };
-  }
-  function makeShot(kind, distance, side, until) {
-    const build = (choice) => {
-      const shot = { kind, until, side: choice };
-      if (kind === "trackside" || kind === "flyby") {
-        shot.at = distance + (kind === "flyby" ? 40 : 55);
-        shot.spot = place(shot.at);
-      }
-      return shot;
-    };
-    const blocked = (shot) => shot.spot && blockedEye(shot.spot.position.clone().addScaledVector(shot.spot.right, shot.side * (WIDTH / 2 + 7)));
-    let best = build(side);
-    if (blocked(best)) best = build(-side);
-    if ((kind === "trackside" || kind === "flyby" || kind === "heli") && state.race) {
-      const other = build(-best.side);
-      if (!blocked(other)) {
-        const ahead = (shot) => { const view = shotView(shot, kind === "heli" ? distance : shot.at); return marksInView(view.eye, view.focus, view.fov); };
-        if (ahead(other) > ahead(best)) best = other;
-      }
-    }
-    return best;
-  }
-
-  const blockedEye = (p) => (Math.abs(p.x) < 46 && p.z > -14 && p.z < 12) || (Math.abs(p.x) < 33 && p.z > 33);
   const podPosition = new THREE.Vector3();
   function raceCamera() {
     band.top = band.bottom = band.right = 0;
     const race = state.race;
     const narrow = aspect < 1.3;
-    if (state.view === "screen" || (state.view === "auto" && state.shot && state.shot.kind === "screen")) {
+    if (state.view === "screen") {
       camera.fov = narrow ? 62 : 44;
       wantFocus.copy(screenCenter).add(new THREE.Vector3(0, -4, 0));
       wantEye.set(screenCenter.x, screenCenter.y - 2, screenCenter.z + (narrow ? 64 : 46));
@@ -1240,19 +1196,12 @@ export function createWorld(canvas, options) {
     const pod = race.item.pod.body;
     podPosition.copy(pod.position);
     if (race.style === "dyno") {
-      const kind = state.view === "chase" ? "pits" : state.shot ? state.shot.kind : "pits";
       camera.fov = narrow ? 60 : 40;
-      if (kind === "reel") {
-        wantEye.set(REEL.x + 4, 9, REEL.z + 22);
-        wantFocus.copy(pitsCenter);
-      } else {
-        const angle = Math.sin(state.clock * 0.15) * 0.5;
-        wantEye.set(DYNO.x + Math.sin(angle) * 30, 13, DYNO.z + Math.cos(angle) * 30);
-        wantFocus.copy(pitsCenter).add(new THREE.Vector3(2, 0, 0));
-      }
+      const angle = Math.sin(state.clock * 0.15) * 0.5;
+      wantEye.set(DYNO.x + Math.sin(angle) * 30, 13, DYNO.z + Math.cos(angle) * 30);
+      wantFocus.copy(pitsCenter).add(new THREE.Vector3(2, 0, 0));
       return;
     }
-    const spot = place(race.distance);
     if (race.mode !== "lap" || race.flight) {
       camera.fov = narrow ? 60 : 44;
       const grid = place(GRID);
@@ -1260,22 +1209,10 @@ export function createWorld(canvas, options) {
       wantFocus.copy(race.flight ? podPosition : grid.position).add(new THREE.Vector3(0, 1.5, 0));
       return;
     }
-    const kind = state.view === "chase" ? "chase" : state.shot ? state.shot.kind : "chase";
-    if (kind === "chase") {
-      camera.fov = narrow ? 62 : 52;
-      const behind = place(race.distance - 22), lead = place(race.distance + 24);
-      wantEye.copy(behind.position).add(new THREE.Vector3(0, 8.5, 0));
-      wantFocus.copy(lead.position).add(new THREE.Vector3(0, 2.5, 0));
-    } else if (kind === "heli") {
-      camera.fov = narrow ? 56 : 40;
-      wantEye.copy(spot.position).add(new THREE.Vector3(0, 24, 0)).addScaledVector(spot.right, 16 * state.shot.side).addScaledVector(spot.tangent, -14);
-      wantFocus.copy(spot.position).addScaledVector(spot.tangent, 6);
-    } else {
-      const anchor = state.shot.spot;
-      camera.fov = narrow ? 50 : 34;
-      wantEye.copy(anchor.position).addScaledVector(anchor.right, state.shot.side * (WIDTH / 2 + (kind === "flyby" ? 9 : 7))).add(new THREE.Vector3(0, kind === "flyby" ? 22 : 2.6, 0));
-      wantFocus.copy(podPosition).add(new THREE.Vector3(0, 1, 0));
-    }
+    camera.fov = narrow ? 62 : 52;
+    const behind = place(race.distance - 22), lead = place(race.distance + 24);
+    wantEye.copy(behind.position).add(new THREE.Vector3(0, 8.5, 0));
+    wantFocus.copy(lead.position).add(new THREE.Vector3(0, 2.5, 0));
     if (Math.abs(wantEye.x) < 46 && wantEye.z > -14 && wantEye.z < 12) wantEye.y = Math.max(wantEye.y, 18);
     if (Math.abs(wantEye.x) < 33 && wantEye.z > 33 && wantEye.z < 80) wantEye.y = Math.max(wantEye.y, 10);
     if (circuit.cliffAt && circuit.cliffAt(wantEye.x, wantEye.z) > wantEye.y - 1) wantEye.y = circuit.cliffAt(wantEye.x, wantEye.z) + 2;
@@ -1389,7 +1326,6 @@ export function createWorld(canvas, options) {
     if (!item) return;
     state.mode = "race";
     state.view = "chase";
-    state.shot = null;
     cursor.visible = false;
     setHover(null);
     items.forEach(mark);
@@ -1457,7 +1393,7 @@ export function createWorld(canvas, options) {
         state.race = null;
         raceBlob.visible = false;
         state.mode = "garage";
-        state.view = "auto";
+        state.view = "chase";
         snap = true;
         items.forEach(mark);
         resolve();
@@ -1487,7 +1423,6 @@ export function createWorld(canvas, options) {
   }
   function setView(view) {
     state.view = view;
-    state.shot = null;
     snap = true;
     if (state.mode === "race") raceCamera();
     wake();
@@ -1757,11 +1692,6 @@ export function createWorld(canvas, options) {
         raceBlob.scale.setScalar(raceState.mode === "dyno" ? 1 : 1.2);
       }
       if (raceState.style === "split") halo.rotation.y += dt * (0.4 + (raceState.training ? raceState.speed * 0.05 : 0));
-      if (state.view === "auto" && state.mode === "race") {
-        const shot = state.shot;
-        const ready = raceState.style === "dyno" || (raceState.mode === "lap" && !raceState.flight);
-        if (ready && (!shot || clock > shot.until || (shot.at !== undefined && raceState.distance > shot.at + 22))) cut(raceState);
-      }
     }
 
     let moved = false;
@@ -1816,8 +1746,8 @@ export function createWorld(canvas, options) {
       Object.assign(key.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent });
       key.shadow.camera.updateProjectionMatrix();
     }
-    const chasing = state.mode === "race" && state.race && state.race.mode === "lap" && (state.view === "chase" || (state.view === "auto" && state.shot && state.shot.kind === "chase"));
-    const rate = chasing ? 8 : state.shot && (state.shot.kind === "trackside" || state.shot.kind === "flyby") ? 12 : 2.4;
+    const chasing = state.mode === "race" && state.race && state.race.mode === "lap" && state.view === "chase";
+    const rate = chasing ? 8 : 2.4;
     const follow = reduced || snap ? 1 : 1 - Math.exp(-Math.min(0.6, motion) * rate);
     if (tween && state.mode === "garage" && !snap) {
       tween.t = Math.min(1, tween.t + motion / tween.duration);
@@ -2006,16 +1936,15 @@ export function createWorld(canvas, options) {
         Object.assign(state, saved);
         return results;
       },
-      raceEye(kind, distance, side, style, item) {
-        const saved = { race: state.race, shot: state.shot, view: state.view, mode: state.mode };
+      raceEye(kind, distance, style, item) {
+        const saved = { race: state.race, view: state.view, mode: state.mode };
         const body = item.pod.body;
         const savedPosition = body.position.clone();
         const spot = place(distance);
         body.position.copy(spot.position).addScaledVector(spot.normal, 0.9);
         state.race = { item, style, mode: style === "dyno" ? "dyno" : "lap", distance, flight: null };
         state.mode = "race";
-        state.view = kind === "screen" || kind === "track" ? kind : kind === "chase-view" ? "chase" : "auto";
-        state.shot = makeShot(kind, distance, side, Infinity);
+        state.view = kind === "screen" || kind === "track" ? kind : "chase";
         raceCamera();
         const result = { eye: wantEye.clone(), focus: wantFocus.clone(), pod: body.position.clone(), fov: camera.fov, marks: marksInView(wantEye, wantFocus, camera.fov) };
         body.position.copy(savedPosition);
