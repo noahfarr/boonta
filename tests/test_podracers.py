@@ -8,13 +8,13 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 from boonta.algorithms.wrappers.ensemble import Ensemble
-from boonta.datasets.disk import Disk, write
+from boonta.datasets import minari
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
 from boonta.utils import mesh
 
-from dummies import Dial, Probe, demonstrations, flatten, recordings
+from dummies import Dial, Probe, demonstrations, flatten, publish, recordings
 
 NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 
@@ -325,9 +325,10 @@ def test_quadinaros_pit_steers_the_data():
     np.testing.assert_array_equal(np.asarray(logs["reader/seen"]), [0.0, 1.0, 2.0])
 
 
-def test_quadinaros_streams_a_pool_from_disk(tmp_path, assert_sharded):
-    write(tmp_path, recordings(demonstrations(Dial(), jax.random.key(0), 8)))
-    dataset = Disk(tmp_path, pool_size=16, num_devices=2)
+def test_quadinaros_streams_a_pool_of_episodes(tmp_path, monkeypatch, assert_sharded):
+    monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
+    dataset_id = publish(recordings(demonstrations(Dial(), jax.random.key(0), 8)))
+    dataset = minari.make(dataset_id, pool_size=16, num_devices=2)
     podracer = on_quadinaros(dataset=dataset)
     state = podracer.init(jax.random.key(0))
     for epoch in range(3):
@@ -335,7 +336,7 @@ def test_quadinaros_streams_a_pool_from_disk(tmp_path, assert_sharded):
         assert len(np.asarray(logs["probe/version"])) == 2
     assert_sharded(state.dataset_state.transitions.first.obs, mesh(2))
     podracer.close(state)
-    assert dataset.executor._shutdown
+    assert dataset.stream.executor._shutdown
 
 
 def test_quadinaros_never_gathers_the_whole_dataset_onto_one_device():
