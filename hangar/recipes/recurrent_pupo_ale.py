@@ -11,6 +11,8 @@ from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           RecordRestartStatistics)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
+from . import schedules
+
 
 class Ram(nn.Module):
     features: int
@@ -47,15 +49,9 @@ def make(cfg):
         ),
     )
 
-    learning_rate = cfg.optimizer.lr
-    if cfg.optimizer.get("anneal"):
-        batch = cfg.environment.num_envs * cfg.rollout.num_steps
-        updates = int(cfg.total_timesteps) // batch
-        learning_rate = optax.cosine_decay_schedule(
-            learning_rate,
-            updates * cfg.algorithm.update_epochs * cfg.algorithm.num_minibatches,
-            alpha=cfg.optimizer.get("min_lr_ratio", 0.0),
-        )
+    learning_rate = schedules.learning_rate(
+        cfg, batch_size=cfg.environment.num_envs * cfg.rollout.num_steps
+    )
 
     return {
         "algorithm": RecurrentPuPO(
