@@ -136,6 +136,9 @@ class Jumanji(Environment):
             shape=(), dtype=jnp.int32, low=0, high=spec.num_values - 1
         )
 
+    def time_limit(self) -> int:
+        return int(self._env.time_limit)
+
 
 def make(
     env_id,

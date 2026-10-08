@@ -68,7 +68,7 @@ class Mapox(Environment):
             high=self._env.action_spec.n - 1,
         )
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return self._length - 1
 
 

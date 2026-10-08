@@ -49,10 +49,10 @@ class Senses(nn.Module):
 def make(cfg):
     dtype = (cfg.get("network") or {}).get("dtype")
     env = environments.make(**cfg.environment)
-    horizon = env.horizon()
-    env = TimeLimit(env, horizon)
+    time_limit = env.time_limit()
+    env = TimeLimit(env, time_limit)
     env = SameStepAutoReset(env)
-    env = Stagger(env, spread=horizon)
+    env = Stagger(env, spread=time_limit)
     num_actions = env.action_space().num_actions
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
     env = LogInfo(env, keys=pokemon_red.KEYS)

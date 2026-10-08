@@ -79,7 +79,7 @@ class Gymnax(Environment):
             shape=space.shape, dtype=space.dtype, low=space.low, high=space.high
         )
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
 
 
