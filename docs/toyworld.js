@@ -766,25 +766,25 @@ export function createWorld(canvas, options) {
   });
 
   const cursor = new THREE.Group();
-  const cursorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const arrowCanvas = document.createElement("canvas");
-  arrowCanvas.width = arrowCanvas.height = 64;
-  const arrowPaint = arrowCanvas.getContext("2d");
-  arrowPaint.fillStyle = "#ffffff";
-  arrowPaint.fillRect(0, 0, 64, 64);
-  arrowPaint.fillStyle = "#1a1a1a";
-  arrowPaint.beginPath(); arrowPaint.moveTo(14, 20); arrowPaint.lineTo(50, 20); arrowPaint.lineTo(32, 48); arrowPaint.closePath(); arrowPaint.fill();
-  cursorMaterial.map = new THREE.CanvasTexture(arrowCanvas);
-  const arrowTile = new THREE.Mesh(brickGeometry(2 * P - GAP, PLATE, 2 * P - GAP, 0.03), common("--accent3d"));
-  const arrowFace = new THREE.Mesh(new THREE.PlaneGeometry(2 * P - 0.12, 2 * P - 0.12), cursorMaterial);
-  arrowFace.position.z = PLATE / 2 + 0.005;
-  arrowTile.rotation.x = Math.PI / 2;
-  arrowTile.rotation.x = 0;
   const arrowHolder = new THREE.Group();
-  const arrowBody = new THREE.Mesh(brickGeometry(2 * P - GAP, 2 * P - GAP, PLATE, 0.03), common("--accent3d"));
-  arrowBody.rotation.x = Math.PI / 2;
-  arrowHolder.add(arrowBody, arrowFace);
+  const arrowPaint = common("--accent3d");
+  const arrowPlate = new THREE.Mesh(brickGeometry(2 * P - GAP, 2 * P - GAP, PLATE, 0.03), arrowPaint);
+  arrowPlate.position.y = 1.5 + PLATE / 2;
+  arrowHolder.add(arrowPlate);
+  [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([x, z]) => {
+    const stud = new THREE.Mesh(studGeometry(), arrowPaint);
+    stud.position.set((x * P) / 2, 1.5 + PLATE, (z * P) / 2);
+    arrowHolder.add(stud);
+  });
+  const pointShape = new THREE.ConeGeometry(P * Math.SQRT2 * 0.98, 1.5, 4).toNonIndexed();
+  pointShape.computeVertexNormals();
+  const arrowPoint = new THREE.Mesh(pointShape, arrowPaint);
+  arrowPoint.rotation.set(Math.PI, Math.PI / 4, 0);
+  arrowPoint.position.y = 0.75;
+  arrowHolder.add(arrowPoint);
+  arrowHolder.traverse((part) => { part.castShadow = true; });
   cursor.add(arrowHolder);
+  cursor.name = "marker";
   cursor.visible = false;
   scene.add(cursor);
 
@@ -940,9 +940,12 @@ export function createWorld(canvas, options) {
     paints.forEach(({ material: made, token, owner: own, toy: toyish, glow: shine }) => {
       made.color.copy(tone(token));
       if (toyish) toy(made.color, token);
-      if (own && own.dim) made.color.lerp(off, 0.72);
+      if (own && own.dim) {
+        const grey = made.color.r * 0.3 + made.color.g * 0.59 + made.color.b * 0.11;
+        made.color.setRGB(grey, grey, grey).lerp(off, 0.4).multiplyScalar(0.75);
+      }
       if (own && own.shade) made.color.multiplyScalar(own.shade);
-      if (shine && made.emissive) made.emissive.copy(made.color).multiplyScalar(shine * 0.6);
+      if (shine && made.emissive) made.emissive.copy(made.color).multiplyScalar(own && own.dim ? 0 : shine * 0.6);
     });
     paints.forEach(({ material: made }) => { if (made.envMapIntensity !== undefined) made.envMapIntensity = made.userData.env ?? (light ? 0.35 : 0.75); });
     skyUniforms.top.value.copy(tone("--skytop3d"));
@@ -963,7 +966,6 @@ export function createWorld(canvas, options) {
     if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true;
     circuit.kerbTones.forEach((token, i) => circuit.kerbs.setColorAt(i, toy(tone(token).clone(), token)));
     if (circuit.kerbs.instanceColor) circuit.kerbs.instanceColor.needsUpdate = true;
-    cursorMaterial.color.set(0xffffff);
     streakMaterial.color.copy(tone("--text"));
     textures.forEach((draw) => draw());
     themed.forEach((callback) => callback());
@@ -1084,6 +1086,8 @@ export function createWorld(canvas, options) {
   const frameOf = (item) => {
     if (item.frame) return item.frame;
     item.frame = new THREE.Box3();
+    const scale = item.group.scale.clone();
+    item.group.scale.set(1, 1, 1);
     item.group.updateMatrixWorld(true);
     item.group.traverse((child) => {
       if (!child.isMesh || child.userData.ring) return;
@@ -1091,6 +1095,9 @@ export function createWorld(canvas, options) {
       if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
       item.frame.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
     });
+    if (item.kind !== "podracer") item.frame.max.y += 4;
+    item.group.scale.copy(scale);
+    item.group.updateMatrixWorld(true);
     return item.frame;
   };
   function clear(box, eyePoint, lookPoint) {
@@ -1121,8 +1128,8 @@ export function createWorld(canvas, options) {
     band.right = Math.max(0, Math.min(width * 0.5, asked.right));
     const room = Math.max(0.5, (width - band.right) / Math.max(1, height - band.top - band.bottom));
     const target = state.focused && state.focused.kind === state.row ? state.focused : items.find((item) => item.kind === state.row && state.selection[item.kind] === item.id);
-    const wide = { podracer: 13, pilot: 9, track: 13 }[state.row];
-    const half = narrow ? Math.max({ podracer: 4.5, pilot: 7, track: 6.5 }[state.row], wide * Math.min(1, width / 1100)) : wide;
+    const wide = { podracer: 13, pilot: 11, track: 13 }[state.row];
+    const half = narrow ? Math.max({ podracer: 4.5, pilot: 8.5, track: 6.5 }[state.row], wide * Math.min(1, width / 1100)) : wide;
     let distance = Math.max(narrow ? 14 : 16, (half / (tangent * room)) * 1.05);
     const offset = target ? (target.center.x - bay.x) * bay.along[0] + (target.center.z - bay.z) * bay.along[2] : 0;
     const lookHeight = { podracer: 9.8, pilot: 6.2, track: 8.6 }[state.row];
@@ -1381,7 +1388,7 @@ export function createWorld(canvas, options) {
     const item = items.find((candidate) => candidate.kind === "pilot" && candidate.id === selection.pilot);
     if (!item) return;
     state.mode = "race";
-    state.view = aspect < 1 ? "chase" : "auto";
+    state.view = "chase";
     state.shot = null;
     cursor.visible = false;
     setHover(null);
@@ -1640,16 +1647,17 @@ export function createWorld(canvas, options) {
       const item = state.focused;
       cursor.visible = true;
       const bounce = Math.abs(Math.sin(clock * 4)) * 0.6;
-      if (item.kind === "pilot") {
-        cursor.position.set(item.center.x, 1.4 + bounce, item.center.z + 8.6 * P);
-        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
-        cursor.rotateZ(Math.PI);
-      } else {
-        const top = item.kind === "track" ? gateHeight + 1.6 : 10;
-        cursor.position.set(item.center.x, top + bounce, item.center.z);
-        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
+      if (cursor.userData.item !== item) {
+        const crown = new THREE.Box3();
+        const body = item.kind === "podracer" ? item.character.figure : item.group;
+        body.updateMatrixWorld(true);
+        body.traverseVisible((part) => { if (part.isMesh && !part.userData.ring) crown.expandByObject(part); });
+        cursor.userData.item = item;
+        cursor.userData.top = crown.max.y;
       }
-      cursorMaterial.color.set(0xffffff);
+      cursor.position.set(item.center.x, cursor.userData.top + 1.6 + bounce, item.center.z);
+      cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
+      arrowHolder.rotation.y = reduced ? 0 : clock * 1.6;
     } else cursor.visible = false;
 
     circuit.flags.forEach((flag) => { flag.holder.rotation.y = flag.base + (reduced ? 0 : Math.sin(clock * 3 + flag.phase) * 0.3); });
