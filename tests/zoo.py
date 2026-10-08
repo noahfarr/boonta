@@ -11,6 +11,7 @@ from boonta.algorithms.dqn import DQN, DQNConfig
 from boonta.algorithms.grpo import GRPO, GRPOConfig
 from boonta.algorithms.iql import IQL, IQLConfig
 from boonta.algorithms.mmd import MMD, MMDConfig
+from boonta.algorithms.muzero import MuZero, MuZeroConfig
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.algorithms.pqn import PQN, PQNConfig
 from boonta.algorithms.recurrent_bc import RecurrentBC, RecurrentBCConfig
@@ -389,6 +390,69 @@ def reppo(
         critic_optimizer=optimizer or optax.adam(1e-3),
         alpha_optimizer=optimizer or optax.adam(1e-3),
         lagrangian_optimizer=optimizer or optax.adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
+    )
+    return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
+
+
+class Representation(nn.Module):
+    @nn.compact
+    def __call__(self, obs):
+        return nn.tanh(nn.Dense(WIDTH)(obs))
+
+
+class Dynamics(nn.Module):
+    num_actions: int
+    num_bins: int
+
+    @nn.compact
+    def __call__(self, embedding, action):
+        x = jnp.concatenate([embedding, jax.nn.one_hot(action, self.num_actions)], -1)
+        x = nn.tanh(nn.Dense(WIDTH)(x))
+        return nn.tanh(nn.Dense(WIDTH)(x)), nn.Dense(self.num_bins)(x)
+
+
+def prediction(num_actions, num_bins):
+    return Network(
+        feature_extractor=FeatureExtractor(
+            observation_extractor=nn.Sequential([nn.Dense(WIDTH), nn.tanh])
+        ),
+        head=ActorCritic(
+            actor=Categorical(nn.Dense(num_actions)), critic=nn.Dense(num_bins)
+        ),
+    )
+
+
+def muzero(environment, num_envs=32, num_steps=8, podracer=online, auxiliary_losses=()):
+    cfg = MuZeroConfig(
+        num_actions=num_actions(environment),
+        unroll_steps=3,
+        bootstrap_steps=3,
+        num_simulations=16,
+        max_considered_actions=num_actions(environment),
+        updates_per_step=4,
+        gamma=0.99,
+        vmin=-2.0,
+        vmax=2.0,
+        num_bins=21,
+        value_coefficient=0.25,
+        reward_coefficient=1.0,
+        policy_coefficient=1.0,
+    )
+    algorithm = MuZero(
+        cfg=cfg,
+        representation=Representation(),
+        dynamics=Dynamics(cfg.num_actions, cfg.num_bins),
+        prediction=prediction(cfg.num_actions, cfg.num_bins),
+        buffer=fbx.make_trajectory_buffer(
+            add_batch_size=num_envs,
+            sample_batch_size=64,
+            sample_sequence_length=cfg.sequence_length,
+            period=1,
+            min_length_time_axis=cfg.sequence_length,
+            max_length_time_axis=256,
+        ),
+        optimizer=optax.adam(3e-3),
         auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
