@@ -42,3 +42,13 @@
 | Atari | [ALE](https://github.com/Farama-Foundation/Arcade-Learning-Environment) |
 | Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox) |
 | Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) |
+
+## Guides
+
+- [hangar](hangar/README.md): run training from the command line, config groups, several machines, sweeps
+- [Podracers](boonta/podracers/README.md): the training loops, and which one to pick
+- [Algorithms](boonta/algorithms/README.md): the algorithm interface, and how to add an algorithm
+- [Networks](boonta/networks/README.md): heads, recurrent torsos and stacks, mixed precision
+- [Environments](boonta/environments/README.md): the environment interface, wrappers, and how to add an environment
+- [Datasets](boonta/datasets/README.md): offline data for `quadinaros`, and how to add a dataset
+- [Recipes](hangar/recipes/README.md): how a run is put together from its parts

@@ -46,7 +46,7 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 
 ## Recipes
 
-`recipes.make(cfg)` picks the recipe registered for `(algorithm, environment namespace, suite)` in `recipes/__init__.py`. The algorithm name is the group choice (`algorithm=...`), not a field of the config. A recipe returns the algorithm, the environment and any extra podracer arguments, and `make` hands them to the podracer.
+`recipes.make(cfg)` picks the recipe registered for `(algorithm, environment namespace, suite)` in `recipes/__init__.py`. The algorithm name is the group choice (`algorithm=...`), not a field of the config. A recipe returns the algorithm, the environment and any extra podracer arguments, and `make` hands them to the podracer. [`recipes/README.md`](recipes/README.md) shows how to write one.
 
 ## Sweeps
 
