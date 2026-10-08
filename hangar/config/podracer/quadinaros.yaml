@@ -7,4 +7,4 @@ config:
     - ${algorithm.batch_size}
   mesh:
     _target_: boonta.utils.mesh
-    count: 1
+    count: ${device_count:}

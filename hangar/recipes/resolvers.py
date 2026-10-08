@@ -1,5 +1,6 @@
 import operator
 
+import jax
 import jax.numpy as jnp
 from hydra.core.global_hydra import GlobalHydra
 from hydra.core.hydra_config import HydraConfig
@@ -58,3 +59,4 @@ OmegaConf.register_new_resolver("cascade", cascade)
 OmegaConf.register_new_resolver("trial", trial)
 OmegaConf.register_new_resolver("get_group", get_group)
 OmegaConf.register_new_resolver("groups", groups)
+OmegaConf.register_new_resolver("device_count", jax.device_count)
