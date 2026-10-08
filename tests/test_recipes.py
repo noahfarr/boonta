@@ -50,6 +50,60 @@ def hopper_dataset(directory):
     return ["dataset=disk", f"dataset.dataset_id={directory}", "algorithm.batch_size=64"]
 
 
+def kinetix_environment(env_id=None):
+    from kinetix.environment import StaticEnvParams
+
+    from boonta import environments
+
+    static = StaticEnvParams(
+        num_polygons=6, num_circles=3, num_joints=2, num_thrusters=2, frame_skip=2
+    )
+    env = environments.make(
+        "kinetix",
+        env_id,
+        kwargs={
+            "action_type": "multi_discrete",
+            "observation_type": "symbolic_entity",
+            "static_env_params": static,
+        },
+    )
+    return static, env
+
+
+def kinetix_dataset(directory):
+    import zarr
+
+    trajectories, steps = 8, 8
+    static, env = kinetix_environment()
+    env_state, _ = env.init(jax.random.key(0))
+    width = static.num_motor_bindings + static.num_thruster_bindings
+    fields = {
+        "env_state/" + jax.tree_util.keystr(path, simple=True, separator="/"): np.stack(
+            [np.asarray(leaf)] * steps
+        )
+        for path, leaf in jax.tree_util.tree_flatten_with_path(env_state)[0]
+    }
+    fields |= {
+        "action": np.ones((steps, width), np.int32),
+        "action_mask": np.ones((steps, width), bool),
+        "done": np.eye(steps, dtype=bool)[-1],
+    }
+    records = np.zeros(
+        trajectories,
+        [(name, value.dtype, (steps, 1, *value.shape[1:])) for name, value in fields.items()],
+    )
+    for name, value in fields.items():
+        records[name] = value[:, None]
+    group = zarr.open_group(str(directory), mode="w")
+    for shard in ("shard_000", "shard_001"):
+        group.array(shard, records)
+    return [
+        f"dataset.dataset_id={directory}",
+        "dataset.kwargs.batch_size=4",
+        f"podracer.config.batch_shape=[4,{steps}]",
+    ]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -69,8 +123,9 @@ CASES = [
     ("sac", HOPPER, installed("brax"), False),
     ("reppo", HOPPER, installed("brax"), False),
     ("recurrent_sac", HOPPER, installed("brax"), False),
-    ("bc", HOPPER, installed("brax"), True),
-    ("iql", HOPPER, installed("brax"), True),
+    ("bc", HOPPER, installed("brax"), hopper_dataset),
+    ("iql", HOPPER, installed("brax"), hopper_dataset),
+    ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
@@ -119,7 +174,7 @@ def test_every_recipe_has_a_smoke_case():
     ],
 )
 def test_every_recipe_builds_and_runs_one_update(algorithm, environment, missing, offline, tmp_path):
-    overrides = SMALL + (hopper_dataset(tmp_path) if offline else [])
+    overrides = SMALL + (offline(tmp_path) if offline else [])
     cfg = configure(algorithm, environment, *overrides)
     HydraConfig.instance().set_config(cfg)
     podracer = recipes.make(cfg)
@@ -174,3 +229,89 @@ def test_an_annealed_learning_rate_decays_over_every_gradient_step():
 
     cfg.optimizer.anneal = False
     assert learning_rate(cfg, batch_size=10) == 1.0
+
+
+KINETIX = pytest.mark.skipif(
+    installed("kinetix", "zarr") is not None, reason=str(installed("kinetix", "zarr"))
+)
+
+
+@KINETIX
+@pytest.mark.parametrize("prior", [False, True])
+def test_kinetix_entities_see_the_previous_action_only_when_asked(prior):
+    import jax.numpy as jnp
+
+    from hangar.recipes.recurrent_bc_kinetix import Entities, cardinality
+
+    static, env = kinetix_environment()
+    _, timestep = env.init(jax.random.key(0))
+    values = cardinality(static)
+    obs = {
+        "entities": jax.tree.map(lambda leaf: leaf[None, None], timestep.obs),
+        "mask": jnp.ones((1, 1, len(values)), bool),
+    }
+    action = jnp.zeros((1, 1, len(values)), jnp.int32)
+    entities = Entities(features=16, num_layers=1, num_heads=2, values=values, prior=prior)
+    params = entities.init(jax.random.key(0), obs, action)
+    assert ("Embed_0" in params["params"]) == prior
+
+
+@KINETIX
+def test_kinetix_evaluation_reports_a_success_rate():
+    import jax.numpy as jnp
+    import lox
+
+    from boonta.environments.wrappers import (RecordEpisodeStatistics,
+                                              SameStepAutoReset, Vectorize)
+    from hangar.recipes.recurrent_bc_kinetix import Scored, cardinality
+
+    static, env = kinetix_environment()
+    time_limit = env.time_limit()
+    env = Vectorize(Scored(RecordEpisodeStatistics(SameStepAutoReset(env))), num_envs=4)
+    action = jnp.zeros((4, len(cardinality(static))), jnp.int32)
+
+    def roll(key):
+        state, _ = env.init(key)
+
+        def once(state, key):
+            state, _ = env.step(key, state, action)
+            return state, None
+
+        state, _ = jax.lax.scan(once, state, jax.random.split(key, time_limit + 1))
+        return state
+
+    _, logs = jax.jit(lox.spool(roll))(jax.random.key(0))
+    rates = np.asarray(logs["episode_statistics/success_rate"])
+    finished = rates[~np.isnan(rates)]
+    assert finished.size
+    assert np.all(np.isin(finished, [0.0, 1.0]))
+
+
+@KINETIX
+def test_kinetix_holdout_draws_distinct_levels():
+    from omegaconf import OmegaConf
+
+    names = OmegaConf.load(CONFIG / "environment/kinetix/holdout_m.yaml").env_id
+    assert len(names) == 24
+    _, env = kinetix_environment(list(names))
+    seen = [np.asarray(env.init(jax.random.key(seed))[1].obs.polygons) for seed in range(12)]
+    assert any(not np.array_equal(seen[0], other) for other in seen[1:])
+
+
+@KINETIX
+def test_kinetix_evaluates_on_the_levels_the_dataset_reserved(tmp_path):
+    overrides = kinetix_dataset(tmp_path) + [
+        "environment.num_envs=4",
+        "+dataset.kwargs.val_shards=1",
+    ]
+    cfg = configure("recurrent_bc", "kinetix/holdout_levels", *overrides)
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+
+    _, reference = kinetix_environment()[1].init(jax.random.key(0))
+    state = podracer.init(jax.random.key(1))
+    polygons = np.asarray(state.timestep.obs["entities"].polygons)
+    np.testing.assert_allclose(polygons, np.broadcast_to(reference.obs.polygons, polygons.shape))
+
+    state, _ = podracer.evaluate(state, jax.random.key(2), 4)
+    podracer.close(state)
