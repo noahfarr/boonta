@@ -20,6 +20,8 @@ class WandbLogger:
         num_seeds=1,
         **kwargs,
     ):
+        if jax.process_index() != 0:
+            return
         cfg = cfg or {}
         self.runs = {
             i: wandb.init(
@@ -41,6 +43,8 @@ class WandbLogger:
         self.checkpoint = None
 
     def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
+        if jax.process_index() != 0:
+            return
         steps = np.asarray(jax.device_get(steps)).reshape(-1)
         start, end = int(steps.min()), int(steps.max())
         span = end - start
@@ -63,6 +67,8 @@ class WandbLogger:
                 run.log(rows[seed][step], step=step)
 
     def log_summary(self, data: PyTree, **kwargs) -> None:
+        if jax.process_index() != 0:
+            return
         data = jax.device_get(data)
         for seed, run in self.runs.items():
             for k, v in data.items():
@@ -71,6 +77,8 @@ class WandbLogger:
                     run.summary[k] = float(value)
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
+        if jax.process_index() != 0:
+            return
         if isinstance(artifact, Checkpoint):
             self.checkpoint = artifact
         elif isinstance(artifact, Text):
@@ -86,6 +94,8 @@ class WandbLogger:
                     run.log({artifact.name: wandb.Video(path)}, step=step)
 
     def finish(self) -> None:
+        if jax.process_index() != 0:
+            return
         if self.checkpoint is not None:
             from flax import serialization
 

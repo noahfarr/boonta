@@ -9,8 +9,7 @@ def shapes(params) -> list[tuple[str, tuple[int, ...], int]]:
     rows = []
     for path, leaf in jax.tree_util.tree_flatten_with_path(params)[0]:
         name = "/".join(str(getattr(key, "key", key)) for key in path)
-        leaf = np.asarray(leaf)
-        rows.append((name.removeprefix("params/"), leaf.shape, leaf.size))
+        rows.append((name.removeprefix("params/"), np.shape(leaf), np.size(leaf)))
     return rows
 
 
