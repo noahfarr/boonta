@@ -317,6 +317,17 @@ def test_normalized_rewards_divide_by_the_spread_of_returns():
     assert abs(rewards.std() - 1.0) < 0.2
 
 
+def test_each_agent_normalizes_its_rewards_by_its_own_spread():
+    scales = jnp.array([1.0, 10.0])
+    team = TransformReward(Team(Dial(), 2), lambda reward: reward + scales)
+    environment = NormalizeReward(Vectorize(team, NUM_ENVS))
+    state, timestep = environment.init(jax.random.key(0))
+    state, timesteps = play(environment, state, [jnp.zeros((NUM_ENVS, 2), jnp.int32)] * 5)
+    rewards = np.asarray(timesteps[-1].reward)
+    assert rewards.shape == (NUM_ENVS, 2)
+    np.testing.assert_allclose(rewards[:, 0], rewards[:, 1], rtol=1e-4)
+
+
 def test_clip_action_clips_what_runs_and_reports_what_was_asked():
     environment = ClipAction(reach())
     state, _ = environment.init(jax.random.key(0))
