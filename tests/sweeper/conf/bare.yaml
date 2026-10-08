@@ -1,0 +1,6 @@
+defaults:
+  - _self_
+  - override hydra/sweeper: carbs
+
+x: 0.0
+y: 0.0
