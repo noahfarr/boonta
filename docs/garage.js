@@ -328,7 +328,7 @@ async function race() {
   $("return").textContent = "–";
   $("gauge").style.width = "0%";
   $("solved-flag").textContent = "";
-  $("camera").textContent = "CAM: AUTO";
+  $("camera").textContent = "CAM: CHASE";
   building(token, "LOADING");
   if (garage.classList.contains("stacked")) (world ? $("viewport") : $("hud")).scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
   if (world) { world.screenChanged(); world.race(selection); $("camera").textContent = `CAM: ${world.view === "chase" ? "CHASE" : "AUTO"}`; }
@@ -507,7 +507,7 @@ async function boot() {
   $("back").addEventListener("click", back);
   $("camera").addEventListener("click", () => {
     if (!world) return;
-    const views = ["auto", "chase", "screen", "track"];
+    const views = ["chase", "auto", "screen", "track"];
     const names = { auto: "AUTO", chase: "CHASE", screen: "SCREEN", track: "TRACK" };
     const next = views[(views.indexOf(world.view) + 1) % views.length];
     world.setView(next);
