@@ -166,6 +166,19 @@ def test_every_recipe_has_a_smoke_case():
     assert covered >= set(recipes.register.values())
 
 
+def test_hyperparameters_cascade_to_everything_below_them():
+    assert configure("ppo", "gymnax/minatar/asterix").total_timesteps == 20_000_000
+    assert configure("ppo", "isaaclab/classic/ant").algorithm.num_minibatches == 4
+    assert configure("ppo", "isaaclab/classic/ant").optimizer.lr == 5e-4
+
+
+@pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
+def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
+    cfg = configure("ppo", MINATAR, *overrides)
+    HydraConfig.instance().set_config(cfg)
+    assert cfg.seed == seed
+
+
 @pytest.mark.parametrize(
     "algorithm, environment, missing, offline",
     [
