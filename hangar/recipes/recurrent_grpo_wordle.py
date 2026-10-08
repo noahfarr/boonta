@@ -44,6 +44,7 @@ class TokenFeatureExtractor(nn.Module):
 
 def make(cfg):
     env = environments.make(**cfg.environment)
+    num_guesses = env.time_limit()
 
     config = load_config(REPO_ID)
     vocab_size = config["vocab_size"]
@@ -117,7 +118,7 @@ def make(cfg):
         head_dim=config["head_dim"],
         hidden_dim=config["intermediate_size"],
         max_wavelength=config["rope_theta"],
-        context_length=env.time_limit() * (1 + WORD_LENGTH),
+        context_length=num_guesses * (1 + WORD_LENGTH),
         dtype=dtype,
         param_dtype=param_dtype,
     )
