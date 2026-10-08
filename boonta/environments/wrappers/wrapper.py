@@ -47,6 +47,9 @@ class Wrapper(Environment):
     def action_space(self):
         return self._env.action_space()
 
+    def action_mask(self, state):
+        return self._env.action_mask(state.env_state)
+
     def time_limit(self):
         return self._env.time_limit()
 

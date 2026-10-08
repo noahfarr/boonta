@@ -190,6 +190,9 @@ class Dial(Environment):
         state = state.replace(clock=state.clock + 1.0)
         return state, self.timestep(state, action)
 
+    def action_mask(self, state: DialState) -> jax.Array:
+        return jnp.stack([state.setting > 0, state.setting <= 0], axis=-1)
+
     def update(self, state: DialState, setting: jax.Array) -> DialState:
         return state.replace(setting=jnp.full_like(state.setting, setting))
 
