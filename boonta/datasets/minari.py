@@ -27,15 +27,17 @@ class Minari:
                 jax.tree.map(stack, convert(self.episodes[0])),
             )
         else:
-            self.transitions = gather(self.episodes, num_devices)
+            rows = self.episodes.total_steps // num_devices * num_devices
+            self.transitions = collect(self.episodes, self.episodes.episode_indices, rows)
 
     def init(self) -> MinariState:
         return MinariState(self.transitions)
 
     def stage(self, key: Key, sharding) -> MinariState:
         generator = np.random.default_rng(np.asarray(jax.random.key_data(key)))
+        indices = generator.permutation(self.episodes.episode_indices)
         return jax.device_put(
-            MinariState(fill(self.episodes, generator, self.pool_size)), sharding
+            MinariState(collect(self.episodes, indices, self.pool_size)), sharding
         )
 
     def update(self, state: MinariState, key: Key, sharding) -> MinariState:
@@ -95,25 +97,11 @@ def stack(*leaves) -> np.ndarray:
     return joined.astype(canonicalize_dtype(joined.dtype))
 
 
-def trim(transitions: Transition, rows: int) -> Transition:
-    return jax.tree.map(lambda leaf: leaf[:rows], transitions)
-
-
-def gather(episodes, num_devices: int = 1) -> Transition:
-    transitions = jax.tree.map(
-        stack, *[convert(e) for e in episodes.iterate_episodes()]
-    )
-    leaf, *_ = jax.tree.leaves(transitions)
-    return trim(transitions, len(leaf) // num_devices * num_devices)
-
-
-def fill(episodes, generator: np.random.Generator, rows: int) -> Transition:
+def collect(episodes, indices, rows: int) -> Transition:
     chosen, size = [], 0
-    for episode in episodes.iterate_episodes(
-        generator.permutation(episodes.episode_indices)
-    ):
+    for episode in episodes.iterate_episodes(indices):
         chosen.append(convert(episode))
         size += len(episode.rewards)
         if size >= rows:
             break
-    return trim(jax.tree.map(stack, *chosen), rows)
+    return jax.tree.map(lambda *leaves: stack(*leaves)[:rows], *chosen)
