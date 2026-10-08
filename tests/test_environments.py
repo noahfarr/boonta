@@ -25,7 +25,8 @@ from boonta.environments.wrappers import (MCP, PBRS, Batched, ClipAction,
                                           SameStepAutoReset, Stagger, StickyAction,
                                           TimeAwareObservation, TimeLimit,
                                           TransformAction, TransformObservation,
-                                          TransformReward, Vectorize, Wrapper)
+                                          TransformReward, UED, Vectorize,
+                                          Wrapper)
 from boonta.utils import Timestep, sharded
 
 from dummies import Corridor, Dial, Team, recall, reach
@@ -45,6 +46,9 @@ class Lever(Dial):
 STACKS = [
     pytest.param(lambda: Vectorize(Dial(), NUM_ENVS), id="vectorize"),
     pytest.param(lambda: Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), id="same_step_auto_reset"),
+    pytest.param(
+        lambda: UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), capacity=3), id="ued"
+    ),
     pytest.param(lambda: Vectorize(NextStepAutoReset(Dial()), NUM_ENVS), id="next_step_auto_reset"),
     pytest.param(lambda: OptimisticAutoReset(Dial(), NUM_ENVS, ratio=2), id="optimistic_auto_reset"),
     pytest.param(
@@ -522,6 +526,94 @@ def test_a_new_rival_starts_from_a_blank_carry_and_other_settings_reach_the_game
     np.testing.assert_allclose(state.carry, 0.0)
     _, updates = environment.update(state, decks=None).env_state
     assert int(updates) == 1
+
+
+class Flicker(Dial):
+    def step(self, key, state, action):
+        state, timestep = super().step(key, state, action)
+        return state, timestep.replace(terminated=jnp.bool_(True))
+
+
+THETA = jnp.array([10.0, 20.0, 30.0])
+
+
+def ued(game):
+    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS), capacity=3)
+    state, timestep = environment.init(jax.random.key(0))
+    return environment, environment.update(state, theta=THETA), timestep
+
+
+def games(state):
+    return state.env_state.params
+
+
+def test_without_an_assignment_the_games_own_resets_run():
+    environment, state, timestep = ued(Flicker())
+    np.testing.assert_array_equal(timestep.info["theta"], -1)
+    state, (first, second) = play(environment, state, [idle(environment)] * 2)
+    np.testing.assert_array_equal(second.info["theta"], -1)
+    np.testing.assert_array_equal(games(state), 0.0)
+
+
+def test_an_assignment_cuts_every_episode_on_the_next_step_and_starts_each_theta():
+    environment, state, _ = ued(Dial())
+    state, _ = play(environment, state, [idle(environment)] * 2)
+    assignment = jnp.arange(NUM_ENVS) % 3
+    state = environment.update(state, assign=assignment)
+    state, (cut, after) = play(environment, state, [idle(environment)] * 2)
+    np.testing.assert_array_equal(cut.truncated, True)
+    np.testing.assert_array_equal(cut.info["theta"], -1)
+    np.testing.assert_array_equal(cut.obs[:, 0], 0.0)
+    np.testing.assert_array_equal(after.truncated, False)
+    np.testing.assert_array_equal(after.info["theta"], assignment)
+    np.testing.assert_array_equal(games(state), np.asarray(THETA)[assignment])
+
+
+def test_an_episode_that_ends_replays_its_theta():
+    environment, state, _ = ued(Flicker())
+    assignment = jnp.arange(NUM_ENVS) % 3
+    state = environment.update(state, assign=assignment)
+    state, timesteps = play(environment, state, [idle(environment)] * 4)
+    for timestep in timesteps[1:]:
+        np.testing.assert_array_equal(timestep.info["theta"], assignment)
+        np.testing.assert_array_equal(timestep.obs[:, 0], 0.0)
+    np.testing.assert_array_equal(games(state), np.asarray(THETA)[assignment])
+
+
+def test_only_the_environments_that_finished_are_reset():
+    environment, state, _ = ued(Dial())
+    assignment = jnp.arange(NUM_ENVS) % 3
+    state = environment.update(state, assign=assignment)
+    state, (_, second) = play(environment, state, [idle(environment)] * 2)
+    np.testing.assert_array_equal(second.obs[:, 0], 1.0)
+    np.testing.assert_array_equal(games(state), np.asarray(THETA)[assignment])
+
+
+def test_a_restart_draws_each_theta_from_the_weights():
+    environment, state, _ = ued(Dial())
+    state = environment.update(state, weights=jnp.array([1.0, 0.0, 3.0]), restart=True)
+    state, (cut, after) = play(environment, state, [idle(environment)] * 2)
+    drawn = np.asarray(after.info["theta"])
+    assert set(np.unique(drawn)) <= {0, 2}
+    np.testing.assert_array_equal(games(state), np.asarray(THETA)[drawn])
+
+
+def test_a_restart_without_weights_samples_every_theta_from_the_game():
+    environment, state, _ = ued(Dial())
+    before = np.asarray(games(state))
+    state = environment.update(state, restart=True)
+    state, (cut, after) = play(environment, state, [idle(environment)] * 2)
+    np.testing.assert_array_equal(after.info["theta"], -1)
+    after = np.asarray(games(state))
+    assert np.all((after >= 1.0) & (after < 2.0)) and not np.array_equal(after, before)
+
+
+def test_the_set_of_theta_stays_replicated_inside_a_sharded_state():
+    environment, state, _ = ued(Dial())
+    axes = sharded(state, "data")
+    assert jax.tree.leaves(axes.theta, is_leaf=lambda leaf: leaf is None) == [None]
+    assert axes.weights is None
+    assert axes.playing == "data"
 
 
 def test_rival_parameters_stay_replicated_inside_a_sharded_state():

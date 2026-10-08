@@ -187,11 +187,17 @@ class Dial(Environment):
         )
 
     def init(self, key):
+        return self.reset(key, jnp.float32(0.0))
+
+    def sample(self, key):
+        return jax.random.uniform(key, minval=1.0, maxval=2.0)
+
+    def reset(self, key, theta):
         state = DialState(
             clock=jnp.float32(0.0),
             setting=jnp.float32(0.0),
             noise=jax.random.normal(key),
-            params=jnp.float32(0.0),
+            params=theta,
         )
         return state, self.timestep(state, jnp.int32(0))
 

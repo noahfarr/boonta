@@ -326,6 +326,21 @@ def test_kinetix_evaluation_reports_a_success_rate():
 
 
 @KINETIX
+def test_kinetix_starts_from_the_theta_it_is_given():
+    _, env = kinetix_environment()
+    theta = env.sample(jax.random.key(0))
+    other = env.sample(jax.random.key(1))
+    state, timestep = env.reset(jax.random.key(2), theta)
+    for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(theta)):
+        np.testing.assert_array_equal(started, given)
+    assert bool(timestep.terminated)
+    assert any(
+        not np.array_equal(left, right)
+        for left, right in zip(jax.tree.leaves(theta), jax.tree.leaves(other))
+    )
+
+
+@KINETIX
 def test_kinetix_holdout_draws_distinct_levels():
     from omegaconf import OmegaConf
 

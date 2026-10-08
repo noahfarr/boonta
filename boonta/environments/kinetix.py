@@ -17,10 +17,20 @@ class Kinetix(Environment):
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         obs, state = self._env.reset_env(key, self._params, None)
+        return state, self.start(key, obs, state)
+
+    def sample(self, key: Key) -> Any:
+        return self._env.reset_function(key)
+
+    def reset(self, key: Key, theta: Any) -> tuple[Any, Timestep]:
+        obs, state = self._env.reset_env(key, self._params, theta)
+        return state, self.start(key, obs, state)
+
+    def start(self, key: Key, obs: Any, state: Any) -> Timestep:
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
-        timestep = Timestep(
+        return Timestep(
             obs=obs,
             action=action,
             reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
@@ -30,7 +40,6 @@ class Kinetix(Environment):
                 lambda leaf: jnp.zeros(leaf.shape, leaf.dtype), shapes.info
             ),
         )
-        return state, timestep
 
     def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
         obs, state, reward, done, info = self._env.step_env(
