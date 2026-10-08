@@ -1381,7 +1381,7 @@ export function createWorld(canvas, options) {
     const item = items.find((candidate) => candidate.kind === "pilot" && candidate.id === selection.pilot);
     if (!item) return;
     state.mode = "race";
-    state.view = aspect < 1 ? "chase" : "auto";
+    state.view = "chase";
     state.shot = null;
     cursor.visible = false;
     setHover(null);
