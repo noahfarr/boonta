@@ -1,0 +1,77 @@
+{
+ "order": [
+  "obs",
+  "next_obs",
+  "action",
+  "reward",
+  "terminated",
+  "truncated"
+ ],
+ "fields": {
+  "obs": {
+   "offset": 0,
+   "bytes": 1000000,
+   "shape": [
+    20000,
+    10,
+    10,
+    4
+   ],
+   "dtype": "uint8",
+   "packed": true
+  },
+  "next_obs": {
+   "offset": 1000000,
+   "bytes": 1000000,
+   "shape": [
+    20000,
+    10,
+    10,
+    4
+   ],
+   "dtype": "uint8",
+   "packed": true
+  },
+  "action": {
+   "offset": 2000000,
+   "bytes": 80000,
+   "shape": [
+    20000
+   ],
+   "dtype": "int32",
+   "packed": false
+  },
+  "reward": {
+   "offset": 2080000,
+   "bytes": 80000,
+   "shape": [
+    20000
+   ],
+   "dtype": "float32",
+   "packed": false
+  },
+  "terminated": {
+   "offset": 2160000,
+   "bytes": 20000,
+   "shape": [
+    20000
+   ],
+   "dtype": "bool",
+   "packed": false
+  },
+  "truncated": {
+   "offset": 2180000,
+   "bytes": 20000,
+   "shape": [
+    20000
+   ],
+   "dtype": "bool",
+   "packed": false
+  }
+ },
+ "policy": "pqn",
+ "train_steps": 3000000,
+ "size": 20000,
+ "episodes": 119,
+ "episode_return": 16.697479248046875
+}
