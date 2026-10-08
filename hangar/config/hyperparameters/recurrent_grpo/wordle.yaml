@@ -3,6 +3,11 @@
 environment:
   num_envs: 32
 
+podracer:
+  config:
+    mesh:
+      count: 1
+
 network:
   repo_id: Qwen/Qwen3-0.6B-Base
   dtype: bfloat16
