@@ -23,7 +23,7 @@ const TINTS = { anakin: "var(--red)", sebulba: "var(--orange)", quadinaros: "var
 const EXPLAIN = {
   anakin: "Solo run: one program acts and learns. Speed follows steps per second.",
   sebulba: "The pod acts, the sidecar it tows learns. Parameters arrive one update late.",
-  quadinaros: "On the dyno: trains from recorded data and never steps the track.",
+  quadinaros: "Trains from recorded data only. Speed follows samples per second.",
 };
 
 const PARTS = {
@@ -224,7 +224,7 @@ function place(node, point) {
 }
 
 function onRender(anchors) {
-  ["pod", "reel"].forEach((key) => {
+  ["pod"].forEach((key) => {
     const node = raceTags[key];
     if (!node) return;
     if (garage.dataset.mode !== "race" || !anchors[key]) { node.hidden = true; return; }
@@ -250,7 +250,7 @@ function keys(event) {
 
 const raceTags = {};
 function buildRaceTags() {
-  [["pod", "var(--text)"], ["reel", "var(--yellow-light)"]].forEach(([key, tint]) => {
+  [["pod", "var(--text)"]].forEach(([key, tint]) => {
     const node = document.createElement("div");
     node.className = "tag";
     node.style.setProperty("--tint", tint);
@@ -322,8 +322,8 @@ async function race() {
   const offline = selection.podracer === "quadinaros";
   $("unit").textContent = offline ? "SAMPLES / S" : "STEPS / S";
   $("steps-label").textContent = offline ? "SAMPLES" : "STEPS";
-  $("extra-label").textContent = selection.podracer === "sebulba" ? "LAG" : offline ? "TRACK" : "LAP";
-  $("extra").textContent = offline ? "idle" : "0";
+  $("extra-label").textContent = selection.podracer === "sebulba" ? "LAG" : "LAP";
+  $("extra").textContent = "0";
   ["sps", "updates", "steps"].forEach((id) => { $(id).textContent = "0"; });
   $("return").textContent = "–";
   $("gauge").style.width = "0%";
@@ -351,7 +351,7 @@ async function race() {
       onUpdate(update) {
         if (token !== state.token) return;
         state.last = update;
-        state.points.push({ update: update.update, value: update.episodeReturn });
+        if (!offline || Number.isFinite(update.episodeReturn)) state.points.push({ update: update.update, value: update.episodeReturn });
         if (state.points.length > 2000) state.points.splice(0, state.points.length - 2000);
         $("sps").textContent = format(update.sps);
         $("updates").textContent = String(update.update);
@@ -360,7 +360,7 @@ async function race() {
         const level = Math.max(0, Math.min(1, (Math.log10(Math.max(1, update.sps)) - 2.5) / 2.5));
         $("gauge").style.width = `${(level * 100).toFixed(1)}%`;
         if (selection.podracer === "sebulba") $("extra").textContent = String(update.lag ?? 1);
-        else if (!offline && world) $("extra").textContent = String(world.laps);
+        else if (world) $("extra").textContent = String(world.laps);
         const recent = state.points.slice(-8).map((point) => point.value).filter(Number.isFinite);
         const mean = recent.reduce((sum, value) => sum + value, 0) / Math.max(1, recent.length);
         if (recent.length >= 4 && mean >= run.solved) $("solved-flag").textContent = "SOLVED";
@@ -368,8 +368,7 @@ async function race() {
           const name = `${entry("podracer", selection.podracer).name.toUpperCase()} · ${entry("pilot", selection.pilot).name.toUpperCase()}`;
           raceTags.pod.innerHTML = selection.podracer === "sebulba"
             ? `${name} · ACTOR<small>params of update ${Math.max(0, update.update - (update.lag ?? 1))}</small>`
-            : offline ? `${name}<small>on the dyno</small>` : `${name}<small>${format(update.sps)} steps/s</small>`;
-          if (raceTags.reel) raceTags.reel.innerHTML = `RECORDED DATA<small>${format(update.steps)} samples</small>`;
+            : `${name}<small>${format(update.sps)} ${offline ? "samples" : "steps"}/s</small>`;
         }
         if (world) { world.setSpeed(update.sps); world.pulse(update); }
         scheduleBoard();
