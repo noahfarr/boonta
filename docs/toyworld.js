@@ -1643,7 +1643,7 @@ export function createWorld(canvas, options) {
           cursor.userData.item = item;
           cursor.userData.top = new THREE.Box3().setFromObject(item.character.figure).max.y;
         }
-        cursor.position.set(item.center.x, cursor.userData.top + 0.5 + bounce, item.center.z);
+        cursor.position.set(item.center.x, cursor.userData.top + 1.6 + bounce, item.center.z);
         cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
       } else {
         const [ahead, , aside] = BAYS[item.kind].face;
