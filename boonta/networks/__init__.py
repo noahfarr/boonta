@@ -18,7 +18,6 @@ from .network import Network
 from .pretrained import Pretrained
 from .stacks import llama, repeat
 from .unembed import Unembed
-from .unit_norm import unit_norm_params, unit_norm_weights
 
 __all__ = [
     "FFN",
@@ -73,6 +72,4 @@ __all__ = [
     "reset_carry",
     "rotary_positional_embedding",
     "sinusoidal_time_embedding",
-    "unit_norm_params",
-    "unit_norm_weights",
 ]
