@@ -109,6 +109,12 @@ class Kinetix:
         del state, key
         return self.weave(self.unpack(io_callback(self.serve, self.shapes, ordered=False)))
 
+    def levels(self):
+        batch = self.manager.validation_batch
+        if batch is None:
+            return None
+        return jax.tree.map(lambda leaf: jnp.asarray(leaf[:, 0]), batch.env_state)
+
 
 def make(
     dataset_id: str,
@@ -117,19 +123,22 @@ def make(
     num_circles: int = 12,
     num_joints: int = 12,
     num_thrusters: int = 12,
+    frame_skip: int = 1,
     observation: str = "symbolic_flat",
     shards: int = -1,
     seed: int = 42,
-    **kwargs,
+    val_shards: int = 0,
+    val_batch_size: int | None = None,
 ) -> Kinetix:
     from kinetix.data.data_utils import TrajectoryDatasetManager
-    from kinetix.environment import EnvParams, StaticEnvParams
+    from kinetix.environment import StaticEnvParams
 
     static = StaticEnvParams(
         num_polygons=num_polygons,
         num_circles=num_circles,
         num_joints=num_joints,
         num_thrusters=num_thrusters,
+        frame_skip=frame_skip,
     )
     manager = TrajectoryDatasetManager(
         dataset_dir=dataset_id,
@@ -137,6 +146,8 @@ def make(
         static_env_params=static,
         seed=seed,
         maximum_number_of_shards=shards,
+        n_val_shards=val_shards,
+        val_batch_size=val_batch_size or batch_size,
         should_expand_static_env_params=False,
     )
     return Kinetix(manager, render=renderer(observation, static), batch_size=batch_size)
