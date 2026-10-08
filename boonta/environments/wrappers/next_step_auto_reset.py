@@ -59,4 +59,4 @@ class NextStepAutoReset(Wrapper):
             truncated=truncated,
             info=info,
         )
-        return NextStepAutoResetState(env_state, terminated | truncated), timestep
+        return NextStepAutoResetState(env_state, timestep.done.all()), timestep
