@@ -148,16 +148,24 @@ class Team(Environment):
         keys = jax.random.split(key, self.num_agents)
         return jax.vmap(self.environment.step)(keys, state, action)
 
+    def update(self, state, **kwargs):
+        return jax.vmap(lambda state: self.environment.update(state, **kwargs))(state)
+
+    def action_mask(self, state):
+        return jax.vmap(self.environment.action_mask)(state)
+
 
 @struct.dataclass(frozen=True)
 class DialState:
     clock: jax.Array
     setting: jax.Array
     noise: jax.Array
+    params: jax.Array
 
 
 class Dial(Environment):
     shortest = 4
+    solved = 0.0
 
     def observation_space(self) -> Space:
         return Space((3,), jnp.float32, -jnp.inf, jnp.inf)
@@ -175,7 +183,7 @@ class Dial(Environment):
             reward=jnp.float32(0.0),
             terminated=jnp.bool_(False),
             truncated=jnp.bool_(False),
-            info={"clock": state.clock},
+            info={"clock": state.clock, "warm": jnp.bool_(False)},
         )
 
     def init(self, key):
@@ -183,6 +191,7 @@ class Dial(Environment):
             clock=jnp.float32(0.0),
             setting=jnp.float32(0.0),
             noise=jax.random.normal(key),
+            params=jnp.float32(0.0),
         )
         return state, self.timestep(state, jnp.int32(0))
 
