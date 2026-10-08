@@ -308,6 +308,15 @@ def test_actor_critic_tempers_only_the_actor():
     np.testing.assert_array_equal(value, greedy_value)
 
 
+def test_a_half_precision_critic_reports_its_value_in_single_precision():
+    x = jax.random.normal(jax.random.key(6), (3, 8))
+    critic = nn.Dense(1, dtype=jnp.bfloat16)
+    network = Network(head=ActorCritic(actor=Categorical(nn.Dense(5)), critic=critic))
+    params = network.init(jax.random.key(4), x, temperature=1.0)
+    _, value = network.apply(params, x, temperature=1.0)
+    assert value.dtype == jnp.float32
+
+
 @pytest.mark.parametrize("name", zoo.TORSOS)
 def test_the_network_forwards_temperature_past_every_torso(name):
     network = Network(
