@@ -1,8 +1,9 @@
-from . import disk, kinetix, minari
+from . import disk, kaggriculture, kinetix, minari
 from .dataset import Dataset, DatasetState
 
 registry = {
     "disk": disk.make,
+    "kaggriculture": kaggriculture.make,
     "kinetix": kinetix.make,
     "minari": minari.make,
 }
@@ -17,6 +18,7 @@ __all__ = [
     "Dataset",
     "DatasetState",
     "disk",
+    "kaggriculture",
     "kinetix",
     "make",
     "minari",
