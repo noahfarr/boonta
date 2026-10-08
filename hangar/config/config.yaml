@@ -7,6 +7,8 @@ training:
 evaluation:
   num_steps: 0
 
+score: ${eval:'"evaluation" if ${evaluation.num_steps} else "training"'}/episode_return
+
 loggers: {}
 artisans: {}
 
@@ -18,6 +20,7 @@ defaults:
   - logger: dashboard
   - optional hyperparameters: ${cascading_fallback:hyperparameters,${algorithm},${environment}}
   - curriculum: default
+  - scoring: best
 
 hydra:
   run:
