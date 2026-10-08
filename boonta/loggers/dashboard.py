@@ -15,6 +15,8 @@ from rich.table import Table
 from boonta.artisans import Text
 from boonta.utils import PyTree
 
+from .logger import Primary
+
 
 def uncover() -> None:
     stream = sys.__stdout__
@@ -23,7 +25,7 @@ def uncover() -> None:
         stream.flush()
 
 
-class DashboardLogger:
+class DashboardLogger(Primary):
     def __init__(
         self,
         total_timesteps=0,

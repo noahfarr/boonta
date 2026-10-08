@@ -6,8 +6,10 @@ import numpy as np
 from boonta.artisans import Video
 from boonta.utils import PyTree
 
+from .logger import Primary
 
-class FileLogger:
+
+class FileLogger(Primary):
     def __init__(self, directory: str = ".", filename: str = "metrics.npz", **kwargs):
         self.directory = Path(directory)
         self.filename = filename
