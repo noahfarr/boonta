@@ -3,7 +3,7 @@ from .dataset import Dataset, DatasetState
 
 registry = {
     "kinetix": kinetix.make,
-    "minari": minari.make,
+    "minari": minari.Minari,
 }
 
 
