@@ -39,5 +39,5 @@ optimizer:
   name: muon
   lr: 0.005
   anneal: true
-  min_lr_ratio: 0.0
+  alpha: 0.0
   max_grad_norm: 1.5
