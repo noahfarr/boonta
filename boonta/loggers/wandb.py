@@ -5,8 +5,10 @@ import wandb
 from boonta.artisans import Checkpoint, Text, Video
 from boonta.utils import PyTree
 
+from .logger import Primary
 
-class WandbLogger:
+
+class WandbLogger(Primary):
     def __init__(
         self,
         entity=None,
