@@ -11,3 +11,6 @@ class Batched(Vectorize):
 
     def step(self, key: Key, state: PyTree, action: Array) -> tuple[PyTree, Any]:
         return self._env.step(key, state, action)
+
+    def action_mask(self, state: PyTree) -> Array | None:
+        return self._env.action_mask(state)

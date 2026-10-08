@@ -30,3 +30,6 @@ class Vectorize(Wrapper):
 
     def update(self, state: PyTree, **kwargs) -> PyTree:
         return self._env.update(state, **kwargs)
+
+    def action_mask(self, state: PyTree) -> Array | None:
+        return jax.vmap(self._env.action_mask)(state)

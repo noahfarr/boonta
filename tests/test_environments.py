@@ -85,6 +85,15 @@ def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
         np.testing.assert_array_equal(setting, 7.0)
 
 
+@pytest.mark.parametrize("build", STACKS)
+def test_every_wrapper_shows_the_action_mask_of_the_game(build):
+    environment = build()
+    state, _ = environment.init(jax.random.key(0))
+    state = environment.update(state, setting=7.0)
+    mask = environment.action_mask(state)
+    np.testing.assert_array_equal(mask[..., :2], np.tile([True, False], (NUM_ENVS, 1)))
+
+
 def play(environment, state, actions, step=None):
     step = step or environment.step
     timesteps = []
