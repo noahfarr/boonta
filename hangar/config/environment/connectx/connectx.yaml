@@ -1,0 +1,7 @@
+namespace: connectx
+env_id: connectx
+num_envs: 1024
+kwargs:
+  rows: 6
+  columns: 7
+  inarow: 4
