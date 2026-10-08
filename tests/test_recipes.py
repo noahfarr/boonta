@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.hydra_config import HydraConfig
+from hydra.utils import instantiate
 
 from boonta.datasets.disk import write
 from hangar import recipes
@@ -177,6 +178,21 @@ def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
     cfg = configure("ppo", MINATAR, *overrides)
     HydraConfig.instance().set_config(cfg)
     assert cfg.seed == seed
+
+
+def test_only_carbs_sweeps_the_search_space():
+    assert "search_space" not in configure("ppo", MINATAR)
+    plain = configure("ippo", "connectx/connectx", "hydra.mode=MULTIRUN")
+    assert len(plain.search_space) == 13
+    assert plain.hydra.sweeper.params is None
+
+
+@pytest.mark.skipif(bool(installed("carbs")), reason="needs carbs")
+def test_carbs_reads_the_search_space():
+    swept = configure("ippo", "connectx/connectx", "hydra/sweeper=carbs")
+    params = instantiate(swept.hydra.sweeper).search.params
+    assert len(params) == 13
+    assert params["optimizer.lr"].center == 1.46e-3
 
 
 @pytest.mark.parametrize(
