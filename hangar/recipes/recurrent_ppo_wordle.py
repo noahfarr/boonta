@@ -156,4 +156,5 @@ def make(cfg):
         ),
     )
 
-    return {"algorithm": algorithm, "environment": env}
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

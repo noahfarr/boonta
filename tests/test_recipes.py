@@ -132,6 +132,7 @@ CASES = [
     ("bc", HOPPER, installed("brax"), hopper_pool),
     ("iql", HOPPER, installed("brax"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
+    ("ppo", "kinetix/kinetix", installed("kinetix"), False),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),

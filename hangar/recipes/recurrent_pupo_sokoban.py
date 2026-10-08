@@ -84,35 +84,33 @@ def make(cfg):
         cfg, batch_size=cfg.environment.num_envs * cfg.rollout.num_steps
     )
 
-    return {
-        "algorithm": RecurrentPuPO(
-            cfg=instantiate(cfg.algorithm),
-            importance_exponent=instantiate(cfg.importance_exponent),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.multi_transform(
-                    {
-                        "muon": optax.contrib.muon(
-                            learning_rate,
-                            muon_weight_dimension_numbers=MuonDimensionNumbers(
-                                -2, -1
-                            ),
-                        ),
-                        "adam": optax.adam(learning_rate),
-                    },
-                    lambda params: jax.tree.map(
-                        lambda p: "muon" if p.ndim >= 2 else "adam", params
+    algorithm = RecurrentPuPO(
+        cfg=instantiate(cfg.algorithm),
+        importance_exponent=instantiate(cfg.importance_exponent),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.multi_transform(
+                {
+                    "muon": optax.contrib.muon(
+                        learning_rate,
+                        muon_weight_dimension_numbers=MuonDimensionNumbers(-2, -1),
                     ),
-                )
-                if cfg.optimizer.get("name") == "muon"
-                else optax.adam(
-                    learning_rate,
-                    b1=cfg.optimizer.get("b1", 0.9),
-                    b2=cfg.optimizer.get("b2", 0.999),
-                    eps=cfg.optimizer.get("eps", 1e-8),
+                    "adam": optax.adam(learning_rate),
+                },
+                lambda params: jax.tree.map(
+                    lambda p: "muon" if p.ndim >= 2 else "adam", params
                 ),
+            )
+            if cfg.optimizer.get("name") == "muon"
+            else optax.adam(
+                learning_rate,
+                b1=cfg.optimizer.get("b1", 0.9),
+                b2=cfg.optimizer.get("b2", 0.999),
+                eps=cfg.optimizer.get("eps", 1e-8),
             ),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

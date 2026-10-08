@@ -247,15 +247,20 @@ def make(cfg):
         cfg, batch_size=dataset.batch_size * dataset.length
     )
 
-    return {
-        "algorithm": RecurrentBC(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(learning_rate),
-            ),
+    algorithm = RecurrentBC(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(learning_rate),
         ),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {
+        "algorithm": algorithm,
         "environment": env,
         "dataset": dataset,
+        "pit": pit,
+        "lap": lap,
     }
