@@ -122,6 +122,18 @@ const FACES = {
     context.fillStyle = "rgba(90, 40, 20, 0.35)";
     for (let i = 0; i < 18; i++) context.fillRect(96 + (i * 37) % 64, 92 + (i * 13) % 14, 2, 2);
   },
+  friendly(context, skin) {
+    context.fillStyle = skin;
+    context.fillRect(0, 0, 256, 128);
+    context.fillStyle = "#1c1410";
+    context.beginPath(); context.ellipse(110, 58, 5, 1.8, 0, 0, Math.PI * 2); context.fill();
+    context.beginPath(); context.ellipse(146, 58, 5, 1.8, 0, 0, Math.PI * 2); context.fill();
+    context.strokeStyle = "#1c1410";
+    context.lineWidth = 5;
+    context.beginPath(); context.arc(128, 64, 20, Math.PI * 0.1, Math.PI * 0.9); context.stroke();
+    context.fillStyle = "rgba(220, 110, 90, 0.35)";
+    [[92, 70], [164, 70]].forEach(([x, y]) => { context.beginPath(); context.arc(x, y, 8, 0, Math.PI * 2); context.fill(); });
+  },
   calm(context, skin) {
     context.fillStyle = skin;
     context.fillRect(0, 0, 256, 128);
@@ -184,6 +196,25 @@ const TORSOS = {
     context.fillStyle = "#6a6648";
     context.fillRect(120, 160, 16, 96);
   },
+  mechanic(context) {
+    context.fillStyle = "#4248c8";
+    context.fillRect(0, 0, 256, 256);
+    context.fillStyle = "#e8e4dc";
+    context.beginPath(); context.moveTo(0, 0); context.lineTo(256, 0); context.lineTo(256, 70); context.lineTo(190, 70); context.lineTo(190, 100); context.lineTo(66, 100); context.lineTo(66, 70); context.lineTo(0, 70); context.fill();
+    context.fillStyle = "#b8b4ac";
+    context.beginPath(); context.moveTo(96, 0); context.lineTo(128, 34); context.lineTo(160, 0); context.fill();
+    context.fillStyle = "#4248c8";
+    context.fillRect(40, 0, 26, 100);
+    context.fillRect(190, 0, 26, 100);
+    context.fillStyle = "#d8d85c";
+    [[53, 86], [203, 86]].forEach(([x, y]) => { context.beginPath(); context.arc(x, y, 9, 0, Math.PI * 2); context.fill(); });
+    context.strokeStyle = "#2c3090";
+    context.lineWidth = 4;
+    context.strokeRect(96, 120, 64, 50);
+    context.fillStyle = "#c66c3a";
+    context.fillRect(104, 128, 48, 12);
+    context.beginPath(); context.moveTo(128, 256); context.lineTo(128, 196); context.stroke();
+  },
 };
 
 const LEGS = {
@@ -215,12 +246,22 @@ const LEGS = {
     context.fillStyle = "#5a5640";
     context.fillRect(0, 200, 128, 56);
   },
+  mechanic(context) {
+    context.fillStyle = "#4248c8";
+    context.fillRect(0, 0, 128, 256);
+    context.fillStyle = "#3a3fb0";
+    context.fillRect(30, 110, 68, 50);
+    context.strokeStyle = "#2c3090";
+    context.lineWidth = 3;
+    context.strokeRect(30, 110, 68, 50);
+  },
 };
 
 const LOOKS = {
   anakin: { skin: "--skinlight3d", torso: "--tunic3d", arm: "--tunic3d", hand: "--leather3d", hip: "--leather3d", leg: "--tunic3d", foot: "--leather3d", face: "determined", short: false, scale: 1.55 },
   sebulba: { skin: "--alien3d", torso: "--alien3d", arm: "--alien3d", hand: "--alien3d", hip: "--vest3d", leg: "--vest3d", foot: "--alien3d", face: "grumpy", short: true, scale: 1.65 },
   quadinaros: { skin: "--alienpale3d", torso: "--suit3d", arm: "--suit3d", hand: "--alienpale3d", hip: "--suit3d", leg: "--suit3d", foot: "--shadow3d", face: "calm", short: false, scale: 1.3 },
+  mechanic: { skin: "--skin3d", torso: "--blue", arm: "--banner3d", hand: "--skin3d", hip: "--blue", leg: "--blue", foot: "--shadow3d", face: "friendly", short: false, scale: 1.4 },
 };
 
 export function buildMinifigure(kit, id, owner) {
@@ -365,6 +406,23 @@ export function buildMinifigure(kit, id, owner) {
     strap.scale.set(1.62, 1.12, 1);
     head.add(strap);
     head.add(goggles(2.6 * MM, 6.6 * MM, 6.4 * MM, 3.2 * MM, material("--yellow-light")));
+  } else if (id === "mechanic") {
+    const orange = material("--orange");
+    const cap = mesh(new THREE.SphereGeometry(5.2 * MM, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), orange, 0, 6.8 * MM, 0);
+    cap.scale.set(1, 0.8, 1);
+    head.add(cap);
+    head.add(mesh(brickGeometry(8 * MM, 5 * MM, 0.8 * MM, 0.01), orange, 0, 7 * MM, 6 * MM));
+    const dark = material("--shadow3d");
+    const cup = mesh(new THREE.CylinderGeometry(1.8 * MM, 1.8 * MM, 1.4 * MM, 12), dark, 5.2 * MM, 4.4 * MM, 0);
+    cup.rotation.z = Math.PI / 2;
+    head.add(cup);
+    const from = new THREE.Vector3(5.4 * MM, 4 * MM, 1.2 * MM);
+    const to = new THREE.Vector3(2.6 * MM, 2.6 * MM, 5.4 * MM);
+    const boom = mesh(new THREE.CylinderGeometry(0.4 * MM, 0.4 * MM, from.distanceTo(to), 6), dark);
+    boom.position.copy(from).lerp(to, 0.5);
+    boom.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+    head.add(boom);
+    head.add(mesh(new THREE.SphereGeometry(0.9 * MM, 8, 6), dark, to.x, to.y, to.z));
   } else {
     const suit = material("--suit3d");
     const helmet = new THREE.Group();
@@ -410,13 +468,14 @@ export function buildMinifigure(kit, id, owner) {
 
 export function pose(rig, state) {
   const { torso, head, legs, arms, id } = rig;
-  const { clock, selected, hovered, cheering, walking, seated, reduced, lift } = state;
+  const { clock, selected, hovered, cheering, walking, seated, reduced, lift, typing, wave = 0 } = state;
   const breathe = reduced ? 0 : Math.sin(clock * 2.2) * 0.012;
   torso.scale.set(1 + breathe * 0.5, 1 + breathe, 1 + breathe * 0.5);
   head.rotation.y = reduced ? 0 : hovered ? Math.sin(clock * 2) * 0.5 : Math.sin(clock * 0.7 + id.length) * 0.25 * (Math.sin(clock * 0.31) > 0.4 ? 1 : 0);
   legs.forEach((leg, i) => { leg.rotation.x = seated ? -Math.PI / 2 : walking ? Math.sin(clock * 12 + i * Math.PI) * 0.6 : 0; });
   const [left, right] = arms;
   [left, right].forEach((arm, i) => {
+    arm.pivot.rotation.z = (i ? 1 : -1) * 0.12;
     arm.pivot.rotation.x = walking ? -Math.sin(clock * 12 + i * Math.PI) * 0.5 : Math.sin(clock * 1.1 + i) * 0.04;
     arm.wrist.rotation.y = 0;
     arm.elbow.rotation.x = -0.55;
@@ -425,6 +484,20 @@ export function pose(rig, state) {
     left.pivot.rotation.x = right.pivot.rotation.x = -1.05;
     left.elbow.rotation.x = right.elbow.rotation.x = -0.3;
     head.rotation.y = reduced ? 0 : Math.sin(clock * 0.9) * 0.2;
+    head.rotation.x = 0;
+    if (reduced) return;
+    if (typing) {
+      left.elbow.rotation.x = -0.3 + Math.max(0, Math.sin(clock * 15)) * 0.25;
+      right.elbow.rotation.x = -0.3 + Math.max(0, Math.sin(clock * 15 + 2)) * 0.25;
+      head.rotation.x = 0.2;
+    }
+    if (wave > 0) {
+      right.pivot.rotation.x = -1.05 - 1.75 * wave;
+      right.pivot.rotation.z = 0.12 + (0.25 + Math.sin(clock * 16) * 0.35) * wave;
+      right.elbow.rotation.x = -0.3 * (1 - wave);
+      head.rotation.y += (0.7 - head.rotation.y) * wave;
+      head.rotation.x += (-0.3 - head.rotation.x) * wave;
+    }
     return;
   }
   if (cheering) {
