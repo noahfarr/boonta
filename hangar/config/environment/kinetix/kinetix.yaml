@@ -1,0 +1,7 @@
+namespace: kinetix
+suite: kinetix
+env_id: null
+num_envs: 32
+kwargs:
+  action_type: multi_discrete
+  observation_type: symbolic_entity
