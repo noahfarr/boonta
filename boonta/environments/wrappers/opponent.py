@@ -95,6 +95,12 @@ class Opponent(Wrapper):
         state = state.replace(env_state=env_state, carry=carry, joint=joint)
         return state, self.narrow(joint)
 
+    def action_mask(self, state: OpponentState) -> Array | None:
+        mask = self._env.action_mask(state.env_state)
+        if mask is None:
+            return None
+        return self._seat(jnp.moveaxis(mask, -2, -1))
+
     def update(self, state: OpponentState, opponents: PyTree = None, **kwargs):
         if kwargs:
             state = state.replace(env_state=self._env.update(state.env_state, **kwargs))
