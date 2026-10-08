@@ -8,6 +8,11 @@ training:
 environment:
   num_envs: 1024
 
+podracer:
+  config:
+    mesh:
+      count: 1
+
 rollout:
   num_steps: 128
 
