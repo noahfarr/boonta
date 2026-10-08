@@ -18,6 +18,7 @@ dependencies = [
     "joblib>=1.0",
     "kaggle>=2.2.3",
     "lox",
+    "mctx>=0.0.5",
     "minari[hdf5]>=0.5.3",
     "numpy>=2.0",
     "nvidia-ml-py>=12.0",
