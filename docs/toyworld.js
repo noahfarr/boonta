@@ -1782,19 +1782,6 @@ export function createWorld(canvas, options) {
     camera.updateProjectionMatrix();
   }
 
-  const projected = new THREE.Vector3();
-  function project(point) {
-    projected.copy(point).project(camera);
-    return { x: ((projected.x + 1) / 2) * width, y: ((1 - projected.y) / 2) * height, visible: projected.z < 1 && projected.z > -1 };
-  }
-  function anchors() {
-    const result = {};
-    if (state.race) {
-      const pod = state.race.item.pod.body;
-      result.pod = project(scratch.copy(pod.position).add(new THREE.Vector3(0, 4, 0)));
-    }
-    return result;
-  }
 
   let frameHandle = 0, last = 0, lastRender = 0, tick = 0, onScreen = true, lost = false, screenDirty = false, stirred = 0, rested = 0;
   const probe = { samples: [], after: 0, done: pinned };
@@ -1840,7 +1827,6 @@ export function createWorld(canvas, options) {
       step(dt, tick, Math.min(1, raw));
       if (screenDirty) { screenTexture.needsUpdate = true; screenDirty = false; }
       renderer.render(scene, camera);
-      options.onRender(anchors());
       rested = still() ? rested + 1 : 0;
       if (rested > 2) return;
     }
