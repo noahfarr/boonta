@@ -200,6 +200,16 @@ def test_next_step_auto_reset_spends_one_empty_step_on_the_reset():
     assert int(state.env_state.clock) == 0
 
 
+def test_next_step_auto_reset_restarts_a_team_once_every_agent_is_done():
+    environment = NextStepAutoReset(TimeLimit(Team(Dial(), 2), 2))
+    state, _ = environment.init(jax.random.key(0))
+    state, (_, last, reset) = play(environment, state, [jnp.zeros(2, jnp.int32)] * 3)
+
+    assert bool(last.truncated.all())
+    assert not bool(reset.done.any())
+    np.testing.assert_array_equal(state.env_state.env_state.clock, 0)
+
+
 def test_optimistic_auto_reset_restarts_every_finished_environment():
     environment = OptimisticAutoReset(recall(), NUM_ENVS, ratio=2)
     state, _ = environment.init(jax.random.key(0))
