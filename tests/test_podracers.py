@@ -8,13 +8,12 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 from boonta.algorithms.wrappers.ensemble import Ensemble
-from boonta.datasets.disk import Disk, write
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
 from boonta.utils import mesh
 
-from dummies import Dial, Probe, demonstrations, flatten, recordings
+from dummies import Dial, Episodes, Probe, demonstrations, flatten, publish, recordings
 
 NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 
@@ -41,7 +40,7 @@ def on_quadinaros(algorithm=None, environment=None, dataset=None, **hooks):
         num_envs=NUM_ENVS, batch_shape=(16,), mesh=mesh(2)
     )
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
-    dataset = dataset or Minari(flatten(demonstrations(Dial(), jax.random.key(0), 16)))
+    dataset = dataset or Episodes(flatten(demonstrations(Dial(), jax.random.key(0), 16)))
     return quadinaros.make(config, algorithm or Probe(), environment, dataset, **hooks)
 
 
@@ -292,7 +291,7 @@ class Ledger:
 
 
 def test_quadinaros_updates_the_dataset_once_per_train_call_and_closes_it():
-    dataset = Ledger(Minari(flatten(demonstrations(Dial(), jax.random.key(0), 16))))
+    dataset = Ledger(Episodes(flatten(demonstrations(Dial(), jax.random.key(0), 16))))
     podracer = on_quadinaros(dataset=dataset)
     state = podracer.init(jax.random.key(0))
     assert dataset.updates == 0
@@ -325,9 +324,10 @@ def test_quadinaros_pit_steers_the_data():
     np.testing.assert_array_equal(np.asarray(logs["reader/seen"]), [0.0, 1.0, 2.0])
 
 
-def test_quadinaros_streams_a_pool_from_disk(tmp_path, assert_sharded):
-    write(tmp_path, recordings(demonstrations(Dial(), jax.random.key(0), 8)))
-    dataset = Disk(tmp_path, pool_size=16, num_devices=2)
+def test_quadinaros_streams_a_pool_of_episodes(tmp_path, monkeypatch, assert_sharded):
+    monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
+    dataset_id = publish(recordings(demonstrations(Dial(), jax.random.key(0), 8)))
+    dataset = Minari(dataset_id, pool_size=16, num_devices=2)
     podracer = on_quadinaros(dataset=dataset)
     state = podracer.init(jax.random.key(0))
     for epoch in range(3):

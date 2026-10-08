@@ -1,10 +1,9 @@
-from . import disk, kinetix, minari
+from . import kinetix, minari
 from .dataset import Dataset, DatasetState
 
 registry = {
-    "disk": disk.make,
     "kinetix": kinetix.make,
-    "minari": minari.make,
+    "minari": minari.Minari,
 }
 
 
@@ -16,7 +15,6 @@ def make(namespace, dataset_id, **kwargs):
 __all__ = [
     "Dataset",
     "DatasetState",
-    "disk",
     "kinetix",
     "make",
     "minari",

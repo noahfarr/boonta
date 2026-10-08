@@ -288,6 +288,45 @@ def recordings(transitions: Transition) -> list[SimpleNamespace]:
     ]
 
 
+def space(leaf):
+    import gymnasium as gym
+
+    if isinstance(leaf, dict):
+        return gym.spaces.Dict({name: space(value) for name, value in leaf.items()})
+    leaf = np.asarray(leaf)
+    bound = np.iinfo(leaf.dtype).max if np.issubdtype(leaf.dtype, np.integer) else np.inf
+    return gym.spaces.Box(-bound, bound, leaf.shape[1:], leaf.dtype)
+
+
+def publish(episodes: list, dataset_id: str = "dummy/dial/expert-v0") -> str:
+    import warnings
+
+    import minari
+    from minari.data_collector import EpisodeBuffer
+
+    first, *_ = episodes
+    buffers = [
+        EpisodeBuffer(
+            id=index,
+            observations=episode.observations,
+            actions=episode.actions,
+            rewards=episode.rewards,
+            terminations=episode.terminations,
+            truncations=episode.truncations,
+        )
+        for index, episode in enumerate(episodes)
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        minari.create_dataset_from_buffers(
+            dataset_id,
+            buffers,
+            observation_space=space(first.observations),
+            action_space=space(first.actions),
+        )
+    return dataset_id
+
+
 @struct.dataclass(frozen=True)
 class EpisodesState:
     transitions: Transition = struct.field(metadata={"axis": "data"})
