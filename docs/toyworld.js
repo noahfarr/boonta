@@ -940,9 +940,12 @@ export function createWorld(canvas, options) {
     paints.forEach(({ material: made, token, owner: own, toy: toyish, glow: shine }) => {
       made.color.copy(tone(token));
       if (toyish) toy(made.color, token);
-      if (own && own.dim) made.color.lerp(off, 0.72);
+      if (own && own.dim) {
+        const grey = made.color.r * 0.3 + made.color.g * 0.59 + made.color.b * 0.11;
+        made.color.setRGB(grey, grey, grey).lerp(off, 0.4).multiplyScalar(0.75);
+      }
       if (own && own.shade) made.color.multiplyScalar(own.shade);
-      if (shine && made.emissive) made.emissive.copy(made.color).multiplyScalar(shine * 0.6);
+      if (shine && made.emissive) made.emissive.copy(made.color).multiplyScalar(own && own.dim ? 0 : shine * 0.6);
     });
     paints.forEach(({ material: made }) => { if (made.envMapIntensity !== undefined) made.envMapIntensity = made.userData.env ?? (light ? 0.35 : 0.75); });
     skyUniforms.top.value.copy(tone("--skytop3d"));
@@ -1083,6 +1086,8 @@ export function createWorld(canvas, options) {
   const frameOf = (item) => {
     if (item.frame) return item.frame;
     item.frame = new THREE.Box3();
+    const scale = item.group.scale.clone();
+    item.group.scale.set(1, 1, 1);
     item.group.updateMatrixWorld(true);
     item.group.traverse((child) => {
       if (!child.isMesh || child.userData.ring) return;
@@ -1091,6 +1096,8 @@ export function createWorld(canvas, options) {
       item.frame.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
     });
     if (item.kind !== "podracer") item.frame.max.y += 4;
+    item.group.scale.copy(scale);
+    item.group.updateMatrixWorld(true);
     return item.frame;
   };
   function clear(box, eyePoint, lookPoint) {
@@ -1121,8 +1128,8 @@ export function createWorld(canvas, options) {
     band.right = Math.max(0, Math.min(width * 0.5, asked.right));
     const room = Math.max(0.5, (width - band.right) / Math.max(1, height - band.top - band.bottom));
     const target = state.focused && state.focused.kind === state.row ? state.focused : items.find((item) => item.kind === state.row && state.selection[item.kind] === item.id);
-    const wide = { podracer: 13, pilot: 9, track: 13 }[state.row];
-    const half = narrow ? Math.max({ podracer: 4.5, pilot: 7, track: 6.5 }[state.row], wide * Math.min(1, width / 1100)) : wide;
+    const wide = { podracer: 13, pilot: 11, track: 13 }[state.row];
+    const half = narrow ? Math.max({ podracer: 4.5, pilot: 8.5, track: 6.5 }[state.row], wide * Math.min(1, width / 1100)) : wide;
     let distance = Math.max(narrow ? 14 : 16, (half / (tangent * room)) * 1.05);
     const offset = target ? (target.center.x - bay.x) * bay.along[0] + (target.center.z - bay.z) * bay.along[2] : 0;
     const lookHeight = { podracer: 9.8, pilot: 6.2, track: 8.6 }[state.row];
