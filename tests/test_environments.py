@@ -8,27 +8,37 @@ import pytest
 
 import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
-from boonta.environments.wrappers import (MCP, PBRS, ClipAction, ClipReward,
+from boonta.environments import wrappers
+from boonta.environments.spaces import Space
+from boonta.environments.wrappers import (MCP, PBRS, Batched, ClipAction,
+                                          ClipReward, DomainRandomization,
                                           FlattenObservation, GroupedAutoReset,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
-                                          Opponent, OptimisticAutoReset, Prompt,
-                                          Reasoning,
-                                          RecordEpisodeStatistics,
+                                          Opponent, OptimisticAutoReset,
+                                          PadAction, PadObservation, Prompt,
+                                          Reasoning, RecordEpisodeStatistics,
+                                          RecordMultiAgentEpisodeStatistics,
+                                          RecordRestartStatistics,
                                           SameStepAutoReset, Stagger, StickyAction,
                                           TimeAwareObservation, TimeLimit,
                                           TransformAction, TransformObservation,
-                                          TransformReward, Vectorize)
+                                          TransformReward, Vectorize, Wrapper)
 from boonta.utils import Timestep, sharded
 
-from dummies import Corridor, Dial, recall, reach
+from dummies import Corridor, Dial, Team, recall, reach
 
 NUM_ENVS = 8
 
 
 def identity(value):
     return value
+
+
+class Lever(Dial):
+    def action_space(self) -> Space:
+        return Space((1,), jnp.float32, -1.0, 1.0)
 
 
 STACKS = [
@@ -64,6 +74,33 @@ STACKS = [
         id="transform_observation",
     ),
     pytest.param(lambda: Vectorize(TransformReward(Dial(), identity), NUM_ENVS), id="transform_reward"),
+    pytest.param(lambda: Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), id="batched"),
+    pytest.param(
+        lambda: Vectorize(DomainRandomization(Dial(), lambda key, params: params + 1.0), NUM_ENVS),
+        id="domain_randomization",
+    ),
+    pytest.param(lambda: Vectorize(tool(Dial()), NUM_ENVS), id="mcp"),
+    pytest.param(lambda: Vectorize(Prompt(Dial(), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
+    pytest.param(lambda: Opponent(Vectorize(Team(Dial(), 2), NUM_ENVS), rival, blank), id="opponent"),
+    pytest.param(lambda: Vectorize(PadAction(Lever(), 3), NUM_ENVS), id="pad_action"),
+    pytest.param(
+        lambda: Vectorize(
+            PadObservation(TransformObservation(Dial(), lambda obs: {"dial": obs}), "dial", 5),
+            NUM_ENVS,
+        ),
+        id="pad_observation",
+    ),
+    pytest.param(
+        lambda: RecordMultiAgentEpisodeStatistics(Vectorize(Team(Dial(), 2), NUM_ENVS)),
+        id="record_multi_agent_episode_statistics",
+    ),
+    pytest.param(
+        lambda: RecordRestartStatistics(
+            Vectorize(TransformObservation(Dial(), lambda obs: obs.astype(jnp.int32)), NUM_ENVS),
+            room_byte=0,
+        ),
+        id="record_restart_statistics",
+    ),
     pytest.param(
         lambda: RecordEpisodeStatistics(LogInfo(Vectorize(TimeLimit(Dial(), 100), NUM_ENVS))),
         id="a_mixed_stack",
@@ -71,12 +108,31 @@ STACKS = [
 ]
 
 
+def idle(environment):
+    space = environment.action_space()
+    agents = (environment.num_agents,) if environment.num_agents > 1 else ()
+    return jnp.zeros((NUM_ENVS, *agents, *space.shape), space.dtype)
+
+
+def test_the_stacks_cover_every_wrapper():
+    covered = set()
+    for param in STACKS:
+        (build,) = param.values
+        environment = build()
+        while isinstance(environment, Wrapper):
+            covered.add(type(environment))
+            environment = environment._env
+    exported = {getattr(wrappers, name) for name in wrappers.__all__}
+    expected = {kind for kind in exported if isinstance(kind, type) and issubclass(kind, Wrapper)}
+    assert expected - covered == {Wrapper}
+
+
 @pytest.mark.parametrize("build", STACKS)
 def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
     state = environment.update(state, setting=7.0)
-    _, timestep = environment.step(jax.random.key(1), state, jnp.zeros(NUM_ENVS, jnp.int32))
+    _, timestep = environment.step(jax.random.key(1), state, idle(environment))
     np.testing.assert_array_equal(timestep.info["clock"] > 0, True)
     unwrapped = jax.tree.leaves(state, is_leaf=lambda leaf: hasattr(leaf, "setting"))
     settings = [leaf.setting for leaf in unwrapped if hasattr(leaf, "setting")]
@@ -91,7 +147,21 @@ def test_every_wrapper_shows_the_action_mask_of_the_game(build):
     state, _ = environment.init(jax.random.key(0))
     state = environment.update(state, setting=7.0)
     mask = environment.action_mask(state)
-    np.testing.assert_array_equal(mask[..., :2], np.tile([True, False], (NUM_ENVS, 1)))
+    if jnp.issubdtype(environment.action_space().dtype, jnp.integer):
+        assert mask.shape[:-1] == idle(environment).shape
+    mask = mask[..., :2]
+    shown = [True, True] if environment.wraps(MCP) else [True, False]
+    np.testing.assert_array_equal(mask, np.broadcast_to(shown, mask.shape))
+
+
+def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
+    from boonta.environments.peanut_gb import pokemon_red
+
+    environment = pokemon_red.LogFlags(Dial())
+    state, _ = environment.init(jax.random.key(0))
+    state = environment.update(state, setting=7.0)
+    assert float(state.setting) == 7.0
+    np.testing.assert_array_equal(environment.action_mask(state), [True, False])
 
 
 def play(environment, state, actions, step=None):
