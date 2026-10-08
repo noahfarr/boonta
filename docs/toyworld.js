@@ -10,7 +10,7 @@ const CHARACTER_TINTS = { anakin: "--red", sebulba: "--orange", quadinaros: "--y
 const GRID = -16;
 const DYNO = { x: 19, y: 2.4, z: 31 };
 const REEL = { x: 5, y: 4.2, z: 31 };
-const LEARNER = { x: 58, z: -12 };
+const SIDECAR = { along: 1.2, hitch: 3.4, pod: { width: 3 * P, length: 4 * P } };
 const ROW_Z = { track: GZ, pilot: GZ - 1, podracer: GZ };
 const ROW_Y = { track: 8.5, pilot: 5.2, podracer: 11 };
 const BAYS = {
@@ -290,7 +290,6 @@ export function createWorld(canvas, options) {
       if (reach > 14 || (Math.abs(x) < 112 && z > 22 && z < 92)) continue;
       if (circuit.near(x, z, 22)) continue;
       if (Math.abs(x) < 52 && z > -26 && z < 22) continue;
-      if (Math.hypot(x - LEARNER.x, z - LEARNER.z) < 14) continue;
       const ramp = Math.min(1, Math.max(0.25, (reach - 0.6) / 2.2));
       const dune = 4 + 5 * Math.sin(x * 0.018 + Math.cos(z * 0.011) * 2) * Math.cos(z * 0.021) + 3 * Math.sin((x + z) * 0.043);
       const levels = Math.round((ramp * Math.max(0, dune)) / BRICK);
@@ -826,27 +825,33 @@ export function createWorld(canvas, options) {
   scene.add(recorded);
   const pitsCenter = new THREE.Vector3((DYNO.x + REEL.x) / 2, 2, DYNO.z);
 
-  const learner = new THREE.Group();
-  const learnerBuild = builder(learner);
-  learnerBuild.brick({ w: 6 * P - GAP, d: 6 * P - GAP, h: BRICK - GAP, material: common("--shadow3d") });
-  for (let k = 1; k < 10; k++) learnerBuild.brick({ y: k * BRICK, w: 2 * P - GAP, d: 2 * P - GAP, h: BRICK - GAP, material: k % 2 ? common("--orange") : common("--steel3d"), top: false });
-  learnerBuild.finish();
-  const core = mesh(new THREE.ConeGeometry(2 * P, 3 * BRICK, 24), kit.trans("--orange", { glow: 0.9, opacity: 0.75 }), 0, 10 * BRICK + 1.5 * BRICK, 0);
-  learner.add(core);
+  const towed = new THREE.Group();
+  const sidecar = new THREE.Group();
+  const sidecarBuild = builder(sidecar);
+  sidecarBuild.brick({ w: 4 * P - GAP, d: 3 * P - GAP, h: PLATE - GAP, material: common("--shadow3d"), top: false });
+  for (const z of [-P, P]) sidecarBuild.brick({ y: PLATE, z, w: 4 * P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--orange") });
+  for (const x of [-1.5 * P, 1.5 * P]) sidecarBuild.brick({ x, y: PLATE, w: P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d") });
+  sidecarBuild.brick({ y: PLATE, w: 2 * P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d"), top: false });
+  sidecarBuild.finish();
+  const coreMaterial = kit.trans("--orange", { glow: 0.9, opacity: 0.8 });
+  const core = mesh(new THREE.ConeGeometry(0.8 * P, 2 * BRICK, 20), coreMaterial, 0, PLATE + 2 * BRICK, 0, false);
+  sidecar.add(core);
   const halo = new THREE.Group();
-  for (let i = 0; i < 10; i++) {
-    const bead = mesh(new THREE.CylinderGeometry(P / 2 - 0.02, P / 2 - 0.02, PLATE, 16), kit.trans("--orange-light", { glow: 1, opacity: 0.85 }), Math.cos((i / 10) * Math.PI * 2) * 3, 0, Math.sin((i / 10) * Math.PI * 2) * 3, false);
-    halo.add(bead);
-  }
-  halo.position.y = 11 * BRICK;
-  learner.add(halo);
-  const coreLight = new THREE.PointLight(0xffa060, 1.2, 26, 1.6);
-  coreLight.position.y = 11.5;
-  learner.add(coreLight);
-  learner.position.set(LEARNER.x, PLATE, LEARNER.z);
-  learner.visible = false;
-  learner.userData.tag = "learner";
-  scene.add(learner);
+  const beadMaterial = kit.trans("--orange-light", { glow: 1, opacity: 0.85 });
+  for (let i = 0; i < 6; i++) halo.add(mesh(new THREE.CylinderGeometry(0.16, 0.16, PLATE * 0.6, 10), beadMaterial, Math.cos((i / 6) * Math.PI * 2) * 1.1, 0, Math.sin((i / 6) * Math.PI * 2) * 1.1, false));
+  halo.position.y = PLATE + BRICK + 0.4;
+  sidecar.add(halo);
+  const coreLight = new THREE.PointLight(0xffa060, 0, 14, 1.6);
+  coreLight.position.y = PLATE + 2 * BRICK;
+  sidecar.add(coreLight);
+  const towBar = mesh(new THREE.CylinderGeometry(0.1, 0.1, 1, 8), common("--steel3d"), 0, 0, 0);
+  const towGlowMaterial = kit.trans("--orange-light", { glow: 1, opacity: 0 });
+  const towGlow = mesh(new THREE.CylinderGeometry(0.2, 0.2, 1, 10), towGlowMaterial, 0, 0, 0, false);
+  const spark = mesh(new THREE.SphereGeometry(0.34, 12, 8), kit.trans("--orange-light", { glow: 1, opacity: 0.95 }), 0, 0, 0, false);
+  const towBlob = blob(2.4);
+  towed.add(sidecar, towBar, towGlow, spark, towBlob);
+  towed.visible = false;
+  scene.add(towed);
 
   const packets = Array.from({ length: 24 }, () => {
     const material = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.25, clearcoat: 0.3, envMapIntensity: 0.8, emissive: 0x000000 });
@@ -1338,12 +1343,13 @@ export function createWorld(canvas, options) {
     const body = item.pod.body;
     body.rotation.order = "YZX";
     const start = body.getWorldPosition(new THREE.Vector3());
-    const raceState = { item, style, mode: "launch", distance: GRID, speed: 0, target: 0, heat: 0, training: false, flight: null, emit: 0, laps: 0, goAt: null, dust: 0, lines: 0, flash: 0, memory: 4, value: 0, syncAt: 0, ghostFlash: 0 };
+    const raceState = { item, style, mode: "launch", distance: GRID, speed: 0, target: 0, heat: 0, training: false, flight: null, emit: 0, laps: 0, goAt: null, dust: 0, lines: 0, flash: 0, sync: 0, memory: 4, value: 0, syncAt: 0, ghostFlash: 0 };
     if (item.ghost) item.ghost.visible = false;
     item.pod.extras.stack.forEach((brick, i) => { brick.visible = i < 4; });
     state.race = raceState;
+    if (style === "split") hook(raceState);
     recorded.visible = style === "dyno";
-    learner.visible = style === "split";
+    towed.visible = style === "split";
     door.visible = false;
     items.forEach((other) => { if (other.kind === "track") other.group.visible = false; });
     const yaw = body.rotation.y;
@@ -1382,7 +1388,7 @@ export function createWorld(canvas, options) {
         if (raceState.item.ghost) raceState.item.ghost.visible = false;
         raceState.item.pod.extras.stack.forEach((brick, i) => { brick.visible = i < 8; });
         recorded.visible = false;
-        learner.visible = false;
+        towed.visible = false;
         door.visible = true;
         items.forEach((other) => { if (other.kind === "track") other.group.visible = true; });
         packets.forEach((packet) => { packet.active = false; packet.mesh.visible = false; });
@@ -1417,6 +1423,7 @@ export function createWorld(canvas, options) {
     if (!raceState || document.hidden) return;
     const extras = raceState.item.pod.extras;
     raceState.flash = 1;
+    if (raceState.style === "split") raceState.sync = 1;
     extras.bars.forEach((bar) => { bar.scale.y = 0.2 + Math.random() * 1.2; });
     if (extras.stack.length) raceState.memory = Math.min(extras.stack.length, raceState.memory + 1);
     if (extras.needle && update) raceState.value = Math.min(1, update.update / 120);
@@ -1428,6 +1435,74 @@ export function createWorld(canvas, options) {
     wake();
   }
 
+  const hitch = new THREE.Vector3();
+  const nose = new THREE.Vector3();
+  const link = new THREE.Vector3();
+  const upright = new THREE.Vector3(0, 1, 0);
+  function stretch(made, from, to) {
+    link.subVectors(to, from);
+    made.position.copy(from).addScaledVector(link, 0.5);
+    made.scale.set(1, link.length(), 1);
+    made.quaternion.setFromUnitVectors(upright, link.normalize());
+  }
+  const vertex = new THREE.Vector3();
+  const relative = new THREE.Matrix4();
+  function flank(pod, from, to) {
+    const reach = pod.length / 2;
+    pod.body.updateMatrixWorld(true);
+    const inverse = pod.body.matrixWorld.clone().invert();
+    let widest = 0;
+    pod.body.traverse((child) => {
+      if (!child.isMesh || child.isInstancedMesh) return;
+      relative.multiplyMatrices(inverse, child.matrixWorld);
+      const positions = child.geometry.attributes.position;
+      for (let i = 0; i < positions.count; i++) {
+        vertex.fromBufferAttribute(positions, i).applyMatrix4(relative);
+        if (vertex.x > from - reach && vertex.x < to - reach) widest = Math.max(widest, Math.abs(vertex.z));
+      }
+    });
+    return widest;
+  }
+  function hook(raceState) {
+    const pod = raceState.item.pod;
+    raceState.side = Math.min(4.6, Math.max(3.2, flank(pod, SIDECAR.along - 2 * P - 0.2, SIDECAR.along + 2 * P + 0.2) + 2.2));
+    raceState.hitch = Math.max(1, flank(pod, SIDECAR.hitch - 0.4, SIDECAR.hitch + 0.4));
+  }
+  function tow(raceState, dt, clock) {
+    const body = raceState.item.pod.body;
+    const reach = (raceState.item.pod.length || 16) / 2;
+    raceState.sync = Math.max(0, raceState.sync - dt * 1.4);
+    body.updateMatrixWorld();
+    const flying = Boolean(raceState.flight) || raceState.mode === "return";
+    if (flying) {
+      body.localToWorld(sidecar.position.set(-reach + SIDECAR.along, 0, raceState.side));
+      sidecar.rotation.copy(body.rotation);
+      sidecar.scale.copy(body.scale);
+    } else {
+      const spot = place(raceState.distance - reach + SIDECAR.along);
+      const pose = racePose(SIDECAR, spot, raceState.speed, 0.1 * Math.sin(clock * 9 + 1.3));
+      sidecar.position.copy(pose.position).addScaledVector(spot.right, raceState.side);
+      sidecar.rotation.set(pose.roll, pose.heading, pose.pitch, "YZX");
+      sidecar.scale.setScalar(1);
+      towBlob.position.copy(spot.position).addScaledVector(spot.right, raceState.side);
+      towBlob.position.y += 0.06;
+    }
+    towBlob.visible = !flying;
+    sidecar.updateMatrixWorld();
+    body.localToWorld(hitch.set(-reach + SIDECAR.hitch, 0.6, raceState.hitch));
+    sidecar.localToWorld(nose.set(2 * P, PLATE + 0.4, -0.6 * P));
+    stretch(towBar, nose, hitch);
+    const sync = raceState.sync;
+    towGlow.visible = sync > 0;
+    if (towGlow.visible) stretch(towGlow, nose, hitch);
+    towGlowMaterial.opacity = 0.7 * sync;
+    spark.visible = sync > 0 && !reduced;
+    if (spark.visible) spark.position.copy(nose).lerp(hitch, 1 - sync * sync);
+    coreMaterial.emissiveIntensity = 1 + 2.5 * sync;
+    core.scale.setScalar(1 + 0.25 * sync);
+    coreLight.intensity = 0.4 + 1.6 * sync;
+    if (!reduced) halo.rotation.y += dt * (0.6 + (raceState.training ? raceState.speed * 0.05 : 0));
+  }
   function mechanics(extras, live, dt, clock, speed) {
     live.flash = Math.max(0, live.flash - dt * 3);
     extras.clamps.forEach((clamp) => clamp.material.emissive.copy(tone("--yellow-light")).multiplyScalar(live.flash * 0.9));
@@ -1665,6 +1740,7 @@ export function createWorld(canvas, options) {
         body.rotation.x *= 0.9;
         body.rotation.z *= 0.9;
       }
+      if (raceState.style === "split") tow(raceState, dt, clock);
       const extras = raceState.item.pod.extras;
       mechanics(extras, raceState, dt, clock, raceState.speed);
       const ghost = raceState.item.ghost;
@@ -1691,7 +1767,6 @@ export function createWorld(canvas, options) {
         raceBlob.position.copy(below.position).add(new THREE.Vector3(0, 0.06, 0));
         raceBlob.scale.setScalar(raceState.mode === "dyno" ? 1 : 1.2);
       }
-      if (raceState.style === "split") halo.rotation.y += dt * (0.4 + (raceState.training ? raceState.speed * 0.05 : 0));
     }
 
     let moved = false;
@@ -1781,7 +1856,6 @@ export function createWorld(canvas, options) {
     if (state.race) {
       const pod = state.race.item.pod.body;
       result.pod = project(scratch.copy(pod.position).add(new THREE.Vector3(0, 4, 0)));
-      if (state.race.style === "split") result.learner = project(new THREE.Vector3(LEARNER.x, 17, LEARNER.z));
       if (state.race.style === "dyno") result.reel = project(new THREE.Vector3(REEL.x, REEL.y + 4.4, REEL.z));
     }
     return result;
