@@ -128,7 +128,7 @@ class IsaacLab(Environment):
     def action_space(self) -> Space:
         return self._action_space
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return self._horizon
 
 

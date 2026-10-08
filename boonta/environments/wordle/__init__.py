@@ -159,7 +159,7 @@ class Wordle(Environment):
             high=NUM_LETTERS - 1,
         )
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return self.num_guesses
 
     def render(self, state: EnvState, cell: int = 32, pad: int = 2) -> Array:

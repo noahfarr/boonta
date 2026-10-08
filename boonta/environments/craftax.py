@@ -60,7 +60,7 @@ class Craftax(Environment):
         space = self._env.action_space(params)
         return Space(shape=space.shape, dtype=space.dtype, low=0, high=space.n - 1)
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         params = self._env.default_params
         return int(params.max_timesteps)
 

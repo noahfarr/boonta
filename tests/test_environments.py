@@ -310,6 +310,23 @@ def test_reading_the_prompt_never_ends_the_episode():
     np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, True])
 
 
+def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
+    from boonta.environments import gymnax
+
+    cartpole = gymnax.make("CartPole-v1", params={"max_steps_in_episode": 7})
+    assert RecordEpisodeStatistics(Vectorize(SameStepAutoReset(cartpole), 2)).time_limit() == 7
+    assert Vectorize(TimeLimit(cartpole, 5), 2).time_limit() == 5
+
+    with pytest.raises(NotImplementedError):
+        Vectorize(Dial(), 2).time_limit()
+
+
+def test_prompt_and_tool_calls_stretch_the_time_limit():
+    calls = tool(TimeLimit(Dial(), 4))
+    assert calls.time_limit() == 4 * 32
+    assert Prompt(calls, np.arange(7), pad=0).time_limit() == 4 * 32 + 3
+
+
 def test_flatten_observation_flattens_the_space_too():
     environment = FlattenObservation(TransformObservation(Dial(), lambda obs: obs.reshape(3, 1)))
     _, timestep = environment.init(jax.random.key(0))

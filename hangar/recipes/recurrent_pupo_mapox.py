@@ -77,10 +77,10 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     sizes = tuple(int(size) for size in env.observation_space()["view"].high + 1)
     hidden_dim = cfg.cell.features
-    horizon = env.horizon()
+    time_limit = env.time_limit()
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = GroupedAutoReset(env, num_steps=horizon)
+    env = GroupedAutoReset(env, num_steps=time_limit)
     env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(

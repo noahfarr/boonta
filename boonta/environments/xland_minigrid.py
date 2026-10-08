@@ -69,7 +69,7 @@ class XLandMiniGrid(Environment):
             high=self._env.num_actions(self.params) - 1,
         )
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return int(self.params.max_steps)
 
 

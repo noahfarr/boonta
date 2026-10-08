@@ -374,7 +374,7 @@ class GameBoy(Environment):
     def action_space(self) -> Space:
         return Space(shape=(), dtype=jnp.int32, low=0, high=len(ACTIONS) - 1)
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return self._horizon
 
     def render(self, state: GameBoyState, scale: int = 2) -> Array:
