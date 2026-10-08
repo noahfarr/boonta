@@ -1,7 +1,12 @@
+import os
 import time
 
-import hydra
 import jax
+
+if int(os.environ.get("SLURM_STEP_NUM_TASKS", 1)) > 1:
+    jax.distributed.initialize()
+
+import hydra
 import jax.numpy as jnp
 import numpy as np
 from hydra.utils import instantiate
@@ -46,7 +51,8 @@ def main(cfg):
 
     state = load_checkpoint(newest(cfg.get("resume")), podracer.init(init_key))
 
-    brief(cfg, state)
+    if jax.process_index() == 0:
+        brief(cfg, state)
 
     baseline_key, evaluate_key = jax.random.split(evaluate_key)
     train_keys = jax.random.split(train_key, cfg.training.num_epochs)
