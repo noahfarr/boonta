@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import lox
 import numpy as np
 import pytest
+from flax import struct
 
 import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
@@ -579,6 +580,38 @@ def sokoban(**kwargs):
 def test_a_jumanji_episode_opens_with_a_start_flag():
     _, timestep = sokoban().init(jax.random.key(0))
     assert bool(timestep.terminated) and not bool(timestep.truncated)
+
+
+@struct.dataclass
+class Grid:
+    observation: jax.Array
+    reward: jax.Array
+    discount: jax.Array
+    clock: jax.Array
+
+    def last(self):
+        return self.clock >= 2
+
+
+class MiniGrid:
+    def reset(self, params, key):
+        return Grid(jnp.zeros((5, 5, 2), jnp.uint8), jnp.float32(0.0), jnp.float32(1.0), jnp.int32(0))
+
+    def step(self, params, grid, action):
+        return grid.replace(clock=grid.clock + 1)
+
+    def num_actions(self, params):
+        return 6
+
+
+def test_xland_minigrid_hands_its_wrappers_an_info_dict():
+    from boonta.environments.xland_minigrid import XLandMiniGrid
+
+    environment = LogInfo(XLandMiniGrid(MiniGrid(), params=None))
+    state, timestep = environment.init(jax.random.key(0))
+    assert timestep.info == {}
+    _, timestep = environment.step(jax.random.key(1), state, jnp.int32(0))
+    assert timestep.info == {}
 
 
 def statistics_only(environment, num_envs):
