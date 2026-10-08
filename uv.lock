@@ -1068,7 +1068,6 @@ dev = [
 sweep = [
     { name = "carbs" },
     { name = "determined" },
-    { name = "hydra-carbs-sweeper" },
     { name = "hydra-submitit-launcher" },
     { name = "pyyaml", version = "6.0.2", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
     { name = "pyyaml", version = "6.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
@@ -1136,7 +1135,6 @@ dev = [{ name = "pytest", specifier = ">=8" }]
 sweep = [
     { name = "carbs", git = "https://github.com/imbue-ai/carbs.git" },
     { name = "determined", specifier = "==0.35.0" },
-    { name = "hydra-carbs-sweeper", git = "https://github.com/noahfarr/hydra-carbs-sweeper.git" },
     { name = "hydra-submitit-launcher", specifier = ">=1.2" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "submitit", specifier = ">=1.5" },
@@ -3986,17 +3984,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/ea/13a1ef3c12d12662905801495283530251918b70d62d368f1d2e0272c70d/humanize-4.16.0.tar.gz", hash = "sha256:7dc2244a2f84a4bfb1d36c37bac80cd78e35cdc5c119206d87b018e1445f3a3f", size = 89515, upload-time = "2026-06-30T16:17:29.859Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b0/aa/0b7365d30fed43e7a3449aba1fe20a0a7174d9cf13e282af4e69ac825441/humanize-4.16.0-py3-none-any.whl", hash = "sha256:353eb2f34c09d098b2880eee8bef21832eae6d174f48c5762fff7e5fcb74d01d", size = 137209, upload-time = "2026-06-30T16:17:28.36Z" },
-]
-
-[[package]]
-name = "hydra-carbs-sweeper"
-version = "0.1.0"
-source = { git = "https://github.com/noahfarr/hydra-carbs-sweeper.git#a3b5aab4fbf78a9c1a88acbc299ae9dc96177c98" }
-dependencies = [
-    { name = "carbs" },
-    { name = "hydra-core" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
 ]
 
 [[package]]
