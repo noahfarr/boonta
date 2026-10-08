@@ -10,13 +10,15 @@ from jax.sharding import PartitionSpec as P
 from omegaconf import OmegaConf
 
 from boonta import datasets
-from boonta.datasets.disk import Disk, write
 from boonta.datasets.kinetix import Kinetix
-from boonta.datasets.minari import Minari, convert, load, stack
+from boonta.datasets.minari import convert, make, stack
 from boonta.utils import mesh
+
+from dummies import publish
 
 LENGTHS = [5, 1, 7, 3]
 CONFIGS = Path(__file__).parents[1] / "hangar/config/dataset"
+MANY = [3 + index % 5 for index in range(20)]
 
 
 def episode(length, index, dict_obs=False):
@@ -34,45 +36,41 @@ def episode(length, index, dict_obs=False):
     )
 
 
-def episodes(dict_obs=False):
-    return [episode(length, index, dict_obs) for index, length in enumerate(LENGTHS)]
+def episodes(lengths=LENGTHS, dict_obs=False):
+    return [episode(length, index, dict_obs) for index, length in enumerate(lengths)]
 
 
-def from_minari(directory, monkeypatch, dict_obs=False):
-    import minari
+@pytest.fixture
+def archive(tmp_path, monkeypatch):
+    monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
 
-    monkeypatch.setattr(
-        minari,
-        "load_dataset",
-        lambda *args, **kwargs: SimpleNamespace(
-            iterate_episodes=lambda: episodes(dict_obs)
-        ),
-    )
-    return Minari(load("anything")).init().transitions
+    def write(lengths=LENGTHS, dict_obs=False):
+        return publish(episodes(lengths, dict_obs))
+
+    return write
 
 
-def from_disk(directory, monkeypatch, dict_obs=False):
-    write(directory, episodes(dict_obs))
-    return Disk(directory).init().transitions
+def unsharded(dataset):
+    return jax.tree.map(lambda _: None, dataset.init())
 
 
-def from_a_streamed_pool(directory, monkeypatch, dict_obs=False):
-    write(directory, episodes(dict_obs))
-    dataset = Disk(directory, pool_size=sum(LENGTHS) - 1)
-    sharding = jax.tree.map(lambda _: None, dataset.init())
-    pool = dataset.update(dataset.init(), jax.random.key(0), sharding).transitions
+def whole(archive, dict_obs=False):
+    return make(archive(dict_obs=dict_obs)).init().transitions
+
+
+def streamed(archive, dict_obs=False):
+    dataset = make(archive(dict_obs=dict_obs), pool_size=sum(LENGTHS) - 1)
+    pool = dataset.update(dataset.init(), jax.random.key(0), unsharded(dataset))
     dataset.close()
-    return jax.device_get(pool)
+    return jax.device_get(pool.transitions)
 
 
-SOURCES = [from_minari, from_disk, from_a_streamed_pool]
+SOURCES = [whole, streamed]
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_first_marks_episode_starts_and_carries_the_previous_step(
-    source, tmp_path, monkeypatch
-):
-    transitions = source(tmp_path, monkeypatch)
+def test_first_marks_episode_starts_and_carries_the_previous_step(source, archive):
+    transitions = source(archive)
     index = np.asarray(transitions.second.reward) % 100
     starts = index == 1
 
@@ -91,109 +89,137 @@ def test_first_marks_episode_starts_and_carries_the_previous_step(
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_observations_are_paired_one_step_apart(source, tmp_path, monkeypatch):
-    transitions = source(tmp_path, monkeypatch)
+def test_observations_are_paired_one_step_apart(source, archive):
+    transitions = source(archive)
     np.testing.assert_array_equal(
         np.asarray(transitions.second.obs), np.asarray(transitions.first.obs) + 1
     )
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_flags_stay_boolean_and_values_single_precision(source, tmp_path, monkeypatch):
-    transitions = source(tmp_path, monkeypatch)
+def test_flags_stay_boolean_and_values_single_precision(source, archive):
+    transitions = source(archive)
     for flag in (transitions.first.terminated, transitions.second.truncated):
         assert flag.dtype == np.bool_
     assert transitions.first.obs.dtype == np.float32
     assert transitions.second.reward.dtype == np.float32
 
 
-def test_disk_matches_minari_exactly_with_dict_observations(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source", SOURCES)
+def test_dict_observations_survive_the_round_trip(source, archive):
+    transitions = source(archive, dict_obs=True)
+    position, velocity = (transitions.first.obs[name] for name in ("position", "velocity"))
+    np.testing.assert_array_equal(np.asarray(velocity), -np.asarray(position))
+
+
+def test_a_whole_dataset_matches_the_episodes_it_was_written_from(archive):
     expected = jax.tree.map(stack, *[convert(e) for e in episodes(dict_obs=True)])
-    got = from_disk(tmp_path, monkeypatch, dict_obs=True)
+    got = whole(archive, dict_obs=True)
     jax.tree.map(np.testing.assert_array_equal, got, expected)
     for got_leaf, expected_leaf in zip(jax.tree.leaves(got), jax.tree.leaves(expected)):
         assert got_leaf.dtype == expected_leaf.dtype
 
 
 @pytest.mark.parametrize("devices", [2, 4])
-def test_whole_datasets_trim_rows_to_the_device_count(devices, tmp_path, monkeypatch):
-    import minari
-
-    monkeypatch.setattr(
-        minari,
-        "load_dataset",
-        lambda *args, **kwargs: SimpleNamespace(iterate_episodes=episodes),
-    )
-    write(tmp_path, episodes())
+def test_whole_datasets_trim_rows_to_the_device_count(devices, archive):
     rows = sum(LENGTHS) // devices * devices
-    for transitions in (
-        load("anything", num_devices=devices),
-        Disk(tmp_path, num_devices=devices).init().transitions,
-    ):
-        assert {len(leaf) for leaf in jax.tree.leaves(transitions)} == {rows}
+    transitions = make(archive(), num_devices=devices).init().transitions
+    assert {len(leaf) for leaf in jax.tree.leaves(transitions)} == {rows}
 
 
-def test_a_streamed_pool_holds_distinct_transitions_placed_as_asked(tmp_path):
-    write(tmp_path, episodes())
-    dataset = Disk(tmp_path, pool_size=6, num_devices=2)
+def test_a_pool_as_large_as_the_dataset_loads_it_whole(archive):
+    dataset_id = archive()
+    jax.tree.map(
+        np.testing.assert_array_equal,
+        make(dataset_id, pool_size=sum(LENGTHS)).init().transitions,
+        make(dataset_id).init().transitions,
+    )
+
+
+def test_a_streamed_pool_holds_distinct_transitions_placed_as_asked(archive):
+    dataset = make(archive(), pool_size=7, num_devices=2)
     sharding = jax.tree.map(lambda _: NamedSharding(mesh(2), P("data")), dataset.init())
     pool = dataset.update(dataset.init(), jax.random.key(0), sharding).transitions
     dataset.close()
 
     rewards = np.asarray(pool.second.reward)
+    assert len(rewards) == 6
     assert len(set(rewards.tolist())) == 6
     assert pool.first.obs.sharding.spec == P("data")
 
 
-def test_each_update_hands_over_the_pool_staged_the_call_before(tmp_path):
-    write(tmp_path, episodes())
-    dataset = Disk(tmp_path, pool_size=4)
-    sharding = jax.tree.map(lambda _: None, dataset.init())
+def runs(rewards):
+    episode, step = np.divmod(rewards.astype(np.int64), 100)
+    cuts = np.flatnonzero(np.diff(episode)) + 1
+    return [
+        (int(owner[0]), steps) for owner, steps in zip(np.split(episode, cuts), np.split(step, cuts))
+    ]
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_pool_is_whole_episodes_with_only_the_last_cut_short(seed, archive):
+    dataset = make(archive(MANY), pool_size=20)
+    pool = dataset.stream.stage(jax.random.key(seed), unsharded(dataset)).transitions
+    dataset.close()
+
+    found = runs(np.asarray(pool.second.reward))
+    *complete, (_, last) = found
+    assert sum(len(steps) for _, steps in found) == 20
+    for _, steps in found:
+        np.testing.assert_array_equal(steps, np.arange(1, len(steps) + 1))
+    for owner, steps in complete:
+        assert len(steps) == MANY[owner]
+    assert len({owner for owner, _ in found}) == len(found)
+
+
+def test_pools_depend_only_on_the_key(archive):
+    dataset = make(archive(MANY), pool_size=20)
+    sharding = unsharded(dataset)
+    stage = dataset.stream.stage
+    first, again, other = (
+        np.asarray(stage(jax.random.key(seed), sharding).transitions.second.reward)
+        for seed in (0, 0, 1)
+    )
+    dataset.close()
+
+    np.testing.assert_array_equal(first, again)
+    assert not np.array_equal(first, other)
+
+
+def test_each_update_hands_over_the_pool_staged_the_call_before(archive):
+    dataset = make(archive(), pool_size=4)
+    sharding = unsharded(dataset)
     first, second = jax.random.key(1), jax.random.key(2)
 
     handed = [dataset.update(dataset.init(), key, sharding) for key in (first, second)]
     dataset.close()
 
-    jax.tree.map(np.testing.assert_array_equal, handed[0], dataset.stage(first, sharding))
+    jax.tree.map(np.testing.assert_array_equal, handed[0], dataset.stream.stage(first, sharding))
     jax.tree.map(
         np.testing.assert_array_equal,
         handed[1],
-        dataset.stage(jax.random.fold_in(first, 1), sharding),
+        dataset.stream.stage(jax.random.fold_in(first, 1), sharding),
     )
 
 
-def test_minari_export_writes_what_minari_loads(tmp_path, monkeypatch):
-    import minari
-
-    monkeypatch.setattr(
-        minari,
-        "load_dataset",
-        lambda *args, **kwargs: SimpleNamespace(iterate_episodes=episodes),
-    )
-    datasets.minari.export("anything", tmp_path)
-    jax.tree.map(
-        np.testing.assert_array_equal,
-        Disk(tmp_path).init().transitions,
-        load("anything"),
-    )
+def test_close_stops_the_staging_thread(archive):
+    dataset = make(archive(), pool_size=4)
+    dataset.update(dataset.init(), jax.random.key(0), unsharded(dataset))
+    dataset.close()
+    assert dataset.stream.executor._shutdown
 
 
-@pytest.mark.parametrize(
-    "config, namespace", [("minari/mujoco/expert.yaml", "minari"), ("disk.yaml", "disk")]
-)
-def test_the_config_hands_the_device_count_to_the_dataset(config, namespace, monkeypatch):
+def test_the_config_hands_the_device_count_and_pool_size_to_the_dataset(monkeypatch):
     received = {}
     monkeypatch.setitem(
-        datasets.registry, namespace, lambda dataset_id, **kwargs: received.update(kwargs)
+        datasets.registry, "minari", lambda dataset_id, **kwargs: received.update(kwargs)
     )
     run = OmegaConf.merge(
         {"environment": {"env_id": "hopper"}, "podracer": {"config": {"mesh": {"count": 2}}}},
-        {"dataset": OmegaConf.load(CONFIGS / config)},
+        {"dataset": OmegaConf.load(CONFIGS / "minari/mujoco/expert.yaml")},
     )
-    if namespace == "disk":
-        run.dataset.dataset_id = "somewhere"
     datasets.make(**run.dataset)
-    assert received["num_devices"] == 2
+    assert received == {"num_devices": 2, "pool_size": 0}
 
 
 TRAJECTORIES, STEPS, DIMS = 2, 6, 3

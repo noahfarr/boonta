@@ -9,7 +9,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
-from boonta.datasets.disk import write
+from dummies import publish
 from hangar import recipes
 
 ROOT = Path(__file__).parents[1]
@@ -35,8 +35,7 @@ def cached(repo_id):
 
 def hopper_dataset(directory):
     generator = np.random.default_rng(0)
-    write(
-        directory,
+    dataset_id = publish(
         [
             SimpleNamespace(
                 observations=generator.normal(size=(9, 11)),
@@ -47,8 +46,13 @@ def hopper_dataset(directory):
             )
             for _ in range(16)
         ],
+        "dummy/hopper/expert-v0",
     )
-    return ["dataset=disk", f"dataset.dataset_id={directory}", "algorithm.batch_size=64"]
+    return [f"dataset.dataset_id={dataset_id}", "algorithm.batch_size=64"]
+
+
+def hopper_pool(directory):
+    return hopper_dataset(directory) + ["dataset.kwargs.pool_size=64"]
 
 
 def kinetix_environment(env_id=None):
@@ -125,6 +129,7 @@ CASES = [
     ("reppo", HOPPER, installed("brax"), False),
     ("recurrent_sac", HOPPER, installed("brax"), False),
     ("bc", HOPPER, installed("brax"), hopper_dataset),
+    ("bc", HOPPER, installed("brax"), hopper_pool),
     ("iql", HOPPER, installed("brax"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
@@ -202,7 +207,10 @@ def test_carbs_reads_the_search_space():
         for case in CASES
     ],
 )
-def test_every_recipe_builds_and_runs_one_update(algorithm, environment, missing, offline, tmp_path):
+def test_every_recipe_builds_and_runs_one_update(
+    algorithm, environment, missing, offline, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
     overrides = SMALL + (offline(tmp_path) if offline else [])
     cfg = configure(algorithm, environment, *overrides)
     HydraConfig.instance().set_config(cfg)
