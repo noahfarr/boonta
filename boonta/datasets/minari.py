@@ -28,7 +28,7 @@ class Minari:
             )
         else:
             rows = self.episodes.total_steps // num_devices * num_devices
-            self.transitions = collect(self.episodes, self.episodes.episode_indices, rows)
+            self.transitions = load(self.episodes, self.episodes.episode_indices, rows)
 
     def init(self) -> MinariState:
         return MinariState(self.transitions)
@@ -37,7 +37,7 @@ class Minari:
         generator = np.random.default_rng(np.asarray(jax.random.key_data(key)))
         indices = generator.permutation(self.episodes.episode_indices)
         return jax.device_put(
-            MinariState(collect(self.episodes, indices, self.pool_size)), sharding
+            MinariState(load(self.episodes, indices, self.pool_size)), sharding
         )
 
     def update(self, state: MinariState, key: Key, sharding) -> MinariState:
@@ -97,7 +97,7 @@ def stack(*leaves) -> np.ndarray:
     return joined.astype(canonicalize_dtype(joined.dtype))
 
 
-def collect(episodes, indices, rows: int) -> Transition:
+def load(episodes, indices, rows: int) -> Transition:
     chosen, size = [], 0
     for episode in episodes.iterate_episodes(indices):
         chosen.append(convert(episode))
