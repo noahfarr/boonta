@@ -351,7 +351,7 @@ async function race() {
       onUpdate(update) {
         if (token !== state.token) return;
         state.last = update;
-        state.points.push({ update: update.update, value: update.episodeReturn });
+        if (!offline || Number.isFinite(update.episodeReturn)) state.points.push({ update: update.update, value: update.episodeReturn });
         if (state.points.length > 2000) state.points.splice(0, state.points.length - 2000);
         $("sps").textContent = format(update.sps);
         $("updates").textContent = String(update.update);

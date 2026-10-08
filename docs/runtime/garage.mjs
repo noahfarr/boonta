@@ -130,22 +130,18 @@ export async function start(selection, handlers = {}) {
     const worker = spawn(podracer);
     attend(worker, (data) => {
       if (data.type !== "updates") return;
-      if (data.updates === 0 && data.summary && data.summary[1] > 0) {
-        emit({ episodeReturn: data.summary[0] / data.summary[1] });
+      if (!data.episodes) {
+        update += data.updates;
+        steps += data.updates * data.batchSize;
+        emit({ episodeReturn: data.summary && data.summary[1] > 0 ? data.summary[0] / data.summary[1] : NaN });
         return;
       }
       for (let i = 0; i < data.updates; i++) {
         update++;
         steps += data.batchSize;
-        let episodeReturn = NaN;
-        if (data.episodes) {
-          const total = data.episodes[2 * i];
-          const count = data.episodes[2 * i + 1];
-          if (count > 0) episodeReturn = total / count;
-        } else if (data.summary && i === data.updates - 1 && data.summary[1] > 0) {
-          episodeReturn = data.summary[0] / data.summary[1];
-        }
-        emit({ episodeReturn });
+        const total = data.episodes[2 * i];
+        const count = data.episodes[2 * i + 1];
+        emit({ episodeReturn: count > 0 ? total / count : NaN });
       }
     });
     worker.postMessage({ base, seed });
