@@ -847,7 +847,6 @@ export function createWorld(canvas, options) {
   learner.visible = false;
   learner.userData.tag = "learner";
   scene.add(learner);
-  const learnerTop = new THREE.Vector3(LEARNER.x, PLATE + 13.5 * BRICK, LEARNER.z);
 
   const packets = Array.from({ length: 24 }, () => {
     const material = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.25, clearcoat: 0.3, envMapIntensity: 0.8, emissive: 0x000000 });
@@ -1306,7 +1305,6 @@ export function createWorld(canvas, options) {
   }
   const scratch = new THREE.Vector3();
   const ahead = new THREE.Vector3();
-  const up = new THREE.Vector3(0, 1.5, 0);
 
   function launchPoints(start, end) {
     return [start, start.clone().add(new THREE.Vector3(0, 16, 0)), end.clone().add(new THREE.Vector3(0, 22, 0)), end];
@@ -1479,12 +1477,6 @@ export function createWorld(canvas, options) {
     extras.bars.forEach((bar) => { bar.scale.y = 0.2 + Math.random() * 1.2; });
     if (extras.stack.length) raceState.memory = Math.min(extras.stack.length, raceState.memory + 1);
     if (extras.needle && update) raceState.value = Math.min(1, update.update / 120);
-    if (raceState.style !== "split") return;
-    const pod = raceState.item.pod.body;
-    const podTop = () => scratch.copy(pod.position).add(up);
-    const lift = 6 + pod.position.distanceTo(learnerTop) * 0.18;
-    launchPacket(pod.position.clone().add(up), () => learnerTop, "--orange-light", 0.8, lift);
-    launchPacket(learnerTop, podTop, "--yellow-light", 0.8, lift);
   }
   function setView(view) {
     state.view = view;
