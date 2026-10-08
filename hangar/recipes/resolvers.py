@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 
-from hangar.config.algorithms import lookup, spaces, table
+from hangar.config.algorithms import cascade, spaces, table
 
 
 def get_action_dim(cfg):
@@ -21,11 +21,11 @@ def get_action_dim(cfg):
 
 
 def tuned(algorithm: str, environment: str) -> str:
-    return lookup(table, algorithm, environment)
+    return cascade(table, algorithm, environment)
 
 
-def search(sweep, algorithm: str, environment: str) -> str:
-    return lookup(spaces, algorithm, environment) if sweep else "none"
+def search_space(sweep, algorithm: str, environment: str) -> str:
+    return cascade(spaces, algorithm, environment) if sweep else "none"
 
 
 def trial():
@@ -47,7 +47,7 @@ OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver("metric", lambda name: operator.itemgetter(name))
 OmegaConf.register_new_resolver("get_action_dim", get_action_dim)
 OmegaConf.register_new_resolver("hyperparameters", tuned)
-OmegaConf.register_new_resolver("search", search)
+OmegaConf.register_new_resolver("search_space", search_space)
 OmegaConf.register_new_resolver("trial", trial)
 OmegaConf.register_new_resolver("get_group", get_group)
 OmegaConf.register_new_resolver("groups", groups)

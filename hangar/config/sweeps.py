@@ -13,11 +13,11 @@ store(
 
 for (algorithm, environment), space in spaces.items():
     if environment is None:
-        place(space, f"search/{algorithm}", package="hydra.sweeper")
+        place(space, f"search_space/{algorithm}", package="hydra.sweeper")
         continue
-    wide = [f"/search/{algorithm}"] if (algorithm, None) in spaces else []
+    wide = [f"/search_space/{algorithm}"] if (algorithm, None) in spaces else []
     place(
         dict(defaults=[*wide, "_self_"], **space),
-        f"search/{algorithm}/{environment}",
+        f"search_space/{algorithm}/{environment}",
         package="hydra.sweeper",
     )

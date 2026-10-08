@@ -27,7 +27,7 @@ def algorithm(node, /, name):
     return Algorithm(node, name)
 
 
-def lookup(table, algorithm, environment):
+def cascade(table, algorithm, environment):
     parts = environment.split("/")
     while parts:
         path = "/".join(parts)

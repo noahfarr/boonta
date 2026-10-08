@@ -36,7 +36,7 @@ The config is typed Python, built with [hydra-zen](https://mit-ll-responsible-ai
 | `config/podracers.py` | the `podracer`, `curriculum` and `scoring` groups |
 | `config/data.py` | the `buffer` and `dataset` groups |
 | `config/outputs.py` | the `logger` and `artisan` groups |
-| `config/sweeps.py` | the `sweep` and `search` groups |
+| `config/sweeps.py` | the `sweep` and `search_space` groups |
 
 Each module in `config/algorithms/` holds everything about one algorithm. Its config is built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed. `config/algorithms/pqn.py` is the whole of PQN's configuration:
 
@@ -78,7 +78,7 @@ pqn.hyperparameters(
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
-`.hyperparameters(environment path, **settings)` on the handle registers the settings for that algorithm on an environment in the `hyperparameters` group. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so this line in `config/algorithms/ppo.py` covers every MinAtar game:
+`.hyperparameters(environment path, **settings)` on the handle registers the settings for that algorithm on an environment in the `hyperparameters` group. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, `cascade` walks up the environment path until it finds one, so this line in `config/algorithms/ppo.py` covers every MinAtar game:
 
 ```python
 ppo.hyperparameters("gymnax/minatar", total_timesteps=20_000_000)
