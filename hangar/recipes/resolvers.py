@@ -47,9 +47,14 @@ def groups():
     return {k: v for k, v in choices.items() if not k.startswith("hydra/")}
 
 
+def trial():
+    return OmegaConf.select(HydraConfig.get(), "job.num", default=0)
+
+
 OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver("metric", lambda name: operator.itemgetter(name))
 OmegaConf.register_new_resolver("get_action_dim", get_action_dim)
 OmegaConf.register_new_resolver("cascading_fallback", cascading_fallback)
 OmegaConf.register_new_resolver("get_group", get_group)
 OmegaConf.register_new_resolver("groups", groups)
+OmegaConf.register_new_resolver("trial", trial)
