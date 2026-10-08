@@ -2,6 +2,7 @@ from functools import partial
 from typing import Any
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 from boonta.utils import broadcast
@@ -27,12 +28,12 @@ class Network(nn.Module):
         **kwargs: Array,
     ) -> Any:
         if done is not None:
-            action = jnp.where(
-                broadcast(done, action), jnp.zeros_like(action), action
-            )
-            reward = jnp.where(
-                broadcast(done, reward), jnp.zeros_like(reward), reward
-            )
+
+            def blank(leaf: Array) -> Array:
+                return jnp.where(broadcast(done, leaf), jnp.zeros_like(leaf), leaf)
+
+            action = jax.tree.map(blank, action)
+            reward = jax.tree.map(blank, reward)
 
         x = self.feature_extractor(obs, action, reward, done, **kwargs)
         head = self.head

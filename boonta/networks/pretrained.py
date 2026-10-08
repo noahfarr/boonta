@@ -22,3 +22,7 @@ class Pretrained(nn.Module):
     def __call__(self, *args, **kwargs):
         params = self.variable("params", "pretrained", init_fn(self.weights)).value
         return self.module.apply({"params": params}, *args, **kwargs)
+
+    @nn.nowrap
+    def initialize_carry(self, *args, **kwargs):
+        return self.module.initialize_carry(*args, **kwargs)

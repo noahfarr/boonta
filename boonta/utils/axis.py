@@ -16,8 +16,8 @@ def add_time_axis(x: Array) -> Array:
     return jnp.expand_dims(x, axis=1)
 
 
-def remove_time_axis(x: Array) -> Array:
-    return jnp.squeeze(x, axis=1)
+def remove_time_axis(x: PyTree) -> PyTree:
+    return jax.tree.map(lambda leaf: jnp.squeeze(leaf, axis=1), x)
 
 
 def add_batch_axis(x: Array) -> Array:
