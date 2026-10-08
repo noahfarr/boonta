@@ -3,197 +3,104 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="Distributed reinforcement learning in JAX, built on the Podracer architectures.">
+<meta name="description" content="Distributed reinforcement learning in JAX, built on the Podracer architectures. Pick a pilot, a pod and a track and train in your browser.">
 <title>boonta</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<style>
-:root {
-  --sky: #000000;
-  --sand: rgb(28, 22, 18);
-  --dune: rgb(118, 88, 58);
-  --asphalt: rgb(34, 33, 36);
-  --panel: rgb(17, 15, 14);
-  --rule: rgb(52, 48, 45);
-  --dim: rgb(150, 143, 136);
-  --text: rgb(236, 236, 236);
-  --red: rgb(200, 72, 72);
-  --red-light: rgb(232, 120, 120);
-  --orange: rgb(198, 108, 58);
-  --orange-light: rgb(230, 150, 100);
-  --yellow: rgb(162, 162, 42);
-  --yellow-light: rgb(206, 206, 92);
-  --green: rgb(72, 160, 72);
-  --blue: rgb(66, 72, 200);
-  --grey: rgb(90, 90, 90);
-  --dark: rgb(40, 40, 40);
-  --moon: rgb(220, 180, 70);
-  --pixel: "Press Start 2P", "Courier New", monospace;
-  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  color-scheme: dark;
-}
-* { box-sizing: border-box; }
-body {
-  background: var(--sky);
-  color: var(--text);
-  font-family: var(--body);
-  font-size: 17px;
-  line-height: 1.6;
-}
-a { color: var(--yellow-light); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:hover { color: var(--text); }
-a:focus-visible, button:focus-visible { outline: 2px solid var(--yellow-light); outline-offset: 3px; }
-h1, h2, h3 { margin: 0; text-wrap: balance; }
-p { margin: 0; }
+<link rel="stylesheet" href="garage.css">
+<script>
+(function () {
+  var chosen = null;
+  try { chosen = localStorage.getItem("boonta-theme"); } catch (error) {}
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  var light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  var resolved = chosen === "light" || chosen === "dark" ? chosen : (light && !dark ? "light" : "dark");
+  document.documentElement.dataset.theme = chosen || "auto";
+  document.documentElement.dataset.resolved = resolved;
+})();
+</script>
+</head>
+<body>
 
-.hero { position: relative; height: 88vh; height: 88svh; min-height: 520px; max-height: 980px; overflow: hidden; }
-.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.hero #scene { cursor: grab; }
-.hero #scene:active { cursor: grabbing; }
-.hero #flat { display: none; top: 50%; height: auto; transform: translateY(-50%); }
-body.flat .hero #scene { display: none; }
-body.flat .hero #flat { display: block; }
-.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0) 22%, rgba(0, 0, 0, 0) 52%, var(--sky) 100%); pointer-events: none; }
-.title {
-  position: absolute;
-  z-index: 1;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding-inline: 20px;
-  padding-block: 0 48px;
-  display: grid;
-  gap: 18px;
-  pointer-events: none;
-}
-.title > * { pointer-events: auto; justify-self: start; }
-.logo {
-  font-family: var(--pixel);
-  font-size: clamp(46px, 10vw, 120px);
-  line-height: 1;
-  letter-spacing: 0.02em;
-  background-image: linear-gradient(to bottom, var(--red) 0%, var(--red) 34%, var(--orange) 34%, var(--orange) 67%, var(--yellow) 67%, var(--yellow) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(4px 4px 0 var(--sky));
-}
-.tagline { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.4; max-width: 34ch; text-shadow: 0 2px 8px var(--sky); }
-.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.button {
-  font-family: var(--pixel);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-decoration: none;
-  color: var(--sky);
-  background: var(--yellow-light);
-  padding: 17px 20px;
-  box-shadow: 4px 4px 0 var(--orange);
-}
-.button:hover { color: var(--sky); background: var(--text); }
-.cue { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-.tags { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.tags span {
-  position: absolute;
-  left: 0;
-  top: 0;
-  font-family: var(--pixel);
-  font-size: 9px;
-  color: var(--tint);
-  text-shadow: 2px 2px 0 var(--sky);
-  white-space: nowrap;
-}
-
-.page { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 72px; display: grid; gap: 96px; }
-section { display: grid; gap: 28px; }
-.label { font-family: var(--pixel); font-size: 11px; letter-spacing: 0.08em; color: var(--dim); }
-section h2 { font-weight: 600; font-size: clamp(26px, 3.2vw, 36px); line-height: 1.2; }
-section > header { display: grid; gap: 12px; max-width: 62ch; }
-section > header p { color: var(--dim); }
-
-.racers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.racer { border-top: 4px solid var(--tint); background: var(--panel); padding: 22px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 14px; min-width: 0; }
-.racer canvas { width: 192px; max-width: 100%; height: auto; image-rendering: pixelated; }
-.racer h3 { font-family: var(--pixel); font-size: 15px; font-weight: 400; color: var(--tint); letter-spacing: 0.04em; }
-.racer p { font-size: 16px; }
-.racer .use { border-top: 1px solid var(--rule); padding-top: 12px; font-size: 15px; color: var(--dim); }
-.racer .use b { display: block; font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--grey); }
-
-.terminal { background: var(--panel); border: 1px solid var(--rule); max-width: 820px; }
-.terminal .bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 12px; color: var(--dim); }
-.terminal pre { margin: 0; padding: 18px; font-family: var(--mono); font-size: 15px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
-.terminal .prompt { color: var(--grey); user-select: none; }
-.copy { font-family: var(--mono); font-size: 12px; background: transparent; color: var(--text); border: 1px solid var(--rule); padding: 4px 10px; cursor: pointer; }
-.copy:hover { border-color: var(--yellow-light); }
-
-.lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
-.lists h3 { font-family: var(--pixel); font-size: 12px; font-weight: 400; letter-spacing: 0.06em; margin-bottom: 8px; }
-table { border-collapse: collapse; width: 100%; font-size: 16px; }
-th { text-align: left; font-weight: 400; color: var(--dim); padding: 11px 16px 11px 0; vertical-align: top; width: 42%; }
-td { padding: 11px 0; vertical-align: top; }
-tr + tr th, tr + tr td { border-top: 1px solid var(--rule); }
-
-footer { border-top: 1px solid var(--rule); padding-top: 28px; display: grid; gap: 8px; color: var(--dim); font-size: 15px; }
-footer b { font-family: var(--mono); font-weight: 500; color: var(--text); }
-
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
-.stat { padding: 24px 20px 24px 0; display: grid; gap: 12px; min-width: 0; }
-.stat + .stat { border-left: 1px dashed var(--rule); padding-left: 20px; }
-.stat strong { font-family: var(--pixel); font-weight: 400; font-size: clamp(24px, 3.4vw, 40px); line-height: 1; color: var(--tint); }
-.stat span { font-family: var(--pixel); font-size: 11px; letter-spacing: 0.06em; color: var(--dim); line-height: 1.6; }
-.note { font-family: var(--mono); font-size: 13px; color: var(--dim); }
-
-.offer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.step { border-top: 4px solid var(--tint); background: var(--panel); padding: 22px; display: grid; gap: 10px; align-content: start; }
-.step h3 { font-family: var(--pixel); font-size: 13px; font-weight: 400; letter-spacing: 0.04em; color: var(--tint); }
-.step .price { font-family: var(--mono); font-size: 20px; font-weight: 500; }
-.step p { font-size: 16px; color: var(--dim); }
-
-@media (max-width: 860px) {
-  .racers, .lists, .offer { grid-template-columns: minmax(0, 1fr); }
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stat:nth-child(3) { border-left: none; padding-left: 0; }
-  .lists { gap: 36px; }
-}
-@media (max-width: 600px) {
-  body { font-size: 16px; }
-  .hero { height: 78svh; min-height: 460px; }
-  .title { padding-inline: 16px; padding-bottom: 28px; gap: 14px; }
-  .page { padding-inline: 16px; gap: 72px; }
-  .cue { display: none; }
-  .terminal pre { font-size: 13px; padding: 14px; }
-}
-</style>
-
-<header class="hero" aria-labelledby="title">
-  <canvas id="scene" aria-label="Three podracers, red, orange and yellow, racing side by side on a desert circuit at night, seen from just behind them"></canvas>
-  <canvas id="flat" width="320" height="100" aria-hidden="true"></canvas>
-  <div class="tags" aria-hidden="true">
-    <span style="--tint: var(--red)">ANAKIN</span>
-    <span style="--tint: var(--orange)">SEBULBA</span>
-    <span style="--tint: var(--yellow)">QUADINAROS</span>
+<header class="garage" id="garage" data-mode="garage" data-layout="scene" aria-labelledby="title">
+  <div class="topbar">
+    <h1 class="brandplate" id="title"><span aria-hidden="true">BOONTA</span><span class="hidden-text">boonta</span></h1>
+    <div class="links">
+      <button class="chip" type="button" id="theme" aria-label="Switch color theme">THEME</button>
+      <a class="chip" href="https://github.com/noahfarr/boonta">GITHUB</a>
+    </div>
   </div>
-  <div class="title">
-    <h1 class="logo" id="title">BOONTA</h1>
-    <p class="tagline">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>.</p>
-    <div class="actions">
-      <a class="button" href="#start">START A RUN</a>
-      <a class="button" href="https://github.com/noahfarr/boonta">GITHUB</a>
-      <span class="cue">Drag to look around</span>
+
+  <div class="view">
+    <div class="viewport" id="viewport" tabindex="0" role="group" aria-roledescription="3D garage" aria-label="Garage. Left and right arrows cycle, Enter confirms, Escape goes back a step." aria-describedby="announce">
+      <canvas id="world" aria-hidden="true"></canvas>
+      <div class="tags" id="tags" aria-hidden="true"></div>
+      <button type="button" class="item-step" id="item-prev" aria-label="Previous in this row">&#9664;</button>
+      <button type="button" class="item-step" id="item-next" aria-label="Next in this row">&#9654;</button>
+    </div>
+    <p class="hidden-text" id="announce" aria-live="polite"></p>
+
+    <nav class="stepbar" aria-label="Race setup steps">
+      <button type="button" class="chip" id="step-back" aria-label="Back to the previous step">&#9664; BACK</button>
+      <ol class="steps"><li>PILOT</li><li>POD</li><li>TRACK</li></ol>
+    </nav>
+    <div class="picks" id="picks" aria-label="Build your race"></div>
+
+    <div class="card" id="card" aria-live="polite">
+      <span class="kind" id="card-kind">PILOT</span>
+      <h2 id="card-name">ANAKIN</h2>
+      <p id="card-blurb"></p>
+      <p class="warn" id="card-warn"></p>
+      <div class="summary">
+        <div><b id="pick-line">ANAKIN · PPO · CARTPOLE</b><span id="pick-detail"></span></div>
+        <button class="button" type="button" id="start">START RACE</button>
+      </div>
+      <p class="keys" aria-hidden="true"><kbd>&#8592;</kbd><kbd>&#8594;</kbd> browse <kbd>&#9166;</kbd> choose <kbd>Esc</kbd> back</p>
+    </div>
+
+    <div class="hud" id="hud">
+      <div class="head">
+        <span class="run" id="run-name"></span>
+        <span class="status" id="status" role="status" aria-live="polite" data-phase="loading">Loading</span>
+        <p class="explain hidden-text" id="explain"></p>
+        <div class="controls">
+          <button class="button" type="button" id="stop">STOP</button>
+          <button class="button quiet" type="button" id="back">GARAGE</button>
+          <button class="button quiet" type="button" id="camera" aria-label="Change camera">CAM: AUTO</button>
+        </div>
+      </div>
+      <div class="meter" id="meter">
+        <div class="speed"><strong id="sps">0</strong><span id="unit">STEPS / S</span></div>
+        <div class="gauge" aria-hidden="true"><i id="gauge"></i></div>
+        <dl class="readout">
+          <div><dt>UPDATE</dt><dd id="updates">0</dd></div>
+          <div><dt id="steps-label">STEPS</dt><dd id="steps">0</dd></div>
+          <div><dt>RETURN</dt><dd id="return">–</dd></div>
+          <div><dt id="extra-label">LAP</dt><dd id="extra">0</dd></div>
+        </dl>
+      </div>
+      <div class="lapboard">
+        <header><span>EPISODE RETURN</span><b id="solved-flag"></b></header>
+        <canvas id="board" role="img" aria-label="Episode return by update, with the solved line"></canvas>
+      </div>
+      <div class="monitor" id="monitor">
+        <canvas id="screen" width="192" height="120" role="img" aria-label="The greedy policy playing the track"></canvas>
+      </div>
     </div>
   </div>
 </header>
 
 <main class="page">
+  <section class="intro" aria-label="About boonta">
+    <p class="lede">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>. Pick a pilot, a pod and a track above, and boonta's real training code runs in your browser.</p>
+  </section>
   <section id="podracers" aria-labelledby="podracers-title">
     <header>
-      <span class="label">PODRACERS</span>
-      <h2 id="podracers-title">Pick the one that fits your environment</h2>
-      <p>A podracer owns the training loop and every device. Algorithms never see it, so switching podracers is one config line.</p>
+      <span class="label">PILOTS · PODRACERS</span>
+      <h2 id="podracers-title">Pick the pilot that fits your environment</h2>
+      <p>Each pilot is a podracer: it owns the training loop and every device. Pods (the algorithms) never see it, so switching pilots is one config line.</p>
     </header>
     <div class="racers">
       <article class="racer" style="--tint: var(--red)">
@@ -221,6 +128,7 @@ footer b { font-family: var(--mono); font-weight: 500; color: var(--text); }
     <header>
       <span class="label">SPEED</span>
       <h2 id="speed-title">Most simulators train at millions of steps per second</h2>
+      <p>The garage above runs on your CPU in WebAssembly. On a GPU the same code runs a hundred times faster.</p>
     </header>
     <div class="stats">
       <div class="stat" style="--tint: var(--red)"><strong>10M+</strong><span>SIMPLE GAMES</span></div>
@@ -231,7 +139,7 @@ footer b { font-family: var(--mono); font-weight: 500; color: var(--text); }
     <p class="note">PPO training steps per second on one RTX 5080.</p>
   </section>
 
-  <section id="start" aria-labelledby="start-title">
+  <section id="start-section" aria-labelledby="start-title">
     <header>
       <span class="label">QUICKSTART</span>
       <h2 id="start-title">Three commands to a training run</h2>
@@ -290,7 +198,7 @@ footer b { font-family: var(--mono); font-weight: 500; color: var(--text); }
         <p>One call about your task, simulator, data and compute.</p>
       </article>
       <article class="step" style="--tint: var(--orange)">
-        <h3>PILOT</h3>
+        <h3>STARTER</h3>
         <p class="price">From €8k</p>
         <p>Two to four weeks: one environment connected and a trained baseline on your hardware.</p>
       </article>
@@ -310,504 +218,7 @@ footer b { font-family: var(--mono); font-weight: 500; color: var(--text); }
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-(function () {
-  const css = getComputedStyle(document.documentElement);
-  const color = (name) => css.getPropertyValue(name).trim();
-  const PALETTE = {
-    black: color("--sky"), sand: color("--sand"), dark: color("--dark"), grey: color("--grey"),
-    white: color("--text"), red: color("--red"), orange: color("--orange"), yellow: color("--yellow"),
-    blue: color("--blue"), moon: color("--moon"), dim: color("--dim"), panel: color("--panel"),
-  };
-  const TINTS = ["--red", "--orange", "--yellow"];
-  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const coarse = window.matchMedia("(pointer: coarse)").matches;
-
-  function random(key) {
-    let hash = 2166136261;
-    for (let i = 0; i < key.length; i++) {
-      hash ^= key.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    hash ^= hash >>> 13;
-    hash = Math.imul(hash, 0x5bd1e995);
-    hash ^= hash >>> 15;
-    return (hash >>> 0) / 4294967296;
-  }
-
-  function painter(context) {
-    const rect = (x, y, w, h, fill) => { context.fillStyle = fill; context.fillRect(Math.round(x), Math.round(y), w, h); };
-    const segment = (x0, y0, x1, y1, fill) => {
-      let x = Math.round(x0), y = Math.round(y0);
-      const ex = Math.round(x1), ey = Math.round(y1);
-      const dx = Math.abs(ex - x), dy = -Math.abs(ey - y);
-      const sx = x < ex ? 1 : -1, sy = y < ey ? 1 : -1;
-      let error = dx + dy;
-      for (;;) {
-        rect(x, y, 1, 1, fill);
-        if (x === ex && y === ey) break;
-        const twice = 2 * error;
-        if (twice >= dy) { error += dy; x += sx; }
-        if (twice <= dx) { error += dx; y += sy; }
-      }
-    };
-    const engine = (x, y, tint, light, flame) => {
-      rect(x - 2, y + 1, 2, 3, PALETTE.grey);
-      rect(x, y + 1, 20, 3, tint);
-      rect(x + 2, y, 16, 1, light);
-      rect(x + 19, y + 1, 1, 3, PALETTE.dark);
-      rect(x + 20, y + 1, 4, 2, tint);
-      rect(x + 24, y + 2, 2, 1, light);
-      const tones = [PALETTE.white, PALETTE.yellow, PALETTE.orange, PALETTE.red];
-      for (let i = 0; i < flame; i++) {
-        rect(x - 3 - i, y + 2, 1, i < flame / 2 ? 2 : 1, tones[Math.min(3, Math.floor((i / flame) * 4))]);
-      }
-    };
-    const pod = (x, y, index, frame, heat) => {
-      const tint = color(TINTS[index]), light = color(`${TINTS[index]}-light`);
-      const flame = (offset) => 2 + Math.floor(random(`${index}-flame-${offset}-${frame}`) * (3 + heat * 10));
-      segment(x - 2, y + 2, x - 16, y + 5, PALETTE.grey);
-      segment(x + 1, y + 11, x - 16, y + 7, PALETTE.grey);
-      engine(x, y, tint, light, flame(0));
-      engine(x + 3, y + 9, tint, light, flame(1));
-      rect(x - 26, y + 4, 10, 5, tint);
-      rect(x - 25, y + 3, 7, 1, light);
-      rect(x - 20, y + 2, 3, 2, PALETTE.blue);
-      rect(x - 26, y + 2, 2, 2, tint);
-      for (let row = y + 4; row < y + 9; row++) {
-        const wobble = Math.floor(random(`${index}-arc-${row}-${frame}`) * 3) - 1;
-        rect(x + 9 + wobble, row, 1, 1, frame % 2 ? PALETTE.white : PALETTE.yellow);
-      }
-    };
-    return { rect, pod };
-  }
-
-  const sprites = Array.from(document.querySelectorAll("canvas[data-pod]")).map((canvas) => ({
-    paint: painter(canvas.getContext("2d")),
-    canvas,
-    index: Number(canvas.dataset.pod),
-  }));
-  function drawSprites(frame) {
-    sprites.forEach(({ paint, canvas, index }) => {
-      paint.rect(0, 0, canvas.width, canvas.height, PALETTE.panel);
-      paint.pod(36, 2, index, frame, 0.3);
-    });
-  }
-
-  const copy = document.getElementById("copy");
-  copy.addEventListener("click", () => {
-    const pre = document.getElementById("commands");
-    const text = pre.textContent.split("\n").filter((line) => line.startsWith("$ ")).map((line) => line.slice(2)).join("\n");
-    const done = () => { copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy"; }, 1600); };
-    const fallback = () => {
-      const range = document.createRange();
-      range.selectNodeContents(pre);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      copy.textContent = "Selected";
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
-    else fallback();
-  });
-
-  function texture(canvas) {
-    const map = new THREE.CanvasTexture(canvas);
-    map.magFilter = THREE.NearestFilter;
-    map.minFilter = THREE.NearestFilter;
-    return map;
-  }
-  function sign(text) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 24;
-    const map = texture(canvas);
-    const draw = () => {
-      const context = canvas.getContext("2d");
-      context.fillStyle = PALETTE.dark;
-      context.fillRect(0, 0, 128, 24);
-      context.fillStyle = PALETTE.yellow;
-      context.font = '12px "Press Start 2P", monospace';
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillText(text, 64, 13);
-      map.needsUpdate = true;
-    };
-    draw();
-    if (document.fonts) document.fonts.ready.then(draw);
-    return map;
-  }
-  function checker(columns, rows, size) {
-    const canvas = document.createElement("canvas");
-    canvas.width = columns * size;
-    canvas.height = rows * size;
-    const context = canvas.getContext("2d");
-    for (let column = 0; column < columns; column++) {
-      for (let row = 0; row < rows; row++) {
-        context.fillStyle = (column + row) % 2 ? PALETTE.black : PALETTE.white;
-        context.fillRect(column * size, row * size, size, size);
-      }
-    }
-    return texture(canvas);
-  }
-
-  function world() {
-    if (!window.THREE) return null;
-    const canvas = document.getElementById("scene");
-    const hero = canvas.parentElement;
-    let renderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "low-power" });
-    } catch (error) {
-      return null;
-    }
-    renderer.setPixelRatio(1);
-
-    const L = 150, R = 48, WIDTH = 22, LANES = [-6.5, 0, 6.5];
-    const LAP = 2 * L + 2 * Math.PI * R;
-    const along = (distance) => {
-      let s = ((distance % LAP) + LAP) % LAP;
-      if (s < L) return { x: -L / 2 + s, z: R, hx: 1, hz: 0 };
-      s -= L;
-      if (s < Math.PI * R) {
-        const angle = s / R;
-        return { x: L / 2 + R * Math.sin(angle), z: R * Math.cos(angle), hx: Math.cos(angle), hz: -Math.sin(angle) };
-      }
-      s -= Math.PI * R;
-      if (s < L) return { x: L / 2 - s, z: -R, hx: -1, hz: 0 };
-      s -= L;
-      const angle = s / R;
-      return { x: -L / 2 - R * Math.sin(angle), z: -R * Math.cos(angle), hx: -Math.cos(angle), hz: Math.sin(angle) };
-    };
-    const place = (distance, offset) => {
-      const point = along(distance);
-      return { x: point.x - point.hz * offset, z: point.z + point.hx * offset, heading: Math.atan2(-point.hz, point.hx) };
-    };
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(PALETTE.black);
-    scene.fog = new THREE.Fog(PALETTE.black, 240, 900);
-    scene.add(new THREE.HemisphereLight(0x9aa3d8, 0x3a2a1a, 0.8));
-    const moonlight = new THREE.DirectionalLight(0xffe3a8, 0.9);
-    moonlight.position.set(-260, 160, -380);
-    scene.add(moonlight);
-
-    const lambert = (fill, extra) => new THREE.MeshLambertMaterial(Object.assign({ color: new THREE.Color(fill) }, extra || {}));
-    const basic = (fill, extra) => new THREE.MeshBasicMaterial(Object.assign({ color: new THREE.Color(fill) }, extra || {}));
-    const cube = (w, h, d, material, x, y, z) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-      mesh.position.set(x, y, z);
-      return mesh;
-    };
-    const steel = lambert(PALETTE.grey);
-    const shadow = lambert(PALETTE.dark);
-
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(3200, 3200), lambert(color("--dune")));
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
-
-    const stadium = (radius, shape) => {
-      shape.moveTo(-L / 2, -radius);
-      shape.lineTo(L / 2, -radius);
-      shape.absarc(L / 2, 0, radius, -Math.PI / 2, Math.PI / 2, false);
-      shape.lineTo(-L / 2, radius);
-      shape.absarc(-L / 2, 0, radius, Math.PI / 2, (3 * Math.PI) / 2, false);
-      return shape;
-    };
-    const ring = stadium(R + WIDTH / 2, new THREE.Shape());
-    ring.holes.push(stadium(R - WIDTH / 2, new THREE.Path()));
-    const asphalt = new THREE.Mesh(new THREE.ShapeGeometry(ring, 40), lambert(color("--asphalt")));
-    asphalt.rotation.x = -Math.PI / 2;
-    asphalt.position.y = 0.05;
-    scene.add(asphalt);
-
-    const dummy = new THREE.Object3D();
-    const dashes = new THREE.InstancedMesh(new THREE.BoxGeometry(2.6, 0.12, 0.4), basic(PALETTE.dim), Math.ceil(LAP / 6) * 2);
-    let dash = 0;
-    for (const offset of [-3.25, 3.25]) {
-      for (let distance = 0; distance < LAP - 3; distance += 6) {
-        const spot = place(distance, offset);
-        dummy.position.set(spot.x, 0.12, spot.z);
-        dummy.rotation.set(0, spot.heading, 0);
-        dummy.updateMatrix();
-        dashes.setMatrixAt(dash++, dummy.matrix);
-      }
-    }
-    dashes.count = dash;
-    scene.add(dashes);
-
-    const finish = new THREE.Mesh(new THREE.PlaneGeometry(2.4, WIDTH), lambert(PALETTE.white, { map: checker(2, 12, 8) }));
-    finish.rotation.x = -Math.PI / 2;
-    finish.position.set(0, 0.1, R);
-    scene.add(finish);
-
-    const flagger = new THREE.Group();
-    flagger.add(cube(0.5, 1.6, 0.5, steel, -0.3, 0.8, 0), cube(0.5, 1.6, 0.5, steel, 0.3, 0.8, 0));
-    flagger.add(cube(1.3, 1.8, 0.8, lambert(PALETTE.white), 0, 2.5, 0), cube(0.9, 0.9, 0.9, lambert("rgb(214, 170, 120)"), 0, 3.85, 0));
-    const arm = new THREE.Group();
-    arm.position.set(0.7, 3.2, 0);
-    arm.add(cube(0.18, 4.4, 0.18, steel, 0, 2.2, 0));
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6), lambert(PALETTE.white, { map: checker(4, 3, 8), side: THREE.DoubleSide }));
-    flag.position.set(1.25, 3.6, 0);
-    arm.add(flag);
-    flagger.add(arm);
-    flagger.position.set(-1.5, 0, R + WIDTH / 2 + 2.5);
-    scene.add(flagger);
-
-    const hangar = new THREE.Group();
-    hangar.add(cube(56, 12, 1, shadow, 0, 6, -10), cube(1.2, 12, 20, steel, -28, 6, 0), cube(1.2, 12, 20, steel, 28, 6, 0));
-    const roof = new THREE.Mesh(new THREE.CylinderGeometry(28.6, 28.6, 21, 18, 1, true, -Math.PI / 2, Math.PI), lambert(PALETTE.grey, { side: THREE.DoubleSide }));
-    roof.rotation.x = -Math.PI / 2;
-    roof.scale.set(1, 1, 0.32);
-    roof.position.set(0, 12, 0);
-    hangar.add(roof);
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(16, 3), new THREE.MeshBasicMaterial({ map: sign("HANGAR") }));
-    plate.position.set(0, 13.6, 10.6);
-    hangar.add(plate);
-    hangar.position.set(0, 0, -R - WIDTH / 2 - 26);
-    scene.add(hangar);
-
-    const stands = new THREE.Group();
-    for (let tier = 0; tier < 4; tier++) stands.add(cube(6, 3 + tier * 3, 84, tier % 2 ? steel : shadow, -tier * 6, (3 + tier * 3) / 2, 0));
-    const crowdCount = 120;
-    const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1.6, 1), lambert(PALETTE.white), crowdCount);
-    const shirts = [PALETTE.red, PALETTE.orange, PALETTE.yellow, PALETTE.blue, PALETTE.white, PALETTE.dim];
-    const seats = [];
-    for (let i = 0; i < crowdCount; i++) {
-      const tier = i % 4;
-      dummy.position.set(-tier * 6, 3 + tier * 3 + 0.8, -40 + 80 * random(`fan-${i}`));
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      crowd.setMatrixAt(i, dummy.matrix);
-      crowd.setColorAt(i, new THREE.Color(shirts[Math.floor(random(`shirt-${i}`) * shirts.length)]));
-      seats.push(dummy.position.clone());
-    }
-    stands.add(crowd);
-    stands.position.set(-(L / 2 + R + WIDTH / 2 + 22), 0, 0);
-    scene.add(stands);
-
-    const ridgeCount = 160;
-    const ridges = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lambert(PALETTE.sand), ridgeCount);
-    for (let i = 0; i < ridgeCount; i++) {
-      const angle = (i / ridgeCount) * Math.PI * 2;
-      const distance = 560 + 160 * random(`ridge-r-${i}`);
-      const height = 18 + 70 * random(`ridge-h-${i}`) * (0.6 + 0.4 * Math.sin(angle * 3));
-      dummy.position.set(Math.cos(angle) * distance, height / 2, Math.sin(angle) * distance);
-      dummy.rotation.set(0, -angle, 0);
-      dummy.scale.set(30, height, 46 + 40 * random(`ridge-w-${i}`));
-      dummy.updateMatrix();
-      ridges.setMatrixAt(i, dummy.matrix);
-    }
-    dummy.scale.set(1, 1, 1);
-    dummy.rotation.set(0, 0, 0);
-    scene.add(ridges);
-
-    const starCount = 900;
-    const stars = new Float32Array(starCount * 3);
-    const tones = new Float32Array(starCount * 3);
-    const grey = new THREE.Color(PALETTE.grey).multiplyScalar(1.8);
-    const gold = new THREE.Color(PALETTE.yellow);
-    for (let i = 0; i < starCount; i++) {
-      const theta = random(`sky-t-${i}`) * Math.PI * 2;
-      const phi = 0.06 + random(`sky-p-${i}`) * 1.4;
-      stars.set([Math.cos(theta) * Math.cos(phi) * 1500, Math.sin(phi) * 1500, Math.sin(theta) * Math.cos(phi) * 1500], i * 3);
-      const tone = random(`sky-c-${i}`) > 0.7 ? gold : grey;
-      tones.set([tone.r, tone.g, tone.b], i * 3);
-    }
-    const sky = new THREE.BufferGeometry();
-    sky.setAttribute("position", new THREE.BufferAttribute(stars, 3));
-    sky.setAttribute("color", new THREE.BufferAttribute(tones, 3));
-    scene.add(new THREE.Points(sky, new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true, fog: false })));
-    const moon = new THREE.Mesh(new THREE.SphereGeometry(60, 18, 12), basic(PALETTE.moon, { fog: false }));
-    moon.position.set(-760, 190, -1300);
-    scene.add(moon);
-    const second = new THREE.Mesh(new THREE.SphereGeometry(32, 14, 10), basic(PALETTE.orange, { fog: false }));
-    second.position.set(-520, 130, -1380);
-    scene.add(second);
-
-    const pods = TINTS.map((tintName, index) => {
-      const body = lambert(color(tintName));
-      const shine = lambert(color(`${tintName}-light`));
-      const pod = new THREE.Group();
-      const flames = [];
-      for (const side of [-1.5, 1.5]) {
-        pod.add(cube(6.4, 1.2, 1.2, body, 2.4, 1.5, side), cube(5.2, 0.24, 0.9, shine, 2.4, 2.15, side));
-        pod.add(cube(0.7, 0.9, 0.9, shadow, 5.9, 1.5, side), cube(0.5, 1.3, 1.3, shadow, -0.95, 1.5, side));
-        const flame = cube(1.8, 0.6, 0.6, basic(PALETTE.orange), -2.1, 1.5, side);
-        const core = cube(1, 0.32, 0.32, basic(PALETTE.white), -1.6, 1.5, side);
-        pod.add(flame, core);
-        flames.push(flame, core);
-      }
-      const cables = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-0.9, 1.6, -1.5), new THREE.Vector3(-6.2, 1.25, -0.5),
-        new THREE.Vector3(-0.9, 1.6, 1.5), new THREE.Vector3(-6.2, 1.25, 0.5),
-      ]);
-      pod.add(new THREE.LineSegments(cables, new THREE.LineBasicMaterial({ color: new THREE.Color(PALETTE.grey) })));
-      pod.add(cube(2.8, 1.1, 1.6, body, -7.6, 1.15, 0), cube(1.1, 0.55, 0.9, lambert(PALETTE.blue), -7, 1.9, 0));
-      const binder = cube(0.12, 0.7, 2.6, basic(PALETTE.yellow), 3.2, 1.5, 0);
-      pod.add(binder);
-      const glow = new THREE.PointLight(new THREE.Color(PALETTE.orange), 1.4, 26);
-      glow.position.set(-3, 1.6, 0);
-      pod.add(glow);
-      scene.add(pod);
-      return { group: pod, flames, binder, lane: LANES[index], start: -index * 7 };
-    });
-
-    const camera = new THREE.PerspectiveCamera(50, 2, 0.5, 3000);
-    const tags = Array.from(document.querySelectorAll(".tags span"));
-    let width = 1, height = 1;
-    function resize() {
-      width = hero.clientWidth;
-      height = hero.clientHeight;
-      const scale = width > 900 ? 3 : 2;
-      renderer.setSize(Math.max(1, Math.round(width / scale)), Math.max(1, Math.round(height / scale)), false);
-      camera.aspect = width / height;
-      camera.fov = width < 600 ? 64 : 50;
-      camera.updateProjectionMatrix();
-    }
-    resize();
-    new ResizeObserver(resize).observe(hero);
-
-    let yaw = 0, pitch = 0, dragging = null;
-    if (!coarse) {
-      canvas.addEventListener("pointerdown", (event) => {
-        dragging = { x: event.clientX, y: event.clientY };
-        canvas.setPointerCapture(event.pointerId);
-      });
-      canvas.addEventListener("pointermove", (event) => {
-        if (!dragging) return;
-        yaw -= (event.clientX - dragging.x) * 0.006;
-        pitch = Math.max(-0.45, Math.min(0.5, pitch - (event.clientY - dragging.y) * 0.004));
-        dragging.x = event.clientX;
-        dragging.y = event.clientY;
-      });
-      canvas.addEventListener("pointerup", () => { dragging = null; });
-    }
-
-    const eye = new THREE.Vector3();
-    const focus = new THREE.Vector3();
-    const wantEye = new THREE.Vector3();
-    const wantFocus = new THREE.Vector3();
-    const orbit = new THREE.Spherical();
-    const offset = new THREE.Vector3();
-    const spot = new THREE.Vector3();
-    let primed = false;
-
-    function frame(clock, tick) {
-      const seconds = still ? 4 : clock;
-      let pack = 0;
-      pods.forEach((pod, index) => {
-        const distance = pod.start + 34 * seconds + 9 * Math.sin(seconds * (0.31 + 0.07 * index) + index * 2.1);
-        pack += distance / pods.length;
-        const where = place(distance, pod.lane);
-        pod.group.position.set(where.x, 0.5 + 0.22 * Math.sin(seconds * 3 + index), where.z);
-        pod.group.rotation.y = where.heading;
-        pod.flames.forEach((flame, part) => { flame.scale.x = still ? 1 : 0.55 + random(`flame-${index}-${part}-${tick}`) * 0.9; });
-        pod.binder.visible = still || tick % 3 !== 0;
-      });
-      arm.rotation.z = still ? 0.2 : 0.55 * Math.sin(seconds * 6);
-      if (!still) {
-        for (let i = 0; i < crowdCount; i += 3) {
-          dummy.position.set(seats[i].x, seats[i].y + Math.max(0, Math.sin(seconds * 5 + i)) * 0.5, seats[i].z);
-          dummy.updateMatrix();
-          crowd.setMatrixAt(i, dummy.matrix);
-        }
-        crowd.instanceMatrix.needsUpdate = true;
-      }
-
-      const close = width >= 600;
-      const behind = place(pack - (close ? 18 : 26), close ? 10 : 12);
-      const ahead = place(pack + 22, -2);
-      wantEye.set(behind.x, close ? 5 : 6.5, behind.z);
-      wantFocus.set(ahead.x, 2.2, ahead.z);
-      if (!primed || still) {
-        eye.copy(wantEye);
-        focus.copy(wantFocus);
-        primed = true;
-      } else {
-        eye.lerp(wantEye, 0.12);
-        focus.lerp(wantFocus, 0.12);
-      }
-      if (!dragging) {
-        yaw *= 0.95;
-        pitch *= 0.95;
-      }
-      offset.copy(eye).sub(focus);
-      orbit.setFromVector3(offset);
-      orbit.theta += yaw;
-      orbit.phi = Math.max(0.2, Math.min(1.52, orbit.phi - pitch));
-      offset.setFromSpherical(orbit);
-      camera.position.copy(focus).add(offset);
-      camera.lookAt(focus);
-      renderer.render(scene, camera);
-
-      const placed = [];
-      pods.forEach((pod, index) => {
-        spot.copy(pod.group.position);
-        spot.y += 4.5;
-        spot.project(camera);
-        const x = ((spot.x + 1) / 2) * width;
-        const y = ((1 - spot.y) / 2) * height;
-        const tag = tags[index];
-        const onScreen = spot.z < 1 && x > 0 && x < width && y > 0 && y < height * 0.6;
-        const crowded = placed.some(([px, py]) => Math.abs(px - x) < 96 && Math.abs(py - y) < 18);
-        tag.hidden = !onScreen || crowded;
-        if (!tag.hidden) {
-          placed.push([x, y]);
-          tag.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
-        }
-      });
-    }
-    return { frame, hero };
-  }
-
-  function flat() {
-    document.body.classList.add("flat");
-    document.querySelector(".tags").hidden = true;
-    document.querySelector(".cue").hidden = true;
-    const race = document.getElementById("flat");
-    const paint = painter(race.getContext("2d"));
-    return (frame) => {
-      paint.rect(0, 0, 320, 100, PALETTE.black);
-      for (let x = 0; x < 320; x++) {
-        const height = Math.round(4 + 3 * Math.sin((x + frame * 1.8) / 23) + 2 * Math.sin((x + frame * 1.8) / 9 + 1));
-        paint.rect(x, 34 - height, 1, height, PALETTE.sand);
-      }
-      paint.rect(0, 34, 320, 1, PALETTE.dark);
-      [39, 59, 79].forEach((lane, index) => paint.pod(160 + 62 * Math.sin(frame / 70 + index * 2.1), lane, index, frame, 1));
-    };
-  }
-
-  const scene = world();
-  const fallback = scene ? null : flat();
-  const stage = scene ? scene.hero : document.querySelector(".hero");
-  let onStage = true;
-  new IntersectionObserver(([entry]) => { onStage = entry.isIntersecting; }).observe(stage);
-  const racers = document.querySelector(".racers");
-  let onRacers = false;
-  new IntersectionObserver(([entry]) => { onRacers = entry.isIntersecting; }).observe(racers);
-
-  const begin = performance.now();
-  let tick = 0;
-  let last = 0;
-  if (scene) scene.frame(0, 0);
-  else fallback(0);
-  drawSprites(0);
-  if (still) return;
-  const loop = (time) => {
-    if (!document.hidden && time - last >= 1000 / 30) {
-      last = time;
-      tick += 1;
-      if (onStage) {
-        if (scene) scene.frame((time - begin) / 1000, tick);
-        else fallback(tick);
-      }
-      if (onRacers && tick % 2 === 0) drawSprites(tick);
-    }
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-})();
-</script>
-
-</body></html>
+<script type="module" src="garage.js"></script>
+<script type="module" src="page.js"></script>
+</body>
+</html>
