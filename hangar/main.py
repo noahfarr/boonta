@@ -4,17 +4,21 @@ import hydra
 import jax
 import jax.numpy as jnp
 import numpy as np
-from hydra.utils import instantiate
+from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
 
-from boonta.loggers import MultiLogger
-from boonta.artisans import Metrics
-from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
-from hangar import recipes
+from hangar import resolvers  # noqa: F401
 
 
 @hydra.main(version_base=None, config_path="./config", config_name="config")
 def main(cfg):
+    instantiate(cfg.cluster)
+
+    from boonta.loggers import MultiLogger
+    from boonta.artisans import Metrics
+    from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
+    from hangar import recipes
+
     start = time.monotonic()
     scores = []
     podracer = recipes.make(cfg)
@@ -36,6 +40,7 @@ def main(cfg):
         [
             instantiate(v, cfg=config, _recursive_=False, _convert_="all")
             for v in (cfg.loggers or {}).values()
+            if jax.process_index() == 0 or get_class(v._target_).collective
         ]
     )
 
@@ -46,7 +51,8 @@ def main(cfg):
 
     state = load_checkpoint(newest(cfg.get("resume")), podracer.init(init_key))
 
-    brief(cfg, state)
+    if jax.process_index() == 0:
+        brief(cfg, state)
 
     baseline_key, evaluate_key = jax.random.split(evaluate_key)
     train_keys = jax.random.split(train_key, cfg.training.num_epochs)

@@ -24,6 +24,8 @@ def uncover() -> None:
 
 
 class DashboardLogger:
+    collective = False
+
     def __init__(
         self,
         total_timesteps=0,

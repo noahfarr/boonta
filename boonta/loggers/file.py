@@ -8,6 +8,8 @@ from boonta.utils import PyTree
 
 
 class FileLogger:
+    collective = False
+
     def __init__(self, directory: str = ".", filename: str = "metrics.npz", **kwargs):
         self.directory = Path(directory)
         self.filename = filename

@@ -7,6 +7,8 @@ from boonta.utils import PyTree
 
 
 class WandbLogger:
+    collective = False
+
     def __init__(
         self,
         entity=None,

@@ -1,0 +1,8 @@
+# @package _global_
+
+cluster:
+  _target_: jax.distributed.initialize
+
+hydra:
+  run:
+    dir: outputs/slurm/${oc.env:SLURM_JOB_ID}

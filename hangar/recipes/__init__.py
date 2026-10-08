@@ -1,7 +1,7 @@
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
-from . import resolvers  # noqa: F401 -- registers OmegaConf resolvers on import
+from hangar import resolvers  # noqa: F401 -- registers OmegaConf resolvers on import
 from . import (
     bc_mujoco,
     dqn_minatar,
