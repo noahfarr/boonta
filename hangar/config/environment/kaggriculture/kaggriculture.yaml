@@ -1,0 +1,8 @@
+namespace: kaggriculture
+suite: kaggriculture
+env_id: Kaggriculture-v0
+num_envs: 512
+reward_scale: 1.0e4
+kwargs:
+  num_envs: ${environment.num_envs}
+  episode_steps: 720

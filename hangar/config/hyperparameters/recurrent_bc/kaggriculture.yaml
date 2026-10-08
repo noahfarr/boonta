@@ -1,0 +1,67 @@
+# @package _global_
+
+total_timesteps: 3_408_576
+
+training:
+  num_epochs: 6
+
+dtype: float32
+
+cell:
+  _target_: boonta.networks.MinGRUCell
+  features: 256
+  dtype: ${dtype}
+
+torso:
+  _target_: boonta.networks.SSM
+  cell: ${cell}
+
+stack: ${torso}
+
+num_layers: 1
+
+algorithm:
+  batch_size: 32
+  entropy_coefficient: 0.0
+
+auxiliary:
+  head_coefficients:
+    jobs: 1.0
+    market: 3.0
+    qty: 3.0
+  value_coefficient: 0.5
+
+dataset:
+  namespace: kaggriculture
+  dataset_id: board
+  kwargs:
+    directory: ???
+    horizon: 64
+    reward_scale: ${environment.reward_scale}
+
+environment:
+  num_envs: 128
+  kwargs:
+    num_envs: ${environment.num_envs}
+    episode_steps: 720
+
+evaluation:
+  num_steps: 719
+  gamma: 1.0
+
+network:
+  features: 96
+  blocks: 4
+  dtype: ${dtype}
+  market_none_bias: 0.0
+
+optimizer:
+  name: muon
+  lr: 3.0e-3
+  adam_lr: 3.0e-4
+  beta: 0.95
+  weight_decay: 0.01
+  anneal: true
+  warmup: 0.02
+  min_lr_ratio: 0.1
+  max_grad_norm: 5.0

@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,6 +51,38 @@ def hopper_dataset(directory):
     return ["dataset=disk", f"dataset.dataset_id={directory}", "algorithm.batch_size=64"]
 
 
+def compiler():
+    return None if shutil.which("g++") else "needs a C++ compiler to build the FFI environment"
+
+
+def farm_dataset(directory):
+    from boonta.datasets.kaggriculture import save
+    from boonta.environments.kaggriculture import Kaggriculture
+
+    environment = Kaggriculture(num_envs=1, episode_steps=24, threads=1)
+    state, timestep = environment.init(jax.random.key(0))
+    environment.close(state)
+    rows, units, orders = 40, 17, 10
+    terminated = np.zeros(rows, bool)
+    terminated[19::20] = True
+    save(
+        directory / "board.npz",
+        (
+            {name: np.repeat(np.asarray(leaf[:1]), rows, axis=0) for name, leaf in timestep.obs.items()},
+            {
+                "chosen": np.zeros((rows, units), np.int32),
+                "market": np.zeros((rows, orders), np.int32),
+                "qty": np.zeros((rows, orders), np.int32),
+                "filled": np.ones(rows, np.int32),
+                "allowed": np.ones((rows, orders), bool),
+                "value": np.linspace(1e4, 0.0, rows).astype(np.float32),
+            },
+            terminated,
+        ),
+    )
+    return [f"dataset.kwargs.directory={directory}", "dataset.kwargs.horizon=8", "algorithm.batch_size=4"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -69,8 +102,8 @@ CASES = [
     ("sac", HOPPER, installed("brax"), False),
     ("reppo", HOPPER, installed("brax"), False),
     ("recurrent_sac", HOPPER, installed("brax"), False),
-    ("bc", HOPPER, installed("brax"), True),
-    ("iql", HOPPER, installed("brax"), True),
+    ("bc", HOPPER, installed("brax"), hopper_dataset),
+    ("iql", HOPPER, installed("brax"), hopper_dataset),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
@@ -84,6 +117,9 @@ CASES = [
     ("ippo", "mapox/find_return", installed("mapox"), False),
     ("recurrent_pupo", "mapox/find_return", installed("mapox"), False),
     ("recurrent_pupo", "ale/montezuma", installed("ale_py"), False),
+    ("ppo", "kaggriculture/kaggriculture", compiler(), False),
+    ("recurrent_pupo", "kaggriculture/kaggriculture", compiler(), False),
+    ("recurrent_bc", "kaggriculture/kaggriculture", compiler(), farm_dataset),
     ("ppo", "isaaclab/classic/cartpole", installed("isaaclab"), False),
     (
         "recurrent_ppo",
@@ -119,7 +155,7 @@ def test_every_recipe_has_a_smoke_case():
     ],
 )
 def test_every_recipe_builds_and_runs_one_update(algorithm, environment, missing, offline, tmp_path):
-    overrides = SMALL + (hopper_dataset(tmp_path) if offline else [])
+    overrides = SMALL + (offline(tmp_path) if offline else [])
     cfg = configure(algorithm, environment, *overrides)
     HydraConfig.instance().set_config(cfg)
     podracer = recipes.make(cfg)
