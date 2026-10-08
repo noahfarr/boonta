@@ -130,6 +130,22 @@ def test_every_recipe_builds_and_runs_one_update(algorithm, environment, missing
     podracer.close(state)
 
 
+@pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo"])
+def test_a_wordle_recipe_loads_the_model_its_config_names(algorithm, monkeypatch):
+    cfg = configure(algorithm, "wordle/wordle", "network.repo_id=someone/else")
+    recipe = importlib.import_module(f"hangar.recipes.{algorithm}_wordle")
+    loaded = []
+
+    def refuse(repo_id):
+        loaded.append(repo_id)
+        raise LookupError(repo_id)
+
+    monkeypatch.setattr(recipe, "load_config", refuse)
+    with pytest.raises(LookupError):
+        recipe.make(cfg)
+    assert loaded == ["someone/else"]
+
+
 def test_every_recipe_takes_its_learning_rate_from_one_schedule():
     copies = [
         path.name
