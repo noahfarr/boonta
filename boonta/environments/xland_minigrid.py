@@ -50,6 +50,7 @@ class XLandMiniGrid(Environment):
             reward=timestep.reward,
             terminated=terminated,
             truncated=truncated,
+            info={},
         )
         return timestep, ts
 
