@@ -420,9 +420,6 @@ export function createWorld(canvas, options) {
   const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(screenWidth, screenHeight), new THREE.MeshBasicMaterial({ map: screenTexture, fog: false, toneMapped: false }));
   screenPlane.position.set(0, screenBase + screenHeight / 2, screenZ + P / 2 + 0.02);
   stands.add(screenPlane);
-  const billboard = wordmark(0.9);
-  billboard.position.set(-33.5, 12 * BRICK, -3 * 6 * P);
-  stands.add(billboard);
   stands.position.set(0, 0, standZ);
   const finishMark = wordmark(0.3);
   const finishSpot = circuit.at(0);
@@ -434,25 +431,12 @@ export function createWorld(canvas, options) {
   finishBack.rotation.y = finishSpot.heading + Math.PI / 2;
   finishMark.userData.tag = finishBack.userData.tag = "gantry";
   scene.add(finishMark, finishBack);
-  const canyonBoard = new THREE.Group();
-  const canyonMark = wordmark(1.4);
-  canyonMark.position.y = 8;
-  canyonBoard.add(canyonMark);
-  for (const x of [-16, 16]) {
-    const leg = new THREE.Mesh(brickGeometry(2 * P - GAP, 2 * P - GAP, 8.2, 0.03), common("--steel3d"));
-    leg.position.set(x, 4.1, -1);
-    leg.castShadow = true;
-    canyonBoard.add(leg);
-  }
-  canyonBoard.position.set(-40, 0, -128);
   for (const side of [-1, 1]) {
     const archMark = wordmark(0.5);
     archMark.position.set(0, 17 * BRICK, side * (2 * P + 0.3));
     archMark.rotation.y = side > 0 ? 0 : Math.PI;
     circuit.arch.add(archMark);
   }
-  canyonBoard.userData.tag = "billboard";
-  scene.add(canyonBoard);
   stands.userData.tag = "stands";
   scene.add(stands);
   const screenCenter = new THREE.Vector3(0, screenBase + screenHeight / 2, standZ + screenZ);
@@ -685,8 +669,7 @@ export function createWorld(canvas, options) {
     if (kind !== "podracer") bays.add(sign);
     const mark = wordmark(kind === "podracer" ? 0.45 : 0.62);
     mark.userData.bay = kind;
-    if (kind === "podracer") mark.position.set(backX, PLATE + 13 * BRICK, backZ);
-    else mark.visible = false;
+    mark.position.set(backX, PLATE + levels * BRICK, backZ);
     mark.rotation.y = bay.yaw;
     bays.add(mark);
     if (kind === "podracer") {
