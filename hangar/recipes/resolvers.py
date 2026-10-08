@@ -4,8 +4,7 @@ import jax.numpy as jnp
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 
-from hangar.config import hyperparameters
-from hangar.config.hyperparameters import lookup
+from hangar.config.algorithms import lookup, spaces, table
 
 
 def get_action_dim(cfg):
@@ -22,11 +21,11 @@ def get_action_dim(cfg):
 
 
 def tuned(algorithm: str, environment: str) -> str:
-    return lookup(hyperparameters.table, algorithm, environment)
+    return lookup(table, algorithm, environment)
 
 
 def search(sweep, algorithm: str, environment: str) -> str:
-    return lookup(hyperparameters.spaces, algorithm, environment) if sweep else "none"
+    return lookup(spaces, algorithm, environment) if sweep else "none"
 
 
 def trial():

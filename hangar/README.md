@@ -30,16 +30,15 @@ The config is typed Python, built with [hydra-zen](https://mit-ll-responsible-ai
 | --- | --- |
 | `config/__init__.py` | the root config and its defaults list |
 | `config/sections.py` | typed sections the recipes read: `training`, `evaluation`, `rollout`, `replay`, `exploration`, `optimizer`, `network`, `environment`, `dataset` |
-| `config/algorithms.py` | the `algorithm` group, and algorithm-wide search spaces |
-| `config/environments.py` | the `environment` group |
-| `config/hyperparameters.py` | settings for an algorithm on an environment, and search spaces for one |
+| `config/algorithms/` | one module per algorithm, mirroring `boonta/algorithms/`: its `algorithm` config, its settings on particular environments, and its search spaces |
+| `config/environments/` | the `environment` group, one module per namespace (`gymnax.py`, `craftax.py`, `brax.py`, ...) |
 | `config/networks.py` | the `cell`, `torso` and `stack` groups |
 | `config/podracers.py` | the `podracer`, `curriculum` and `scoring` groups |
 | `config/data.py` | the `buffer` and `dataset` groups |
 | `config/outputs.py` | the `logger` and `artisan` groups |
 | `config/sweeps.py` | the `sweep` and `search` groups |
 
-Algorithm configs are built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed:
+Each module in `config/algorithms/` holds everything about one algorithm. Its config is built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed. `config/algorithms/pqn.py` is the whole of PQN's configuration:
 
 ```python
 algorithm(
@@ -48,16 +47,26 @@ algorithm(
         rollout=Rollout(num_steps=16),
         environment=dict(num_envs=128),
         optimizer=Optimizer(lr=5e-4, max_grad_norm=10.0),
-        exploration=Exploration(start=1.0, end=0.01, fraction=0.2),
+        exploration=epsilon,
     ),
     name="pqn",
 )
+
+special(
+    "pqn",
+    "gymnax/minatar",
+    total_timesteps=80_000_000,
+    algorithm=dict(num_minibatches=16),
+    environment=dict(num_envs=4096),
+)
 ```
+
+`config/algorithms/__init__.py` holds what the modules share (`recurrent`, `offline`, `epsilon`), the helpers `special` and `search`, and imports every module. A new algorithm is a new module there and one line in that import.
 
 | Group | Choices | Default |
 | --- | --- | --- |
-| `algorithm` | the names in `config/algorithms.py` | `ppo` |
-| `environment` | the paths in `config/environments.py`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
+| `algorithm` | the modules in `config/algorithms/` | `ppo` |
+| `environment` | the paths in `config/environments/`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
 | `podracer` | `anakin` (on-policy), `sebulba` (actor/learner split), `quadinaros` (offline) | `anakin` |
 | `logger` | `dashboard`, `file`, `wandb`, `orbax` | `dashboard` |
 | `artisan` | `checkpointer`, `render` (needs the environment wrapped in `LogEnvState`, which no recipe on main does yet), `transcript` | none |
@@ -70,13 +79,10 @@ algorithm(
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
-`table` in `config/hyperparameters.py` holds the settings for an algorithm on an environment, keyed by `(algorithm, environment path)`. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so `("ppo", "gymnax/minatar")` covers every MinAtar game:
+`special(algorithm, environment path, **settings)` registers the settings for an algorithm on an environment in the `hyperparameters` group. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so this line in `config/algorithms/ppo.py` covers every MinAtar game:
 
 ```python
-table = {
-    ("ppo", "gymnax/minatar"): dict(total_timesteps=20_000_000),
-    ...
-}
+special("ppo", "gymnax/minatar", total_timesteps=20_000_000)
 ```
 
 ## Recipes
@@ -85,7 +91,7 @@ table = {
 
 ## Sweeps
 
-`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `spaces` in `config/hyperparameters.py`, keyed and looked up like the settings above, on top of an algorithm-wide space from `spaces` in `config/algorithms.py` if there is one. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
+`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `search(algorithm, environment path, **space)` in the algorithm's module, looked up like the settings above, on top of an algorithm-wide space, `search(algorithm, **space)`, if there is one. The ConnectX space is `search("ippo", "connectx", ...)` in `config/algorithms/ippo.py`. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
 
 ```bash
 uv sync --group sweep

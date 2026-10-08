@@ -1,0 +1,70 @@
+from ..sections import Kinetix
+from . import environment
+
+kinetix = dict(action_type="multi_discrete", observation_type="symbolic_entity")
+environment(
+    Kinetix(namespace="kinetix", suite="kinetix", env_id=None, num_envs=32, kwargs=kinetix),
+    name="kinetix/kinetix",
+)
+environment(
+    Kinetix(
+        namespace="kinetix", suite="kinetix", env_id=None, holdout_levels=True, num_envs=256, kwargs=kinetix
+    ),
+    name="kinetix/holdout_levels",
+)
+environment(
+    Kinetix(
+        namespace="kinetix",
+        suite="kinetix",
+        env_id=[
+            "m/h0_unicycle",
+            "m/h1_car_left",
+            "m/h2_car_right",
+            "m/h3_car_thrust",
+            "m/h4_thrust_the_needle",
+            "m/h5_angry_birds",
+            "m/h6_thrust_over",
+            "m/h7_car_flip",
+            "m/h8_weird_vehicle",
+            "m/h9_spin_the_right_way",
+            "m/h10_thrust_right_easy",
+            "m/h11_thrust_left_easy",
+            "m/h12_thrustfall_left",
+            "m/h13_thrustfall_right",
+            "m/h14_thrustblock",
+            "m/h15_thrustshoot",
+            "m/h16_thrustcontrol_right",
+            "m/h17_thrustcontrol_left",
+            "m/h18_thrust_right_very_easy",
+            "m/h19_thrust_left_very_easy",
+            "m/arm_up",
+            "m/arm_left",
+            "m/arm_right",
+            "m/arm_hard",
+        ],
+        num_envs=256,
+        kwargs=kinetix,
+    ),
+    name="kinetix/holdout_m",
+)
+environment(
+    Kinetix(
+        namespace="kinetix",
+        suite="kinetix",
+        env_id=[
+            "s/h0_weak_thrust",
+            "s/h1_thrust_over_ball",
+            "s/h2_one_wheel_car",
+            "s/h3_point_the_thruster",
+            "s/h4_thrust_aim",
+            "s/h5_rotate_fall",
+            "s/h6_unicycle_right",
+            "s/h7_unicycle_left",
+            "s/h8_unicycle_balance",
+            "s/h9_explode_then_thrust_over",
+        ],
+        num_envs=256,
+        kwargs=kinetix,
+    ),
+    name="kinetix/holdout_s",
+)

@@ -1,4 +1,4 @@
-from . import algorithms, hyperparameters
+from .algorithms import spaces
 from .store import place, store
 
 store(
@@ -11,10 +11,11 @@ store(
     package="_global_",
 )
 
-for algorithm, space in algorithms.spaces.items():
-    place(space, f"search/{algorithm}", package="hydra.sweeper")
-for (algorithm, environment), space in hyperparameters.spaces.items():
-    wide = [f"/search/{algorithm}"] if algorithm in algorithms.spaces else []
+for (algorithm, environment), space in spaces.items():
+    if environment is None:
+        place(space, f"search/{algorithm}", package="hydra.sweeper")
+        continue
+    wide = [f"/search/{algorithm}"] if (algorithm, None) in spaces else []
     place(
         dict(defaults=[*wide, "_self_"], **space),
         f"search/{algorithm}/{environment}",

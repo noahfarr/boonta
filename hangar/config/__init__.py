@@ -1,4 +1,4 @@
-from . import algorithms, data, environments, hyperparameters, networks, outputs, podracers, sweeps
+from . import algorithms, data, environments, networks, outputs, podracers, sweeps
 from .sections import Evaluation, Network, Training
 from .store import store
 
