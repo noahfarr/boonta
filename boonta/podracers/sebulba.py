@@ -11,7 +11,8 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, Transition, concatenate, take
+from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
+                          sharded, take)
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -61,6 +62,7 @@ class Sebulba:
     environment: Environment
     pit: Pit[RolloutState] = lambda state: state
     lap: Lap[RolloutState] = lambda state: state
+    shardings: PyTree = None
 
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key = jax.random.split(key)
@@ -116,7 +118,7 @@ class Sebulba:
                 for _, actor_timestep in environments
             ]
         )
-        algorithm_state = jax.jit(self.algorithm.init, out_shardings=replicated)(
+        algorithm_state = jax.jit(self.algorithm.init, out_shardings=self.shardings)(
             jax.device_put(algorithm_key, replicated), timestep
         )
         carry = getattr(algorithm_state, "carry", None)
@@ -238,9 +240,9 @@ class Sebulba:
                     algorithm_state = algorithm_state.replace(
                         carry=concatenate(carries)
                     )
-                algorithm_state, update_key = jax.device_put(
-                    (algorithm_state, jax.random.fold_in(learner_key, update)),
-                    replicated,
+                algorithm_state = jax.device_put(algorithm_state, self.shardings)
+                update_key = jax.device_put(
+                    jax.random.fold_in(learner_key, update), replicated
                 )
                 algorithm_state, update_log = self.update(
                     algorithm_state, update_key, transitions
@@ -317,10 +319,25 @@ def make(
 
     replicated = NamedSharding(config.learner, P())
 
+    def initialize(key):
+        timesteps = [
+            environment.init(jax.random.fold_in(key, index))[1]
+            for index in range(config.actor.size)
+        ]
+        return algorithm.init(key, concatenate(timesteps))
+
+    axes = sharded(jax.eval_shape(initialize, jax.random.key(0)))
+    podracer.shardings = jax.tree.map(
+        lambda axis: NamedSharding(config.learner, P(axis)) if axis else replicated,
+        axes,
+    )
+
     podracer.unroll = jax.jit(
         lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))
     )
-    podracer.update = jax.jit(lox.spool(podracer.update), out_shardings=replicated)
+    podracer.update = jax.jit(
+        lox.spool(podracer.update), out_shardings=(podracer.shardings, replicated)
+    )
     podracer.assess = jax.jit(
         lox.spool(lox.strip(podracer.assess, tags=["training"])),
         static_argnums=(2,),
