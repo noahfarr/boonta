@@ -784,6 +784,7 @@ export function createWorld(canvas, options) {
   arrowHolder.add(arrowPoint);
   arrowHolder.traverse((part) => { part.castShadow = true; });
   cursor.add(arrowHolder);
+  cursor.name = "marker";
   cursor.visible = false;
   scene.add(cursor);
 
@@ -1089,7 +1090,7 @@ export function createWorld(canvas, options) {
       if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
       item.frame.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
     });
-    if (item.kind === "pilot") item.frame.max.y += 4;
+    if (item.kind !== "podracer") item.frame.max.y += 4;
     return item.frame;
   };
   function clear(box, eyePoint, lookPoint) {
@@ -1639,23 +1640,16 @@ export function createWorld(canvas, options) {
       const item = state.focused;
       cursor.visible = true;
       const bounce = Math.abs(Math.sin(clock * 4)) * 0.6;
-      if (item.kind !== "track") {
-        if (cursor.userData.item !== item) {
-          const crown = new THREE.Box3();
-          const body = item.kind === "podracer" ? item.character.figure : item.group;
-          body.updateMatrixWorld(true);
-          body.traverseVisible((part) => { if (part.isMesh && !part.userData.ring) crown.expandByObject(part); });
-          cursor.userData.item = item;
-          cursor.userData.top = crown.max.y;
-        }
-        cursor.position.set(item.center.x, cursor.userData.top + 1.6 + bounce, item.center.z);
-        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
-      } else {
-        const [ahead, , aside] = BAYS[item.kind].face;
-        cursor.position.set(item.center.x + ahead * 4 * P, 3.4 + bounce, item.center.z + aside * 4 * P);
-        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
-        cursor.rotateZ(Math.PI);
+      if (cursor.userData.item !== item) {
+        const crown = new THREE.Box3();
+        const body = item.kind === "podracer" ? item.character.figure : item.group;
+        body.updateMatrixWorld(true);
+        body.traverseVisible((part) => { if (part.isMesh && !part.userData.ring) crown.expandByObject(part); });
+        cursor.userData.item = item;
+        cursor.userData.top = crown.max.y;
       }
+      cursor.position.set(item.center.x, cursor.userData.top + 1.6 + bounce, item.center.z);
+      cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
       arrowHolder.rotation.y = reduced ? 0 : clock * 1.6;
     } else cursor.visible = false;
 
