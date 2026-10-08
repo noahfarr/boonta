@@ -154,6 +154,17 @@ def test_every_scan_matches_the_reference(name):
         np.testing.assert_allclose(got, expected, atol=1e-4)
 
 
+def test_the_pallas_scan_hands_widths_its_blocks_cannot_tile_to_the_associative_scan():
+    keys = jax.random.split(jax.random.key(6), 3)
+    a = jax.random.uniform(keys[0], (2, 8, 100), jnp.bfloat16)
+    b = jax.random.uniform(keys[1], (2, 8, 100), jnp.bfloat16)
+    init = jax.random.normal(keys[2], (2, 100), jnp.bfloat16)
+    out = get_scan_implementation("pallas")(a, b, init)
+    assert out.dtype == jnp.bfloat16
+    exact = reference(*(x.astype(jnp.float32) for x in (a, b, init)))
+    np.testing.assert_allclose(out.astype(jnp.float32), exact, rtol=1e-2, atol=1e-2)
+
+
 def half_problem():
     keys = jax.random.split(jax.random.key(5), 3)
     a = jax.random.uniform(keys[0], (8, 64, 256)) * 0.9 + 0.05
