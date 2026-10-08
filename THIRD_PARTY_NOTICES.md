@@ -2,6 +2,10 @@
 
 These parts of boonta come from other projects and keep their own terms.
 
+## whlo
+
+The website in `docs/` runs training in the browser with [whlo](https://github.com/noahfarr/whlo), vendored in `docs/runtime/vendor/whlo` and licensed under Apache-2.0 (`docs/runtime/vendor/whlo/LICENSE`).
+
 ## Arcade Learning Environment
 
 `boonta/environments/ale/ffi/vendor.sh` downloads the [Arcade Learning Environment](https://github.com/Farama-Foundation/Arcade-Learning-Environment) v0.12.0, which is licensed under GPL-2.0, and applies `rebase_frame_pointer.patch` to its Stella TIA emulation. The patch is distributed under GPL-2.0. ALE itself is not included, and a library built against it falls under GPL-2.0.
