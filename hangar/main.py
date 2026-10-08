@@ -16,7 +16,7 @@ from hangar import recipes
 @hydra.main(version_base=None, config_path="./config", config_name="config")
 def main(cfg):
     start = time.monotonic()
-    score = float("-inf")
+    scores = []
     podracer = recipes.make(cfg)
     algorithm, environment = podracer.algorithm, podracer.environment
 
@@ -53,6 +53,7 @@ def main(cfg):
     evaluate_keys = jax.random.split(evaluate_key, cfg.training.num_epochs)
 
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
+    scoring = instantiate(cfg.scoring)
 
     def reduce(logs, prefix):
         logs = jax.device_get({k: v for k, v in logs.items() if "/" in k})
@@ -97,21 +98,20 @@ def main(cfg):
             data |= monitor.metrics(step=int(steps.max()))
             logger.log(data, steps=steps)
 
-            returns = data.get(
-                "evaluation/episode_return"
-                if cfg.evaluation.num_steps
-                else "training/episode_return"
-            )
+            returns = data.get(cfg.score)
             if returns is not None and np.isfinite(returns).any():
-                score = max(score, float(np.nanmean(returns)))
+                scores.append(float(np.nanmean(returns)))
 
-        if "evaluation/episode_return" in data:
-            logger.log_summary({"score": data["evaluation/episode_return"].reshape(-1)})
+        if cfg.evaluation.num_steps and cfg.score in data:
+            logger.log_summary({"score": data[cfg.score].reshape(-1)})
     finally:
         podracer.close(state)
         logger.finish()
 
-    return {"score": score, "cost": time.monotonic() - start}
+    return {
+        "score": scoring(scores) if scores else float("-inf"),
+        "cost": time.monotonic() - start,
+    }
 
 
 if __name__ == "__main__":
