@@ -40,10 +40,8 @@ class GroupedAutoReset(Wrapper):
         env_state, obs = jax.lax.cond(
             boundary, restart, lambda _: (env_state, timestep.obs), None
         )
-        terminated = jnp.where(
-            boundary, jnp.ones_like(timestep.terminated), timestep.terminated
-        )
+        truncated = timestep.truncated | (boundary & ~timestep.terminated)
         return (
             GroupedAutoResetState(env_state, step),
-            timestep.replace(obs=obs, terminated=terminated),
+            timestep.replace(obs=obs, truncated=truncated),
         )
