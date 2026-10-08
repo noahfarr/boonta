@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from boonta.utils import Array, Key, Timestep
+from boonta.utils import Array, Key, Timestep, broadcast
 
 from .wrapper import Wrapper, WrapperState
 
@@ -17,9 +17,9 @@ class Stagger(Wrapper):
         super().__init__(env)
         self.spread = spread
 
-    def init(self, key: Key) -> tuple[StaggerState, Timestep]:
+    def init(self, key: Key, **kwargs) -> tuple[StaggerState, Timestep]:
         env_key, spread_key = jax.random.split(key)
-        env_state, timestep = self._env.init(env_key)
+        env_state, timestep = self._env.init(env_key, **kwargs)
         budget = jax.random.randint(
             spread_key, jnp.shape(timestep.truncated), 0, self.spread
         )
@@ -35,7 +35,7 @@ class Stagger(Wrapper):
         initial_env_state, initial_timestep = self._env.init(reset_key)
 
         def select(initial_leaf, leaf):
-            return jax.lax.select(fire, initial_leaf, leaf)
+            return jnp.where(broadcast(fire, leaf), initial_leaf, leaf)
 
         env_state = jax.tree.map(select, initial_env_state, env_state)
         obs = jax.tree.map(select, initial_timestep.obs, timestep.obs)

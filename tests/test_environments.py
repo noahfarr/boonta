@@ -232,6 +232,31 @@ def test_grouped_auto_reset_restarts_each_group_from_one_start():
     assert len(np.unique(noise[:, 0])) > 1
 
 
+def test_a_batched_environment_restarts_its_groups_from_one_start():
+    environment = GroupedAutoReset(
+        Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=100),
+        num_steps=4,
+        group_size=2,
+    )
+    state, _ = environment.init(jax.random.key(0))
+    noise = np.asarray(state.env_state.env_state.noise).reshape(-1, 2)
+    np.testing.assert_array_equal(noise[:, 0], noise[:, 1])
+    assert len(np.unique(noise[:, 0])) > 1
+
+
+def test_stagger_cuts_each_environment_of_a_batch_once():
+    environment = Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=4)
+    state, _ = environment.init(jax.random.key(0))
+    budget = np.asarray(state.budget)
+    state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 6)
+    cuts = np.stack([np.asarray(timestep.truncated) for timestep in timesteps])
+    np.testing.assert_array_equal(cuts.sum(axis=0), 1)
+    np.testing.assert_array_equal(cuts.argmax(axis=0), budget)
+    for index, timestep in enumerate(timesteps):
+        clocks = np.asarray(timestep.obs[:, 0])
+        np.testing.assert_array_equal(clocks[cuts[index]], 0)
+
+
 def statistics(environment, actions):
     def run(key):
         state, _ = environment.init(key)
