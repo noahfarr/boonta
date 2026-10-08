@@ -70,16 +70,21 @@ def make(cfg):
         head=nn.Dense(1),
     )
 
+    algorithm = IQL(
+        cfg=instantiate(cfg.algorithm),
+        actor=actor,
+        critic=critic,
+        value=value,
+        actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
+        critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
+        value_optimizer=optax.adam(cfg.optimizer.value_lr),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     return {
-        "algorithm": IQL(
-            cfg=instantiate(cfg.algorithm),
-            actor=actor,
-            critic=critic,
-            value=value,
-            actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
-            critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
-            value_optimizer=optax.adam(cfg.optimizer.value_lr),
-        ),
+        "algorithm": algorithm,
         "environment": env,
         "dataset": datasets.make(**cfg.dataset),
+        "pit": pit,
+        "lap": lap,
     }

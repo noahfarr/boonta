@@ -42,14 +42,14 @@ def make(cfg):
         head=Categorical(nn.Dense(num_actions)),
     )
 
-    return {
-        "algorithm": GRPO(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(cfg.optimizer.lr),
-            ),
+    algorithm = GRPO(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(cfg.optimizer.lr),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

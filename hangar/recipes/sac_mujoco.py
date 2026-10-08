@@ -56,16 +56,16 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": SAC(
-            cfg=instantiate(cfg.algorithm, target_entropy=-float(action_dim)),
-            actor=actor,
-            critic=critic,
-            alpha=Parameter(),
-            buffer=instantiate(cfg.buffer),
-            actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
-            critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
-            alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
-        ),
-        "environment": env,
-    }
+    algorithm = SAC(
+        cfg=instantiate(cfg.algorithm, target_entropy=-float(action_dim)),
+        actor=actor,
+        critic=critic,
+        alpha=Parameter(),
+        buffer=instantiate(cfg.buffer),
+        actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
+        critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
+        alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

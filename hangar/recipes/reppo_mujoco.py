@@ -66,17 +66,17 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": REPPO(
-            cfg=instantiate(cfg.algorithm, action_dim=action_dim),
-            actor=actor,
-            critic=critic,
-            alpha=Parameter(),
-            lagrangian=Parameter(),
-            actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
-            critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
-            alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
-            lagrangian_optimizer=optax.adam(cfg.optimizer.lagrangian_lr),
-        ),
-        "environment": env,
-    }
+    algorithm = REPPO(
+        cfg=instantiate(cfg.algorithm, action_dim=action_dim),
+        actor=actor,
+        critic=critic,
+        alpha=Parameter(),
+        lagrangian=Parameter(),
+        actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
+        critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
+        alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
+        lagrangian_optimizer=optax.adam(cfg.optimizer.lagrangian_lr),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

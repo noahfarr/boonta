@@ -32,12 +32,17 @@ def make(cfg):
         head=Gaussian(nn.Dense(2 * action_dim)),
     )
 
+    algorithm = BC(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.adam(cfg.optimizer.lr),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     return {
-        "algorithm": BC(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.adam(cfg.optimizer.lr),
-        ),
+        "algorithm": algorithm,
         "environment": env,
         "dataset": datasets.make(**cfg.dataset),
+        "pit": pit,
+        "lap": lap,
     }
