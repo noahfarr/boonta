@@ -36,7 +36,6 @@ const PARTS = {
 const $ = (id) => document.getElementById(id);
 const garage = $("garage");
 const picks = $("picks");
-const tags = $("tags");
 const screen = $("screen");
 const board = $("board");
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -217,22 +216,6 @@ function buildPicks() {
   });
 }
 
-function place(node, point) {
-  if (!point || !point.visible) { node.style.visibility = "hidden"; return; }
-  node.style.visibility = "";
-  node.style.transform = `translate(${Math.round(point.x - node.offsetWidth / 2)}px, ${Math.round(point.y - node.offsetHeight)}px)`;
-}
-
-function onRender(anchors) {
-  ["pod"].forEach((key) => {
-    const node = raceTags[key];
-    if (!node) return;
-    if (garage.dataset.mode !== "race" || !anchors[key]) { node.hidden = true; return; }
-    node.hidden = false;
-    place(node, anchors[key]);
-  });
-}
-
 function announce(target, extra = "") {
   const item = entry(target.kind, target.id);
   const ok = allowed(target.kind, target.id);
@@ -246,18 +229,6 @@ function keys(event) {
   else if (event.key === "Escape" || event.key === "Backspace") previous();
   else return;
   event.preventDefault();
-}
-
-const raceTags = {};
-function buildRaceTags() {
-  [["pod", "var(--text)"]].forEach(([key, tint]) => {
-    const node = document.createElement("div");
-    node.className = "tag";
-    node.style.setProperty("--tint", tint);
-    node.hidden = true;
-    tags.append(node);
-    raceTags[key] = node;
-  });
 }
 
 function paintBoard() {
@@ -364,12 +335,6 @@ async function race() {
         const recent = state.points.slice(-8).map((point) => point.value).filter(Number.isFinite);
         const mean = recent.reduce((sum, value) => sum + value, 0) / Math.max(1, recent.length);
         if (recent.length >= 4 && mean >= run.solved) $("solved-flag").textContent = "SOLVED";
-        if (raceTags.pod) {
-          const name = `${entry("podracer", selection.podracer).name.toUpperCase()} · ${entry("pilot", selection.pilot).name.toUpperCase()}`;
-          raceTags.pod.innerHTML = selection.podracer === "sebulba"
-            ? `${name} · ACTOR<small>params of update ${Math.max(0, update.update - (update.lag ?? 1))}</small>`
-            : `${name}<small>${format(update.sps)} ${offline ? "samples" : "steps"}/s</small>`;
-        }
         if (world) { world.setSpeed(update.sps); world.pulse(update); }
         scheduleBoard();
       },
@@ -397,7 +362,6 @@ async function back() {
   stop();
   $("card").classList.add("moving");
   garage.dataset.mode = "garage";
-  Object.values(raceTags).forEach((node) => { node.hidden = true; });
   if (world) await world.back();
   render();
   $("card").classList.remove("moving");
@@ -454,7 +418,6 @@ async function boot() {
   const first = state.menu.runs[0];
   state.selection = { podracer: first.podracer, pilot: first.pilot, track: first.track };
   buildPicks();
-  buildRaceTags();
   drawIdle(screen, ["PICK A RACE", "AND PRESS START"]);
   try {
     world = createWorld($("world"), {
@@ -468,7 +431,6 @@ async function boot() {
       },
       onHover: (target) => { if (target && target.kind === current() && target.id !== state.selection[target.kind]) focusItem(target.kind, target.id, false); },
       onMove: (phase) => { $("card").classList.toggle("moving", phase === "start"); },
-      onRender,
       insets,
       onLost: () => { world = null; garage.classList.add("flat"); layout(); },
     });
