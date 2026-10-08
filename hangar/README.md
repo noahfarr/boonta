@@ -38,6 +38,16 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 
 `hyperparameters/<algorithm>/<environment>.yaml` is applied automatically. When there is no file for the exact environment, the `cascading_fallback` resolver walks up the environment path until it finds one.
 
+## Kaggriculture
+
+`environment=kaggriculture/kaggriculture` runs a C port of the two-player Kaggriculture farming game, built on first use. `algorithm=ppo` and `algorithm=recurrent_pupo` train in self-play, both seats sharing one network. `algorithm=recurrent_bc` clones players from recorded games and needs a dataset that is not included. To build one, download episode replays of the Kaggriculture competition from Kaggle (each episode's replay JSON, for example with the `kaggle` CLI), then run
+
+```bash
+python hangar/scripts/build_kaggriculture_dataset.py --replays <replay dir> --out <dataset dir>
+```
+
+It writes one file per player under `<dataset dir>/experts` and pools the top players by mean episode return into `<dataset dir>/pooled/board.npz`, holding a few out in `holdout.npz`. Train with `dataset.kwargs.directory=<dataset dir>/pooled`. A clone can start a self-play run with `network.pretrained=<checkpoint>`, the `algorithm_state` item of a saved `recurrent_bc` checkpoint.
+
 ## Recipes
 
 `recipes.make(cfg)` picks the recipe registered for `(algorithm, environment namespace, suite)` in `recipes/__init__.py`. The algorithm name is the group choice (`algorithm=...`), not a field of the config. A recipe returns the algorithm, the environment and any extra podracer arguments, and `make` hands them to the podracer.
