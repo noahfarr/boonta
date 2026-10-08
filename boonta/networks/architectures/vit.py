@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from functools import partial
 
 import flax.linen as nn
@@ -14,6 +15,7 @@ class ViTLayer(Block):
     num_heads: int
     expansion_factor: int = 4
     hidden_dim: int | None = None
+    attention_mask: Callable[..., Array | None] | None = None
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
 
@@ -25,6 +27,7 @@ class ViTLayer(Block):
         _, y = SelfAttention(
             features=self.features,
             num_heads=self.num_heads,
+            attention_mask=self.attention_mask,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="attention",
