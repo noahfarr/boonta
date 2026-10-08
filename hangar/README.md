@@ -10,33 +10,74 @@ From the repository root:
 python hangar/main.py algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-Hydra resolves the config relative to `main.py`, so the command works from any directory, and `python -m hangar.main` runs the same thing from an installed package. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`.
+The command works from any directory, and `python -m hangar.main` runs the same thing from an installed package. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`.
 
 | Override | Effect |
 | --- | --- |
-| `seed=3` | Seed of the run |
+| `seed=3` | Seed of the run. It defaults to 0, and in a multirun to the trial number |
 | `total_timesteps=100_000_000` | Environment steps in total |
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
 | `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
 | `+resume=<path>` | Resume from a run directory (its latest checkpoint) or from a checkpoint step directory |
 
-## Config groups
+A multirun (`-m seed=0,1,2`) writes to `sweeps/<algorithm>/<environment>/<time>/`.
+
+## Config
+
+The config is typed Python, built with [hydra-zen](https://mit-ll-responsible-ai.github.io/hydra-zen/) and stored in Hydra's config store, so the command line, multiruns, sweepers and launchers work as they do with YAML. It lives in `config/`:
+
+| File | Holds |
+| --- | --- |
+| `config/__init__.py` | the root config and its defaults list |
+| `config/sections.py` | typed sections the recipes read: `training`, `evaluation`, `rollout`, `replay`, `exploration`, `optimizer`, `network`, `environment`, `dataset` |
+| `config/algorithms.py` | the `algorithm` group, and algorithm-wide search spaces |
+| `config/environments.py` | the `environment` group |
+| `config/hyperparameters.py` | settings for an algorithm on an environment, and search spaces for one |
+| `config/networks.py` | the `cell`, `torso` and `stack` groups |
+| `config/podracers.py` | the `podracer`, `curriculum` and `scoring` groups |
+| `config/data.py` | the `buffer` and `dataset` groups |
+| `config/outputs.py` | the `logger` and `artisan` groups |
+| `config/sweeps.py` | the `sweep` and `search` groups |
+
+Algorithm configs are built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed:
+
+```python
+algorithm(
+    dict(
+        algorithm=fbuilds(PQNConfig, num_minibatches=4, update_epochs=1, gamma=0.99, q_lambda=0.65),
+        rollout=Rollout(num_steps=16),
+        environment=dict(num_envs=128),
+        optimizer=Optimizer(lr=5e-4, max_grad_norm=10.0),
+        exploration=Exploration(start=1.0, end=0.01, fraction=0.2),
+    ),
+    name="pqn",
+)
+```
 
 | Group | Choices | Default |
 | --- | --- | --- |
-| `algorithm` | the files in `config/algorithm/` | `ppo` |
-| `environment` | paths under `config/environment/`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
+| `algorithm` | the names in `config/algorithms.py` | `ppo` |
+| `environment` | the paths in `config/environments.py`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
 | `podracer` | `anakin` (on-policy), `sebulba` (actor/learner split), `quadinaros` (offline) | `anakin` |
 | `logger` | `dashboard`, `file`, `wandb`, `orbax` | `dashboard` |
 | `artisan` | `checkpointer`, `render` (needs the environment wrapped in `LogEnvState`, which no recipe on main does yet), `transcript` | none |
 | `torso`, `stack`, `cell` | recurrent network parts | set by the recurrent algorithms |
 | `buffer` | `transition`, `trajectory`, `episode`, `prioritised_episode` (the last two need `buffer.sample_sequence_length`) | set by the replay algorithms |
 | `curriculum` | `default` | `default` |
-| `dataset` | offline datasets (`minari`) | none |
+| `dataset` | offline datasets (`minari`, `disk`, `kinetix`) | none |
+| `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
+| `sweep` | `carbs` | none |
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
-`hyperparameters/<algorithm>/<environment>.yaml` is applied automatically. When there is no file for the exact environment, the `cascading_fallback` resolver walks up the environment path until it finds one.
+`table` in `config/hyperparameters.py` holds the settings for an algorithm on an environment, keyed by `(algorithm, environment path)`. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so `("ppo", "gymnax/minatar")` covers every MinAtar game:
+
+```python
+table = {
+    ("ppo", "gymnax/minatar"): dict(total_timesteps=20_000_000),
+    ...
+}
+```
 
 ## Recipes
 
@@ -44,13 +85,20 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 
 ## Sweeps
 
-`config/sweep.yaml` runs a CARBS search in which every trial is one run with its own seed. The sweeper and the `submitit` and Determined launchers come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
+`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `spaces` in `config/hyperparameters.py`, keyed and looked up like the settings above, on top of an algorithm-wide space from `spaces` in `config/algorithms.py` if there is one. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
 
 ```bash
 uv sync --group sweep
-python hangar/main.py -cn sweep +sweep=<name> -m
+python hangar/main.py +sweep=carbs algorithm=ippo environment=connectx/connectx
 ```
 
-A file `config/sweep/<name>.yaml` sets the search space, the number of trials and the launcher. Trials run on Slurm through the `submitit` or `slurmpilot` launchers, or on Determined through `determined/42`, all in `config/hydra/launcher/`. `determined/42` reads your home directory on the cluster from the `DETERMINED_HOME` environment variable and expects the venv at `$DETERMINED_HOME/relax/.venv`. Results go to `sweeps/<algorithm>/<environment>/<time>/`.
+Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/launcher=submitit/ias` (in `config/hydra/launcher/`). The ConnectX sweep that used to be `config/sweep/connectx.yaml` is:
 
-Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.
+```bash
+python hangar/main.py +sweep=carbs algorithm=ippo environment=connectx/connectx \
+    logger=[file,orbax] loggers.orbax.max_to_keep=1 loggers.orbax.best=false \
+    +artisan=[checkpointer] scoring=final \
+    hydra/launcher=submitit_local hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=30
+```
+
+Results go to `sweeps/<algorithm>/<environment>/<time>/`. Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.
