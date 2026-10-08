@@ -331,7 +331,7 @@ async function race() {
   $("camera").textContent = "CAM: CHASE";
   building(token, "LOADING");
   if (garage.classList.contains("stacked")) (world ? $("viewport") : $("hud")).scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-  if (world) { world.screenChanged(); world.race(selection); $("camera").textContent = `CAM: ${world.view === "chase" ? "CHASE" : "AUTO"}`; }
+  if (world) { world.screenChanged(); world.race(selection); }
   paintBoard();
   status("loading", "Loading");
   const label = entry("track", selection.track).name;
@@ -507,8 +507,8 @@ async function boot() {
   $("back").addEventListener("click", back);
   $("camera").addEventListener("click", () => {
     if (!world) return;
-    const views = ["chase", "auto", "screen", "track"];
-    const names = { auto: "AUTO", chase: "CHASE", screen: "SCREEN", track: "TRACK" };
+    const views = ["chase", "screen", "track"];
+    const names = { chase: "CHASE", screen: "SCREEN", track: "TRACK" };
     const next = views[(views.indexOf(world.view) + 1) % views.length];
     world.setView(next);
     $("camera").textContent = `CAM: ${names[next]}`;
