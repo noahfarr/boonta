@@ -1,6 +1,6 @@
 import { SCREEN, drawBanner } from "./screen.js";
 import { P, BRICK, PLATE, STUD, builder, brickGeometry, studGeometry, studMaps } from "./bricks.js";
-import { buildPod, buildGate, DESIGNS, DESIGN_ORDER, mesh } from "./models.js";
+import { buildPod, buildGate, DESIGNS, DESIGN_ORDER, mesh, slope } from "./models.js";
 import { buildMinifigure, pose } from "./figures.js";
 import { buildCircuit, WIDTH } from "./circuit.js";
 
@@ -813,20 +813,28 @@ export function createWorld(canvas, options) {
   const sidecarBuild = builder(sidecar);
   sidecarBuild.brick({ w: 4 * P - GAP, d: 3 * P - GAP, h: PLATE - GAP, material: common("--shadow3d"), top: false });
   for (const z of [-P, P]) sidecarBuild.brick({ y: PLATE, z, w: 4 * P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--orange") });
-  for (const x of [-1.5 * P, 1.5 * P]) sidecarBuild.brick({ x, y: PLATE, w: P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d") });
-  sidecarBuild.brick({ y: PLATE, w: 2 * P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d"), top: false });
+  sidecarBuild.brick({ x: -1.5 * P, y: PLATE, w: P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d") });
+  sidecarBuild.brick({ y: PLATE, w: 2 * P - GAP, d: P - GAP, h: PLATE - GAP, material: common("--steel3d"), top: false });
   sidecarBuild.finish();
-  const coreMaterial = kit.trans("--orange", { glow: 0.9, opacity: 0.8 });
-  const core = mesh(new THREE.ConeGeometry(0.8 * P, 2 * BRICK, 20), coreMaterial, 0, PLATE + 2 * BRICK, 0, false);
-  sidecar.add(core);
-  const halo = new THREE.Group();
-  const beadMaterial = kit.trans("--orange-light", { glow: 1, opacity: 0.85 });
-  for (let i = 0; i < 6; i++) halo.add(mesh(new THREE.CylinderGeometry(0.16, 0.16, PLATE * 0.6, 10), beadMaterial, Math.cos((i / 6) * Math.PI * 2) * 1.1, 0, Math.sin((i / 6) * Math.PI * 2) * 1.1, false));
-  halo.position.y = PLATE + BRICK + 0.4;
-  sidecar.add(halo);
-  const coreLight = new THREE.PointLight(0xffa060, 0, 14, 1.6);
-  coreLight.position.y = PLATE + 2 * BRICK;
-  sidecar.add(coreLight);
+  const mechanic = buildMinifigure(kit, "mechanic", null);
+  const crew = mechanic.figure;
+  const crewSize = 0.6 / mechanic.rig.look.scale;
+  crew.scale.setScalar(crewSize);
+  crew.position.set(-0.25 * P, 2 * PLATE - mechanic.rig.hip * crewSize, 0);
+  crew.rotation.y = Math.PI / 2;
+  sidecar.add(crew);
+  const desk = mesh(slope(P, P, BRICK + PLATE), common("--shadow3d"), 1.5 * P, PLATE, 0);
+  desk.rotation.y = Math.PI;
+  sidecar.add(desk);
+  const screenMaterial = kit.trans("--blue-light", { glow: 1, opacity: 0.95 });
+  const tilt = Math.atan2(P / 2, BRICK);
+  const monitor = mesh(new THREE.PlaneGeometry(0.7 * P, 0.7), screenMaterial, 1.25 * P - 0.03 * Math.cos(tilt), PLATE + (BRICK + 2 * PLATE) / 2 + 0.03 * Math.sin(tilt), 0, false);
+  monitor.rotation.set(-tilt, -Math.PI / 2, 0, "YXZ");
+  sidecar.add(monitor);
+  const consoleLight = new THREE.PointLight(0xa0b0ff, 0, 8, 1.6);
+  consoleLight.position.set(P, PLATE + 2 * BRICK, 0);
+  sidecar.add(consoleLight);
+  let waving = 0;
   const towBar = mesh(new THREE.CylinderGeometry(0.1, 0.1, 1, 8), common("--steel3d"), 0, 0, 0);
   const towGlowMaterial = kit.trans("--orange-light", { glow: 1, opacity: 0 });
   const towGlow = mesh(new THREE.CylinderGeometry(0.2, 0.2, 1, 10), towGlowMaterial, 0, 0, 0, false);
@@ -1407,6 +1415,7 @@ export function createWorld(canvas, options) {
     const extras = raceState.item.pod.extras;
     raceState.flash = 1;
     if (raceState.style === "split") raceState.sync = 1;
+    if (raceState.style === "split" && waving < -0.5) waving = 1.2;
     extras.bars.forEach((bar) => { bar.scale.y = 0.2 + Math.random() * 1.2; });
     if (extras.stack.length) raceState.memory = Math.min(extras.stack.length, raceState.memory + 1);
     if (extras.needle && update) raceState.value = Math.min(1, update.update / 120);
@@ -1481,10 +1490,11 @@ export function createWorld(canvas, options) {
     towGlowMaterial.opacity = 0.7 * sync;
     spark.visible = sync > 0 && !reduced;
     if (spark.visible) spark.position.copy(nose).lerp(hitch, 1 - sync * sync);
-    coreMaterial.emissiveIntensity = 1 + 2.5 * sync;
-    core.scale.setScalar(1 + 0.25 * sync);
-    coreLight.intensity = 0.4 + 1.6 * sync;
-    if (!reduced) halo.rotation.y += dt * (0.6 + (raceState.training ? raceState.speed * 0.05 : 0));
+    const blink = sync ** 6;
+    screenMaterial.emissiveIntensity = 1 + 3 * blink;
+    consoleLight.intensity = 0.3 + 1.5 * blink;
+    waving = Math.max(-1, waving - dt);
+    pose(mechanic.rig, { clock, seated: true, typing: raceState.training, wave: Math.max(0, Math.min(1, (1.2 - waving) * 5, waving * 4)), reduced });
   }
   function mechanics(extras, live, dt, clock, speed) {
     live.flash = Math.max(0, live.flash - dt * 3);
