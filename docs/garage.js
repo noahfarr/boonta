@@ -22,7 +22,7 @@ const TITLES = { podracer: "PILOT", pilot: "POD", track: "TRACK" };
 const TINTS = { anakin: "var(--red)", sebulba: "var(--orange)", quadinaros: "var(--yellow)" };
 const EXPLAIN = {
   anakin: "Solo run: one program acts and learns. Speed follows steps per second.",
-  sebulba: "The pod acts, the infield tower learns. Parameters arrive one update late.",
+  sebulba: "The pod acts, the sidecar it tows learns. Parameters arrive one update late.",
   quadinaros: "On the dyno: trains from recorded data and never steps the track.",
 };
 
@@ -224,7 +224,7 @@ function place(node, point) {
 }
 
 function onRender(anchors) {
-  ["pod", "learner", "reel"].forEach((key) => {
+  ["pod", "reel"].forEach((key) => {
     const node = raceTags[key];
     if (!node) return;
     if (garage.dataset.mode !== "race" || !anchors[key]) { node.hidden = true; return; }
@@ -250,7 +250,7 @@ function keys(event) {
 
 const raceTags = {};
 function buildRaceTags() {
-  [["pod", "var(--text)"], ["learner", "var(--orange-light)"], ["reel", "var(--yellow-light)"]].forEach(([key, tint]) => {
+  [["pod", "var(--text)"], ["reel", "var(--yellow-light)"]].forEach(([key, tint]) => {
     const node = document.createElement("div");
     node.className = "tag";
     node.style.setProperty("--tint", tint);
@@ -369,7 +369,6 @@ async function race() {
           raceTags.pod.innerHTML = selection.podracer === "sebulba"
             ? `${name} · ACTOR<small>params of update ${Math.max(0, update.update - (update.lag ?? 1))}</small>`
             : offline ? `${name}<small>on the dyno</small>` : `${name}<small>${format(update.sps)} steps/s</small>`;
-          if (raceTags.learner) raceTags.learner.innerHTML = `LEARNER<small>update ${update.update}</small>`;
           if (raceTags.reel) raceTags.reel.innerHTML = `RECORDED DATA<small>${format(update.steps)} samples</small>`;
         }
         if (world) { world.setSpeed(update.sps); world.pulse(update); }
