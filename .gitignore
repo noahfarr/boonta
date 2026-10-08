@@ -21,6 +21,7 @@ CLAUDE.md
 # Distribution / packaging
 .Python
 build/
+!docs/runtime/build/
 develop-eggs/
 dist/
 downloads/
