@@ -68,14 +68,7 @@ ippo.hyperparameters(
 
 ippo.search_space(
     "connectx",
-    n_trials=1024,
-    n_jobs=1,
-    num_random_samples=16,
-    resample_frequency=16,
-    max_failure_rate=0.5,
-    seed=0,
-    max_suggestion_cost=900,
-    params={
+    **{
         "total_timesteps": dict(distribution="log_normal", min=5e7, max=2e9, center=7.14e8, scale=1.92),
         "environment.num_envs": dict(
             distribution="uniform_pow2", min=512, max=65536, center=16384, scale=8.33

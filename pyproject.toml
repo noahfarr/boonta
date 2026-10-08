@@ -125,7 +125,6 @@ explicit = true
 
 [tool.uv.sources]
 carbs = { git = "https://github.com/imbue-ai/carbs.git" }
-hydra-carbs-sweeper = { git = "https://github.com/noahfarr/hydra-carbs-sweeper.git" }
 hydra-slurmpilot-launcher = { git = "ssh://git@github.com/noahfarr/hydra-slurmpilot-launcher.git" }
 isaaclab-arena = { git = "https://github.com/isaac-sim/IsaacLab-Arena" }
 libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
@@ -146,6 +145,7 @@ build-backend = "hatchling.build"
 packages = [
     "boonta",
     "hangar",
+    "hydra_plugins",
 ]
 
 [dependency-groups]
@@ -155,7 +155,6 @@ dev = [
 sweep = [
     "carbs",
     "determined==0.35.0",
-    "hydra-carbs-sweeper",
     "hydra-submitit-launcher>=1.2",
     "pyyaml>=6.0",
     "submitit>=1.5",

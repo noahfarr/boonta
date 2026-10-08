@@ -13,7 +13,7 @@ store(
             {"optional hyperparameters": "${hyperparameters:${algorithm},${environment}}"},
             {"curriculum": "default"},
             {"scoring": "best"},
-            {"optional search_space": "${search_space:${oc.select:sweep,null},${algorithm},${environment}}"},
+            {"optional search_space": "${search_space:${algorithm},${environment}}"},
         ],
         total_timesteps=5_000_000,
         seed="${trial:}",

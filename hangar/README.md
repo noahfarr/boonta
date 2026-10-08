@@ -36,7 +36,7 @@ The config is typed Python, built with [hydra-zen](https://mit-ll-responsible-ai
 | `config/podracers.py` | the `podracer`, `curriculum` and `scoring` groups |
 | `config/data.py` | the `buffer` and `dataset` groups |
 | `config/outputs.py` | the `logger` and `artisan` groups |
-| `config/sweeps.py` | the `sweep` and `search_space` groups |
+| `config/sweeps.py` | the `search_space` group |
 
 Each module in `config/algorithms/` holds everything about one algorithm. Its config is built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed. `config/algorithms/pqn.py` is the whole of PQN's configuration:
 
@@ -74,7 +74,6 @@ pqn.hyperparameters(
 | `curriculum` | `default` | `default` |
 | `dataset` | offline datasets (`minari`, `disk`, `kinetix`) | none |
 | `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
-| `sweep` | `carbs` | none |
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
@@ -90,17 +89,24 @@ ppo.hyperparameters("gymnax/minatar", total_timesteps=20_000_000)
 
 ## Sweeps
 
-`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `.search_space(environment path, **space)` on the algorithm's handle, looked up like the settings above, on top of an algorithm-wide space, `.search_space(**space)`, if there is one. The ConnectX space is `ippo.search_space("connectx", ...)` in `config/algorithms/ippo.py`. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
+`hydra/sweeper=carbs` turns a multirun into a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. A grid multirun is unaffected:
+
+```bash
+python hangar/main.py -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx
+python hangar/main.py -m algorithm=ippo environment=connectx/connectx seed=0,1,2
+```
+
+The search space comes from `.search_space(environment path, **params)` on the algorithm's handle, looked up like the settings above, on top of an algorithm-wide space, `.search_space(**params)`, if there is one. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. The ConnectX space is `ippo.search_space("connectx", ...)` in `config/algorithms/ippo.py`. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
+
+The sweeper is the `hydra_carbs_sweeper` plugin in `hydra_plugins/` at the repository root. It needs `carbs`, which, with the `submitit` launcher, comes from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`). Its settings live under `hydra.sweeper`: `n_trials` (default 100), `n_jobs` (trials in flight at once, 1), `num_random_samples` (4), `resample_frequency` (5), `max_failure_rate` (1.0), `max_suggestion_cost`, `seed` (0), and `warm_start_from`, an earlier sweep directory or CARBS checkpoint to start from. It runs trials in worker threads, where the default `dashboard` logger cannot start, so pick another logger, such as `logger=file`.
+
+Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/launcher=submitit/ias` (in `config/hydra/launcher/`). The ConnectX sweep is:
 
 ```bash
 uv sync --group sweep
-python hangar/main.py +sweep=carbs algorithm=ippo environment=connectx/connectx
-```
-
-Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/launcher=submitit/ias` (in `config/hydra/launcher/`). The ConnectX sweep that used to be `config/sweep/connectx.yaml` is:
-
-```bash
-python hangar/main.py +sweep=carbs algorithm=ippo environment=connectx/connectx \
+python hangar/main.py -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx \
+    hydra.sweeper.n_trials=1024 hydra.sweeper.num_random_samples=16 hydra.sweeper.resample_frequency=16 \
+    hydra.sweeper.max_failure_rate=0.5 hydra.sweeper.max_suggestion_cost=900 \
     logger=[file,orbax] loggers.orbax.max_to_keep=1 loggers.orbax.best=false \
     +artisan=[checkpointer] scoring=final \
     hydra/launcher=submitit_local hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=30

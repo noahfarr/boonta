@@ -24,8 +24,8 @@ def tuned(algorithm: str, environment: str) -> str:
     return cascade(table, algorithm, environment)
 
 
-def search_space(sweep, algorithm: str, environment: str) -> str:
-    return cascade(spaces, algorithm, environment) if sweep else "none"
+def search_space(algorithm: str, environment: str) -> str:
+    return cascade(spaces, algorithm, environment)
 
 
 def trial():
