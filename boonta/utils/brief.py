@@ -2,7 +2,7 @@ import jax
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-SKIP = ("hydra", "loggers", "artisans")
+SKIP = ("hydra", "loggers", "artisans", "search_space")
 
 
 def shapes(params) -> list[tuple[str, tuple[int, ...], int]]:
