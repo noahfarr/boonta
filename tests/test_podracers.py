@@ -260,6 +260,12 @@ def test_the_learner_shards_what_the_algorithm_keeps_per_environment(build):
     assert shards == [P("data"), P(), P("data"), P()]
 
 
+@pytest.mark.parametrize("build", EVERY)
+def test_a_podracer_refuses_a_component_it_would_ignore(build):
+    with pytest.raises(TypeError, match="curriculum"):
+        build(curriculum=lambda state: state)
+
+
 def test_sebulba_rejects_ensembles():
     with pytest.raises(AssertionError, match="Use anakin"):
         on_sebulba(algorithm=Ensemble(Probe(), count=2))

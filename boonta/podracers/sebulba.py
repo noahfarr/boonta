@@ -299,7 +299,6 @@ def make(
     environment: Environment,
     pit: Pit[RolloutState] = lambda state: state,
     lap: Lap[RolloutState] = lambda state: state,
-    **kwargs,
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)
