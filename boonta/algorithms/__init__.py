@@ -15,6 +15,7 @@ from .recurrent_pqn import RecurrentPQN
 from .recurrent_sac import RecurrentSAC
 from .reppo import REPPO
 from .sac import SAC
+from .tdmpc2 import TDMPC2
 
 __all__ = [
     "BC",
@@ -27,6 +28,7 @@ __all__ = [
     "PQN",
     "REPPO",
     "SAC",
+    "TDMPC2",
     "Algorithm",
     "Anchor",
     "RecurrentBC",
