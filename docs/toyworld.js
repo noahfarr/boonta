@@ -1089,6 +1089,7 @@ export function createWorld(canvas, options) {
       if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
       item.frame.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
     });
+    if (item.kind === "pilot") item.frame.max.y += 4;
     return item.frame;
   };
   function clear(box, eyePoint, lookPoint) {
@@ -1638,17 +1639,20 @@ export function createWorld(canvas, options) {
       const item = state.focused;
       cursor.visible = true;
       const bounce = Math.abs(Math.sin(clock * 4)) * 0.6;
-      if (item.kind === "podracer") {
+      if (item.kind !== "track") {
         if (cursor.userData.item !== item) {
+          const crown = new THREE.Box3();
+          const body = item.kind === "podracer" ? item.character.figure : item.group;
+          body.updateMatrixWorld(true);
+          body.traverseVisible((part) => { if (part.isMesh && !part.userData.ring) crown.expandByObject(part); });
           cursor.userData.item = item;
-          cursor.userData.top = new THREE.Box3().setFromObject(item.character.figure).max.y;
+          cursor.userData.top = crown.max.y;
         }
         cursor.position.set(item.center.x, cursor.userData.top + 1.6 + bounce, item.center.z);
         cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
       } else {
         const [ahead, , aside] = BAYS[item.kind].face;
-        const reach = (item.kind === "track" ? 4 : 8.6) * P;
-        cursor.position.set(item.center.x + ahead * reach, (item.kind === "track" ? 3.4 : 2.1) + bounce, item.center.z + aside * reach);
+        cursor.position.set(item.center.x + ahead * 4 * P, 3.4 + bounce, item.center.z + aside * 4 * P);
         cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
         cursor.rotateZ(Math.PI);
       }
