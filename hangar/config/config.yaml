@@ -1,5 +1,6 @@
 total_timesteps: 5_000_000
 seed: ${trial:}
+num_processes: 1
 
 training:
   num_epochs: 10
@@ -25,6 +26,6 @@ defaults:
 
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${oc.env:SLURM_ARRAY_TASK_ID,0}
+    dir: outputs/${oc.env:SLURM_JOB_ID,${now:%Y-%m-%d}/${now:%H-%M-%S}}-${oc.env:SLURM_ARRAY_TASK_ID,0}
   sweep:
     dir: sweeps/${hydra.runtime.choices.algorithm}/${hydra.runtime.choices.environment}/${now:%Y-%m-%d_%H-%M-%S}

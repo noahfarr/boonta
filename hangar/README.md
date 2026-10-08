@@ -10,7 +10,7 @@ From the repository root:
 python hangar/main.py algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-Hydra resolves the config relative to `main.py`, so the command works from any directory, and `python -m hangar.main` runs the same thing from an installed package. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`.
+Hydra resolves the config relative to `main.py`, so the command works from any directory, and `python -m hangar.main` runs the same thing from an installed package. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
 
 | Override | Effect |
 | --- | --- |
@@ -19,6 +19,10 @@ Hydra resolves the config relative to `main.py`, so the command works from any d
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
 | `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
 | `+resume=<path>` | Resume from a run directory (its latest checkpoint) or from a checkpoint step directory |
+
+### Several machines
+
+`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 python hangar/main.py num_processes=8`. `main.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
 
 ## Config groups
 

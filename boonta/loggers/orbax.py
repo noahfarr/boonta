@@ -7,6 +7,10 @@ from boonta.artisans import Checkpoint
 from boonta.utils import PyTree
 
 
+def barriers(name: str) -> ocp.options.MultiprocessingOptions:
+    return ocp.options.MultiprocessingOptions(barrier_sync_key_prefix=name)
+
+
 class OrbaxLogger:
     def __init__(
         self,
@@ -21,7 +25,9 @@ class OrbaxLogger:
         self.latest = ocp.CheckpointManager(
             os.path.join(directory, "latest"),
             options=ocp.CheckpointManagerOptions(
-                max_to_keep=max_to_keep, save_interval_steps=interval
+                max_to_keep=max_to_keep,
+                save_interval_steps=interval,
+                multiprocessing_options=barriers("latest"),
             ),
         )
         self.best = None
@@ -33,6 +39,7 @@ class OrbaxLogger:
                     save_interval_steps=interval,
                     best_fn=operator.itemgetter("score"),
                     best_mode=best_mode,
+                    multiprocessing_options=barriers("best"),
                 ),
             )
 
