@@ -49,7 +49,7 @@ def main(cfg):
     key = jax.random.key(cfg.seed)
     init_key, train_key, evaluate_key = jax.random.split(key, 3)
 
-    state = load_checkpoint(newest(cfg.get("resume")), podracer.init(init_key))
+    state = load_checkpoint(newest(cfg.checkpoint), podracer.init(init_key))
 
     if jax.process_index() == 0:
         brief(cfg, state)
