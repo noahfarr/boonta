@@ -8,8 +8,6 @@ const GZ = 57;
 const POD_TINTS = ["--red", "--orange", "--yellow", "--blue", "--green"];
 const CHARACTER_TINTS = { anakin: "--red", sebulba: "--orange", quadinaros: "--yellow" };
 const GRID = -16;
-const DYNO = { x: 19, y: 2.4, z: 31 };
-const REEL = { x: 5, y: 4.2, z: 31 };
 const SIDECAR = { along: 1.2, hitch: 3.4, pod: { width: 3 * P, length: 4 * P } };
 const ROW_Z = { track: GZ, pilot: GZ - 1, podracer: GZ };
 const ROW_Y = { track: 8.5, pilot: 5.2, podracer: 11 };
@@ -770,44 +768,6 @@ export function createWorld(canvas, options) {
   cursor.visible = false;
   scene.add(cursor);
 
-  const recorded = new THREE.Group();
-  const recordedBuild = builder(recorded);
-  const rollers = [];
-  recordedBuild.brick({ x: DYNO.x, z: DYNO.z, w: 18 * P - GAP, d: 8 * P - GAP, h: BRICK - GAP, material: common("--shadow3d") });
-  recordedBuild.brick({ x: DYNO.x, z: DYNO.z, y: -PLATE + 0.01, w: 19 * P, d: 9 * P, h: PLATE, material: common("--yellow"), top: false });
-  for (const x of [-4 * P, 4 * P]) {
-    const roller = mesh(new THREE.CylinderGeometry(P - 0.01, P - 0.01, 6 * P, 24), common("--steel3d", { rough: 0.2 }), DYNO.x + x, BRICK + 0.6, DYNO.z);
-    roller.rotation.x = Math.PI / 2;
-    recorded.add(roller);
-    rollers.push(roller);
-  }
-  const spool = new THREE.Group();
-  const drum = mesh(new THREE.CylinderGeometry(3 * P, 3 * P, 2 * P - GAP, 40), common("--yellow"), 0, 0, 0);
-  drum.rotation.x = Math.PI / 2;
-  spool.add(drum);
-  for (let spoke = 0; spoke < 3; spoke++) {
-    const bar = mesh(brickGeometry(6 * P - GAP, P - GAP, 2 * P + 0.1, 0.02), common("--yellow-light"), 0, 0, 0);
-    bar.rotation.z = (spoke * Math.PI) / 3;
-    bar.rotation.x = Math.PI / 2;
-    spool.add(bar);
-  }
-  spool.position.set(REEL.x, REEL.y, REEL.z);
-  recorded.add(spool);
-  for (const dz of [-2 * P, 2 * P]) for (let k = 0; k < 4; k++) recordedBuild.brick({ x: REEL.x, y: k * BRICK, z: REEL.z + dz, w: P - GAP, d: P - GAP, h: BRICK - GAP, material: common("--steel3d"), top: k === 3 });
-  recordedBuild.finish();
-  const tapeFrom = new THREE.Vector3(REEL.x + 1.4, REEL.y + 2.3 + PLATE, REEL.z);
-  const tapeTo = new THREE.Vector3(DYNO.x - 7, DYNO.y + 0.4 + PLATE, DYNO.z);
-  const tape = mesh(new THREE.BoxGeometry(tapeFrom.distanceTo(tapeTo), 0.06, P * 1.6), kit.trans("--yellow-light", { glow: 0.6, opacity: 0.8 }), 0, 0, 0, false);
-  tape.position.copy(tapeFrom).add(tapeTo).multiplyScalar(0.5).setY(tape.position.y - PLATE);
-  tape.position.y = (tapeFrom.y + tapeTo.y) / 2 - PLATE;
-  tape.rotation.z = Math.atan2(tapeTo.y - tapeFrom.y, tapeTo.x - tapeFrom.x);
-  recorded.add(tape);
-  recorded.position.y = PLATE;
-  recorded.visible = false;
-  recorded.userData.tag = "pits";
-  scene.add(recorded);
-  const pitsCenter = new THREE.Vector3((DYNO.x + REEL.x) / 2, 2, DYNO.z);
-
   const towed = new THREE.Group();
   const sidecar = new THREE.Group();
   const sidecarBuild = builder(sidecar);
@@ -1191,13 +1151,6 @@ export function createWorld(canvas, options) {
     }
     const pod = race.item.pod.body;
     podPosition.copy(pod.position);
-    if (race.style === "dyno") {
-      camera.fov = narrow ? 60 : 40;
-      const angle = Math.sin(state.clock * 0.15) * 0.5;
-      wantEye.set(DYNO.x + Math.sin(angle) * 30, 13, DYNO.z + Math.cos(angle) * 30);
-      wantFocus.copy(pitsCenter).add(new THREE.Vector3(2, 0, 0));
-      return;
-    }
     if (race.mode !== "lap" || race.flight) {
       camera.fov = narrow ? 60 : 44;
       const grid = place(GRID);
@@ -1252,8 +1205,7 @@ export function createWorld(canvas, options) {
   function returnPoints(start, home) {
     return [start, start.clone().add(new THREE.Vector3(0, 22, 0)), home.clone().add(new THREE.Vector3(0, 16, 0)), home];
   }
-  function launchEnd(style) {
-    if (style === "dyno") return { end: new THREE.Vector3(DYNO.x, PLATE + DYNO.y, DYNO.z), yaw: 0 };
+  function launchEnd() {
     const slot = place(GRID);
     return { end: slot.position.clone().addScaledVector(slot.normal, 1.4), yaw: slot.heading };
   }
@@ -1326,7 +1278,7 @@ export function createWorld(canvas, options) {
     setHover(null);
     items.forEach(mark);
     const podracer = selection.podracer;
-    const style = podracer === "quadinaros" ? "dyno" : podracer === "sebulba" ? "split" : "fused";
+    const style = podracer === "sebulba" ? "split" : "fused";
     if (item.helmetPaint && item.helmetPaint.token !== CHARACTER_TINTS[podracer]) {
       item.helmetPaint.token = CHARACTER_TINTS[podracer] || "--text";
       recolor();
@@ -1334,12 +1286,11 @@ export function createWorld(canvas, options) {
     const body = item.pod.body;
     body.rotation.order = "YZX";
     const start = body.getWorldPosition(new THREE.Vector3());
-    const raceState = { item, style, mode: "launch", distance: GRID, speed: 0, target: 0, heat: 0, training: false, flight: null, emit: 0, laps: 0, goAt: null, dust: 0, lines: 0, flash: 0, sync: 0, memory: 4, value: 0, syncAt: 0, ghostFlash: 0 };
+    const raceState = { item, style, mode: "launch", distance: GRID, speed: 0, target: 0, heat: 0, training: false, flight: null, emit: 0, laps: 0, goAt: null, dust: 0, lines: 0, flash: 0, sync: 0, memory: 4, value: 0, syncAt: 0, ghostFlash: 0, offline: podracer === "quadinaros" };
     if (item.ghost) item.ghost.visible = false;
     item.pod.extras.stack.forEach((brick, i) => { brick.visible = i < 4; });
     state.race = raceState;
     if (style === "split") hook(raceState);
-    recorded.visible = style === "dyno";
     towed.visible = style === "split";
     door.visible = false;
     items.forEach((other) => { if (other.kind === "track") other.group.visible = false; });
@@ -1348,9 +1299,9 @@ export function createWorld(canvas, options) {
     scene.add(body);
     body.position.copy(start);
     body.rotation.set(0, yaw, 0);
-    const { end, yaw: endYaw } = launchEnd(style);
+    const { end, yaw: endYaw } = launchEnd();
     const points = launchPoints(start, end);
-    fly(raceState, points, 2.8, endYaw, () => { raceState.mode = style === "dyno" ? "dyno" : "grid"; });
+    fly(raceState, points, 2.8, endYaw, () => { raceState.mode = "grid"; });
     circuit.setLights(0, false);
     snap = true;
     raceCamera();
@@ -1378,7 +1329,6 @@ export function createWorld(canvas, options) {
         body.rotation.set(0, raceState.item.yaw, 0);
         if (raceState.item.ghost) raceState.item.ghost.visible = false;
         raceState.item.pod.extras.stack.forEach((brick, i) => { brick.visible = i < 8; });
-        recorded.visible = false;
         towed.visible = false;
         door.visible = true;
         items.forEach((other) => { if (other.kind === "track") other.group.visible = true; });
@@ -1671,7 +1621,7 @@ export function createWorld(canvas, options) {
       const ease = 1 - Math.exp(-motion * (raceState.target > raceState.speed ? 0.9 : 1.6));
       raceState.speed += (raceState.target - raceState.speed) * ease;
       const throttle = Math.min(1, raceState.speed / Math.max(1, raceState.target || 1));
-      if (raceState.style !== "dyno" && state.mode === "race") {
+      if (state.mode === "race") {
         if (!raceState.training) circuit.setLights(1 + (Math.floor(clock * 1.6) % 3), false);
         else {
           if (raceState.goAt === null) raceState.goAt = clock;
@@ -1713,19 +1663,13 @@ export function createWorld(canvas, options) {
             raceState.lines += dt * 30 * heat;
             while (raceState.lines > 1) { raceState.lines -= 1; streak(raceState.distance); }
           }
-        }
-      } else if (raceState.mode === "dyno") {
-        body.position.set(DYNO.x, PLATE + DYNO.y + 0.04 * Math.sin(clock * 20 * raceState.heat), DYNO.z);
-        body.rotation.set(0, 0, 0);
-        const turn = raceState.speed * dt * 1.2;
-        rollers.forEach((roller) => { roller.rotation.y -= turn; });
-        spool.rotation.z += turn * 0.25;
-        flame(raceState.item.pod, raceState.training ? Math.max(0.15, raceState.heat) * throttle : 0.08, tick);
-        if (raceState.training && raceState.speed > 1) {
-          raceState.emit -= dt;
-          if (raceState.emit <= 0) {
-            raceState.emit = 0.9 / (1 + raceState.speed * 0.12);
-            launchPacket(tapeFrom, () => tapeTo, "--yellow-light", 0.9, 0);
+          if (raceState.offline) {
+            raceState.emit -= motion;
+            if (raceState.emit <= 0) {
+              raceState.emit = 0.3;
+              const feed = place(raceState.distance + 60);
+              launchPacket(scratch.copy(feed.position).addScaledVector(feed.normal, 12), () => body.position, "--yellow-light", 0.45, 0);
+            }
           }
         }
       } else if (raceState.mode === "return") {
@@ -1756,9 +1700,8 @@ export function createWorld(canvas, options) {
       }
       raceBlob.visible = !raceState.flight || raceState.flight.t > 0.8;
       if (raceBlob.visible) {
-        const below = raceState.mode === "dyno" ? { position: new THREE.Vector3(DYNO.x, PLATE + BRICK + 0.05, DYNO.z) } : place(raceState.distance);
-        raceBlob.position.copy(below.position).add(new THREE.Vector3(0, 0.06, 0));
-        raceBlob.scale.setScalar(raceState.mode === "dyno" ? 1 : 1.2);
+        raceBlob.position.copy(place(raceState.distance).position).add(new THREE.Vector3(0, 0.06, 0));
+        raceBlob.scale.setScalar(1.2);
       }
     }
 
@@ -1793,7 +1736,7 @@ export function createWorld(canvas, options) {
 
     packets.forEach((packet) => {
       if (!packet.active) return;
-      packet.t += dt / packet.duration;
+      packet.t += motion / packet.duration;
       if (packet.t >= 1) { packet.active = false; packet.mesh.visible = false; return; }
       packet.mesh.position.copy(packet.from).lerp(packet.to(), packet.t);
       packet.mesh.position.y += Math.sin(packet.t * Math.PI) * packet.lift;
@@ -1849,7 +1792,6 @@ export function createWorld(canvas, options) {
     if (state.race) {
       const pod = state.race.item.pod.body;
       result.pod = project(scratch.copy(pod.position).add(new THREE.Vector3(0, 4, 0)));
-      if (state.race.style === "dyno") result.reel = project(new THREE.Vector3(REEL.x, REEL.y + 4.4, REEL.z));
     }
     return result;
   }
@@ -1947,7 +1889,7 @@ export function createWorld(canvas, options) {
       },
       items,
       circuit,
-      constants: { GRID, DYNO, BAYS, STAND_TOP, PLATE, WIDTH },
+      constants: { GRID, BAYS, STAND_TOP, PLATE, WIDTH },
       cubic,
       launchPoints,
       returnPoints,
@@ -2009,7 +1951,7 @@ export function createWorld(canvas, options) {
         const savedPosition = body.position.clone();
         const spot = place(distance);
         body.position.copy(spot.position).addScaledVector(spot.normal, 0.9);
-        state.race = { item, style, mode: style === "dyno" ? "dyno" : "lap", distance, flight: null };
+        state.race = { item, style, mode: "lap", distance, flight: null };
         state.mode = "race";
         state.view = kind === "screen" || kind === "track" ? kind : "chase";
         raceCamera();

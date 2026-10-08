@@ -2,7 +2,7 @@ const CATALOG = {
   podracers: [
     { id: "anakin", name: "Anakin", blurb: "Acting, environment steps and learning compile into one program. The fastest pod when the environment is written in JAX." },
     { id: "sebulba", name: "Sebulba", blurb: "An actor collects rollouts while a learner trains on the last batch and sends back fresh parameters, one update behind." },
-    { id: "quadinaros", name: "Quadinaros", blurb: "Trains on recorded data and never steps the track. The environment only comes out to show the greedy policy." },
+    { id: "quadinaros", name: "Quadinaros", blurb: "Trains on recorded data and never steps the environment while training. The environment only comes out to show the greedy policy." },
   ],
   pilots: [
     { id: "ppo", name: "PPO", blurb: "Clipped policy gradients with a learned value baseline. The dependable default." },
