@@ -166,6 +166,29 @@ def test_every_recipe_has_a_smoke_case():
     assert covered >= set(recipes.register.values())
 
 
+def test_settings_for_an_environment_cover_everything_below_it():
+    assert configure("ppo", "gymnax/minatar/asterix").total_timesteps == 20_000_000
+    assert configure("ppo", "isaaclab/classic/ant").algorithm.num_minibatches == 4
+    assert configure("ppo", "isaaclab/classic/ant").optimizer.lr == 5e-4
+    assert configure("recurrent_sac", "brax/mujoco/hopper").total_timesteps == 5_000_000
+
+
+def test_a_misspelled_key_fails_when_the_config_is_composed():
+    with pytest.raises(Exception, match="gama"):
+        configure("ppo", MINATAR, "algorithm.gama=0.9")
+    with pytest.raises(Exception, match="rollout.num_steps"):
+        configure("ppo", MINATAR, "rollout.num_steps=many")
+
+
+def test_only_a_sweep_sees_the_search_space():
+    plain = configure("ippo", "connectx/connectx", "hydra.mode=MULTIRUN")
+    assert plain.hydra.sweeper.params is None
+    swept = configure("ippo", "connectx/connectx", "+sweep=carbs")
+    assert swept.hydra.sweeper.n_trials == 1024
+    assert len(swept.hydra.sweeper.params) == 13
+    assert str(swept.hydra.mode) == "RunMode.MULTIRUN"
+
+
 @pytest.mark.parametrize(
     "algorithm, environment, missing, offline",
     [
@@ -289,9 +312,7 @@ def test_kinetix_evaluation_reports_a_success_rate():
 
 @KINETIX
 def test_kinetix_holdout_draws_distinct_levels():
-    from omegaconf import OmegaConf
-
-    names = OmegaConf.load(CONFIG / "environment/kinetix/holdout_m.yaml").env_id
+    names = configure("recurrent_bc", "kinetix/holdout_m").environment.env_id
     assert len(names) == 24
     _, env = kinetix_environment(list(names))
     seen = [np.asarray(env.init(jax.random.key(seed))[1].obs.polygons) for seed in range(12)]

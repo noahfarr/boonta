@@ -7,6 +7,7 @@ from pathlib import Path
 import hydra
 import jax
 import jax.numpy as jnp
+from hydra.core.config_store import ConfigStore
 from hydra.core.hydra_config import HydraConfig
 
 from boonta.utils import Transition
@@ -138,10 +139,16 @@ def benchmark(overrides, num_updates, seed):
     }
 
 
+def environments(group="environment"):
+    for name in sorted(ConfigStore.instance().list(group)):
+        if name.endswith(".yaml"):
+            yield f"{group}/{name}".removeprefix("environment/").removesuffix(".yaml")
+        else:
+            yield from environments(f"{group}/{name}")
+
+
 def combinations():
-    root = Path(__file__).parent.parent / "config" / "environment"
-    for path in sorted(root.rglob("*.yaml")):
-        environment = str(path.relative_to(root).with_suffix(""))
+    for environment in environments():
         try:
             cfg = compose([f"environment={environment}"])
             namespace = cfg.environment.namespace

@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 from boonta.loggers import MultiLogger
 from boonta.artisans import Metrics
 from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
-from hangar import recipes
+from hangar import config, recipes  # noqa: F401
 
 
 @hydra.main(version_base=None, config_path="./config", config_name="config")

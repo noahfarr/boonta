@@ -1,14 +1,15 @@
-from pathlib import Path
 from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from hydra.core.config_store import ConfigStore
 from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as P
 from omegaconf import OmegaConf
 
+import hangar.config  # noqa: F401
 from boonta import datasets
 from boonta.datasets.disk import Disk, write
 from boonta.datasets.kinetix import Kinetix
@@ -16,7 +17,6 @@ from boonta.datasets.minari import Minari, convert, load, stack
 from boonta.utils import mesh
 
 LENGTHS = [5, 1, 7, 3]
-CONFIGS = Path(__file__).parents[1] / "hangar/config/dataset"
 
 
 def episode(length, index, dict_obs=False):
@@ -188,7 +188,7 @@ def test_the_config_hands_the_device_count_to_the_dataset(config, namespace, mon
     )
     run = OmegaConf.merge(
         {"environment": {"env_id": "hopper"}, "podracer": {"config": {"mesh": {"count": 2}}}},
-        {"dataset": OmegaConf.load(CONFIGS / config)},
+        {"dataset": ConfigStore.instance().load(f"dataset/{config}").node},
     )
     if namespace == "disk":
         run.dataset.dataset_id = "somewhere"

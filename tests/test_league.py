@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from pathlib import Path
 from types import SimpleNamespace
 
 import flax.linen as nn
@@ -10,8 +9,11 @@ import optax
 import pytest
 import trueskill
 from flax import struct
+from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
+
+import hangar.config  # noqa: F401
 
 from boonta.algorithms.wrappers.ensemble import Ensemble
 from boonta.algorithms.wrappers.psro import (PSRO, Learner, Member, Meta,
@@ -27,7 +29,6 @@ from boonta.environments.wrappers import Opponent
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
 
-DEFAULT = Path(__file__).parents[1] / "hangar/config/curriculum/default.yaml"
 DECKS = ["alakazam", "thwackey"]
 
 LEAGUE = """
@@ -785,7 +786,7 @@ def test_league_composes_psro_learners_and_an_opponent_environment():
 
 def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
     algorithm, environment, state = object(), object(), object()
-    curriculum = instantiate(OmegaConf.load(DEFAULT))
+    curriculum = instantiate(ConfigStore.instance().load("curriculum/default.yaml").node)
 
     wrapped, placed, pit, lap = curriculum(
         algorithm,

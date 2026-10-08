@@ -90,7 +90,7 @@ def make(cfg):
             sizes=sizes,
             features=hidden_dim,
             dtype=dtype,
-            encoder=(cfg.get("network") or {}).get("encoder", "linear"),
+            encoder=cfg.network.encoder or "linear",
         ),
         torso=Bypass(torso=instantiate(cfg.stack)),
         head=ActorCritic(
