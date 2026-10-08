@@ -766,24 +766,23 @@ export function createWorld(canvas, options) {
   });
 
   const cursor = new THREE.Group();
-  const cursorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const arrowCanvas = document.createElement("canvas");
-  arrowCanvas.width = arrowCanvas.height = 64;
-  const arrowPaint = arrowCanvas.getContext("2d");
-  arrowPaint.fillStyle = "#ffffff";
-  arrowPaint.fillRect(0, 0, 64, 64);
-  arrowPaint.fillStyle = "#1a1a1a";
-  arrowPaint.beginPath(); arrowPaint.moveTo(14, 20); arrowPaint.lineTo(50, 20); arrowPaint.lineTo(32, 48); arrowPaint.closePath(); arrowPaint.fill();
-  cursorMaterial.map = new THREE.CanvasTexture(arrowCanvas);
-  const arrowTile = new THREE.Mesh(brickGeometry(2 * P - GAP, PLATE, 2 * P - GAP, 0.03), common("--accent3d"));
-  const arrowFace = new THREE.Mesh(new THREE.PlaneGeometry(2 * P - 0.12, 2 * P - 0.12), cursorMaterial);
-  arrowFace.position.z = PLATE / 2 + 0.005;
-  arrowTile.rotation.x = Math.PI / 2;
-  arrowTile.rotation.x = 0;
   const arrowHolder = new THREE.Group();
-  const arrowBody = new THREE.Mesh(brickGeometry(2 * P - GAP, 2 * P - GAP, PLATE, 0.03), common("--accent3d"));
-  arrowBody.rotation.x = Math.PI / 2;
-  arrowHolder.add(arrowBody, arrowFace);
+  const arrowPaint = common("--accent3d");
+  const arrowPlate = new THREE.Mesh(brickGeometry(2 * P - GAP, 2 * P - GAP, PLATE, 0.03), arrowPaint);
+  arrowPlate.position.y = 1.5 + PLATE / 2;
+  arrowHolder.add(arrowPlate);
+  [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([x, z]) => {
+    const stud = new THREE.Mesh(studGeometry(), arrowPaint);
+    stud.position.set((x * P) / 2, 1.5 + PLATE, (z * P) / 2);
+    arrowHolder.add(stud);
+  });
+  const pointShape = new THREE.ConeGeometry(P * Math.SQRT2 * 0.98, 1.5, 4).toNonIndexed();
+  pointShape.computeVertexNormals();
+  const arrowPoint = new THREE.Mesh(pointShape, arrowPaint);
+  arrowPoint.rotation.set(Math.PI, Math.PI / 4, 0);
+  arrowPoint.position.y = 0.75;
+  arrowHolder.add(arrowPoint);
+  arrowHolder.traverse((part) => { part.castShadow = true; });
   cursor.add(arrowHolder);
   cursor.visible = false;
   scene.add(cursor);
@@ -963,7 +962,6 @@ export function createWorld(canvas, options) {
     if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true;
     circuit.kerbTones.forEach((token, i) => circuit.kerbs.setColorAt(i, toy(tone(token).clone(), token)));
     if (circuit.kerbs.instanceColor) circuit.kerbs.instanceColor.needsUpdate = true;
-    cursorMaterial.color.set(0xffffff);
     streakMaterial.color.copy(tone("--text"));
     textures.forEach((draw) => draw());
     themed.forEach((callback) => callback());
@@ -1640,16 +1638,21 @@ export function createWorld(canvas, options) {
       const item = state.focused;
       cursor.visible = true;
       const bounce = Math.abs(Math.sin(clock * 4)) * 0.6;
-      if (item.kind === "pilot") {
-        cursor.position.set(item.center.x, 1.4 + bounce, item.center.z + 8.6 * P);
+      if (item.kind === "podracer") {
+        if (cursor.userData.item !== item) {
+          cursor.userData.item = item;
+          cursor.userData.top = new THREE.Box3().setFromObject(item.character.figure).max.y;
+        }
+        cursor.position.set(item.center.x, cursor.userData.top + 0.5 + bounce, item.center.z);
+        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
+      } else {
+        const [ahead, , aside] = BAYS[item.kind].face;
+        const reach = (item.kind === "track" ? 4 : 8.6) * P;
+        cursor.position.set(item.center.x + ahead * reach, (item.kind === "track" ? 3.4 : 2.1) + bounce, item.center.z + aside * reach);
         cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
         cursor.rotateZ(Math.PI);
-      } else {
-        const top = item.kind === "track" ? gateHeight + 1.6 : 10;
-        cursor.position.set(item.center.x, top + bounce, item.center.z);
-        cursor.lookAt(camera.position.x, cursor.position.y, camera.position.z);
       }
-      cursorMaterial.color.set(0xffffff);
+      arrowHolder.rotation.y = reduced ? 0 : clock * 1.6;
     } else cursor.visible = false;
 
     circuit.flags.forEach((flag) => { flag.holder.rotation.y = flag.base + (reduced ? 0 : Math.sin(clock * 3 + flag.phase) * 0.3); });
