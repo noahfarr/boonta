@@ -69,6 +69,7 @@ CASES = [
     ("sac", HOPPER, installed("brax"), False),
     ("reppo", HOPPER, installed("brax"), False),
     ("recurrent_sac", HOPPER, installed("brax"), False),
+    ("tdmpc2", HOPPER, installed("brax"), False),
     ("bc", HOPPER, installed("brax"), True),
     ("iql", HOPPER, installed("brax"), True),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),

@@ -36,6 +36,7 @@ from . import (
     recurrent_sac_mujoco,
     reppo_mujoco,
     sac_mujoco,
+    tdmpc2_mujoco,
 )
 
 register = {
@@ -81,6 +82,7 @@ register = {
     ("recurrent_sac", "brax", "mujoco"): recurrent_sac_mujoco.make,
     ("reppo", "brax", "mujoco"): reppo_mujoco.make,
     ("sac", "brax", "mujoco"): sac_mujoco.make,
+    ("tdmpc2", "brax", "mujoco"): tdmpc2_mujoco.make,
 }
 
 

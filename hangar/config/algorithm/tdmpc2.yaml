@@ -1,0 +1,49 @@
+# @package _global_
+
+defaults:
+  - /buffer: trajectory
+
+algorithm:
+  _target_: boonta.algorithms.tdmpc2.TDMPC2Config
+  updates_per_step: 1
+  horizon: 3
+  gamma: 0.99
+  tau: 0.01
+  temporal_decay: 0.5
+  consistency_coefficient: 20.0
+  reward_coefficient: 0.1
+  value_coefficient: 0.1
+  entropy_coefficient: 1e-4
+  num_critics: 5
+  num_target_critics: 2
+  vmin: -10.0
+  vmax: 10.0
+  num_bins: 101
+  num_policy_trajectories: 24
+  termination_coefficient: 1.0
+
+planner:
+  _target_: boonta.planners.MPPI
+  population_size: 512
+  num_elites: 64
+  num_iterations: 6
+  elite_temperature: 0.5
+  min_std: 0.05
+  max_std: 2.0
+
+rollout:
+  num_steps: 1
+
+environment:
+  num_envs: 128
+
+replay:
+  capacity: 1_048_576
+
+buffer:
+  sample_batch_size: 256
+  sample_sequence_length: ${eval:'${algorithm.horizon} + 1'}
+
+optimizer:
+  world_model_lr: 3e-4
+  actor_lr: 3e-4
