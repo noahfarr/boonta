@@ -93,6 +93,7 @@ EVERY = [
     pytest.param(zoo.dqn, corridor, {"q_values"}, id="dqn"),
     pytest.param(zoo.sac, reach, set(), id="sac"),
     pytest.param(zoo.reppo, reach, set(), id="reppo"),
+    pytest.param(zoo.tdmpc2, reach, set(), id="tdmpc2"),
     pytest.param(zoo.recurrent_ppo, recall, {"value", "carry"}, id="recurrent_ppo"),
     pytest.param(zoo.recurrent_pupo, recall, {"value", "carry"}, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, {"carry"}, id="recurrent_grpo"),

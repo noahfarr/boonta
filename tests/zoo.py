@@ -22,6 +22,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
+from boonta.algorithms.tdmpc2 import TDMPC2, TDMPC2Config
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import (GroupedAutoReset,
                                           RecordEpisodeStatistics,
@@ -31,7 +32,8 @@ from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
                              Highway, MinGRUCell, Network, RTUCell,
                              SelfAttention, SquashedGaussian, Tower,
                              causal_attention_mask, llama, repeat)
-from boonta.networks.layers import Identity, Parameter
+from boonta.networks.layers import Identity, Parameter, SimNorm
+from boonta.planners import MPC, MPPI
 from boonta.podracers import anakin, quadinaros, sebulba
 from boonta.utils import mesh
 
@@ -392,6 +394,96 @@ def reppo(
         auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
+
+
+def layers(outputs):
+    return [nn.Dense(WIDTH), nn.relu, nn.Dense(WIDTH), nn.relu, nn.Dense(outputs)]
+
+
+def latent():
+    return nn.Sequential([*layers(WIDTH), SimNorm(dim=8)])
+
+
+def model(outputs):
+    return Network(
+        feature_extractor=FeatureExtractor(
+            observation_extractor=Identity(), action_extractor=Identity()
+        ),
+        head=nn.Sequential(layers(outputs)),
+    )
+
+
+def tdmpc2(environment, num_envs=32, podracer=online, auxiliary_losses=(), horizon=3):
+    dim = action_dim(environment)
+    cfg = TDMPC2Config(
+        updates_per_step=4,
+        horizon=horizon,
+        gamma=0.99,
+        tau=0.05,
+        temporal_decay=0.5,
+        consistency_coefficient=20.0,
+        reward_coefficient=0.1,
+        value_coefficient=0.1,
+        entropy_coefficient=1e-4,
+        num_critics=2,
+        num_target_critics=2,
+        vmin=-2.0,
+        vmax=2.0,
+        num_bins=21,
+        num_policy_trajectories=8,
+        termination_coefficient=1.0,
+        action_dim=dim,
+    )
+    algorithm = TDMPC2(
+        cfg=cfg,
+        encoder=Network(feature_extractor=FeatureExtractor(observation_extractor=latent())),
+        dynamics=Network(
+            feature_extractor=FeatureExtractor(
+                observation_extractor=Identity(), action_extractor=Identity()
+            ),
+            head=latent(),
+        ),
+        reward=model(cfg.num_bins),
+        critic=Network(
+            feature_extractor=FeatureExtractor(
+                observation_extractor=Identity(), action_extractor=Identity()
+            ),
+            head=nn.vmap(
+                nn.Sequential,
+                in_axes=None,
+                out_axes=0,
+                variable_axes={"params": 0},
+                split_rngs={"params": True},
+                axis_size=cfg.num_critics,
+            )(layers(cfg.num_bins))
+        ),
+        actor=Network(
+            feature_extractor=FeatureExtractor(
+                observation_extractor=nn.Sequential([nn.Dense(WIDTH), nn.relu])
+            ),
+            head=SquashedGaussian(nn.Dense(2 * dim)),
+        ),
+        termination=Network(
+            feature_extractor=FeatureExtractor(observation_extractor=Identity()),
+            head=nn.Sequential(layers(1)),
+        ),
+        controller=MPC(
+            planner=MPPI(
+                action_shape=(num_envs, horizon, dim),
+                population_size=256,
+                num_elites=32,
+                num_iterations=6,
+                elite_temperature=0.5,
+                min_std=0.05,
+                max_std=2.0,
+            )
+        ),
+        buffer=trajectories(num_envs, length=horizon + 1),
+        world_model_optimizer=optax.adam(1e-3),
+        actor_optimizer=optax.adam(1e-3),
+        auxiliary_losses=auxiliary_losses,
+    )
+    return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
 def recurrent_ppo(

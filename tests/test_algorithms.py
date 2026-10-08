@@ -23,6 +23,7 @@ LEARNERS = [
     pytest.param(zoo.dqn, corridor, 400, id="dqn-corridor"),
     pytest.param(zoo.sac, reach, 1000, id="sac-reach"),
     pytest.param(zoo.reppo, reach, 300, id="reppo-reach"),
+    pytest.param(zoo.tdmpc2, reach, 600, id="tdmpc2-reach"),
     pytest.param(zoo.recurrent_ppo, recall, 100, id="recurrent_ppo-recall"),
     pytest.param(zoo.recurrent_pupo, recall, 100, id="recurrent_pupo-recall"),
     pytest.param(zoo.recurrent_grpo, recall, 100, id="recurrent_grpo-recall"),
@@ -179,6 +180,7 @@ SHAPE = re.compile(r"\[([0-9,]*)\]")
 REPLAYS = [
     pytest.param(zoo.dqn, corridor, id="dqn"),
     pytest.param(zoo.sac, reach, id="sac"),
+    pytest.param(zoo.tdmpc2, reach, id="tdmpc2"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
     pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),
 ]
