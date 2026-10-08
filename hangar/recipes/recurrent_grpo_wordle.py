@@ -117,7 +117,7 @@ def make(cfg):
         head_dim=config["head_dim"],
         hidden_dim=config["intermediate_size"],
         max_wavelength=config["rope_theta"],
-        context_length=env.horizon() * (1 + WORD_LENGTH),
+        context_length=env.time_limit() * (1 + WORD_LENGTH),
         dtype=dtype,
         param_dtype=param_dtype,
     )

@@ -65,7 +65,7 @@ class MuJoCoPlayground(Environment):
             shape=(self._env.action_size,), dtype=jnp.float32, low=low, high=high
         )
 
-    def horizon(self) -> int:
+    def time_limit(self) -> int:
         return int(self._env._config.episode_length)
 
     def render(
