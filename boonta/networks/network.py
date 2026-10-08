@@ -26,10 +26,11 @@ class Network(nn.Module):
         temperature: float | Array | None = None,
         **kwargs: Array,
     ) -> Any:
-        if done is not None:
+        if done is not None and action is not None:
             action = jnp.where(
                 broadcast(done, action), jnp.zeros_like(action), action
             )
+        if done is not None and reward is not None:
             reward = jnp.where(
                 broadcast(done, reward), jnp.zeros_like(reward), reward
             )
