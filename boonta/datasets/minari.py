@@ -1,10 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import jax
 import numpy as np
 from flax import struct
 
 from boonta.utils import Key, Timestep, Transition, canonicalize_dtype
-
-from .pool import Still, Stream
 
 
 @struct.dataclass(frozen=True)
@@ -13,18 +13,44 @@ class MinariState:
 
 
 class Minari:
-    def __init__(self, transitions: Transition, stream: Still | Stream = Still()):
-        self.transitions = transitions
-        self.stream = stream
+    def __init__(self, dataset_id: str, pool_size: int = 0, num_devices: int = 1):
+        import minari
+
+        self.episodes = minari.load_dataset(dataset_id, download=True)
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pool")
+        self.pending = None
+        whole = pool_size >= self.episodes.total_steps
+        self.pool_size = 0 if whole else pool_size // num_devices * num_devices
+        if self.pool_size:
+            self.transitions = jax.tree.map(
+                lambda leaf: np.zeros((self.pool_size, *leaf.shape[1:]), leaf.dtype),
+                jax.tree.map(stack, convert(self.episodes[0])),
+            )
+        else:
+            self.transitions = gather(self.episodes, num_devices)
 
     def init(self) -> MinariState:
         return MinariState(self.transitions)
 
+    def stage(self, key: Key, sharding) -> MinariState:
+        generator = np.random.default_rng(np.asarray(jax.random.key_data(key)))
+        return jax.device_put(
+            MinariState(fill(self.episodes, generator, self.pool_size)), sharding
+        )
+
     def update(self, state: MinariState, key: Key, sharding) -> MinariState:
-        return self.stream.update(state, key, sharding)
+        if not self.pool_size:
+            return state
+        if self.pending is None:
+            self.pending = self.executor.submit(self.stage, key, sharding)
+        state = self.pending.result()
+        self.pending = self.executor.submit(
+            self.stage, jax.random.fold_in(key, 1), sharding
+        )
+        return state
 
     def close(self) -> None:
-        self.stream.close()
+        self.executor.shutdown(wait=True, cancel_futures=True)
 
     def sample(
         self, state: MinariState, key: Key, batch_shape: tuple[int, ...]
@@ -91,31 +117,3 @@ def fill(episodes, generator: np.random.Generator, rows: int) -> Transition:
         if size >= rows:
             break
     return trim(jax.tree.map(stack, *chosen), rows)
-
-
-def load(dataset_id: str, num_devices: int = 1) -> Transition:
-    import minari
-
-    return gather(minari.load_dataset(dataset_id, download=True), num_devices)
-
-
-def pool(episodes, pool_size: int, num_devices: int = 1) -> Minari:
-    rows = pool_size // num_devices * num_devices
-    blank = jax.tree.map(
-        lambda leaf: np.zeros((rows, *leaf.shape[1:]), leaf.dtype),
-        fill(episodes, np.random.default_rng(0), 1),
-    )
-    return Minari(
-        blank, Stream(lambda generator: MinariState(fill(episodes, generator, rows)))
-    )
-
-
-def make(
-    dataset_id: str, pool_size: int = 0, num_devices: int = 1, **kwargs
-) -> Minari:
-    import minari
-
-    episodes = minari.load_dataset(dataset_id, download=True)
-    if 0 < pool_size < episodes.total_steps:
-        return pool(episodes, pool_size, num_devices)
-    return Minari(gather(episodes, num_devices))

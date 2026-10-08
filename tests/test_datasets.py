@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 
 from boonta import datasets
 from boonta.datasets.kinetix import Kinetix
-from boonta.datasets.minari import convert, make, stack
+from boonta.datasets.minari import Minari, convert, stack
 from boonta.utils import mesh
 
 from dummies import publish
@@ -55,11 +55,11 @@ def unsharded(dataset):
 
 
 def whole(archive, dict_obs=False):
-    return make(archive(dict_obs=dict_obs)).init().transitions
+    return Minari(archive(dict_obs=dict_obs)).init().transitions
 
 
 def streamed(archive, dict_obs=False):
-    dataset = make(archive(dict_obs=dict_obs), pool_size=sum(LENGTHS) - 1)
+    dataset = Minari(archive(dict_obs=dict_obs), pool_size=sum(LENGTHS) - 1)
     pool = dataset.update(dataset.init(), jax.random.key(0), unsharded(dataset))
     dataset.close()
     return jax.device_get(pool.transitions)
@@ -123,7 +123,7 @@ def test_a_whole_dataset_matches_the_episodes_it_was_written_from(archive):
 @pytest.mark.parametrize("devices", [2, 4])
 def test_whole_datasets_trim_rows_to_the_device_count(devices, archive):
     rows = sum(LENGTHS) // devices * devices
-    transitions = make(archive(), num_devices=devices).init().transitions
+    transitions = Minari(archive(), num_devices=devices).init().transitions
     assert {len(leaf) for leaf in jax.tree.leaves(transitions)} == {rows}
 
 
@@ -131,13 +131,13 @@ def test_a_pool_as_large_as_the_dataset_loads_it_whole(archive):
     dataset_id = archive()
     jax.tree.map(
         np.testing.assert_array_equal,
-        make(dataset_id, pool_size=sum(LENGTHS)).init().transitions,
-        make(dataset_id).init().transitions,
+        Minari(dataset_id, pool_size=sum(LENGTHS)).init().transitions,
+        Minari(dataset_id).init().transitions,
     )
 
 
 def test_a_streamed_pool_holds_distinct_transitions_placed_as_asked(archive):
-    dataset = make(archive(), pool_size=7, num_devices=2)
+    dataset = Minari(archive(), pool_size=7, num_devices=2)
     sharding = jax.tree.map(lambda _: NamedSharding(mesh(2), P("data")), dataset.init())
     pool = dataset.update(dataset.init(), jax.random.key(0), sharding).transitions
     dataset.close()
@@ -158,8 +158,8 @@ def runs(rewards):
 
 @pytest.mark.parametrize("seed", range(4))
 def test_a_pool_is_whole_episodes_with_only_the_last_cut_short(seed, archive):
-    dataset = make(archive(MANY), pool_size=20)
-    pool = dataset.stream.stage(jax.random.key(seed), unsharded(dataset)).transitions
+    dataset = Minari(archive(MANY), pool_size=20)
+    pool = dataset.stage(jax.random.key(seed), unsharded(dataset)).transitions
     dataset.close()
 
     found = runs(np.asarray(pool.second.reward))
@@ -173,9 +173,9 @@ def test_a_pool_is_whole_episodes_with_only_the_last_cut_short(seed, archive):
 
 
 def test_pools_depend_only_on_the_key(archive):
-    dataset = make(archive(MANY), pool_size=20)
+    dataset = Minari(archive(MANY), pool_size=20)
     sharding = unsharded(dataset)
-    stage = dataset.stream.stage
+    stage = dataset.stage
     first, again, other = (
         np.asarray(stage(jax.random.key(seed), sharding).transitions.second.reward)
         for seed in (0, 0, 1)
@@ -187,26 +187,26 @@ def test_pools_depend_only_on_the_key(archive):
 
 
 def test_each_update_hands_over_the_pool_staged_the_call_before(archive):
-    dataset = make(archive(), pool_size=4)
+    dataset = Minari(archive(), pool_size=4)
     sharding = unsharded(dataset)
     first, second = jax.random.key(1), jax.random.key(2)
 
     handed = [dataset.update(dataset.init(), key, sharding) for key in (first, second)]
     dataset.close()
 
-    jax.tree.map(np.testing.assert_array_equal, handed[0], dataset.stream.stage(first, sharding))
+    jax.tree.map(np.testing.assert_array_equal, handed[0], dataset.stage(first, sharding))
     jax.tree.map(
         np.testing.assert_array_equal,
         handed[1],
-        dataset.stream.stage(jax.random.fold_in(first, 1), sharding),
+        dataset.stage(jax.random.fold_in(first, 1), sharding),
     )
 
 
 def test_close_stops_the_staging_thread(archive):
-    dataset = make(archive(), pool_size=4)
+    dataset = Minari(archive(), pool_size=4)
     dataset.update(dataset.init(), jax.random.key(0), unsharded(dataset))
     dataset.close()
-    assert dataset.stream.executor._shutdown
+    assert dataset.executor._shutdown
 
 
 def test_the_config_hands_the_device_count_and_pool_size_to_the_dataset(monkeypatch):

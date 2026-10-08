@@ -22,7 +22,6 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import (GroupedAutoReset,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, Vectorize)
@@ -563,7 +562,7 @@ def bc(environment, batch_size=64, auxiliary_losses=()):
         optimizer=adam(),
         auxiliary_losses=auxiliary_losses,
     )
-    dataset = Minari(flatten(demonstrations(environment, jax.random.key(7), 256)))
+    dataset = Episodes(flatten(demonstrations(environment, jax.random.key(7), 256)))
     return offline(algorithm, environment, dataset, (batch_size,))
 
 
@@ -578,7 +577,7 @@ def iql(environment, batch_size=64, auxiliary_losses=()):
         value_optimizer=optax.adam(1e-3),
         auxiliary_losses=auxiliary_losses,
     )
-    dataset = Minari(flatten(demonstrations(environment, jax.random.key(7), 256)))
+    dataset = Episodes(flatten(demonstrations(environment, jax.random.key(7), 256)))
     return offline(algorithm, environment, dataset, (batch_size,))
 
 
