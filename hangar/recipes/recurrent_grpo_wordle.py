@@ -17,7 +17,6 @@ from boonta.networks.pretrained import init_fn
 from boonta.utils import (load_config, load_qwen3, load_tokenizer,
                           load_weights, materialize_gradients, quantize)
 
-REPO_ID = "Qwen/Qwen3-0.6B-Base"
 WORD_LENGTH = 5
 CAPACITY = 32
 FEEDBACK = ["0", "1", "2", "3"]
@@ -46,9 +45,10 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     num_guesses = env.time_limit()
 
-    config = load_config(REPO_ID)
+    repo_id = cfg.network.repo_id
+    config = load_config(repo_id)
     vocab_size = config["vocab_size"]
-    tokenizer = load_tokenizer(REPO_ID)
+    tokenizer = load_tokenizer(repo_id)
 
     start = tokenizer.token_to_id("<tool_call>")
     end = tokenizer.token_to_id("</tool_call>")
@@ -122,7 +122,7 @@ def make(cfg):
         dtype=dtype,
         param_dtype=param_dtype,
     )
-    weights = load_weights(REPO_ID)
+    weights = load_weights(repo_id)
     pretrained_params = jax.tree.map(np.asarray, load_qwen3(qwen3, weights)["params"])
     quantized_params = jax.tree.map(np.asarray, quantize(pretrained_params))
     embeddings = np.asarray(
