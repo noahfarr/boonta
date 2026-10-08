@@ -2,9 +2,9 @@ from boonta.algorithms.ppo import PPOConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, special
+from . import algorithm
 
-algorithm(
+ppo = algorithm(
     dict(
         algorithm=fbuilds(
             PPOConfig,
@@ -25,8 +25,7 @@ algorithm(
     name="ppo",
 )
 
-special(
-    "ppo",
+ppo.hyperparameters(
     "brax",
     total_timesteps=50_000_000,
     algorithm=dict(
@@ -41,9 +40,8 @@ special(
     rollout=dict(num_steps=16),
     environment=dict(num_envs=4096),
 )
-special("ppo", "craftax", total_timesteps=1_000_000_000)
-special(
-    "ppo",
+ppo.hyperparameters("craftax", total_timesteps=1_000_000_000)
+ppo.hyperparameters(
     "gymnasium",
     total_timesteps=500_000,
     algorithm=dict(num_minibatches=4, update_epochs=4, normalize_advantage=True),
@@ -51,8 +49,7 @@ special(
     environment=dict(num_envs=16),
     optimizer=dict(lr=3e-3),
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "gymnax/bsuite",
     total_timesteps=50_000_000,
     algorithm=dict(
@@ -67,8 +64,7 @@ special(
     environment=dict(num_envs=1024),
     optimizer=dict(lr=3e-4, max_grad_norm=0.5),
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "gymnax/classic_control",
     total_timesteps=20_000_000,
     algorithm=dict(
@@ -83,10 +79,9 @@ special(
     rollout=dict(num_steps=32),
     environment=dict(num_envs=4096),
 )
-special("ppo", "gymnax/minatar", total_timesteps=20_000_000)
+ppo.hyperparameters("gymnax/minatar", total_timesteps=20_000_000)
 
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab",
     algorithm=dict(
         num_minibatches=4,
@@ -106,8 +101,7 @@ special(
 
 isaaclab = ["ppo/isaaclab", "_self_"]
 
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/classic/ant",
     defaults=isaaclab,
     algorithm=dict(entropy_coefficient=0.0),
@@ -115,15 +109,13 @@ special(
     optimizer=dict(lr=5.0e-4),
     total_timesteps=131_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/classic/cartpole",
     defaults=isaaclab,
     rollout=dict(num_steps=16),
     total_timesteps=10_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/classic/humanoid",
     defaults=isaaclab,
     algorithm=dict(entropy_coefficient=0.0),
@@ -131,10 +123,9 @@ special(
     optimizer=dict(lr=1.0e-4),
     total_timesteps=131_000_000,
 )
-special("ppo", "isaaclab/locomotion/anymal_c_flat", defaults=isaaclab, total_timesteps=30_000_000)
-special("ppo", "isaaclab/locomotion/anymal_c_rough", defaults=isaaclab, total_timesteps=147_000_000)
-special(
-    "ppo",
+ppo.hyperparameters("isaaclab/locomotion/anymal_c_flat", defaults=isaaclab, total_timesteps=30_000_000)
+ppo.hyperparameters("isaaclab/locomotion/anymal_c_rough", defaults=isaaclab, total_timesteps=147_000_000)
+ppo.hyperparameters(
     "isaaclab/manipulation/franka_cabinet",
     defaults=isaaclab,
     algorithm=dict(entropy_coefficient=1.0e-3),
@@ -142,31 +133,27 @@ special(
     optimizer=dict(lr=5.0e-4),
     total_timesteps=157_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/manipulation/franka_lift",
     defaults=isaaclab,
     algorithm=dict(entropy_coefficient=0.006, gamma=0.98),
     optimizer=dict(lr=1.0e-4),
     total_timesteps=147_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/manipulation/franka_reach",
     defaults=isaaclab,
     algorithm=dict(update_epochs=8, entropy_coefficient=0.001),
     total_timesteps=98_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/manipulation/shadow_hand",
     defaults=isaaclab,
     rollout=dict(num_steps=16),
     optimizer=dict(lr=5.0e-4),
     total_timesteps=655_000_000,
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "isaaclab/multirotor/quadcopter",
     defaults=isaaclab,
     algorithm=dict(entropy_coefficient=0.0),
@@ -174,8 +161,7 @@ special(
     total_timesteps=20_000_000,
 )
 
-special(
-    "ppo",
+ppo.hyperparameters(
     "jumanji/sokoban",
     total_timesteps=100_000_000,
     training=dict(num_epochs=50),
@@ -191,8 +177,7 @@ special(
     environment=dict(num_envs=1024),
     optimizer=dict(lr=3e-4, max_grad_norm=0.5),
 )
-special(
-    "ppo",
+ppo.hyperparameters(
     "mujoco_playground",
     total_timesteps=60_000_000,
     algorithm=dict(
@@ -208,5 +193,5 @@ special(
     rollout=dict(num_steps=16),
     environment=dict(num_envs=4096),
 )
-special("ppo", "xland_minigrid/minigrid", total_timesteps=20_000_000)
-special("ppo", "xland_minigrid/xland", total_timesteps=1_000_000_000)
+ppo.hyperparameters("xland_minigrid/minigrid", total_timesteps=20_000_000)
+ppo.hyperparameters("xland_minigrid/xland", total_timesteps=1_000_000_000)

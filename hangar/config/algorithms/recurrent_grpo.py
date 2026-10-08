@@ -2,9 +2,9 @@ from boonta.algorithms.recurrent_grpo import RecurrentGRPOConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, special
+from . import algorithm
 
-algorithm(
+recurrent_grpo = algorithm(
     dict(
         algorithm=fbuilds(
             RecurrentGRPOConfig,
@@ -22,8 +22,7 @@ algorithm(
     name="recurrent_grpo",
 )
 
-special(
-    "recurrent_grpo",
+recurrent_grpo.hyperparameters(
     "wordle",
     environment=dict(num_envs=32),
     network=dict(repo_id="Qwen/Qwen3-0.6B-Base", dtype="bfloat16", param_dtype="bfloat16"),

@@ -2,9 +2,9 @@ from boonta.algorithms.recurrent_bc import RecurrentBCConfig
 
 from ..sections import Optimizer
 from ..store import fbuilds
-from . import algorithm, recurrent, special
+from . import algorithm, recurrent
 
-algorithm(
+recurrent_bc = algorithm(
     dict(
         defaults=[*recurrent, {"override /podracer": "quadinaros"}],
         algorithm=fbuilds(RecurrentBCConfig, batch_size=32, entropy_coefficient=0.0),
@@ -13,8 +13,7 @@ algorithm(
     name="recurrent_bc",
 )
 
-special(
-    "recurrent_bc",
+recurrent_bc.hyperparameters(
     "kinetix",
     defaults=[{"/dataset": "kinetix/offline_m"}],
     algorithm=dict(batch_size="${dataset.kwargs.batch_size}"),

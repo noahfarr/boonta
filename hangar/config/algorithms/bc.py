@@ -2,9 +2,9 @@ from boonta.algorithms.bc import BCConfig
 
 from ..sections import Optimizer
 from ..store import fbuilds
-from . import algorithm, offline, special
+from . import algorithm, offline
 
-algorithm(
+bc = algorithm(
     dict(
         defaults=offline,
         algorithm=fbuilds(BCConfig, batch_size=256, entropy_coefficient=0.0),
@@ -14,4 +14,4 @@ algorithm(
     name="bc",
 )
 
-special("bc", "brax/mujoco", environment=dict(kwargs=dict(backend="mjx")))
+bc.hyperparameters("brax/mujoco", environment=dict(kwargs=dict(backend="mjx")))

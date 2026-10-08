@@ -2,9 +2,9 @@ from boonta.algorithms.recurrent_dqn import RecurrentDQNConfig
 
 from ..sections import Optimizer, Replay, Rollout
 from ..store import fbuilds
-from . import algorithm, epsilon, recurrent, special
+from . import algorithm, epsilon, recurrent
 
-algorithm(
+recurrent_dqn = algorithm(
     dict(
         defaults=[*recurrent, {"/buffer": "trajectory"}],
         algorithm=fbuilds(RecurrentDQNConfig, updates_per_step=32, gamma=0.99, tau=0.005),
@@ -17,4 +17,4 @@ algorithm(
     name="recurrent_dqn",
 )
 
-special("recurrent_dqn", "gymnax/minatar", total_timesteps=10_000_000)
+recurrent_dqn.hyperparameters("gymnax/minatar", total_timesteps=10_000_000)

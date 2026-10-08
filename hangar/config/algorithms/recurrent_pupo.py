@@ -4,9 +4,9 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPOConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import builds, fbuilds
-from . import algorithm, special
+from . import algorithm
 
-algorithm(
+recurrent_pupo = algorithm(
     dict(
         defaults=[{"/torso": "default"}, {"/cell": "min_gru"}, {"/stack": "highway"}],
         algorithm=fbuilds(
@@ -32,8 +32,7 @@ algorithm(
     name="recurrent_pupo",
 )
 
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "ale/montezuma",
     total_timesteps=50_000_000,
     training=dict(num_epochs=50),
@@ -54,8 +53,7 @@ special(
     ),
     optimizer=dict(name="muon", lr=0.005, anneal=True, min_lr_ratio=0.0, max_grad_norm=1.5),
 )
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "craftax",
     total_timesteps=100_000_000,
     training=dict(num_epochs=20),
@@ -76,8 +74,7 @@ special(
     ),
     optimizer=dict(name="muon", lr=0.005, anneal=True, min_lr_ratio=0.0, max_grad_norm=1.5),
 )
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "gymnax/minatar",
     total_timesteps=104_857_600,
     training=dict(num_epochs=20),
@@ -102,8 +99,7 @@ special(
     ),
     optimizer=dict(name="muon", lr=0.015, anneal=True, max_grad_norm=1.5),
 )
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "jumanji/sokoban",
     total_timesteps=100_000_000,
     training=dict(num_epochs=50),
@@ -124,8 +120,7 @@ special(
     ),
     optimizer=dict(name="muon", lr=0.005, anneal=True, min_lr_ratio=0.0, max_grad_norm=1.5),
 )
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "mapox/find_return",
     total_timesteps=1_500_000_000,
     training=dict(num_epochs=100),
@@ -146,8 +141,7 @@ special(
     ),
     optimizer=dict(name="muon", lr=0.003, max_grad_norm=0.4),
 )
-special(
-    "recurrent_pupo",
+recurrent_pupo.hyperparameters(
     "mapox",
     total_timesteps=104_857_600,
     training=dict(num_epochs=20),

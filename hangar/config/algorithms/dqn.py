@@ -2,9 +2,9 @@ from boonta.algorithms.dqn import DQNConfig
 
 from ..sections import Optimizer, Replay, Rollout
 from ..store import fbuilds
-from . import algorithm, epsilon, special
+from . import algorithm, epsilon
 
-algorithm(
+dqn = algorithm(
     dict(
         defaults=[{"/buffer": "transition"}],
         algorithm=fbuilds(DQNConfig, updates_per_step=32, gamma=0.99, tau=0.005),
@@ -17,4 +17,4 @@ algorithm(
     name="dqn",
 )
 
-special("dqn", "gymnax/minatar", total_timesteps=10_000_000)
+dqn.hyperparameters("gymnax/minatar", total_timesteps=10_000_000)

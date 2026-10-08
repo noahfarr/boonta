@@ -1,6 +1,6 @@
-from . import algorithm, special
+from . import algorithm
 from .ippo import ippo
 
-algorithm(ippo, name="mappo")
+mappo = algorithm(ippo.node, name="mappo")
 
-special("mappo", "jaxmarl", total_timesteps=20_000_000)
+mappo.hyperparameters("jaxmarl", total_timesteps=20_000_000)

@@ -2,10 +2,10 @@ from boonta.algorithms.mmd import MMDConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, special
+from . import algorithm
 from .ippo import connectx
 
-algorithm(
+mmd = algorithm(
     dict(
         algorithm=fbuilds(
             MMDConfig,
@@ -28,4 +28,4 @@ algorithm(
     name="mmd",
 )
 
-special("mmd", "connectx", **connectx)
+mmd.hyperparameters("connectx", **connectx)

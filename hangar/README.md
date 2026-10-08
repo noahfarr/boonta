@@ -41,7 +41,7 @@ The config is typed Python, built with [hydra-zen](https://mit-ll-responsible-ai
 Each module in `config/algorithms/` holds everything about one algorithm. Its config is built from the algorithm's own config class with its full signature, so every field can be set without a `+`, and a key the class does not have fails when the config is composed. `config/algorithms/pqn.py` is the whole of PQN's configuration:
 
 ```python
-algorithm(
+pqn = algorithm(
     dict(
         algorithm=fbuilds(PQNConfig, num_minibatches=4, update_epochs=1, gamma=0.99, q_lambda=0.65),
         rollout=Rollout(num_steps=16),
@@ -52,8 +52,7 @@ algorithm(
     name="pqn",
 )
 
-special(
-    "pqn",
+pqn.hyperparameters(
     "gymnax/minatar",
     total_timesteps=80_000_000,
     algorithm=dict(num_minibatches=16),
@@ -61,7 +60,7 @@ special(
 )
 ```
 
-`config/algorithms/__init__.py` holds what the modules share (`recurrent`, `offline`, `epsilon`), the helpers `special` and `search`, and imports every module. A new algorithm is a new module there and one line in that import.
+`algorithm(node, name=...)` registers the node in the `algorithm` group and returns a handle for that algorithm. The handle keeps the node as `.node`, so `config/algorithms/mappo.py` reuses IPPO's with `algorithm(ippo.node, name="mappo")`. `config/algorithms/__init__.py` holds what the modules share (`recurrent`, `offline`, `epsilon`), `algorithm`, and imports every module. A new algorithm is a new module there and one line in that import.
 
 | Group | Choices | Default |
 | --- | --- | --- |
@@ -79,10 +78,10 @@ special(
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
-`special(algorithm, environment path, **settings)` registers the settings for an algorithm on an environment in the `hyperparameters` group. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so this line in `config/algorithms/ppo.py` covers every MinAtar game:
+`.hyperparameters(environment path, **settings)` on the handle registers the settings for that algorithm on an environment in the `hyperparameters` group. They are applied after the algorithm and environment and before the curriculum. When there is no entry for the exact environment, the lookup walks up the environment path until it finds one, so this line in `config/algorithms/ppo.py` covers every MinAtar game:
 
 ```python
-special("ppo", "gymnax/minatar", total_timesteps=20_000_000)
+ppo.hyperparameters("gymnax/minatar", total_timesteps=20_000_000)
 ```
 
 ## Recipes
@@ -91,7 +90,7 @@ special("ppo", "gymnax/minatar", total_timesteps=20_000_000)
 
 ## Sweeps
 
-`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `search(algorithm, environment path, **space)` in the algorithm's module, looked up like the settings above, on top of an algorithm-wide space, `search(algorithm, **space)`, if there is one. The ConnectX space is `search("ippo", "connectx", ...)` in `config/algorithms/ippo.py`. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
+`+sweep=carbs` runs a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. It switches to multirun by itself, so it needs no `-m`. The search space comes from `.search_space(environment path, **space)` on the algorithm's handle, looked up like the settings above, on top of an algorithm-wide space, `.search_space(**space)`, if there is one. The ConnectX space is `ippo.search_space("connectx", ...)` in `config/algorithms/ippo.py`. Plain runs and grid multiruns never see a space. The sweeper and the `submitit` launcher come from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`):
 
 ```bash
 uv sync --group sweep

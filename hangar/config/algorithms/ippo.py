@@ -4,26 +4,27 @@ from boonta.environments.connectx import Negamax, uniform
 
 from ..sections import Optimizer, Rollout
 from ..store import builds, fbuilds
-from . import algorithm, search, special
+from . import algorithm
 
-ippo = dict(
-    algorithm=fbuilds(
-        PPOConfig,
-        num_minibatches=16,
-        update_epochs=2,
-        clip_coefficient=0.2,
-        clip_value_loss=True,
-        entropy_coefficient=0.01,
-        value_coefficient=0.5,
-        gamma=0.99,
-        gae_lambda=0.95,
+ippo = algorithm(
+    dict(
+        algorithm=fbuilds(
+            PPOConfig,
+            num_minibatches=16,
+            update_epochs=2,
+            clip_coefficient=0.2,
+            clip_value_loss=True,
+            entropy_coefficient=0.01,
+            value_coefficient=0.5,
+            gamma=0.99,
+            gae_lambda=0.95,
+        ),
+        rollout=Rollout(num_steps=16),
+        environment=dict(num_envs=4096),
+        optimizer=Optimizer(lr=2.5e-4, max_grad_norm=0.5),
     ),
-    rollout=Rollout(num_steps=16),
-    environment=dict(num_envs=4096),
-    optimizer=Optimizer(lr=2.5e-4, max_grad_norm=0.5),
+    name="ippo",
 )
-
-algorithm(ippo, name="ippo")
 
 board = dict(
     rows="${environment.kwargs.rows}",
@@ -52,10 +53,9 @@ connectx = dict(
     ),
 )
 
-special("ippo", "connectx", **connectx)
-special("ippo", "jaxmarl", total_timesteps=20_000_000)
-special(
-    "ippo",
+ippo.hyperparameters("connectx", **connectx)
+ippo.hyperparameters("jaxmarl", total_timesteps=20_000_000)
+ippo.hyperparameters(
     "mapox",
     total_timesteps=20_000_000,
     environment=dict(num_envs=2048),
@@ -66,8 +66,7 @@ special(
     optimizer=dict(lr=3e-4, max_grad_norm=0.5),
 )
 
-search(
-    "ippo",
+ippo.search_space(
     "connectx",
     n_trials=1024,
     n_jobs=1,

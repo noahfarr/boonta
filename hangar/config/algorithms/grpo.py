@@ -2,9 +2,9 @@ from boonta.algorithms.grpo import GRPOConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, special
+from . import algorithm
 
-algorithm(
+grpo = algorithm(
     dict(
         algorithm=fbuilds(
             GRPOConfig,
@@ -22,4 +22,4 @@ algorithm(
     name="grpo",
 )
 
-special("grpo", "gymnax/minatar", total_timesteps=50_000_000)
+grpo.hyperparameters("gymnax/minatar", total_timesteps=50_000_000)

@@ -2,9 +2,9 @@ from boonta.algorithms.iql import IQLConfig
 
 from ..sections import Optimizers
 from ..store import fbuilds
-from . import algorithm, offline, special
+from . import algorithm, offline
 
-algorithm(
+iql = algorithm(
     dict(
         defaults=offline,
         algorithm=fbuilds(
@@ -22,4 +22,4 @@ algorithm(
     name="iql",
 )
 
-special("iql", "brax/mujoco", environment=dict(kwargs=dict(backend="mjx")))
+iql.hyperparameters("brax/mujoco", environment=dict(kwargs=dict(backend="mjx")))

@@ -2,9 +2,9 @@ from boonta.algorithms.reppo import REPPOConfig
 
 from ..sections import Optimizers, Rollout
 from ..store import fbuilds
-from . import algorithm, special
+from . import algorithm
 
-algorithm(
+reppo = algorithm(
     dict(
         algorithm=fbuilds(
             REPPOConfig,
@@ -27,8 +27,7 @@ algorithm(
     name="reppo",
 )
 
-special(
-    "reppo",
+reppo.hyperparameters(
     "brax",
     total_timesteps=50_000_000,
     rollout=dict(num_steps=32),

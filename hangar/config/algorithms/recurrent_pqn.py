@@ -2,9 +2,9 @@ from boonta.algorithms.recurrent_pqn import RecurrentPQNConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, epsilon, recurrent, special
+from . import algorithm, epsilon, recurrent
 
-algorithm(
+recurrent_pqn = algorithm(
     dict(
         defaults=recurrent,
         algorithm=fbuilds(RecurrentPQNConfig, num_minibatches=4, update_epochs=1, gamma=0.99, q_lambda=0.65),
@@ -16,4 +16,4 @@ algorithm(
     name="recurrent_pqn",
 )
 
-special("recurrent_pqn", "gymnax/minatar", total_timesteps=10_000_000)
+recurrent_pqn.hyperparameters("gymnax/minatar", total_timesteps=10_000_000)

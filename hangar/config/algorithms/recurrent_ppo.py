@@ -2,9 +2,9 @@ from boonta.algorithms.recurrent_ppo import RecurrentPPOConfig
 
 from ..sections import Optimizer, Rollout
 from ..store import fbuilds
-from . import algorithm, recurrent, special
+from . import algorithm, recurrent
 
-algorithm(
+recurrent_ppo = algorithm(
     dict(
         defaults=recurrent,
         algorithm=fbuilds(
@@ -26,15 +26,13 @@ algorithm(
     name="recurrent_ppo",
 )
 
-special(
-    "recurrent_ppo",
+recurrent_ppo.hyperparameters(
     "gymnax/minatar",
     total_timesteps=10_000_000,
     environment=dict(num_envs=512),
     rollout=dict(num_steps=16),
 )
-special(
-    "recurrent_ppo",
+recurrent_ppo.hyperparameters(
     "peanut_gb/pokemon_red",
     total_timesteps=1_000_000_000,
     training=dict(num_epochs=635),
@@ -55,8 +53,7 @@ special(
     ),
     optimizer=dict(lr=5e-3, anneal=True, min_lr_ratio=0.0, beta=0.95, weight_decay=0.01, max_grad_norm=0.5),
 )
-special(
-    "recurrent_ppo",
+recurrent_ppo.hyperparameters(
     "wordle",
     environment=dict(num_envs=32),
     algorithm=dict(num_minibatches=16),
