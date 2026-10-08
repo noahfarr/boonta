@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 from flax import struct
 
@@ -41,18 +40,16 @@ class NormalizeReward(Wrapper):
         return mean, m2, count
 
     def variance(self, mean: Array, m2: Array, count: Array) -> Array:
-        batch_count = count.sum()
-        batch_mean = (count * mean).sum() / batch_count
-        batch_m2 = m2.sum() + (count * (mean - batch_mean) ** 2).sum()
+        batch_count = count.sum(axis=0)
+        batch_mean = (count * mean).sum(axis=0) / batch_count
+        batch_m2 = m2.sum(axis=0) + (count * (mean - batch_mean) ** 2).sum(axis=0)
         return batch_m2 / batch_count
 
     def init(
         self, key: Key
     ) -> tuple[NormalizeRewardState, Timestep]:
         env_state, timestep = self._env.init(key)
-        leaf, *_ = jax.tree.leaves(timestep.obs)
-        num_envs, *_ = leaf.shape
-        zeros = jnp.zeros(num_envs, jnp.float32)
+        zeros = jnp.zeros(timestep.reward.shape, jnp.float32)
         return NormalizeRewardState(env_state, zeros, zeros, zeros, zeros), timestep
 
     def step(
