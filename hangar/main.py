@@ -1,25 +1,25 @@
-import os
 import time
 
-import jax
-
-if int(os.environ.get("SLURM_STEP_NUM_TASKS", 1)) > 1:
-    jax.distributed.initialize()
-
 import hydra
+import jax
 import jax.numpy as jnp
 import numpy as np
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from boonta.loggers import MultiLogger
-from boonta.artisans import Metrics
-from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
-from hangar import recipes
+from hangar import resolvers  # noqa: F401
 
 
 @hydra.main(version_base=None, config_path="./config", config_name="config")
 def main(cfg):
+    if cfg.num_processes > 1:
+        jax.distributed.initialize(num_processes=cfg.num_processes)
+
+    from boonta.artisans import Metrics
+    from boonta.loggers import MultiLogger
+    from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
+    from hangar import recipes
+
     start = time.monotonic()
     scores = []
     podracer = recipes.make(cfg)

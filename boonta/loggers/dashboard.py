@@ -4,6 +4,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 
+import jax
 import numpy as np
 from rich import box
 from rich.console import Console
@@ -15,9 +16,6 @@ from rich.table import Table
 from boonta.artisans import Text
 from boonta.utils import PyTree
 
-from .logger import Primary
-
-
 def uncover() -> None:
     stream = sys.__stdout__
     if stream is not None and not stream.closed:
@@ -25,7 +23,7 @@ def uncover() -> None:
         stream.flush()
 
 
-class DashboardLogger(Primary):
+class DashboardLogger:
     def __init__(
         self,
         total_timesteps=0,
@@ -34,6 +32,8 @@ class DashboardLogger(Primary):
         max_rows=12,
         **kwargs,
     ):
+        if jax.process_index() != 0:
+            return
         self.summary = summary or {}
         self.max_rows = max_rows
         self.generations = {}
@@ -68,6 +68,8 @@ class DashboardLogger(Primary):
             signal.signal(received, self.interrupted(previous))
 
     def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
+        if jax.process_index() != 0:
+            return
         step = int(np.asarray(steps).max())
         metrics = {
             k: np.array([np.asarray(row).mean() for row in v], dtype=np.float64)
@@ -81,7 +83,7 @@ class DashboardLogger(Primary):
         self.live.update(dashboard, refresh=True)
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
-        if isinstance(artifact, Text):
+        if jax.process_index() == 0 and isinstance(artifact, Text):
             self.generations[artifact.name] = artifact.data
             self.live.update(
                 self.build_dashboard(
@@ -108,6 +110,8 @@ class DashboardLogger(Primary):
         return handle
 
     def finish(self) -> None:
+        if jax.process_index() != 0:
+            return
         self.live.stop()
         self.console.show_cursor(True)
         uncover()

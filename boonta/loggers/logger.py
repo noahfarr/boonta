@@ -13,25 +13,6 @@ class Logger(Protocol):
     def finish(self) -> None: ...
 
 
-class Silent:
-    def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
-        pass
-
-    def log_summary(self, data: PyTree, **kwargs) -> None:
-        pass
-
-    def log_artifact(self, artifact: Artifact, step: int, **kwargs) -> None:
-        pass
-
-    def finish(self) -> None:
-        pass
-
-
-class Primary:
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls) if jax.process_index() == 0 else Silent()
-
-
 class MultiLogger:
     def __init__(self, loggers: list[Logger]):
         self.loggers = loggers
