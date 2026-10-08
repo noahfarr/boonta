@@ -19,7 +19,7 @@ def get_action_dim(cfg):
     return action_dim
 
 
-def cascading_fallback(group: str, algorithm: str, environment: str) -> str:
+def cascade(group: str, algorithm: str, environment: str) -> str:
     loader = GlobalHydra.instance().config_loader()
 
     parts = environment.split("/")
@@ -36,6 +36,10 @@ def cascading_fallback(group: str, algorithm: str, environment: str) -> str:
     return algorithm
 
 
+def trial():
+    return OmegaConf.select(HydraConfig.get(), "job.num", default=0)
+
+
 def get_group(_root_):
     algorithm = HydraConfig.get().runtime.choices["algorithm"]
     group = f"{algorithm}_{_root_.environment.namespace}_{_root_.environment.env_id}"
@@ -50,6 +54,7 @@ def groups():
 OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver("metric", lambda name: operator.itemgetter(name))
 OmegaConf.register_new_resolver("get_action_dim", get_action_dim)
-OmegaConf.register_new_resolver("cascading_fallback", cascading_fallback)
+OmegaConf.register_new_resolver("cascade", cascade)
+OmegaConf.register_new_resolver("trial", trial)
 OmegaConf.register_new_resolver("get_group", get_group)
 OmegaConf.register_new_resolver("groups", groups)

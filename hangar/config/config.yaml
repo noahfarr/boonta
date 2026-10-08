@@ -1,5 +1,5 @@
 total_timesteps: 5_000_000
-seed: 0
+seed: ${trial:}
 
 training:
   num_epochs: 10
@@ -18,10 +18,13 @@ defaults:
   - algorithm: ppo
   - environment: gymnax/minatar/breakout
   - logger: dashboard
-  - optional hyperparameters: ${cascading_fallback:hyperparameters,${algorithm},${environment}}
+  - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment}}
   - curriculum: default
   - scoring: best
+  - optional search_space: ${cascade:search_space,${algorithm},${environment}}
 
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${oc.env:SLURM_ARRAY_TASK_ID,0}
+  sweep:
+    dir: sweeps/${hydra.runtime.choices.algorithm}/${hydra.runtime.choices.environment}/${now:%Y-%m-%d_%H-%M-%S}
