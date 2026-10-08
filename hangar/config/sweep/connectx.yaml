@@ -1,11 +1,11 @@
 # @package _global_
 
 defaults:
+  - carbs
   - override /algorithm: ippo
   - override /environment: connectx/connectx
   - override /logger: file
   - override /scoring: final
-  - override /hydra/sweeper: carbs
   - override /hydra/launcher: submitit_local
 
 loggers:
