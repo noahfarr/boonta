@@ -11,5 +11,5 @@ def learning_rate(cfg, batch_size: int):
         updates
         * cfg.algorithm.get("update_epochs", 1)
         * cfg.algorithm.get("num_minibatches", 1),
-        alpha=cfg.optimizer.get("min_lr_ratio", 0.0),
+        alpha=cfg.optimizer.get("alpha", 0.0),
     )
