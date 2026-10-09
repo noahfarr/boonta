@@ -11,4 +11,3 @@ kwargs:
   max_steps_in_episode: 250
 mutation:
   max_num_edits: 100
-  num_edits: 5
