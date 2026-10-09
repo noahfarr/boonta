@@ -96,11 +96,11 @@ Settings live under `hydra.sweeper`:
 
 | Setting | Default | Source |
 |---|---|---|
-| `members` | 4 | the in-process `curriculum=pbt` |
-| `seeds` | 4 | the in-process `curriculum=pbt` |
-| `generations` | 5 | a few exploit steps per run, as in the MinAtar comparison against `curriculum=pbt` |
-| `fraction` | 0.25 | the in-process `curriculum=pbt`; truncation selection as in Jaderberg et al. (2017), who used 20% |
-| `threshold` | 2.0 | the in-process `curriculum=pbt`; about two standard errors |
+| `members` | 4 | a small population; with `fraction` 0.25 one member copies per generation |
+| `seeds` | 4 | enough runs per member for the gate's pooled standard error |
+| `generations` | 5 | a few exploit steps per run; must divide `training.num_epochs` (10 by default) |
+| `fraction` | 0.25 | Ray Tune's `quantile_fraction`; Jaderberg et al. (2017) used 20% |
+| `threshold` | 2.0 | about two standard errors, in the spirit of the paper's t-test selection |
 | `factors` | [0.8, 1.25] | Jaderberg et al. (2017) use 0.8 and 1.2; 1.25 undoes 0.8 |
 | `resample_probability` | 0.25 | Ray Tune's PBT default |
 | `seed` | 0 | the sweeper's own random draws |
