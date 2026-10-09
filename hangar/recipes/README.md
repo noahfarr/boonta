@@ -119,5 +119,5 @@ Before each environment file it tries the same path with the curriculum appended
 Run the recipe with
 
 ```bash
-python hangar/main.py algorithm=ppo environment=gymnax/minatar/breakout
+uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 ```

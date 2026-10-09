@@ -112,7 +112,7 @@ Its `step` moves the agent, sets `terminated` when it arrives and `truncated` wh
 [`gymnasium.py`](gymnasium.py) runs any Gymnasium vector environment, so a simulator written in Python needs no port. Every step crosses to the host through `io_callback`, which costs about 200 µs, so it suits simulators that take milliseconds per step. The vector environment must reset in `AutoresetMode.SAME_STEP`. `make` sets that up and returns a `Batched` environment:
 
 ```bash
-python hangar/main.py algorithm=ppo environment=gymnasium/cartpole
+uv run boonta algorithm=ppo environment=gymnasium/cartpole
 ```
 
 ### C or C++ through FFI

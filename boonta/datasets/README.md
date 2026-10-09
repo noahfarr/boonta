@@ -18,7 +18,7 @@ A batch is a `Transition(first, second)`, the same shape online algorithms see. 
 [`minari.py`](minari.py) reads a [Minari](https://minari.farama.org) dataset. Pick one with the `dataset` config group:
 
 ```bash
-python hangar/main.py algorithm=bc environment=brax/mujoco/hopper
+uv run boonta algorithm=bc environment=brax/mujoco/hopper
 ```
 
 `bc` and `iql` load `dataset: minari/mujoco/expert` by default, which reads `mujoco/<env_id>/expert-v0`. Its config is [`hangar/config/dataset/minari/mujoco/expert.yaml`](../../hangar/config/dataset/minari/mujoco/expert.yaml):

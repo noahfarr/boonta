@@ -28,7 +28,6 @@ from .huggingface import (
     load_vocab,
     load_weights,
 )
-from .brief import brief
 from .lift import vmap
 from .quantization import (
     QuantizedArray,
@@ -53,7 +52,6 @@ __all__ = [
     "add_feature_axis",
     "add_time_axis",
     "broadcast",
-    "brief",
     "canonicalize_dtype",
     "concatenate",
     "conditional_update",
