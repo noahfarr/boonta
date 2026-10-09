@@ -4,11 +4,8 @@ px.enable_device_profiling()
 px.enable_barriers()
 
 import argparse
-import subprocess
 import time
 from dataclasses import dataclass
-from datetime import date
-from pathlib import Path
 
 import hydra
 import jax
@@ -20,22 +17,6 @@ from boonta.algorithms.wrappers import Wrapper as AlgorithmWrapper
 from boonta.environments.wrappers import Wrapper as EnvironmentWrapper
 from boonta.utils import Transition
 from hangar import recipes
-
-COLUMNS = [
-    "environment",
-    "algorithm",
-    "num_envs",
-    "batch_size",
-    "environment/SPS",
-    "rollout/SPS",
-    "update/SPS",
-    "training/SPS",
-    "device",
-    "commit",
-    "date",
-]
-LEDGER = Path(__file__).parent.parent / "benchmarks.md"
-
 
 def compose(overrides):
     with hydra.initialize(version_base=None, config_path="../config"):
@@ -91,7 +72,8 @@ def identity(state):
     return state
 
 
-def assemble(cfg):
+def benchmark(overrides, num_updates, seed):
+    cfg = compose(overrides)
     namespace = cfg.environment.namespace
     suite = cfg.environment.get("suite", namespace)
     name = HydraConfig.get().runtime.choices["algorithm"]
@@ -101,12 +83,7 @@ def assemble(cfg):
         components["environment"] = TrackedEnvironment(components["environment"])
     components["pit"] = px.track(name="pit")(components.get("pit", identity))
     components["lap"] = px.track(name="lap")(components.get("lap", identity))
-    return instantiate(cfg.podracer)(**components)
-
-
-def benchmark(overrides, num_updates, seed):
-    cfg = compose(overrides)
-    podracer = assemble(cfg)
+    podracer = instantiate(cfg.podracer)(**components)
     algorithm, environment = podracer.algorithm, podracer.environment
 
     num_envs = podracer.config.num_envs
@@ -204,118 +181,13 @@ def benchmark(overrides, num_updates, seed):
     }, stats
 
 
-def combinations():
-    root = Path(__file__).parent.parent / "config" / "environment"
-    for path in sorted(root.rglob("*.yaml")):
-        environment = str(path.relative_to(root).with_suffix(""))
-        try:
-            cfg = compose([f"environment={environment}"])
-            namespace = cfg.environment.namespace
-            suite = cfg.environment.get("suite", namespace)
-        except Exception:
-            continue
-        for algorithm, *key in recipes.register:
-            if tuple(key) != (namespace, suite):
-                continue
-            cfg = compose([f"algorithm={algorithm}", f"environment={environment}"])
-            if "rollout" in cfg:
-                yield algorithm, environment
-
-
-def read(path):
-    if not path.exists():
-        return {}
-    lines = [line for line in path.read_text().splitlines() if line.startswith("|")]
-    rows = [
-        dict(zip(COLUMNS, (cell.strip() for cell in line.strip("|").split("|"))))
-        for line in lines[2:]
-    ]
-    return {(row["environment"], row["algorithm"], row["device"]): row for row in rows}
-
-
-def record(path, row):
-    table = read(path)
-    table[row["environment"], row["algorithm"], row["device"]] = row
-    lines = ["| " + " | ".join(COLUMNS) + " |", "|" + "---|" * len(COLUMNS)]
-    for row in sorted(
-        table.values(),
-        key=lambda row: (
-            row["environment"],
-            row["algorithm"].removeprefix("recurrent_"),
-            row["algorithm"].startswith("recurrent_"),
-            row["device"],
-        ),
-    ):
-        lines.append("| " + " | ".join(row[column] for column in COLUMNS) + " |")
-    path.write_text("\n".join(lines) + "\n")
-
-
-def stamp():
-    commit = subprocess.run(
-        ["git", "describe", "--always", "--dirty"],
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).parent,
-    ).stdout.strip()
-    return {
-        "device": jax.devices()[0].device_kind,
-        "commit": commit,
-        "date": date.today().isoformat(),
-    }
-
-
-def main(overrides, num_updates, seed, everything, match, ledger):
-    if not everything:
-        results, stats = benchmark(overrides, num_updates, seed)
-        for name, value in results.items():
-            print(f"{name}: {value:,.0f}")
-        print(stats.device)
-        return
-
-    rows = []
-    for algorithm, environment in combinations():
-        name = f"{algorithm} {environment}"
-        if match not in name:
-            continue
-        print(name, flush=True)
-        try:
-            results, stats = benchmark(
-                [f"algorithm={algorithm}", f"environment={environment}", *overrides],
-                num_updates,
-                seed,
-            )
-        except Exception as error:
-            print(f"  failed: {type(error).__name__}: {str(error).splitlines()[0][:120]}")
-            continue
-        finally:
-            jax.clear_caches()
-        rows.append((name, results))
-        print("  " + "  ".join(f"{k}: {v:,.0f}" for k, v in results.items()), flush=True)
-        print(stats.device, flush=True)
-        if ledger:
-            numbers = {column: f"{value:,.0f}" for column, value in results.items()}
-            record(
-                LEDGER,
-                {"algorithm": algorithm, "environment": environment, **numbers, **stamp()},
-            )
-
-    width = max((len(name) for name, _ in rows), default=0)
-    columns = ["environment/SPS", "rollout/SPS", "update/SPS", "training/SPS"]
-    print()
-    print(f"{'':{width}}  " + "  ".join(f"{c:>16}" for c in columns))
-    for name, results in rows:
-        print(f"{name:{width}}  " + "  ".join(f"{results[c]:>16,.0f}" for c in columns))
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("overrides", nargs="*")
     parser.add_argument("--num-updates", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--all", action="store_true")
-    parser.add_argument("--match", default="")
-    parser.add_argument("--record", action="store_true")
     args = parser.parse_args()
-    if args.record and (args.overrides or not args.all):
-        parser.error("--record takes --all and no overrides")
-    main(args.overrides, args.num_updates, args.seed, args.all, args.match, args.record)
+    results, stats = benchmark(args.overrides, args.num_updates, args.seed)
+    for name, value in results.items():
+        print(f"{name}: {value:,.0f}")
+    print(stats.device)
