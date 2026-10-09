@@ -6,6 +6,11 @@
 
 *boonta* [ˈbuːn.tə]: the Boonta Eve Classic, the podrace Anakin Skywalker wins on Tatooine in *The Phantom Menace*.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/structure-dark.webp">
+  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
+</picture>
+
 </div>
 
 ## Podracers
@@ -55,13 +60,6 @@ pip install "boonta[hangar]"  # the library, plus Hydra to run the configs in ha
 ```
 
 The library never imports `hangar`, Hydra or OmegaConf. In a checkout, `uv sync --extra hangar` installs it. Environment suites that need their own packages come as extras too, such as `boonta[craftax]`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
-
-## How it fits together
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/structure-dark.webp">
-  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
-</picture>
 
 ## Guides
 
