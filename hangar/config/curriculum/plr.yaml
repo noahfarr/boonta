@@ -8,6 +8,7 @@ minimum_fill: 0.5
 robust: true
 gamma: ${algorithm.gamma}
 gae_lambda: ${algorithm.gae_lambda}
+sample: ???
 score:
   _target_: boonta.curricula.positive_value_loss
   _partial_: true

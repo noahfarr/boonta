@@ -83,6 +83,33 @@ class Kinetix(Environment):
         return int(self._params.max_timesteps)
 
 
+def level_sampler():
+    from jax2d.engine import PhysicsEngine
+    from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
+                                     sample_kinetix_level)
+
+    env_params, static_env_params, ued_params = (
+        EnvParams(),
+        StaticEnvParams(),
+        UEDParams(),
+    )
+    physics_engine = PhysicsEngine(static_env_params)
+
+    def sample(key):
+        return sample_kinetix_level(
+            key, physics_engine, env_params, static_env_params, ued_params
+        )
+
+    return sample
+
+
+def level_mutator():
+    from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
+                                     make_mutate_env)
+
+    return make_mutate_env(StaticEnvParams(), EnvParams(), UEDParams())
+
+
 def make(
     env_id: str | list[str] | None = None,
     action_type: str = "discrete",

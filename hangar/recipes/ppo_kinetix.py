@@ -9,27 +9,6 @@ from boonta.environments.wrappers import (RecordEpisodeStatistics,
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 
-def generator():
-    from jax2d.engine import PhysicsEngine
-    from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
-                                     make_mutate_env, sample_kinetix_level)
-
-    env_params, static_env_params, ued_params = (
-        EnvParams(),
-        StaticEnvParams(),
-        UEDParams(),
-    )
-    physics_engine = PhysicsEngine(static_env_params)
-
-    def sample(key):
-        return sample_kinetix_level(
-            key, physics_engine, env_params, static_env_params, ued_params
-        )
-
-    mutate = make_mutate_env(static_env_params, env_params, ued_params)
-    return sample, mutate
-
-
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
@@ -63,9 +42,6 @@ def make(cfg):
         ),
     )
 
-    sample, mutate = generator()
-    algorithm, env, pit, lap = instantiate(cfg.curriculum)(
-        algorithm, env, sample=sample, mutate=mutate
-    )
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

@@ -9,6 +9,8 @@ robust: false
 num_edits: 5
 gamma: ${algorithm.gamma}
 gae_lambda: ${algorithm.gae_lambda}
+sample: ???
+mutate: ???
 score:
   _target_: boonta.curricula.maximum_monte_carlo
   _partial_: true
