@@ -41,6 +41,9 @@ dependencies = [
 ale = [
     "ale_py[xla]>=0.12.0",
 ]
+benchmark = [
+    "performax",
+]
 brax = [
     "brax",
 ]
@@ -129,6 +132,7 @@ isaaclab-arena = { git = "https://github.com/isaac-sim/IsaacLab-Arena" }
 libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
 lox = { git = "https://github.com/huterguier/lox" }
 mapox = { git = "https://github.com/gabe00122/mapox" }
+performax = { git = "https://github.com/noahfarr/performax", rev = "f22adf27970a4bfff51d364e757e47be6b0a62ee" }
 slurmpilot = { git = "https://github.com/noahfarr/slurmpilot.git", branch = "feat/spignore" }
 torch = [
     { index = "pytorch-cu128", marker = "python_full_version < '3.12'" },
