@@ -99,21 +99,32 @@ def main(cfg):
     (state, _), stats = px.profile(race)(state)
     podracer.close(state)
 
-    seconds = clock["seconds"]
-    num_steps = num_updates * podracer.batch_size
-    print(f"\nbackend: {jax.default_backend()} ({jax.devices()[0].device_kind})")
-    print(
-        f"profiled train call: {num_updates} updates x {podracer.batch_size} steps "
-        f"in {seconds:.3f}s = {num_steps / seconds:,.0f} SPS"
+    batch_size = podracer.batch_size
+    times = {
+        region.name: region.total_duration_ms / 1000 / num_updates
+        for region in stats.device.stats
+    }
+    acting = sum(
+        times.get(region, 0.0)
+        for region in ("algorithm/step", "environment/step", "lap")
     )
-    print("\ndevice time per region:")
-    if stats.device:
-        print(stats.device)
-    else:
-        print("no device kernels recorded; device timing needs a CUDA GPU")
-    if stats.host:
-        print("\nhost time per region:")
-        print(stats.host)
+
+    metrics = {}
+    if times.get("environment/step"):
+        metrics["environment/SPS"] = batch_size / times["environment/step"]
+    if acting:
+        metrics["rollout/SPS"] = batch_size / acting
+    if times.get("algorithm/update"):
+        metrics["update/SPS"] = batch_size / times["algorithm/update"]
+    metrics["training/SPS"] = num_updates * batch_size / clock["seconds"]
+    for region, seconds in times.items():
+        metrics[f"{region}/time"] = seconds
+
+    for name, value in metrics.items():
+        if name.endswith("/time"):
+            print(f"{name}: {value:.6f}")
+        else:
+            print(f"{name}: {value:,.0f}")
 
 
 if __name__ == "__main__":
