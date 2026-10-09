@@ -127,7 +127,6 @@ class RecurrentPQN:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
             q_values = dist.preferences
             q_value = remove_feature_axis(
                 jnp.take_along_axis(
@@ -158,7 +157,7 @@ class RecurrentPQN:
                     dist=dist,
                     q_values=q_values,
                     carry=carry,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (variables, q_value)
 
@@ -196,7 +195,7 @@ class RecurrentPQN:
             )
             target_q_value = trajectory.aux["target_q_value"]
 
-            (loss, (variables, q_value)), grads = jax.value_and_grad(
+            (loss, (returned, q_value)), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, trajectory, carry)
             explained_variance = 1 - jnp.var(target_q_value - q_value) / (
@@ -213,8 +212,10 @@ class RecurrentPQN:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: returned.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
                 **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }

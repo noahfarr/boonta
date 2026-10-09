@@ -56,7 +56,6 @@ class BC:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
             likelihood = -jnp.mean(dist.log_prob(transitions.second.action))
             entropy = jnp.mean(dist.entropy())
             loss = likelihood - self.cfg.entropy_coefficient * entropy
@@ -72,11 +71,11 @@ class BC:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (variables, likelihood, entropy)
 
-        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+        (loss, (returned, likelihood, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
@@ -90,8 +89,10 @@ class BC:
         updates, optimizer_state = self.optimizer.update(
             grads["params"], state.optimizer_state, state.params["params"]
         )
+        variables = {
+            name: returned.get(name, value) for name, value in state.params.items()
+        }
         params = {
-            **state.params,
             **variables,
             "params": optax.apply_updates(state.params["params"], updates),
         }

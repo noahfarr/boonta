@@ -117,7 +117,6 @@ class RecurrentPuPO:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(trajectory.second.action)
             entropy = dist.entropy().mean()
@@ -175,7 +174,7 @@ class RecurrentPuPO:
                     dist=dist,
                     value=values,
                     carry=carry,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (
                 variables,
@@ -259,7 +258,7 @@ class RecurrentPuPO:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, trajectory, carry)
             (
-                variables,
+                returned,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -290,8 +289,10 @@ class RecurrentPuPO:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: returned.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
                 **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }

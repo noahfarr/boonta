@@ -42,17 +42,17 @@ On-policy advantages come from [`advantage_estimators.generalized_advantage_esti
 
 Every algorithm takes `auxiliary_losses: tuple[Callable, ...]` and adds each one to its loss. Each loss is called with keyword arguments.
 
-- Every algorithm passes `params`, `apply`, `transitions`, `dist` and `intermediates`.
+- Every algorithm passes `params`, `apply`, `transitions`, `dist` and `variables`.
 - Those with a critic pass `value`. Those with Q-values pass `q_values`.
 - Recurrent algorithms pass `carry`.
 - SAC, REPPO and IQL pass their actor's values.
 
-A loss takes `**kwargs` and reads only what it needs. `intermediates` holds what the network sowed in the forward pass, so `intermediates["intermediates"]["features"]` is what the head saw. [`auxiliary_losses.py`](auxiliary_losses.py) has two real ones, `DR3` and `Anchor`. A minimal loss, from [`tests/test_auxiliary_losses.py`](../../tests/test_auxiliary_losses.py):
+A loss takes `**kwargs` and reads only what it needs. `variables` holds every collection the forward pass returned, so `variables["intermediates"]["features"]` is what the head saw. [`auxiliary_losses.py`](auxiliary_losses.py) has two real ones, `DR3` and `Anchor`. A minimal loss, from [`tests/test_auxiliary_losses.py`](../../tests/test_auxiliary_losses.py):
 
 ```python
 def energy(weight):
-    def loss(intermediates, **kwargs):
-        features = intermediates["intermediates"]["features"].astype(jnp.float32)
+    def loss(variables, **kwargs):
+        features = variables["intermediates"]["features"].astype(jnp.float32)
         return weight * jnp.mean(features**2)
 
     return loss
@@ -91,7 +91,14 @@ The steps below follow `BC`, the smallest algorithm, in [`bc.py`](bc.py).
            return state, dist.sample(seed=key), {}
    ```
 
-   In `update`, apply the network with `mutable=True`. Pop `intermediates` from the variables it returns and pass them to every auxiliary loss as `{"intermediates": ...}`. After the optimizer step, store `{**state.params, **variables, "params": new_weights}`, so a layer that keeps state, such as BatchNorm's `batch_stats`, carries it forward. Acting and target computations apply the network without `mutable`. A target network averages or copies `"params"` as before and copies every other collection from the online network. Log with `lox.log({...})`.
+   In `update`, apply the network with `mutable=True` and pass the variables it returns to every auxiliary loss as `variables`. After the optimizer step, store back only the collections the network had at init, so a layer that keeps state, such as BatchNorm's `batch_stats`, carries it forward and nothing sown is kept:
+
+   ```python
+   variables = {name: returned.get(name, value) for name, value in state.params.items()}
+   params = {**variables, "params": optax.apply_updates(state.params["params"], updates)}
+   ```
+
+   Acting and target computations apply the network without `mutable`. A target network averages or copies `"params"` as before and copies every other collection from the online network. Log with `lox.log({...})`.
 
 2. Export the class in [`__init__.py`](__init__.py).
 

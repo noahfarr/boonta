@@ -86,11 +86,11 @@ Attention is the exception. `get_attention_implementation` in [`boonta/utils`](.
 self.sow("intermediates", "features", x, reduce_fn=lambda _, value: value)
 ```
 
-An algorithm's update applies the network with `mutable=True` and hands the sown `intermediates` to its auxiliary losses, which read `intermediates["intermediates"]["features"]`. Acting calls the network without `mutable`, so sowing costs nothing there, and nothing sown reaches the parameters or a checkpoint. Any module can sow more values the same way.
+An algorithm's update applies the network with `mutable=True` and hands everything it returns to its auxiliary losses as `variables`, so a loss reads `variables["intermediates"]["features"]`. Acting calls the network without `mutable`, so sowing costs nothing there, and nothing sown reaches the parameters or a checkpoint. Any module can sow more values the same way.
 
 ## Stateful layers
 
-Every collection a layer writes during the update's forward pass, such as BatchNorm's `batch_stats`, is stored beside `params` and carried to the next update. Only `params` reaches the optimizer. Acting and evaluation apply the network without `mutable`, so a layer that checks `self.is_mutable_collection(...)` sees training only in the update.
+After each step the update stores back the collections the network had at init, such as BatchNorm's `batch_stats`, with the values the forward pass wrote. Collections that appear only during the pass, such as sown values, are dropped. Only `params` reaches the optimizer. Acting and evaluation apply the network without `mutable`, so a layer that checks `self.is_mutable_collection(...)` sees training only in the update.
 
 ## Add a network part
 

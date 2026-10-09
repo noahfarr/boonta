@@ -85,7 +85,6 @@ class GRPO:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = (dist.entropy() * valid).sum() / num_valid
@@ -131,7 +130,7 @@ class GRPO:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (
                 variables,
@@ -170,7 +169,7 @@ class GRPO:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, minibatch)
             (
-                variables,
+                returned,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -191,8 +190,10 @@ class GRPO:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: returned.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
                 **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }

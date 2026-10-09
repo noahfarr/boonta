@@ -109,7 +109,6 @@ class SAC:
                 transitions.second.action,
                 mutable=True,
             )
-            variables.pop("intermediates", None)
             q_value = remove_feature_axis(q_value)
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
@@ -126,7 +125,6 @@ class SAC:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
             action, log_prob = dist.sample_and_log_prob(seed=key)
 
             q_value = remove_feature_axis(
@@ -145,7 +143,7 @@ class SAC:
                     apply=apply,
                     transitions=transitions,
                     dist=dist,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (variables, log_prob)
 
@@ -153,7 +151,6 @@ class SAC:
             alpha_params: PyTree, log_prob: Array
         ) -> tuple[Array, PyTree]:
             log_alpha, variables = self.alpha.apply(alpha_params, mutable=True)
-            variables.pop("intermediates", None)
             loss = -(log_alpha * (log_prob + self.cfg.target_entropy)).mean()
             return loss, variables
 
@@ -166,7 +163,7 @@ class SAC:
             critic_key, actor_key = jax.random.split(key)
             transitions = batch
 
-            (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
+            (critic_loss, (returned, q_value)), grads = jax.value_and_grad(
                 critic_loss_fn, has_aux=True, allow_int=True
             )(state.critic_params, state, transitions, critic_key)
             updates, critic_optimizer_state = self.critic_optimizer.update(
@@ -174,9 +171,12 @@ class SAC:
                 state.critic_optimizer_state,
                 state.critic_params["params"],
             )
+            variables = {
+                name: returned.get(name, value)
+                for name, value in state.critic_params.items()
+            }
             state = state.replace(
                 critic_params={
-                    **state.critic_params,
                     **variables,
                     "params": optax.apply_updates(
                         state.critic_params["params"], updates
@@ -185,22 +185,24 @@ class SAC:
                 critic_optimizer_state=critic_optimizer_state,
             )
 
-            (actor_loss, (variables, log_prob)), grads = jax.value_and_grad(
+            (actor_loss, (returned, log_prob)), grads = jax.value_and_grad(
                 actor_loss_fn, has_aux=True, allow_int=True
             )(state.params, state, transitions, actor_key)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
+            variables = {
+                name: returned.get(name, value) for name, value in state.params.items()
+            }
             state = state.replace(
                 params={
-                    **state.params,
                     **variables,
                     "params": optax.apply_updates(state.params["params"], updates),
                 },
                 actor_optimizer_state=actor_optimizer_state,
             )
 
-            (alpha_loss, variables), grads = jax.value_and_grad(
+            (alpha_loss, returned), grads = jax.value_and_grad(
                 alpha_loss_fn, has_aux=True, allow_int=True
             )(state.alpha_params, jax.lax.stop_gradient(log_prob))
             updates, alpha_optimizer_state = self.alpha_optimizer.update(
@@ -208,9 +210,12 @@ class SAC:
                 state.alpha_optimizer_state,
                 state.alpha_params["params"],
             )
+            variables = {
+                name: returned.get(name, value)
+                for name, value in state.alpha_params.items()
+            }
             state = state.replace(
                 alpha_params={
-                    **state.alpha_params,
                     **variables,
                     "params": optax.apply_updates(
                         state.alpha_params["params"], updates

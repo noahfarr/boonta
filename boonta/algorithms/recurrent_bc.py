@@ -91,7 +91,6 @@ class RecurrentBC:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
             log_prob = dist.log_prob(transitions.second.action)
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
             weight = weight.astype(log_prob.dtype)
@@ -119,11 +118,11 @@ class RecurrentBC:
                     transitions=transitions,
                     dist=dist,
                     carry=carry,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (variables, likelihood, entropy)
 
-        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+        (loss, (returned, likelihood, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
@@ -137,9 +136,11 @@ class RecurrentBC:
         updates, optimizer_state = self.optimizer.update(
             grads["params"], state.optimizer_state, state.params["params"]
         )
+        variables = {
+            name: returned.get(name, value) for name, value in state.params.items()
+        }
         return state.replace(
             params={
-                **state.params,
                 **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             },

@@ -87,7 +87,6 @@ class MMD:
                 temperature=1.0,
                 mutable=True,
             )
-            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = dist.entropy().mean()
@@ -147,7 +146,7 @@ class MMD:
                     transitions=transitions,
                     dist=dist,
                     value=value,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (
                 variables,
@@ -196,7 +195,7 @@ class MMD:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, state.magnet_params, state.alpha, minibatch)
             (
-                variables,
+                returned,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -226,8 +225,10 @@ class MMD:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: returned.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
                 **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
