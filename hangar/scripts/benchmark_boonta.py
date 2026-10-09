@@ -1,6 +1,12 @@
+import performax as px
+
+px.enable_device_profiling()
+px.enable_barriers()
+
 import argparse
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -8,7 +14,10 @@ import hydra
 import jax
 import jax.numpy as jnp
 from hydra.core.hydra_config import HydraConfig
+from hydra.utils import instantiate
 
+from boonta.algorithms.wrappers import Wrapper as AlgorithmWrapper
+from boonta.environments.wrappers import Wrapper as EnvironmentWrapper
 from boonta.utils import Transition
 from hangar import recipes
 
@@ -45,9 +54,59 @@ def sample(key, action, space):
     return jax.random.uniform(key, action.shape, action.dtype, space.low, space.high)
 
 
+@dataclass
+class TrackedAlgorithm(AlgorithmWrapper):
+    def step(self, state, key, timestep, temperature=1.0):
+        return px.track(name="algorithm/step")(self.algorithm.step)(
+            state, key, timestep, temperature
+        )
+
+    def update(self, state, key, transitions):
+        return px.track(name="algorithm/update")(self.algorithm.update)(
+            state, key, transitions
+        )
+
+
+class TrackedEnvironment(EnvironmentWrapper):
+    def step(self, key, state, action):
+        return px.track(name="environment/step")(self._env.step)(key, state, action)
+
+    def update(self, state, **kwargs):
+        return self._env.update(state, **kwargs)
+
+    def action_mask(self, state):
+        return self._env.action_mask(state)
+
+    def observe(self, state):
+        return self._env.observe(state)
+
+    def render(self, state):
+        return self._env.render(state)
+
+    def close(self, state):
+        return self._env.close(state)
+
+
+def identity(state):
+    return state
+
+
+def assemble(cfg):
+    namespace = cfg.environment.namespace
+    suite = cfg.environment.get("suite", namespace)
+    name = HydraConfig.get().runtime.choices["algorithm"]
+    components = recipes.register[(name, namespace, suite)](cfg)
+    components["algorithm"] = TrackedAlgorithm(components["algorithm"])
+    if components.get("environment") is not None:
+        components["environment"] = TrackedEnvironment(components["environment"])
+    components["pit"] = px.track(name="pit")(components.get("pit", identity))
+    components["lap"] = px.track(name="lap")(components.get("lap", identity))
+    return instantiate(cfg.podracer)(**components)
+
+
 def benchmark(overrides, num_updates, seed):
     cfg = compose(overrides)
-    podracer = recipes.make(cfg)
+    podracer = assemble(cfg)
     algorithm, environment = podracer.algorithm, podracer.environment
 
     num_envs = podracer.config.num_envs
@@ -123,9 +182,16 @@ def benchmark(overrides, num_updates, seed):
 
     state = jax.block_until_ready(train(train(podracer.init(init_key))))
 
-    start = time.monotonic()
-    state = jax.block_until_ready(train(state))
-    train_time = time.monotonic() - start
+    clock = []
+
+    def race(state):
+        start = time.monotonic()
+        state = jax.block_until_ready(train(state))
+        clock.append(time.monotonic() - start)
+        return state
+
+    state, stats = px.profile(race)(state)
+    (train_time,) = clock
     podracer.close(state)
 
     return {
@@ -135,7 +201,7 @@ def benchmark(overrides, num_updates, seed):
         "rollout/SPS": batch_size / rollout_time,
         "update/SPS": batch_size / update_time,
         "training/SPS": num_updates * batch_size / train_time,
-    }
+    }, stats
 
 
 def combinations():
@@ -200,8 +266,10 @@ def stamp():
 
 def main(overrides, num_updates, seed, everything, match, ledger):
     if not everything:
-        for name, value in benchmark(overrides, num_updates, seed).items():
+        results, stats = benchmark(overrides, num_updates, seed)
+        for name, value in results.items():
             print(f"{name}: {value:,.0f}")
+        print(stats.device)
         return
 
     rows = []
@@ -211,7 +279,7 @@ def main(overrides, num_updates, seed, everything, match, ledger):
             continue
         print(name, flush=True)
         try:
-            results = benchmark(
+            results, stats = benchmark(
                 [f"algorithm={algorithm}", f"environment={environment}", *overrides],
                 num_updates,
                 seed,
@@ -223,6 +291,7 @@ def main(overrides, num_updates, seed, everything, match, ledger):
             jax.clear_caches()
         rows.append((name, results))
         print("  " + "  ".join(f"{k}: {v:,.0f}" for k, v in results.items()), flush=True)
+        print(stats.device, flush=True)
         if ledger:
             numbers = {column: f"{value:,.0f}" for column, value in results.items()}
             record(
