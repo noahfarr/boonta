@@ -50,6 +50,21 @@ def rotary_positional_embedding(
     )
 
 
+def partial_rotary_embedding(
+    query: Array,
+    key: Array,
+    query_positions: Array,
+    key_positions: Array,
+    max_wavelength: float,
+    rotary_dim: int,
+) -> tuple[Array, Array, None]:
+    def embed(x: Array, positions: Array) -> Array:
+        rotated = rotate(x[..., :rotary_dim], positions, max_wavelength)
+        return jnp.concatenate([rotated, x[..., rotary_dim:]], axis=-1)
+
+    return embed(query, query_positions), embed(key, key_positions), None
+
+
 def sinusoidal_time_embedding(
     time: Array, features: int, min_period: float = 4e-3, max_period: float = 4.0
 ) -> Array:

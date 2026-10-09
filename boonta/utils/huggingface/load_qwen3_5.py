@@ -24,9 +24,9 @@ def taps(start: int, stop: int, weight: jax.Array, shape: tuple[int, ...]) -> ja
     return weight[start:stop, 0].T.reshape(shape)
 
 
-def half(part: int, weight: jax.Array, shape: tuple[int, ...]) -> jax.Array:
+def head_chunk(chunk: int, weight: jax.Array, shape: tuple[int, ...]) -> jax.Array:
     features, num_heads, head_dim = shape
-    return weight.T.reshape(features, num_heads, 2, head_dim)[:, :, part]
+    return weight.T.reshape(features, num_heads, 2, head_dim)[:, :, chunk]
 
 
 def linear_layer(key_width: int, value_width: int) -> dict:
@@ -56,10 +56,10 @@ def linear_layer(key_width: int, value_width: int) -> dict:
 
 
 ATTENTION = {
-    ("attention", "query", "kernel"): ("self_attn.q_proj.weight", partial(half, 0)),
+    ("attention", "query", "kernel"): ("self_attn.q_proj.weight", partial(head_chunk, 0)),
     ("attention", "output_gate", "projection", "kernel"): (
         "self_attn.q_proj.weight",
-        partial(half, 1),
+        partial(head_chunk, 1),
     ),
     ("attention", "key", "kernel"): ("self_attn.k_proj.weight", kernel),
     ("attention", "value", "kernel"): ("self_attn.v_proj.weight", kernel),

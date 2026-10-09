@@ -13,6 +13,7 @@ from .min_gru import MinGRUCell
 from .patch_embedding import PatchEmbedding
 from .positional_embeddings import (LearnedPositionalEmbedding,
                                     SinusoidalPositionalEmbedding,
+                                    partial_rotary_embedding,
                                     rotary_positional_embedding,
                                     sinusoidal_time_embedding)
 from .projection import Projection
@@ -64,6 +65,7 @@ __all__ = [
     "broadcast_carry",
     "causal_attention_mask",
     "joint_attention_mask",
+    "partial_rotary_embedding",
     "reset_carry",
     "rotary_positional_embedding",
     "sinusoidal_time_embedding",

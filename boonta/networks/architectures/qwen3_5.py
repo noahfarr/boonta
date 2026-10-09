@@ -7,23 +7,7 @@ from boonta.utils.typing import Array, Carry, Dtype, Key
 
 from ..blocks import (GLU, Block, GatedDeltaNet, LinearAttention, OutputGate,
                       QueryKeyNorm, SelfAttention, broadcast_carry,
-                      causal_attention_mask)
-from ..blocks.positional_embeddings import rotate
-
-
-def partial_rotary_embedding(
-    query: Array,
-    key: Array,
-    query_positions: Array,
-    key_positions: Array,
-    max_wavelength: float,
-    rotary_dim: int,
-) -> tuple[Array, Array, None]:
-    def embed(x: Array, positions: Array) -> Array:
-        rotated = rotate(x[..., :rotary_dim], positions, max_wavelength)
-        return jnp.concatenate([rotated, x[..., rotary_dim:]], axis=-1)
-
-    return embed(query, query_positions), embed(key, key_positions), None
+                      causal_attention_mask, partial_rotary_embedding)
 
 
 class Qwen3_5Layer(Block):
