@@ -101,7 +101,7 @@ class RecurrentPPO:
             returns = trajectory.aux["returns"]
 
             timesteps = trajectory.first
-            (_, (dist, values)), intermediates = self.network.apply(
+            (_, (dist, values)), variables = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -109,7 +109,7 @@ class RecurrentPPO:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
 
             log_probs = dist.log_prob(trajectory.second.action)
@@ -167,9 +167,10 @@ class RecurrentPPO:
                     dist=dist,
                     value=values,
                     carry=carry,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
             return loss, (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -225,6 +226,7 @@ class RecurrentPPO:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, trajectory, carry)
             (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -251,8 +253,11 @@ class RecurrentPPO:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: variables.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 
