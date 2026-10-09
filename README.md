@@ -43,6 +43,13 @@
 | Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox) |
 | Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) |
 
+## Curricula
+
+| Curriculum | What it does |
+| --- | --- |
+| PLR | Replays the levels the agent learns most from, with [robust prioritized level replay](https://arxiv.org/abs/2110.02439), on environments with levels such as Kinetix and JaxUED's maze |
+| League | Trains against a population of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers |
+
 ## Install
 
 ```bash
