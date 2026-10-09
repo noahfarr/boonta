@@ -55,7 +55,7 @@ Each actor device owns its own environments and steps them in its own thread. `n
 
 The lag is fixed at one update. After every update the learner puts its `algorithm_state` in every actor's queue, and each actor takes from its queue before every rollout except the second. So rollout *k* is collected with the parameters of update *k*−2 while the learner trains update *k*−1. Nothing depends on thread timing, and a run is reproducible at a fixed seed. The queues are rebuilt at every `train` call, so changing `training.num_epochs` changes results.
 
-The state is `SebulbaState(actors, algorithm_state)`. `algorithm_state` exists once, as the learner's. Each `ActorState` holds only the actor's timestep, environment state and recurrent carry. `pit` and `lap` run on the actor, and what they write into `algorithm_state` is dropped after the rollout, except the step count. `evaluate` runs on the first actor. `sebulba` rejects `Ensemble` and `PSRO`.
+The state is `SebulbaState(actors, algorithm_state)`. `algorithm_state` exists once, as the learner's. Each `ActorState` holds only the actor's timestep, environment state and recurrent carry. `pit` and `lap` run on the actor, and what they write into `algorithm_state` is dropped after the rollout, except the step count. `evaluate` runs on the first actor. `sebulba` rejects `Population` and `PSRO`.
 
 The default config puts the learner and one actor on device 0. To give them separate GPUs, move the actor mesh:
 

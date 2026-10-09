@@ -6,7 +6,7 @@ from functools import partial
 import jax
 import lox
 from boonta.algorithms import Algorithm
-from boonta.algorithms.wrappers.ensemble import Ensemble
+from boonta.algorithms.wrappers.population import Population
 from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
@@ -307,11 +307,11 @@ def make(
         config.num_envs % config.learner.size == 0
     ), "num_envs must be divisible by the number of learner devices"
     assert not (
-        isinstance(algorithm, Ensemble)
-        or (isinstance(algorithm, Wrapper) and algorithm.wraps(Ensemble))
+        isinstance(algorithm, Population)
+        or (isinstance(algorithm, Wrapper) and algorithm.wraps(Population))
     ), (
-        f"{type(algorithm).__name__} runs an ensemble, which sebulba does not support: "
-        f"the actor keeps no recurrent carry for the ensemble's copies, their step "
+        f"{type(algorithm).__name__} runs a population, which sebulba does not support: "
+        f"the actor keeps no recurrent carry for the population's copies, their step "
         f"counts never reach the learner, and PSRO would credit each rollout to the "
         f"opponent drawn one update after the one that played it. Use anakin."
     )

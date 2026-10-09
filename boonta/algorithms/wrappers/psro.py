@@ -12,7 +12,7 @@ from boonta.utils import (Array, Key, PyTree, Timestep, Transition,
 
 from ..algorithm import Algorithm
 from ..auxiliary_losses import Anchor
-from .ensemble import Ensemble, EnsembleState
+from .population import Population, PopulationState
 from .wrapper import Wrapper, WrapperState
 
 
@@ -215,9 +215,9 @@ class LearnerState:
 
 @struct.dataclass(frozen=True)
 class PSROState(WrapperState):
-    algorithm_state: EnsembleState
+    algorithm_state: PopulationState
     learners: tuple
-    population: PyTree
+    pool: PyTree
     payoff: Array
     counts: Array
     members: Array
@@ -236,7 +236,7 @@ class PSRO(Wrapper):
     learners: list[Learner]
     capacity: int
     decay: float
-    population: tuple[Member, ...] = ()
+    pool: tuple[Member, ...] = ()
     warmstarts: dict[int, PyTree] = field(default_factory=dict)
     dtype: jnp.dtype = jnp.bfloat16
 
@@ -247,16 +247,16 @@ class PSRO(Wrapper):
     @property
     def names(self) -> tuple[str, ...]:
         lineages = [learner.lineage for learner in self.learners] + [
-            member.lineage for member in self.population
+            member.lineage for member in self.pool
         ]
         return tuple(dict.fromkeys(lineages))
 
     def __post_init__(self):
-        self.algorithm = Ensemble(self.algorithm, count=len(self.learners))
-        occupied = len(self.learners) + len(self.population)
+        self.algorithm = Population(self.algorithm, count=len(self.learners))
+        occupied = len(self.learners) + len(self.pool)
         assert occupied <= self.capacity, (
             f"capacity ({self.capacity}) must hold the {len(self.learners)} learners "
-            f"and the {len(self.population)} members of the initial population"
+            f"and the {len(self.pool)} members of the initial pool"
         )
         if any(learner.kl_coefficient > 0.0 for learner in self.learners):
             assert hasattr(self.oracle, "auxiliary_losses"), (
@@ -278,18 +278,18 @@ class PSRO(Wrapper):
             names=self.names,
         )
 
-    def read(self, population: PyTree, slot: Array, like: PyTree | None = None):
+    def read(self, pool: PyTree, slot: Array, like: PyTree | None = None):
         if like is None:
-            return jax.tree.map(lambda leaf: jnp.take(leaf, slot, axis=0), population)
+            return jax.tree.map(lambda leaf: jnp.take(leaf, slot, axis=0), pool)
         return jax.tree.map(
             lambda leaf, reference: jnp.take(leaf, slot, axis=0).astype(
                 reference.dtype
             ),
-            population,
+            pool,
             like,
         )
 
-    def write(self, population: PyTree, slot, params: PyTree, when=None):
+    def write(self, pool: PyTree, slot, params: PyTree, when=None):
         def put(leaf, value):
             value = value.astype(leaf.dtype)
             if when is None:
@@ -298,11 +298,11 @@ class PSRO(Wrapper):
                 jnp.where(when, value, jnp.take(leaf, slot, axis=0))
             )
 
-        return jax.tree.map(put, population, params)
+        return jax.tree.map(put, pool, params)
 
     def opponents(self, state: PSROState) -> PyTree:
         drawn = [
-            self.read(state.population, learner.opponent) for learner in state.learners
+            self.read(state.pool, learner.opponent) for learner in state.learners
         ]
         return jax.tree.map(lambda *leaves: jnp.stack(leaves), *drawn)
 
@@ -353,19 +353,19 @@ class PSRO(Wrapper):
                 f"learner_{index}/admitted": admitted.astype(jnp.float32),
             }
         )
-        if self.population:
+        if self.pool:
             reference = winrate(meta)[
-                len(self.learners) : len(self.learners) + len(self.population)
+                len(self.learners) : len(self.learners) + len(self.pool)
             ]
             lox.log({f"learner_{index}/reference": reference.mean()})
 
     def init(self, key: Key, timestep: Timestep) -> PSROState:
         parts = len(self.learners)
-        ensemble_state = self.algorithm.init(key, timestep)
-        ensemble_state = ensemble_state.replace(
+        population_state = self.algorithm.init(key, timestep)
+        population_state = population_state.replace(
             algorithm_states=tuple(
                 state.replace(params=self.warmstarts.get(index, state.params))
-                for index, state in enumerate(ensemble_state.algorithm_states)
+                for index, state in enumerate(population_state.algorithm_states)
             )
         )
         width = timestep.terminated.shape[0] // parts
@@ -375,32 +375,32 @@ class PSRO(Wrapper):
                 opponent=jnp.array(index),
                 returns=jnp.zeros((width,)),
             )
-            for index, algorithm_state in enumerate(ensemble_state.algorithm_states)
+            for index, algorithm_state in enumerate(population_state.algorithm_states)
         )
         stacked = jax.tree.map(
             lambda *leaves: jnp.stack(leaves),
-            *(state.params for state in ensemble_state.algorithm_states),
+            *(state.params for state in population_state.algorithm_states),
         )
-        population = jax.tree.map(
+        pool = jax.tree.map(
             lambda leaf: jnp.zeros((self.capacity, *leaf.shape[1:]), self.dtype)
             .at[:parts]
             .set(leaf.astype(self.dtype)),
             stacked,
         )
-        population = reduce(
+        pool = reduce(
             lambda pool, entry: self.write(pool, parts + entry[0], entry[1].params),
-            enumerate(self.population),
-            population,
+            enumerate(self.pool),
+            pool,
         )
-        occupied = parts + len(self.population)
+        occupied = parts + len(self.pool)
         lineages = jnp.array(
             [self.names.index(learner.lineage) for learner in self.learners]
-            + [self.names.index(member.lineage) for member in self.population]
+            + [self.names.index(member.lineage) for member in self.pool]
         )
         return PSROState(
-            algorithm_state=ensemble_state,
+            algorithm_state=population_state,
             learners=states,
-            population=population,
+            pool=pool,
             payoff=jnp.zeros((self.capacity, self.capacity)),
             counts=jnp.zeros((self.capacity, self.capacity)),
             members=jnp.zeros(self.capacity).at[:occupied].set(1.0),
@@ -419,10 +419,10 @@ class PSRO(Wrapper):
 
     def step(self, state: PSROState, key: Key, timestep: Timestep, temperature=1.0):
         state = self.synchronize(state)
-        ensemble_state, action, aux = self.algorithm.step(
+        population_state, action, aux = self.algorithm.step(
             state.algorithm_state, key, timestep, temperature
         )
-        return state.replace(algorithm_state=ensemble_state), action, aux
+        return state.replace(algorithm_state=population_state), action, aux
 
     def update(self, state: PSROState, key: Key, transitions: Transition) -> PSROState:
         state = self.synchronize(state)
@@ -430,12 +430,12 @@ class PSRO(Wrapper):
             state = self.iterate(
                 state, index, learner, transitions, jax.random.fold_in(key, index)
             )
-        population = reduce(
+        pool = reduce(
             lambda pool, entry: self.write(pool, entry[0], entry[1].params),
             enumerate(state.algorithm_state.algorithm_states),
-            state.population,
+            state.pool,
         )
-        return state.replace(population=population, iteration=state.iteration + 1)
+        return state.replace(pool=pool, iteration=state.iteration + 1)
 
     def iterate(
         self, state: PSROState, index: int, learner: Learner, transitions, key: Key
@@ -462,8 +462,8 @@ class PSRO(Wrapper):
         admitted = learner.admit(self.meta(state, index)) & (
             state.cursor < self.capacity
         )
-        population = self.write(
-            state.population, state.cursor, inner.params, when=admitted
+        pool = self.write(
+            state.pool, state.cursor, inner.params, when=admitted
         )
         if learner.resets:
             reset_state = learner_state.initial_state
@@ -472,7 +472,7 @@ class PSRO(Wrapper):
                     restart_key, jnp.log(learner.restart(self.meta(state, index)))
                 )
                 reset_state = reset_state.replace(
-                    params=self.read(population, slot, like=reset_state.params)
+                    params=self.read(pool, slot, like=reset_state.params)
                 )
             inner = conditional_update(reset_state, inner, admitted)
 
@@ -481,7 +481,7 @@ class PSRO(Wrapper):
             algorithm_state=responded.replace(
                 algorithm_states=place(responded.algorithm_states, index, inner)
             ),
-            population=population,
+            pool=pool,
             members=state.members.at[state.cursor].set(
                 jnp.where(admitted, 1.0, jnp.take(state.members, state.cursor))
             ),

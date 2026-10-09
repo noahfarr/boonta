@@ -11,7 +11,7 @@ from .wrapper import Wrapper
 
 
 @struct.dataclass(frozen=True)
-class EnsembleState:
+class PopulationState:
     algorithm_states: tuple
     step: Array
 
@@ -24,10 +24,10 @@ class EnsembleState:
 
 
 @dataclass
-class Ensemble(Wrapper):
+class Population(Wrapper):
     count: int
 
-    def init(self, key: Key, timestep: Timestep) -> EnsembleState:
+    def init(self, key: Key, timestep: Timestep) -> PopulationState:
         slots = timestep.terminated.shape[0]
         assert slots % self.count == 0, (
             f"the environment's {slots} slots do not divide evenly among "
@@ -36,7 +36,7 @@ class Ensemble(Wrapper):
             f"{self.count * (slots // self.count)} wide. "
             f"Pick a multiple of {self.count}."
         )
-        return EnsembleState(
+        return PopulationState(
             algorithm_states=tuple(
                 self.algorithm.init(
                     jax.random.fold_in(key, index), take(timestep, index, self.count)
@@ -46,7 +46,7 @@ class Ensemble(Wrapper):
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
         )
 
-    def synchronize(self, state: EnsembleState) -> EnsembleState:
+    def synchronize(self, state: PopulationState) -> PopulationState:
         return state.replace(
             algorithm_states=tuple(
                 algorithm_state.replace(step=state.step)
@@ -55,8 +55,8 @@ class Ensemble(Wrapper):
         )
 
     def step(
-        self, state: EnsembleState, key: Key, timestep: Timestep, temperature=1.0
-    ) -> tuple[EnsembleState, Array, PyTree]:
+        self, state: PopulationState, key: Key, timestep: Timestep, temperature=1.0
+    ) -> tuple[PopulationState, Array, PyTree]:
         state = self.synchronize(state)
         algorithm_states, actions, auxes = [], [], []
         for index, algorithm_state in enumerate(state.algorithm_states):
@@ -78,12 +78,12 @@ class Ensemble(Wrapper):
 
     def respond(
         self,
-        state: EnsembleState,
+        state: PopulationState,
         index: int,
         key: Key,
         transitions: Transition,
         algorithm: Algorithm,
-    ) -> EnsembleState:
+    ) -> PopulationState:
         algorithm_state = algorithm.update(
             state.algorithm_states[index], key, transitions
         )
@@ -92,8 +92,8 @@ class Ensemble(Wrapper):
         )
 
     def update(
-        self, state: EnsembleState, key: Key, transitions: Transition
-    ) -> EnsembleState:
+        self, state: PopulationState, key: Key, transitions: Transition
+    ) -> PopulationState:
         state = self.synchronize(state)
         for index in range(self.count):
             state = self.respond(
