@@ -7,6 +7,7 @@ An environment is a game the agent plays. Every environment, whether it is writt
 | `init(key)` | starts an episode and returns `(state, timestep)` |
 | `step(key, state, action)` | advances one step and returns `(state, timestep)` |
 | `update(state, **kwargs)` | changes settings inside a running state |
+| `observe(state)` | the observation of a state (raises unless the game supports it) |
 | `close(state)` | frees anything the state holds outside JAX |
 | `observation_space()`, `action_space()` | describe the shapes, as a [`Space`](spaces.py) |
 | `action_mask(state)` | the legal actions (all of them by default) |
@@ -25,6 +26,10 @@ A step returns a [`Timestep`](../utils/timestep.py) with `obs`, `action`, `rewar
 ## Auto-reset
 
 Podracers never call `init` in the middle of training, so a finished episode must restart by itself. boonta's convention is the same-step reset of [`SameStepAutoReset`](wrappers/same_step_auto_reset.py). On the last step of an episode, `reward`, `terminated` and `truncated` describe the end, while `obs` is already the first observation of the next episode. [`NextStepAutoReset`](wrappers/next_step_auto_reset.py) instead spends one extra empty step on the reset.
+
+## Free parameters
+
+A game with free parameters, such as Kinetix's levels, takes `update(state, theta=...)`. It means "play this theta from its start": it starts a new episode, while every other `update` keyword changes settings without ending one. [`UED`](wrappers/ued.py) marks the boundary. It takes the first observation from `observe` and truncates the step it cuts.
 
 ## Wrappers
 

@@ -35,8 +35,7 @@ class Kinetix(Environment):
     def update(self, state: Any, theta: Any = None, **kwargs) -> Any:
         if theta is None:
             return state
-        _, state = self._env.reset_env(jax.random.key(0), self._params, theta)
-        return state
+        return theta
 
     def observe(self, state: Any) -> Any:
         return self._env.get_obs(state)
