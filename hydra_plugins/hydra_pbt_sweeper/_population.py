@@ -14,16 +14,6 @@ from hydra_plugins.hydra_carbs_sweeper.config import Distribution, ParamConfig
 
 log = logging.getLogger(__name__)
 
-STRUCTURAL = (
-    "total_timesteps",
-    "environment.num_envs",
-    "rollout.num_steps",
-    "replay.capacity",
-    "network.",
-    "cell.",
-    "torso.",
-    "stack.",
-)
 CONTINUOUS = ("uniform", "log_normal", "logit_normal")
 
 
@@ -36,10 +26,6 @@ def kind(entry) -> str:
     if isinstance(entry.distribution, Distribution):
         return entry.distribution.name
     return str(entry.distribution)
-
-
-def structural(name: str) -> bool:
-    return any(name == key or (key.endswith(".") and name.startswith(key)) for key in STRUCTURAL)
 
 
 def sample(entry, rng: np.random.Generator):
@@ -119,6 +105,10 @@ class Population(Sweeper):
         self,
         *,
         metric: str,
+        generation: str,
+        checkpoint: str,
+        num_epochs: int,
+        overrides: Sequence[str],
         members: int,
         seeds: int,
         generations: int,
@@ -130,6 +120,10 @@ class Population(Sweeper):
         params: Optional[Dict[str, Any]],
     ) -> None:
         self.metric = metric
+        self.generation = generation
+        self.checkpoint = checkpoint
+        self.num_epochs = num_epochs
+        self.overrides = list(overrides)
         self.members = members
         self.seeds = seeds
         self.generations = generations
@@ -160,23 +154,14 @@ class Population(Sweeper):
 
     def validate(self) -> None:
         assert self.params, "PbtSweeper requires a non-empty `params` search space"
-        blocked = [name for name in self.params if structural(name)]
-        if blocked:
-            raise ValueError(
-                f"PbtSweeper cannot search {blocked}: a member resumes from another "
-                f"member's checkpoint, so it can only change parameters that keep the "
-                f"shapes of the algorithm state, and every member must plan the same "
-                f"total_timesteps so that generations end on the same epochs"
-            )
 
     def span(self) -> int:
-        epochs = int(self.config.training.num_epochs)
-        if epochs % self.generations:
+        if self.num_epochs % self.generations:
             raise ValueError(
                 f"PbtSweeper ends each generation on an epoch, so generations "
-                f"({self.generations}) must divide training.num_epochs ({epochs})"
+                f"({self.generations}) must divide num_epochs ({self.num_epochs})"
             )
-        return epochs // self.generations
+        return self.num_epochs // self.generations
 
     def launch(self, arguments, generation, values, parents, sweep_dir, span):
         kept = [argument for argument in arguments if key(argument) not in self.reserved]
@@ -185,20 +170,13 @@ class Population(Sweeper):
             for seed in range(self.seeds):
                 run = run_dir(generation, member, seed)
                 override = kept + [f"{name}={value}" for name, value in values[member].items()]
-                override += [
-                    "early_stopping=epochs",
-                    f"early_stopping.at={(generation + 1) * span}",
-                    "scoring=final",
+                override += self.overrides + [
+                    f"{self.generation}={(generation + 1) * span}",
                     f"hydra.sweep.subdir={run}",
-                    "++artisans.checkpointer._target_=boonta.artisans.Checkpointer",
-                    "++loggers.orbax._target_=boonta.loggers.OrbaxLogger",
-                    f"++loggers.orbax.directory={sweep_dir / run / 'checkpoints'}",
-                    "++loggers.orbax.max_to_keep=1",
-                    "++loggers.orbax.best=false",
                 ]
                 if generation > 0:
                     parent = sweep_dir / run_dir(generation - 1, parents[member], seed)
-                    override.append(f"checkpoint={parent}")
+                    override.append(f"{self.checkpoint}={parent}")
                 overrides.append(tuple(override))
         self.validate_batch_is_legal(overrides)
         returns = self.launcher.launch(overrides, initial_job_idx=self.job_idx)
@@ -209,7 +187,13 @@ class Population(Sweeper):
 
     @property
     def reserved(self):
-        return {*self.params, "early_stopping", "early_stopping.at", "scoring", "checkpoint", "hydra.sweep.subdir"}
+        return {
+            *self.params,
+            *(key(override) for override in self.overrides),
+            self.generation,
+            self.checkpoint,
+            "hydra.sweep.subdir",
+        }
 
     def sweep(self, arguments: List[str]) -> Any:
         assert self.config is not None

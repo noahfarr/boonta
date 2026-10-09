@@ -151,16 +151,9 @@ def test_a_member_without_a_score_always_copies():
     np.testing.assert_array_equal(sources, [2, 1, 2, 3])
 
 
-def test_structural_keys_are_rejected_up_front(tmp_path):
-    built = population(tmp_path, lambda job: 0.0)
-    built.params["environment.num_envs"] = typed({"distribution": "uniform_pow2", "min": 8, "max": 64})
-    with pytest.raises(ValueError, match="environment.num_envs"):
-        built.sweep([])
-
-
 def test_generations_must_divide_the_epochs(tmp_path):
     built = population(tmp_path, lambda job: 0.0, generations=4)
-    with pytest.raises(ValueError, match="must divide training.num_epochs"):
+    with pytest.raises(ValueError, match=r"must divide num_epochs \(6\)"):
         built.sweep([])
     assert built.launcher.batches == []
 
@@ -197,11 +190,10 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
             assert job["early_stopping.at"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
-            assert job["++loggers.orbax.directory"] == str(
-                tmp_path / f"generation_{generation}/member_{member}/seed_{seed}/checkpoints"
-            )
-            assert job["++artisans.checkpointer._target_"] == "boonta.artisans.Checkpointer"
+            assert job["+artisan@artisans.checkpointer"] == "checkpointer"
+            assert job["+logger@loggers.orbax"] == "orbax"
             assert job["++loggers.orbax.max_to_keep"] == "1"
+            assert job["++loggers.orbax.best"] == "false"
             if generation == 0:
                 assert "checkpoint" not in job
             else:
