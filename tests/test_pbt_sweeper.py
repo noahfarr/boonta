@@ -50,7 +50,7 @@ def population(tmp_path, score, **settings):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         cfg = compose(
             "config",
-            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1000"],
+            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1000", "training.num_epochs=6"],
             return_hydra_config=True,
         )
     for name, value in settings.items():
@@ -158,6 +158,30 @@ def test_structural_keys_are_rejected_up_front(tmp_path):
         built.sweep([])
 
 
+def test_generations_must_divide_the_epochs(tmp_path):
+    built = population(tmp_path, lambda job: 0.0, generations=4)
+    with pytest.raises(ValueError, match="must divide training.num_epochs"):
+        built.sweep([])
+    assert built.launcher.batches == []
+
+
+@pytest.mark.parametrize(
+    "choice, settings, expected",
+    [
+        ("default", [], [False, False, False, False]),
+        ("epochs", ["early_stopping.at=2"], [False, True, True, True]),
+        ("steps", ["early_stopping.at=100"], [False, True, True, True]),
+        ("plateau", ["early_stopping.patience=2"], [False, False, False, True]),
+    ],
+)
+def test_early_stopping_stops_on_its_condition(choice, settings, expected):
+    with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
+        cfg = compose("config", overrides=[f"early_stopping={choice}", *settings])
+    stop = instantiate(cfg.early_stopping)
+    epochs = [(1, 50, 1.0), (2, 100, 2.0), (3, 150, 1.5), (4, 200, 1.9)]
+    assert [stop(epoch, step, {cfg.score: np.array([[value]])}) for epoch, step, value in epochs] == expected
+
+
 def test_each_generation_resumes_from_the_one_before(tmp_path):
     built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=2, generations=3)
     results = built.sweep(["algorithm=ppo", "total_timesteps=5"])
@@ -168,7 +192,9 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
         assert len(batch) == 8
         for index, job in enumerate(batch):
             member, seed = divmod(index, 2)
-            assert job["total_timesteps"] == "333"
+            assert job["total_timesteps"] == "5"
+            assert job["early_stopping"] == "epochs"
+            assert job["early_stopping.at"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["save"] == str(tmp_path / f"checkpoints/generation_{generation}/member_{member}/seed_{seed}")
             if generation == 0:
@@ -212,7 +238,7 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
             "environment.num_envs=8",
             "rollout.num_steps=4",
             "algorithm.num_minibatches=1",
-            "training.num_epochs=1",
+            "training.num_epochs=2",
             "evaluation.num_steps=8",
             "total_timesteps=128",
             "hydra.sweeper.members=2",

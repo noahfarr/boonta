@@ -15,7 +15,6 @@ class PbtSweeperConf:
     members: int = 4
     seeds: int = 4
     generations: int = 5
-    interval: Optional[int] = None
 
     fraction: float = 0.25
     threshold: float = 2.0

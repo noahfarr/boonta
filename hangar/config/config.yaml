@@ -24,6 +24,7 @@ defaults:
   - curriculum: default
   - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
   - scoring: best
+  - early_stopping: default
   - optional search_space: ${cascade:search_space,${algorithm},${environment}}
 
 hydra:

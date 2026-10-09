@@ -18,7 +18,9 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `total_timesteps=100_000_000` | Environment steps in total |
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
 | `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
-| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory |
+| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
+| `save=<path>` | Write the final `algorithm_state` there, in the layout `checkpoint=` reads |
+| `early_stopping=epochs early_stopping.at=4` | End the run after 4 epochs of its plan |
 
 ### Several machines
 
@@ -38,6 +40,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `curriculum` | `default` | `default` |
 | `dataset` | offline datasets (`minari/mujoco/expert`, `kinetix/offline_m`, `kinetix/offline_s`); a Minari dataset with `dataset.kwargs.pool_size` above 0 streams random whole episodes in pools of that many transitions | none |
 | `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
+| `early_stopping` | `default` (never), `epochs` (`at` epochs), `steps` (`at` steps), `plateau` (`patience` epochs without a better `score`), checked after every epoch | `default` |
 | `search_space` | the sweepers' search spaces, `<algorithm>/<environment>` | picked like `hyperparameters` |
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
@@ -86,9 +89,9 @@ uv run boonta -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/brea
     logger=file evaluation.num_steps=1000
 ```
 
-Each member starts from values drawn from the space: uniformly, on a log scale for `log_normal`, on a logit scale for `logit_normal`, and over the powers of two for `uniform_pow2`. `center` and `scale` are not used. A generation launches every member's `seeds` runs through the launcher, each for `interval` steps (`total_timesteps=<interval>`, `scoring=final`). Every run saves its final `algorithm_state` to `save=<sweep dir>/checkpoints/generation_<g>/member_<m>/seed_<s>`, and the next generation resumes it with `checkpoint=`. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
+Each member starts from values drawn from the space: uniformly, on a log scale for `log_normal`, on a logit scale for `logit_normal`, and over the powers of two for `uniform_pow2`. `center` and `scale` are not used. A generation is `training.num_epochs // generations` epochs of the full planned run, so `generations` must divide `training.num_epochs`. Each generation launches every member's `seeds` runs through the launcher with `early_stopping=epochs`, `early_stopping.at=<the generation's last epoch>` and `scoring=final`. Every run saves its final `algorithm_state` to `save=<sweep dir>/checkpoints/generation_<g>/member_<m>/seed_<s>`, and the next generation resumes it with `checkpoint=`. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
 
-Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `rollout.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper refuses those keys before launching anything. It also refuses `total_timesteps`, which it sets itself. A learning-rate schedule that anneals over `total_timesteps` would restart every generation.
+Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `rollout.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper refuses those keys before launching anything. It also refuses `total_timesteps`, because every member must plan the same run for generations to end on the same epochs. A resumed run continues from its checkpoint's step, so learning-rate schedules continue too.
 
 Settings live under `hydra.sweeper`:
 
@@ -97,7 +100,6 @@ Settings live under `hydra.sweeper`:
 | `members` | 4 | the in-process `curriculum=pbt` |
 | `seeds` | 4 | the in-process `curriculum=pbt` |
 | `generations` | 5 | a few exploit steps per run, as in the MinAtar comparison against `curriculum=pbt` |
-| `interval` | `total_timesteps // generations` | so the run's budget is each member's budget |
 | `fraction` | 0.25 | the in-process `curriculum=pbt`; truncation selection as in Jaderberg et al. (2017), who used 20% |
 | `threshold` | 2.0 | the in-process `curriculum=pbt`; about two standard errors |
 | `factors` | [0.8, 1.25] | Jaderberg et al. (2017) use 0.8 and 1.2; 1.25 undoes 0.8 |

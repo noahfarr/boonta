@@ -118,7 +118,6 @@ class Population(Sweeper):
         members: int,
         seeds: int,
         generations: int,
-        interval: Optional[int],
         fraction: float,
         threshold: float,
         factors: Sequence[float],
@@ -130,7 +129,6 @@ class Population(Sweeper):
         self.members = members
         self.seeds = seeds
         self.generations = generations
-        self.interval = interval
         self.fraction = fraction
         self.threshold = threshold
         self.factors = [float(factor) for factor in factors]
@@ -163,23 +161,28 @@ class Population(Sweeper):
             raise ValueError(
                 f"PbtSweeper cannot search {blocked}: a member resumes from another "
                 f"member's checkpoint, so it can only change parameters that keep the "
-                f"shapes of the algorithm state, and the sweeper sets total_timesteps "
-                f"to each generation's interval itself"
+                f"shapes of the algorithm state, and every member must plan the same "
+                f"total_timesteps so that generations end on the same epochs"
             )
 
-    def budget(self) -> int:
-        if self.interval is not None:
-            return int(self.interval)
-        return int(self.config.total_timesteps) // self.generations
+    def span(self) -> int:
+        epochs = int(self.config.training.num_epochs)
+        if epochs % self.generations:
+            raise ValueError(
+                f"PbtSweeper ends each generation on an epoch, so generations "
+                f"({self.generations}) must divide training.num_epochs ({epochs})"
+            )
+        return epochs // self.generations
 
-    def launch(self, arguments, generation, values, parents, checkpoints, interval):
+    def launch(self, arguments, generation, values, parents, checkpoints, span):
         kept = [argument for argument in arguments if key(argument) not in self.reserved]
         overrides = []
         for member in range(self.members):
             for seed in range(self.seeds):
                 override = kept + [f"{name}={value}" for name, value in values[member].items()]
                 override += [
-                    f"total_timesteps={interval}",
+                    "early_stopping=epochs",
+                    f"early_stopping.at={(generation + 1) * span}",
                     "scoring=final",
                     f"save={checkpoints / f'generation_{generation}/member_{member}/seed_{seed}'}",
                 ]
@@ -196,7 +199,7 @@ class Population(Sweeper):
 
     @property
     def reserved(self):
-        return {*self.params, "total_timesteps", "scoring", "save", "checkpoint"}
+        return {*self.params, "early_stopping", "early_stopping.at", "scoring", "save", "checkpoint"}
 
     def sweep(self, arguments: List[str]) -> Any:
         assert self.config is not None
@@ -207,13 +210,12 @@ class Population(Sweeper):
         sweep_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.config, sweep_dir / "multirun.yaml")
         checkpoints = sweep_dir / "checkpoints"
-        interval = self.budget()
-        assert interval >= 1, "PbtSweeper needs an interval of at least one step"
+        span = self.span()
 
         log.info(
-            "PbtSweeper running %d generations of %d steps, %d members x %d seeds, over %d parameters",
+            "PbtSweeper running %d generations of %d epochs, %d members x %d seeds, over %d parameters",
             self.generations,
-            interval,
+            span,
             self.members,
             self.seeds,
             len(self.params),
@@ -228,7 +230,7 @@ class Population(Sweeper):
         rows = []
 
         for generation in range(self.generations):
-            fitness = self.launch(arguments, generation, values, parents, checkpoints, interval)
+            fitness = self.launch(arguments, generation, values, parents, checkpoints, span)
             for member in range(self.members):
                 rows.append(
                     {
