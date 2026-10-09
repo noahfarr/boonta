@@ -1,13 +1,146 @@
+from dataclasses import dataclass, fields, replace
+
 import jax
 import jax.numpy as jnp
 import lox
 import optax
+from flax import struct
 
 from boonta.algorithms import Algorithm
-from boonta.algorithms.wrappers.pbt import MULTIPLIER, PBT, PBTState
+from boonta.algorithms.wrappers.injected import Injected
+from boonta.algorithms.wrappers.population import Population, PopulationState
+from boonta.algorithms.wrappers.wrapper import Wrapper, WrapperState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, sharded
+from boonta.utils import (Array, Key, Timestep, Transition, canonicalize_dtype,
+                          sharded)
 from boonta.utils.typing import Environment
+
+MULTIPLIER = "learning_rate_multiplier"
+
+
+def scale_by_multiplier(multiplier: float) -> optax.GradientTransformation:
+    return optax.scale(multiplier)
+
+
+def attach_multiplier(algorithm: Algorithm) -> Algorithm:
+    optimizers = [
+        field.name
+        for field in fields(algorithm)
+        if isinstance(getattr(algorithm, field.name), optax.GradientTransformation)
+    ]
+    if not optimizers:
+        raise ValueError(
+            f"PBT scales the learning rate through a multiplier chained onto every "
+            f"optax.GradientTransformation the algorithm holds, but "
+            f"{type(algorithm).__name__} holds none."
+        )
+    return replace(
+        algorithm,
+        **{
+            name: optax.chain(
+                getattr(algorithm, name),
+                optax.inject_hyperparams(scale_by_multiplier)(multiplier=1.0),
+            )
+            for name in optimizers
+        },
+    )
+
+
+@struct.dataclass(frozen=True)
+class TrialsState(WrapperState):
+    algorithm_state: PopulationState
+    running: Array = struct.field(metadata={"axis": "data"})
+    window: Array
+    filled: Array
+    replaced: Array
+    updates: Array
+    handled: Array
+    seeded: Array
+    key: Key
+    step: Array
+
+
+@dataclass
+class Trials(Wrapper):
+    members: int
+    seeds: int
+    window: int
+    search: dict
+
+    def __post_init__(self):
+        self.search = {
+            name: tuple(float(bound) for bound in bounds)
+            for name, bounds in dict(self.search).items()
+        }
+        algorithm = self.algorithm
+        if MULTIPLIER in self.search:
+            algorithm = attach_multiplier(algorithm)
+        injected = Injected(
+            algorithm, names=tuple(name for name in self.search if name != MULTIPLIER)
+        )
+        self.algorithm = Population(injected, count=self.copies)
+
+    @property
+    def copies(self) -> int:
+        return self.members * self.seeds
+
+    def init(self, key: Key, timestep: Timestep) -> TrialsState:
+        population_key, search_key = jax.random.split(key)
+        return TrialsState(
+            algorithm_state=self.algorithm.init(population_key, timestep),
+            running=jnp.zeros(timestep.reward.shape, jnp.float32),
+            window=jnp.zeros((self.copies, self.window), jnp.float32),
+            filled=jnp.zeros(self.copies, jnp.int32),
+            replaced=jnp.zeros(self.members, jnp.int32),
+            updates=jnp.array(0, jnp.int32),
+            handled=jnp.array(0, jnp.int32),
+            seeded=jnp.array(False),
+            key=search_key,
+            step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
+        )
+
+    def synchronize(self, state: TrialsState) -> TrialsState:
+        return state.replace(
+            algorithm_state=self.algorithm.synchronize(
+                state.algorithm_state.replace(step=state.step)
+            )
+        )
+
+    def step(self, state: TrialsState, key: Key, timestep: Timestep, temperature=1.0):
+        state = self.synchronize(state)
+        population_state, action, aux = self.algorithm.step(
+            state.algorithm_state, key, timestep, temperature
+        )
+        return state.replace(algorithm_state=population_state), action, aux
+
+    def update(
+        self, state: TrialsState, key: Key, transitions: Transition
+    ) -> TrialsState:
+        state = self.synchronize(state)
+        return state.replace(
+            algorithm_state=self.algorithm.update(
+                state.algorithm_state, key, transitions
+            ),
+            updates=state.updates + 1,
+        )
+
+
+def member_fitness(container: Trials, state: TrialsState) -> tuple[Array, Array]:
+    scores = state.window.mean(axis=1).reshape(container.members, container.seeds)
+    ready = (state.filled >= container.window).reshape(
+        container.members, container.seeds
+    )
+    return scores, ready.all(axis=1)
+
+
+def leading_member(container: Trials, state: TrialsState) -> Array:
+    scores, ready = member_fitness(container, state)
+    mean = scores.mean(axis=1)
+    return jnp.where(
+        ready.any(),
+        jnp.argmax(jnp.where(ready, mean, -jnp.inf)),
+        jnp.argmax(mean),
+    )
 
 
 def holds_multiplier(node) -> bool:
@@ -58,7 +191,7 @@ def write_value(copy_state, name: str, value: Array):
     )
 
 
-def read_hyperparameters(container: PBT, state: PBTState) -> dict[str, Array]:
+def read_hyperparameters(container: Trials, state: TrialsState) -> dict[str, Array]:
     return {
         name: jnp.stack(
             [
@@ -70,7 +203,7 @@ def read_hyperparameters(container: PBT, state: PBTState) -> dict[str, Array]:
     }
 
 
-def write_hyperparameters(state: PBTState, hyperparameters: dict[str, Array]) -> PBTState:
+def write_hyperparameters(state: TrialsState, hyperparameters: dict[str, Array]) -> TrialsState:
     flat = {name: values.reshape(-1) for name, values in hyperparameters.items()}
     copy_states = []
     for index, copy_state in enumerate(state.algorithm_state.algorithm_states):
@@ -137,7 +270,7 @@ def gather_copies(algorithm_states: tuple, sources: Array) -> tuple:
     )
 
 
-def tally_step(container: PBT, state: PBTState, timestep) -> PBTState:
+def tally_step(container: Trials, state: TrialsState, timestep) -> TrialsState:
     done = timestep.terminated | timestep.truncated
     totals = state.running + timestep.reward.astype(jnp.float32)
     window, filled = jax.vmap(record_episodes)(
@@ -151,7 +284,7 @@ def tally_step(container: PBT, state: PBTState, timestep) -> PBTState:
     )
 
 
-def sample_hyperparameters(container: PBT, state: PBTState) -> PBTState:
+def sample_hyperparameters(container: Trials, state: TrialsState) -> TrialsState:
     key, search_key = jax.random.split(state.key)
     hyperparameters = {}
     for index, (name, (low, high)) in enumerate(container.search.items()):
@@ -173,10 +306,10 @@ def sample_hyperparameters(container: PBT, state: PBTState) -> PBTState:
 
 
 def exploit_members(
-    container: PBT, state: PBTState, fraction: float, threshold: float, factors: tuple
-) -> PBTState:
+    container: Trials, state: TrialsState, fraction: float, threshold: float, factors: tuple
+) -> TrialsState:
     key, choice_key, factor_key = jax.random.split(state.key, 3)
-    scores, ready = container.fitness(state)
+    scores, ready = member_fitness(container, state)
     sources, copied = choose_sources(scores, ready, choice_key, fraction, threshold)
     copies = (
         sources.reshape(container.members, 1) * container.seeds
@@ -196,8 +329,8 @@ def exploit_members(
 
 
 def explore_members(
-    container: PBT, state: PBTState, copied: Array, key: Key, factors: tuple
-) -> PBTState:
+    container: Trials, state: TrialsState, copied: Array, key: Key, factors: tuple
+) -> TrialsState:
     perturbed = {}
     for index, (name, values) in enumerate(read_hyperparameters(container, state).items()):
         drawn = jax.random.choice(
@@ -205,14 +338,17 @@ def explore_members(
             jnp.array(factors, jnp.float32),
             (container.members, 1),
         )
-        perturbed[name] = jnp.where(
-            copied.reshape(container.members, 1), values * drawn, values
+        low, high = container.search[name]
+        perturbed[name] = jnp.clip(
+            jnp.where(copied.reshape(container.members, 1), values * drawn, values),
+            low,
+            high,
         )
     return write_hyperparameters(state, perturbed)
 
 
-def report_members(container: PBT, state: PBTState) -> None:
-    scores, ready = container.fitness(state)
+def report_members(container: Trials, state: TrialsState) -> None:
+    scores, ready = member_fitness(container, state)
     fitness = jnp.where(ready, scores.mean(axis=1), jnp.nan)
     hyperparameters = read_hyperparameters(container, state)
     logs = {}
@@ -238,13 +374,13 @@ def pbt(
     search,
     factors,
     **kwargs,
-) -> tuple[PBT, Environment, Pit, Lap]:
-    container = PBT(
+) -> tuple[Trials, Environment, Pit, Lap]:
+    container = Trials(
         algorithm, members=members, seeds=seeds, window=window, search=search
     )
     factors = tuple(float(factor) for factor in factors)
 
-    def manage(node: PBTState) -> PBTState:
+    def manage(node: TrialsState) -> TrialsState:
         node = jax.lax.cond(
             node.seeded,
             lambda node: node,
@@ -263,7 +399,7 @@ def pbt(
 
     def visit(change):
         def apply(node):
-            if isinstance(node, PBTState):
+            if isinstance(node, TrialsState):
                 return change(node)
             return node
 
@@ -273,7 +409,7 @@ def pbt(
         algorithm_state = jax.tree.map(
             visit(manage),
             state.algorithm_state,
-            is_leaf=lambda node: isinstance(node, PBTState),
+            is_leaf=lambda node: isinstance(node, TrialsState),
         )
         return state.replace(algorithm_state=algorithm_state)
 
@@ -281,7 +417,7 @@ def pbt(
         algorithm_state = jax.tree.map(
             visit(lambda node: tally_step(container, node, state.timestep)),
             state.algorithm_state,
-            is_leaf=lambda node: isinstance(node, PBTState),
+            is_leaf=lambda node: isinstance(node, TrialsState),
         )
         return state.replace(algorithm_state=algorithm_state)
 

@@ -16,4 +16,7 @@ artisans:
   leaderboard:
     _target_: boonta.artisans.Leaderboard
 
+evaluation:
+  num_steps: 1000
+
 score: pbt/evaluation/best_return

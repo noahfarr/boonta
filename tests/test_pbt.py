@@ -8,11 +8,12 @@ from jax.sharding import PartitionSpec as P
 
 import zoo
 from boonta.algorithms.wrappers.injected import Injected
-from boonta.algorithms.wrappers.pbt import MULTIPLIER, attach_multiplier
 from boonta.artisans import Leaderboard
 from boonta.curricula import pbt as curriculum
-from boonta.curricula.pbt import (choose_sources, read_hyperparameters,
+from boonta.curricula.pbt import (MULTIPLIER, attach_multiplier,
+                                  choose_sources, read_hyperparameters,
                                   read_multiplier, record_episodes,
+                                  write_hyperparameters,
                                   write_multiplier)
 from boonta.podracers import anakin
 from boonta.utils import mesh
@@ -264,8 +265,10 @@ def test_sebulba_refuses_pbt():
         zoo.ppo(match(), num_envs=8, podracer=build)
 
 
-def prepared(search, interval=4):
-    podracer = zoo.ppo(match(), num_envs=8, podracer=pbt(search=search, interval=interval))
+def prepared(search, interval=4, factors=(0.5, 2.0)):
+    podracer = zoo.ppo(
+        match(), num_envs=8, podracer=pbt(search=search, interval=interval, factors=factors)
+    )
     state = podracer.init(jax.random.key(0))
     window = jnp.array([0.0, 0.1, 0.5, 0.6, 0.4, 0.5, 1.0, 1.1]).reshape(8, 1)
     algorithm_state = state.algorithm_state.replace(
@@ -277,8 +280,19 @@ def prepared(search, interval=4):
     return podracer, state.replace(algorithm_state=algorithm_state)
 
 
-def test_pit_copies_whole_seed_copies_and_perturbs_only_the_copier():
+@pytest.mark.parametrize("factor, bound", [(100.0, 1.0), (0.01, 0.5)])
+def test_a_value_perturbed_past_its_bound_lands_on_the_bound(factor, bound):
     search = {MULTIPLIER: (0.5, 1.0), "entropy_coefficient": (0.001, 0.1)}
+    podracer, state = prepared(search, factors=(factor,))
+    after = podracer.pit(state).algorithm_state
+    values = read_hyperparameters(podracer.algorithm, after)
+    np.testing.assert_allclose(values[MULTIPLIER][0], bound, rtol=1e-6)
+    entropy = 0.1 if factor > 1 else 0.001
+    np.testing.assert_allclose(values["entropy_coefficient"][0], entropy, rtol=1e-6)
+
+
+def test_pit_copies_whole_seed_copies_and_perturbs_only_the_copier():
+    search = {MULTIPLIER: (0.01, 100.0), "entropy_coefficient": (1e-4, 10.0)}
     podracer, state = prepared(search)
     container = podracer.algorithm
     before = read_hyperparameters(container, state.algorithm_state)
@@ -378,17 +392,25 @@ def test_pbt_raises_a_learning_rate_too_small_to_solve_the_task():
     environment = reach()
     optimizer = zoo.adam(3e-5)
 
+    search = {MULTIPLIER: (0.5, 100.0)}
+    starts = jnp.broadcast_to(jnp.array([[0.55], [0.7], [0.85], [1.0]]), (4, 2))
+
     def run(podracer):
-        state = podracer.init(jax.random.key(0))
-        state, _ = podracer.train(state, jax.random.key(1), 150)
+        state = podracer.init(jax.random.key(1))
+        state = state.replace(
+            algorithm_state=write_hyperparameters(state.algorithm_state, {MULTIPLIER: starts})
+        )
+        state, _ = podracer.train(state, jax.random.key(2), 150)
         _, logs = podracer.evaluate(state, jax.random.key(2), 24)
         return state, logs
 
-    fixed = zoo.ppo(environment, num_envs=64, optimizer=optimizer, podracer=pbt(interval=1000))
+    fixed = zoo.ppo(
+        environment, num_envs=64, optimizer=optimizer, podracer=pbt(interval=1000, search=search)
+    )
     _, logs = run(fixed)
     assert np.nanmean(logs["episode_statistics/episode_return"]) < environment.solved
 
-    trained = zoo.ppo(environment, num_envs=64, optimizer=optimizer, podracer=pbt())
+    trained = zoo.ppo(environment, num_envs=64, optimizer=optimizer, podracer=pbt(search=search))
     state, logs = run(trained)
     assert np.nanmean(logs["episode_statistics/episode_return"]) >= environment.solved
     multipliers = read_hyperparameters(trained.algorithm, state.algorithm_state)[MULTIPLIER]
