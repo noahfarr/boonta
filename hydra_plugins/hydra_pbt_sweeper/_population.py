@@ -105,6 +105,10 @@ def choose(
     return sources
 
 
+def run_dir(generation: int, member: int, seed: int) -> str:
+    return f"generation_{generation}/member_{member}/seed_{seed}"
+
+
 def key(argument: str) -> str:
     name, *_ = argument.split("=", 1)
     return name.lstrip("+~")
@@ -174,20 +178,26 @@ class Population(Sweeper):
             )
         return epochs // self.generations
 
-    def launch(self, arguments, generation, values, parents, checkpoints, span):
+    def launch(self, arguments, generation, values, parents, sweep_dir, span):
         kept = [argument for argument in arguments if key(argument) not in self.reserved]
         overrides = []
         for member in range(self.members):
             for seed in range(self.seeds):
+                run = run_dir(generation, member, seed)
                 override = kept + [f"{name}={value}" for name, value in values[member].items()]
                 override += [
                     "early_stopping=epochs",
                     f"early_stopping.at={(generation + 1) * span}",
                     "scoring=final",
-                    f"save={checkpoints / f'generation_{generation}/member_{member}/seed_{seed}'}",
+                    f"hydra.sweep.subdir={run}",
+                    "++artisans.checkpointer._target_=boonta.artisans.Checkpointer",
+                    "++loggers.orbax._target_=boonta.loggers.OrbaxLogger",
+                    f"++loggers.orbax.directory={sweep_dir / run / 'checkpoints'}",
+                    "++loggers.orbax.max_to_keep=1",
+                    "++loggers.orbax.best=false",
                 ]
                 if generation > 0:
-                    parent = checkpoints / f"generation_{generation - 1}/member_{parents[member]}/seed_{seed}"
+                    parent = sweep_dir / run_dir(generation - 1, parents[member], seed)
                     override.append(f"checkpoint={parent}")
                 overrides.append(tuple(override))
         self.validate_batch_is_legal(overrides)
@@ -199,7 +209,7 @@ class Population(Sweeper):
 
     @property
     def reserved(self):
-        return {*self.params, "early_stopping", "early_stopping.at", "scoring", "save", "checkpoint"}
+        return {*self.params, "early_stopping", "early_stopping.at", "scoring", "checkpoint", "hydra.sweep.subdir"}
 
     def sweep(self, arguments: List[str]) -> Any:
         assert self.config is not None
@@ -209,7 +219,6 @@ class Population(Sweeper):
         sweep_dir = Path(self.config.hydra.sweep.dir).absolute()
         sweep_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.config, sweep_dir / "multirun.yaml")
-        checkpoints = sweep_dir / "checkpoints"
         span = self.span()
 
         log.info(
@@ -230,7 +239,7 @@ class Population(Sweeper):
         rows = []
 
         for generation in range(self.generations):
-            fitness = self.launch(arguments, generation, values, parents, checkpoints, span)
+            fitness = self.launch(arguments, generation, values, parents, sweep_dir, span)
             for member in range(self.members):
                 rows.append(
                     {
@@ -262,7 +271,7 @@ class Population(Sweeper):
                     if source != member:
                         log.info("member %d copies member %d", member, source)
 
-        results = self.summarize(rows, checkpoints)
+        results = self.summarize(rows, sweep_dir)
         OmegaConf.save(OmegaConf.create(results), sweep_dir / "optimization_results.yaml")
         log.info("best value: %s", results["best_value"])
         log.info("best params: %s", results["best_params"])
@@ -274,7 +283,7 @@ class Population(Sweeper):
             writer.writeheader()
             writer.writerows(rows)
 
-    def summarize(self, rows: List[Dict[str, Any]], checkpoints: Path) -> Dict[str, Any]:
+    def summarize(self, rows: List[Dict[str, Any]], sweep_dir: Path) -> Dict[str, Any]:
         last = self.generations - 1
         table = {(row["generation"], row["member"]): row for row in rows}
         final = [table[(last, member)] for member in range(self.members)]
@@ -298,6 +307,6 @@ class Population(Sweeper):
             "best_value": best["score"],
             "best_member": best["member"],
             "best_params": {name: best[name] for name in self.params},
-            "best_checkpoint": str(checkpoints / f"generation_{last}/member_{best['member']}"),
+            "best_checkpoint": str(sweep_dir / f"generation_{last}/member_{best['member']}"),
             "schedule": schedule[::-1],
         }

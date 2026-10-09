@@ -18,8 +18,7 @@ def main(cfg):
 
     from boonta.artisans import Metrics
     from boonta.loggers import MultiLogger
-    from boonta.utils import (SystemMonitor, load_checkpoint, newest,
-                              save_checkpoint)
+    from boonta.utils import SystemMonitor, load_checkpoint, newest
     from hangar import recipes
     from hangar.brief import brief
 
@@ -125,9 +124,6 @@ def main(cfg):
 
         if cfg.evaluation.num_steps and cfg.score in data:
             logger.log_summary({"score": data[cfg.score].reshape(-1)})
-
-        if cfg.save is not None:
-            save_checkpoint(cfg.save, {"algorithm_state": state.algorithm_state})
     finally:
         podracer.close(state)
         logger.finish()

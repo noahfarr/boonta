@@ -12,7 +12,7 @@ from hydra.core.utils import JobStatus
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from boonta.utils import load_checkpoint
+from boonta.utils import load_checkpoint, newest
 from hangar import resolvers  # noqa: F401
 from hydra_plugins.hydra_pbt_sweeper._population import (choose, perturb,
                                                          sample, typed)
@@ -196,7 +196,12 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
             assert job["early_stopping"] == "epochs"
             assert job["early_stopping.at"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
-            assert job["save"] == str(tmp_path / f"checkpoints/generation_{generation}/member_{member}/seed_{seed}")
+            assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
+            assert job["++loggers.orbax.directory"] == str(
+                tmp_path / f"generation_{generation}/member_{member}/seed_{seed}/checkpoints"
+            )
+            assert job["++artisans.checkpointer._target_"] == "boonta.artisans.Checkpointer"
+            assert job["++loggers.orbax.max_to_keep"] == "1"
             if generation == 0:
                 assert "checkpoint" not in job
             else:
@@ -251,11 +256,13 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
         env=os.environ | {"PYTHONPATH": path, "JAX_PLATFORMS": "cpu"},
     )
     for member in range(2):
-        first, second = (
-            load_checkpoint(tmp_path / f"checkpoints/generation_{generation}/member_{member}/seed_0/algorithm_state")
-            for generation in range(2)
-        )
+        runs = [tmp_path / f"generation_{generation}/member_{member}/seed_0" for generation in range(2)]
+        first, second = (load_checkpoint(Path(newest(run)) / "algorithm_state") for run in runs)
         assert int(first["step"]) == 64
         assert int(second["step"]) == 128
+        for run, step in zip(runs, (64, 128)):
+            assert [item.name for item in (run / "checkpoints").iterdir()] == ["latest"]
+            assert [item.name for item in (run / "checkpoints/latest").iterdir()] == [str(step)]
+            assert np.load(run / "metrics.npz")["steps"].max() == step
     results = OmegaConf.load(tmp_path / "optimization_results.yaml")
     assert set(results.best_params) == {"optimizer.lr", "algorithm.entropy_coefficient"}

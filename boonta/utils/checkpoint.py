@@ -18,15 +18,6 @@ def newest(path, which="latest"):
     return str(max(steps, key=lambda item: int(item.name)))
 
 
-def save_checkpoint(path, items):
-    import orbax.checkpoint as ocp
-
-    path = Path(path).absolute()
-    with ocp.StandardCheckpointer() as checkpointer:
-        for name, tree in items.items():
-            checkpointer.save(path / name, tree)
-
-
 def load_checkpoint(path, target=None):
     if path is None:
         return target
