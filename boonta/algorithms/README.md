@@ -140,4 +140,4 @@ Run one case with
 
 ## Wrappers
 
-[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Ensemble` runs N copies on slices of the batch. `PSRO` wraps an `Ensemble` and keeps a population, payoffs and opponent choice for self-play leagues. `sebulba` rejects both.
+[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `PSRO` wraps a `Population` and keeps a pool, payoffs and opponent choice for self-play leagues. `sebulba` rejects both.

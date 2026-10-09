@@ -14,7 +14,7 @@ from flax import struct
 from omegaconf import OmegaConf
 
 import zoo
-from boonta.algorithms.wrappers.ensemble import Ensemble
+from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Video
@@ -29,14 +29,14 @@ online = partial(zoo.online, devices=2)
 def pair(environment, num_envs, num_steps, podracer):
     algorithm = zoo.ppo(environment, num_envs=num_envs, num_steps=num_steps).algorithm
     return podracer(
-        Ensemble(algorithm, count=2), zoo.wrap(environment, num_envs), num_envs, num_steps
+        Population(algorithm, count=2), zoo.wrap(environment, num_envs), num_envs, num_steps
     )
 
 
 BUILDS = [
     pytest.param(zoo.ppo, id="ppo"),
     pytest.param(zoo.recurrent_ppo, id="recurrent_ppo"),
-    pytest.param(pair, id="ensemble"),
+    pytest.param(pair, id="population"),
 ]
 
 

@@ -11,7 +11,7 @@ from jax.sharding import PartitionSpec as P
 
 import zoo
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
-from boonta.algorithms.wrappers.ensemble import Ensemble
+from boonta.algorithms.wrappers.population import Population
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
@@ -383,8 +383,8 @@ def test_every_torso_replays_what_it_acted_on(gaps, torso, podracer):
     np.testing.assert_allclose(recorded, 0.0, atol=1e-5)
 
 
-def ensembled(algorithm, *args):
-    return zoo.online(Ensemble(algorithm=algorithm, count=2), *args)
+def populated(algorithm, *args):
+    return zoo.online(Population(algorithm=algorithm, count=2), *args)
 
 
 STATEFUL = [
@@ -404,9 +404,9 @@ STATEFUL = [
     pytest.param(zoo.bc, corridor, id="bc"),
     pytest.param(zoo.iql, reach, id="iql"),
     pytest.param(zoo.recurrent_bc, recall, id="recurrent_bc"),
-    pytest.param(partial(zoo.ppo, podracer=ensembled), corridor, id="ensemble-ppo"),
+    pytest.param(partial(zoo.ppo, podracer=populated), corridor, id="population-ppo"),
     pytest.param(
-        partial(zoo.recurrent_ppo, podracer=ensembled), recall, id="ensemble-recurrent_ppo"
+        partial(zoo.recurrent_ppo, podracer=populated), recall, id="population-recurrent_ppo"
     ),
 ]
 

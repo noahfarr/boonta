@@ -13,7 +13,7 @@ from flax import struct
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from boonta.algorithms.wrappers.ensemble import Ensemble
+from boonta.algorithms.wrappers.population import Population
 from boonta.algorithms.wrappers.psro import (PSRO, Learner, Member, Meta,
                                              always, either, even, forgotten,
                                              fsp, hard, ladder, latest,
@@ -37,7 +37,7 @@ capacity: 1024
 decay: 0.995
 assignments:
   exploiter: alakazam
-population:
+pool:
   - {lineage: alakazam, checkpoint: alakazam.msgpack}
   - {lineage: thwackey, checkpoint: thwackey.msgpack}
 learners:
@@ -260,7 +260,7 @@ def build(
     learners,
     num_envs=8,
     capacity=8,
-    population=(),
+    pool=(),
     oracle=None,
     play=skill_play,
     initialize=skill_initialize,
@@ -275,9 +275,9 @@ def build(
         initialize=initialize,
         capacity=capacity,
         decay=0.9,
-        population=[
+        pool=[
             SimpleNamespace(lineage=member.lineage, checkpoint=member.params)
-            for member in population
+            for member in pool
         ],
         **extras,
     )
@@ -315,8 +315,8 @@ def record(wins, games):
     )
 
 
-def divide_ensemble():
-    Ensemble(ToyAlgorithm(optax.sgd(0.1)), count=3).init(jax.random.key(0), slices(8))
+def divide_population():
+    Population(ToyAlgorithm(optax.sgd(0.1)), count=3).init(jax.random.key(0), slices(8))
 
 
 def divide_league():
@@ -332,7 +332,7 @@ def test_a_league_trains_its_learners_and_keeps_the_meta_game():
     state = podracer.init(jax.random.key(0))
 
     algorithm_state = state.algorithm_state
-    assert algorithm_state.population.shape == (8, 1)
+    assert algorithm_state.pool.shape == (8, 1)
     assert algorithm_state.payoff.shape == (8, 8)
     assert int(algorithm_state.members.sum()) == int(algorithm_state.cursor) == 2
     assert len(algorithm_state.learners) == 2
@@ -377,7 +377,7 @@ def test_league_state_is_replicated_while_returns_and_rivals_follow_the_environm
 
     algorithm_state = state.algorithm_state
     for leaf in (
-        algorithm_state.population,
+        algorithm_state.pool,
         algorithm_state.payoff,
         algorithm_state.counts,
         algorithm_state.members,
@@ -391,7 +391,7 @@ def test_league_state_is_replicated_while_returns_and_rivals_follow_the_environm
     podracer.close(state)
 
 
-def test_the_population_mirrors_the_current_policy_after_every_update():
+def test_the_pool_mirrors_the_current_policy_after_every_update():
     config, podracer = build([entry("main", admit=periodic(100))])
     state = podracer.init(jax.random.key(0))
 
@@ -401,12 +401,12 @@ def test_the_population_mirrors_the_current_policy_after_every_update():
         params = float(inner.params[0])
         assert params == updates
         np.testing.assert_allclose(
-            float(np.asarray(state.algorithm_state.population)[0, 0]), params, atol=1e-2
+            float(np.asarray(state.algorithm_state.pool)[0, 0]), params, atol=1e-2
         )
     podracer.close(state)
 
 
-def test_a_restart_reads_the_population_as_it_stood_before_the_update():
+def test_a_restart_reads_the_pool_as_it_stood_before_the_update():
     learners = [
         entry("main"),
         entry(
@@ -491,30 +491,30 @@ def test_the_pit_seats_the_drawn_opponents_before_the_deal():
     podracer.close(state)
 
 
-def test_the_initial_population_is_never_overwritten_and_admission_stops_at_capacity():
+def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity():
     learners = [
         entry("main", pfsp_vs_lineage("rival", hard())),
         entry("exploiter", latest(), periodic(3), resets=True),
     ]
-    population = [
+    pool = [
         Member(lineage="rival", params=jnp.array([1.5])),
         Member(lineage="rival", params=jnp.array([0.5])),
     ]
-    config, podracer = build(learners, capacity=6, population=population)
+    config, podracer = build(learners, capacity=6, pool=pool)
 
     state = podracer.init(jax.random.key(0))
     algorithm_state = state.algorithm_state
     assert int(algorithm_state.cursor) == 4
-    np.testing.assert_allclose(np.asarray(algorithm_state.population)[2:4, 0], [1.5, 0.5])
+    np.testing.assert_allclose(np.asarray(algorithm_state.pool)[2:4, 0], [1.5, 0.5])
     assert np.asarray(algorithm_state.lineages)[2] == 2
 
     state, logs = podracer.train(state, jax.random.key(1), 6)
     algorithm_state = state.algorithm_state
     assert int(algorithm_state.cursor) == 6
     assert int(algorithm_state.members.sum()) == 6
-    population = np.asarray(algorithm_state.population)
-    np.testing.assert_allclose(population[2:4, 0], [1.5, 0.5])
-    np.testing.assert_allclose(population[4:6, 0], [2.0, 3.0])
+    pool = np.asarray(algorithm_state.pool)
+    np.testing.assert_allclose(pool[2:4, 0], [1.5, 0.5])
+    np.testing.assert_allclose(pool[4:6, 0], [2.0, 3.0])
     assert np.all(np.isfinite(np.asarray(logs["learner_0/reference"])))
     podracer.close(state)
 
@@ -535,7 +535,7 @@ def test_only_the_learners_that_name_a_warmstart_start_from_it():
     np.testing.assert_allclose(np.asarray(warm.initial_state.params), [3.0])
 
 
-@pytest.mark.parametrize("divide", [divide_ensemble, divide_league])
+@pytest.mark.parametrize("divide", [divide_population, divide_league])
 def test_a_batch_that_does_not_divide_among_the_copies_is_rejected(divide):
     with pytest.raises(AssertionError, match="multiple of 3"):
         divide()
@@ -574,7 +574,7 @@ def test_a_learner_with_a_kl_coefficient_is_held_near_its_initial_parameters():
     np.testing.assert_allclose(held_initial, [0.0])
 
 
-def test_a_league_wraps_an_ensemble_around_the_oracle():
+def test_a_league_wraps_a_population_around_the_oracle():
     oracle = SkillAlgorithm(optimizer=optax.sgd(1.0))
     wrapped = PSRO(
         algorithm=oracle,
@@ -582,7 +582,7 @@ def test_a_league_wraps_an_ensemble_around_the_oracle():
         capacity=4,
         decay=0.9,
     )
-    assert isinstance(wrapped.algorithm, Ensemble)
+    assert isinstance(wrapped.algorithm, Population)
     assert wrapped.algorithm.count == 1
     assert wrapped.oracle is oracle
     assert wrapped.optimizer is oracle.optimizer
@@ -596,10 +596,10 @@ def test_a_wrapper_missing_its_algorithm_raises_instead_of_recursing():
         bare.anything
 
 
-def test_each_ensemble_copy_acts_and_learns_on_its_own_slice():
-    ensemble = Ensemble(ToyAlgorithm(optax.sgd(0.1)), count=2)
+def test_each_population_copy_acts_and_learns_on_its_own_slice():
+    population = Population(ToyAlgorithm(optax.sgd(0.1)), count=2)
     timestep = slices(8)
-    state = ensemble.init(jax.random.key(0), timestep)
+    state = population.init(jax.random.key(0), timestep)
     state = state.replace(
         algorithm_states=tuple(
             inner.replace(params=jnp.array([value]))
@@ -608,7 +608,7 @@ def test_each_ensemble_copy_acts_and_learns_on_its_own_slice():
         step=jnp.array(40, state.step.dtype),
     )
 
-    state, action, _ = ensemble.step(state, jax.random.key(1), timestep)
+    state, action, _ = population.step(state, jax.random.key(1), timestep)
     np.testing.assert_allclose(np.asarray(action), [-1.0] * 4 + [2.0] * 4)
     first, second = state.algorithm_states
     assert (int(first.step), int(second.step)) == (40, 40)
@@ -616,7 +616,7 @@ def test_each_ensemble_copy_acts_and_learns_on_its_own_slice():
     window = jax.tree.map(lambda leaf: leaf[None], timestep)
     target = jnp.concatenate([jnp.full(4, 5.0), jnp.zeros(4)])
     transitions = Transition(first=window, second=window.replace(reward=target[None]))
-    updated = ensemble.update(state, jax.random.key(2), transitions)
+    updated = population.update(state, jax.random.key(2), transitions)
 
     first, second = updated.algorithm_states
     assert float(first.params[0]) > 1.0
@@ -761,13 +761,13 @@ def test_league_composes_psro_learners_and_an_opponent_environment():
     )
 
     assert isinstance(algorithm, PSRO)
-    assert isinstance(algorithm.algorithm, Ensemble)
+    assert isinstance(algorithm.algorithm, Population)
     assert algorithm.oracle is oracle
     assert algorithm.algorithm.count == 3
     assert [learner.lineage for learner in algorithm.learners] == DECKS + ["exploiter"]
-    assert [member.lineage for member in algorithm.population] == DECKS
+    assert [member.lineage for member in algorithm.pool] == DECKS
     assert algorithm.names == (*DECKS, "exploiter")
-    assert algorithm.population[0].params == "alakazam.msgpack"
+    assert algorithm.pool[0].params == "alakazam.msgpack"
     assert sorted(algorithm.warmstarts) == list(range(3))
     assert algorithm.warmstarts[2] == "alakazam.msgpack"
     assert algorithm.capacity == 1024
