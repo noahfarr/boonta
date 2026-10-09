@@ -1038,6 +1038,9 @@ isaaclab-arena = [
 jaxmarl = [
     { name = "jaxmarl" },
 ]
+jaxued = [
+    { name = "jaxued" },
+]
 jumanji = [
     { name = "jumanji" },
 ]
@@ -1098,6 +1101,7 @@ requires-dist = [
     { name = "jax", extras = ["cpu"], marker = "sys_platform == 'darwin'", specifier = ">=0.10.2" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux'", specifier = ">=0.10.2" },
     { name = "jaxmarl", marker = "extra == 'jaxmarl'" },
+    { name = "jaxued", marker = "extra == 'jaxued'", git = "https://github.com/DramaCow/jaxued?rev=0f8f1284677375b889e4f13a32c9617cd009f8c4" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "joblib", specifier = ">=1.0" },
     { name = "jumanji", marker = "extra == 'jumanji'" },
@@ -1132,7 +1136,7 @@ requires-dist = [
     { name = "wandb", specifier = ">=0.28.0" },
     { name = "xminigrid", marker = "extra == 'xland-minigrid'" },
 ]
-provides-extras = ["ale", "benchmark", "brax", "craftax", "isaaclab", "isaaclab-arena", "jaxmarl", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "slurm", "xland-minigrid"]
+provides-extras = ["ale", "benchmark", "brax", "craftax", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "slurm", "xland-minigrid"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]
@@ -5030,6 +5034,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3a/da/ff7d7fbd13b8ed5e8458e80308d075fc649062b9f8676d3fc56f2dc99a82/jaxopt-0.8.5.tar.gz", hash = "sha256:2790bd68ef132b216c083a8bc7a2704eceb35a92c0fc0a1e652e79dfb1e9e9ab", size = 121709, upload-time = "2025-04-14T17:59:01.618Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/d8/55e0901103c93d57bab3b932294c216f0cbd49054187ce29f8f13808d530/jaxopt-0.8.5-py3-none-any.whl", hash = "sha256:ff221d1a86908ec759eb1e219ee1d12bf208a70707e961bf7401076fe7cf4d5e", size = 172434, upload-time = "2025-04-14T17:59:00.342Z" },
+]
+
+[[package]]
+name = "jaxued"
+version = "0.0.2"
+source = { git = "https://github.com/DramaCow/jaxued?rev=0f8f1284677375b889e4f13a32c9617cd009f8c4#0f8f1284677375b889e4f13a32c9617cd009f8c4" }
+dependencies = [
+    { name = "chex", version = "0.1.90", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "chex", version = "0.1.92", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
+    { name = "flax" },
+    { name = "gymnax" },
+    { name = "jax", marker = "sys_platform == 'darwin' or sys_platform == 'linux' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "jax", marker = "sys_platform == 'darwin' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
 ]
 
 [[package]]

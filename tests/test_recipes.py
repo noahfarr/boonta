@@ -133,6 +133,7 @@ CASES = [
     ("iql", HOPPER, installed("brax"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "kinetix/kinetix", installed("kinetix"), False),
+    ("recurrent_ppo", "jaxued/maze", installed("jaxued"), False),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
@@ -177,6 +178,16 @@ def test_hyperparameters_cascade_to_everything_below_them():
     assert configure("ppo", "gymnax/minatar/asterix").total_timesteps == 20_000_000
     assert configure("ppo", "isaaclab/classic/ant").algorithm.num_minibatches == 4
     assert configure("ppo", "isaaclab/classic/ant").optimizer.lr == 5e-4
+
+
+def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environment():
+    default = configure("ppo", "kinetix/kinetix")
+    accel = configure("ppo", "kinetix/holdout_m", "curriculum=accel")
+    assert default.hydra.runtime.choices.hyperparameters == "ppo/kinetix"
+    assert accel.hydra.runtime.choices.hyperparameters == "ppo/kinetix/accel"
+    assert accel.environment.num_envs == default.environment.num_envs
+    assert accel.curriculum.mutate._target_ == "boonta.environments.kinetix.level_mutator"
+    assert configure("ppo", MINATAR, "curriculum=plr").hydra.runtime.choices.hyperparameters == "ppo/gymnax/minatar"
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])

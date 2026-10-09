@@ -105,7 +105,7 @@ A learning rate that anneals comes from `learning_rate(cfg, batch_size)` in [`sc
 
 ## Hyperparameters
 
-`hangar/config/hyperparameters/<algorithm>/<environment path>.yaml` is applied on top of the algorithm and environment configs, before the curriculum. Each file starts with `# @package _global_`, so it can set any key. The `cascade` resolver in [`resolvers.py`](../resolvers.py) walks up the environment path until it finds a file, and falls back to `hyperparameters/<algorithm>.yaml`. With `environment=gymnax/minatar/breakout` it tries
+`hangar/config/hyperparameters/<algorithm>/<environment path>.yaml` is applied on top of the algorithm, environment and curriculum configs. Each file starts with `# @package _global_`, so it can set any key. The `cascade` resolver in [`resolvers.py`](../resolvers.py) walks up the environment path until it finds a file, and falls back to `hyperparameters/<algorithm>.yaml`. With `environment=gymnax/minatar/breakout` it tries
 
 1. `hyperparameters/ppo/gymnax/minatar/breakout.yaml`
 2. `hyperparameters/ppo/gymnax/minatar.yaml`
@@ -113,6 +113,8 @@ A learning rate that anneals comes from `learning_rate(cfg, batch_size)` in [`sc
 4. `hyperparameters/ppo.yaml`
 
 and uses the first that exists. Here it is the second, which sets `total_timesteps: 20_000_000` for every MinAtar game. A missing file is not an error.
+
+Before each environment file it tries the same path with the curriculum appended, so `curriculum=plr` with `environment=kinetix/kinetix` finds `hyperparameters/ppo/kinetix/plr.yaml`. That file pulls in `hyperparameters/ppo/kinetix.yaml` through its defaults and sets what PLR needs on Kinetix, the level `sample` factory. A recipe never passes curriculum arguments: it calls `instantiate(cfg.curriculum)(algorithm, env)`, and Hydra builds the factories when the curriculum is instantiated. The default curriculum has no such files, so it resolves exactly as before.
 
 Run the recipe with
 
