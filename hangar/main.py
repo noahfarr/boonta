@@ -53,6 +53,12 @@ def main(cfg):
 
     state = load_checkpoint(newest(cfg.checkpoint), podracer.init(init_key))
 
+    epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
+    assert remainder == 0, (
+        f"the checkpoint stopped at step {int(state.algorithm_state.step)}, which is not "
+        f"an epoch boundary of this run ({num_steps} steps per epoch)"
+    )
+
     if jax.process_index() == 0:
         brief(cfg, state)
 
@@ -62,6 +68,7 @@ def main(cfg):
 
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
     scoring = instantiate(cfg.scoring)
+    early_stopping = instantiate(cfg.early_stopping)
 
     def reduce(logs, prefix):
         logs = jax.device_get({k: v for k, v in logs.items() if "/" in k})
@@ -82,14 +89,16 @@ def main(cfg):
         return metrics
 
     try:
-        data = monitor.metrics(step=0)
-        if cfg.evaluation.num_steps:
-            _, logs = podracer.evaluate(state, baseline_key, cfg.evaluation.num_steps)
-            data |= reduce(logs, "evaluation/")
-            data |= craft(state, logs, 0)
-        logger.log(data, steps=jnp.array([0, 0]))
+        data = {}
+        if epoch == 0:
+            data = monitor.metrics(step=0)
+            if cfg.evaluation.num_steps:
+                _, logs = podracer.evaluate(state, baseline_key, cfg.evaluation.num_steps)
+                data |= reduce(logs, "evaluation/")
+                data |= craft(state, logs, 0)
+            logger.log(data, steps=jnp.array([0, 0]))
 
-        for epoch in range(cfg.training.num_epochs):
+        for epoch in range(epoch, cfg.training.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
             data = reduce(logs, "training/")
@@ -109,6 +118,9 @@ def main(cfg):
             returns = data.get(cfg.score)
             if returns is not None and np.isfinite(returns).any():
                 scores.append(float(np.nanmean(returns)))
+
+            if early_stopping(epoch + 1, int(steps.max()), data):
+                break
 
         if cfg.evaluation.num_steps and cfg.score in data:
             logger.log_summary({"score": data[cfg.score].reshape(-1)})

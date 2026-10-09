@@ -18,7 +18,8 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `total_timesteps=100_000_000` | Environment steps in total |
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
 | `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
-| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory |
+| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
+| `early_stopping=epochs early_stopping.at=4` | End the run after 4 epochs of its plan |
 
 ### Several machines
 
@@ -38,7 +39,8 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `curriculum` | `default` | `default` |
 | `dataset` | offline datasets (`minari/mujoco/expert`, `kinetix/offline_m`, `kinetix/offline_s`); a Minari dataset with `dataset.kwargs.pool_size` above 0 streams random whole episodes in pools of that many transitions | none |
 | `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
-| `search_space` | the CARBS search spaces, `<algorithm>/<environment>` | picked like `hyperparameters` |
+| `early_stopping` | `default` (never), `epochs` (`at` epochs), `steps` (`at` steps), `plateau` (`patience` epochs without a better `score`), checked after every epoch | `default` |
+| `search_space` | the sweepers' search spaces, `<algorithm>/<environment>` | picked like `hyperparameters` |
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
@@ -76,3 +78,31 @@ uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connect
 Results go to `sweeps/<algorithm>/<environment>/<time>/`.
 
 Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.
+
+### Population-based training
+
+`hydra/sweeper=pbt` runs [population-based training](https://arxiv.org/abs/1711.09846) over the same search space, one generation at a time. It needs nothing beyond `hangar`:
+
+```bash
+uv run boonta -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/breakout \
+    logger=file evaluation.num_steps=1000
+```
+
+Each member starts from values drawn from the space: uniformly, on a log scale for `log_normal`, on a logit scale for `logit_normal`, and over the powers of two for `uniform_pow2`. `center` and `scale` are not used. A generation is `training.num_epochs // generations` epochs of the full planned run, so `generations` must divide `training.num_epochs`. Each generation launches every member's `seeds` runs through the launcher with `early_stopping=epochs`, `early_stopping.at=<the generation's last epoch>` and `scoring=final`. Every run writes to `<sweep dir>/generation_<g>/member_<m>/seed_<s>`. The sweeper adds the `checkpointer` artisan and an `orbax` logger to whatever loggers the run already has. The logger keeps only the latest checkpoint (`max_to_keep=1`, no `best`), which is the generation's last epoch. The next generation passes that run dir as `checkpoint=`, which resolves to `checkpoints/latest`. The checkpointer saves only `algorithm_state` by default, so a resumed run starts its environments afresh. On `anakin` with JAX environments, `++artisans.checkpointer.fields=[algorithm_state,environment_state,timestep]` also carries the environments. With those fields, a run stopped and resumed at the same seed matches an uninterrupted run bit for bit. Sweep jobs are seeded by job number, so a member's generations still differ in their random keys. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
+
+Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `rollout.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper refuses those keys before launching anything. It also refuses `total_timesteps`, because every member must plan the same run for generations to end on the same epochs. A resumed run continues from its checkpoint's step, so learning-rate schedules continue too.
+
+Settings live under `hydra.sweeper`:
+
+| Setting | Default | Source |
+|---|---|---|
+| `members` | 4 | a small population; with `fraction` 0.25 one member copies per generation |
+| `seeds` | 4 | enough runs per member for the gate's pooled standard error |
+| `generations` | 5 | a few exploit steps per run; must divide `training.num_epochs` (10 by default) |
+| `fraction` | 0.25 | Ray Tune's `quantile_fraction`; Jaderberg et al. (2017) used 20% |
+| `threshold` | 2.0 | about two standard errors, in the spirit of the paper's t-test selection |
+| `factors` | [0.8, 1.25] | Jaderberg et al. (2017) use 0.8 and 1.2; 1.25 undoes 0.8 |
+| `resample_probability` | 0.25 | Ray Tune's PBT default |
+| `seed` | 0 | the sweeper's own random draws |
+
+Seeds follow the job number unless you set `seed`. Setting it gives every run the same seed. The sweep dir gets `population.csv`, with one row per member and generation holding its scores, its parameters and the member it resumed from (`parent`). It also gets `optimization_results.yaml`, which holds the best final member, its checkpoint and its parameter schedule traced back through its parents.
