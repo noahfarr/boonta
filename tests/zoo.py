@@ -26,8 +26,10 @@ from boonta.environments.wrappers import (GroupedAutoReset,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, Vectorize)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
-                             EpsilonGreedy, FeatureExtractor, Gaussian,
-                             Highway, MinGRUCell, Network, RTUCell,
+                             EpsilonGreedy, FeatureExtractor, GatedDeltaNet,
+                             Gaussian, Highway, LinearAttention, MinGRUCell,
+                             Network, Qwen3_5,
+                             RTUCell,
                              SelfAttention, SquashedGaussian, Tower,
                              causal_attention_mask, llama, repeat)
 from boonta.networks.layers import Identity, Parameter
@@ -82,6 +84,33 @@ def attention(context_length=4, dtype=None):
     )
 
 
+def gated_delta_net(dtype=None):
+    return LinearAttention(
+        cell=GatedDeltaNet(features=WIDTH, num_heads=2, head_dim=8, dtype=dtype),
+        chunk_size=2,
+    )
+
+
+def qwen3_5(dtype=None):
+    return Qwen3_5(
+        features=WIDTH,
+        layer_types=("linear_attention", "full_attention"),
+        num_heads=2,
+        num_groups=1,
+        head_dim=8,
+        rotary_dim=4,
+        max_wavelength=10_000.0,
+        context_length=6,
+        linear_num_heads=2,
+        linear_num_value_heads=4,
+        linear_head_dim=8,
+        linear_value_head_dim=8,
+        chunk_size=2,
+        hidden_dim=2 * WIDTH,
+        dtype=dtype,
+    )
+
+
 def highway(dtype=None):
     return Tower(block=Highway(blocks=min_gru(dtype), dtype=dtype), num_layers=2)
 
@@ -100,6 +129,8 @@ TORSOS = {
     "rtu": rtu,
     "attention-one-rollout": partial(attention, 4),
     "attention-longer-than-a-rollout": partial(attention, 6),
+    "gated_delta_net": gated_delta_net,
+    "qwen3_5": qwen3_5,
     "highway": highway,
     "llama": llama_stack,
     "repeat": repeated,

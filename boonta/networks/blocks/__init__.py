@@ -2,7 +2,11 @@ from .adaptive_rms_norm import AdaptiveRMSNorm
 from .block import Block, broadcast_carry
 from .chunked import Chunked
 from .ffn import FFN
+from .gated_delta_net import (GatedDeltaNet, GatedDeltaNetCarry,
+                              ShortConvolution)
 from .glu import GLU
+from .linear_attention import (LinearAttention, LinearAttentionCarry,
+                               LinearAttentionCellBase, LinearAttentionInputs)
 from .identity import Identity
 from .lora import LoRA
 from .min_gru import MinGRUCell
@@ -32,7 +36,13 @@ __all__ = [
     "AdaptiveRMSNorm",
     "Block",
     "Chunked",
+    "GatedDeltaNet",
+    "GatedDeltaNetCarry",
     "Identity",
+    "LinearAttention",
+    "LinearAttentionCarry",
+    "LinearAttentionCellBase",
+    "LinearAttentionInputs",
     "LearnedPositionalEmbedding",
     "LoRA",
     "MinGRUCell",
@@ -46,6 +56,7 @@ __all__ = [
     "SSMCellBase",
     "SelfAttention",
     "SelfAttentionCarry",
+    "ShortConvolution",
     "SinusoidalPositionalEmbedding",
     "Stack",
     "Stateless",
