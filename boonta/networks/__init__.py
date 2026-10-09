@@ -1,6 +1,6 @@
 from .actor_critic import ActorCritic
 from .architectures import (PI0, Expert, Gemma, GemmaLayer, PI0Layer, Qwen3,
-                            Qwen3_5, Qwen3_5Layer, ViT, ViTLayer)
+                            ViT, ViTLayer)
 from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Block, Chunked,
                      GatedDeltaNet, GatedDeltaNetCarry, Highway, Identity,
                      LearnedPositionalEmbedding, LinearAttention,
@@ -58,8 +58,6 @@ __all__ = [
     "Projection",
     "QueryKeyNorm",
     "Qwen3",
-    "Qwen3_5",
-    "Qwen3_5Layer",
     "RNNCellBase",
     "RTUCarry",
     "RTUCell",

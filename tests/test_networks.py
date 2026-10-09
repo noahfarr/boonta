@@ -9,7 +9,8 @@ import pytest
 import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
                              FeatureExtractor, Gaussian, Highway,
-                             LinearAttentionInputs, Network, Qwen3_5, RTUCell,
+                             GatedDeltaNet, LinearAttention,
+                             LinearAttentionInputs, Network, RTUCell,
                              SquashedGaussian, Tower, distributions, llama,
                              repeat)
 from boonta.networks.blocks.linear_attention import chunkwise, recurrent
@@ -118,10 +119,11 @@ def count(stack):
     "stack",
     [
         lambda num_layers: repeat(zoo.gru(), num_layers),
-        lambda num_layers: llama(zoo.gru(), num_layers, zoo.WIDTH),
+        lambda num_layers: llama((zoo.gru(),), num_layers, zoo.WIDTH),
+        lambda num_layers: llama((zoo.gru(),) * 2, num_layers, zoo.WIDTH),
         lambda num_layers: Tower(Highway(zoo.gru()), num_layers),
     ],
-    ids=["repeat", "llama", "tower"],
+    ids=["repeat", "llama", "llama-pattern", "tower"],
 )
 def test_every_layer_of_a_stack_owns_its_weights(stack):
     one, two, three = (count(stack(num_layers)) for num_layers in (1, 2, 3))
@@ -492,24 +494,34 @@ def reference_qwen3_5():
 
 
 def qwen3_5_from(config, context_length):
-    return Qwen3_5(
-        features=config.hidden_size,
-        num_layers=config.num_hidden_layers,
-        attention_interval=config.layer_types.index("full_attention") + 1,
-        num_heads=config.num_attention_heads,
-        num_groups=config.num_key_value_heads,
-        head_dim=config.head_dim,
-        rotary_dim=int(config.head_dim * config.rope_parameters["partial_rotary_factor"]),
-        max_wavelength=config.rope_parameters["rope_theta"],
-        context_length=context_length,
-        linear_num_heads=config.linear_num_key_heads,
-        linear_num_value_heads=config.linear_num_value_heads,
-        linear_head_dim=config.linear_key_head_dim,
-        linear_value_head_dim=config.linear_value_head_dim,
-        kernel_size=config.linear_conv_kernel_dim,
-        hidden_dim=config.intermediate_size,
-        epsilon=config.rms_norm_eps,
+    assert config.rms_norm_eps == 1e-6
+    delta = LinearAttention(
+        cell=GatedDeltaNet(
+            features=config.hidden_size,
+            num_key_heads=config.linear_num_key_heads,
+            num_value_heads=config.linear_num_value_heads,
+            key_dim=config.linear_key_head_dim,
+            value_dim=config.linear_value_head_dim,
+            kernel_size=config.linear_conv_kernel_dim,
+            epsilon=config.rms_norm_eps,
+        ),
         chunk_size=4,
+    )
+    attention = zoo.qwen3_5_attention(
+        config.hidden_size,
+        config.num_attention_heads,
+        config.num_key_value_heads,
+        config.head_dim,
+        int(config.head_dim * config.rope_parameters["partial_rotary_factor"]),
+        config.rope_parameters["rope_theta"],
+        context_length,
+    )
+    blocks = tuple(attention if kind == "full_attention" else delta for kind in config.layer_types)
+    return llama(
+        blocks,
+        num_layers=len(blocks),
+        features=config.hidden_size,
+        hidden_dim=config.intermediate_size,
     )
 
 

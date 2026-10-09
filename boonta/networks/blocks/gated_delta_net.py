@@ -94,10 +94,10 @@ class ShortConvolution(Block):
 
 class GatedDeltaNet(LinearAttentionCellBase):
     features: int
-    num_heads: int = 6
+    num_key_heads: int = 6
     num_value_heads: int | None = None
-    head_dim: int = 256
-    value_head_dim: int | None = None
+    key_dim: int = 256
+    value_dim: int | None = None
     kernel_size: int = 4
     epsilon: float = 1e-5
     dtype: Dtype | None = None
@@ -106,16 +106,16 @@ class GatedDeltaNet(LinearAttentionCellBase):
 
     @nn.nowrap
     def state_shape(self) -> tuple[int, int, int]:
-        num_value_heads = self.num_value_heads or self.num_heads
+        num_value_heads = self.num_value_heads or self.num_key_heads
         assert (
-            num_value_heads % self.num_heads == 0
-        ), f"num_value_heads must be divisible by num_heads, but was num_value_heads: {num_value_heads}, num_heads: {self.num_heads}"
-        return num_value_heads, self.head_dim, self.value_head_dim or 2 * self.head_dim
+            num_value_heads % self.num_key_heads == 0
+        ), f"num_value_heads must be divisible by num_key_heads, but was num_value_heads: {num_value_heads}, num_key_heads: {self.num_key_heads}"
+        return num_value_heads, self.key_dim, self.value_dim or 2 * self.key_dim
 
     @nn.nowrap
     def widths(self) -> tuple[int, int]:
-        num_value_heads, _, value_head_dim = self.state_shape()
-        return self.num_heads * self.head_dim, num_value_heads * value_head_dim
+        num_value_heads, _, value_dim = self.state_shape()
+        return self.num_key_heads * self.key_dim, num_value_heads * value_dim
 
     def setup(self):
         num_value_heads, _, _ = self.state_shape()
@@ -157,7 +157,7 @@ class GatedDeltaNet(LinearAttentionCellBase):
         self, carry: GatedDeltaNetCarry, x: Array, done: Array
     ) -> tuple[GatedDeltaNetCarry, LinearAttentionInputs]:
         batch_size, sequence_length, _ = x.shape
-        num_value_heads, head_dim, _ = self.state_shape()
+        num_value_heads, key_dim, _ = self.state_shape()
         query_window, query = self.query_convolution(carry.query, self.query(x), done)
         key_window, key = self.key_convolution(carry.key, self.key(x), done)
         value_window, value = self.value_convolution(carry.value, self.value(x), done)
@@ -169,13 +169,15 @@ class GatedDeltaNet(LinearAttentionCellBase):
         )
 
         def heads(x: Array) -> Array:
-            x = x.reshape(batch_size, sequence_length, self.num_heads, head_dim)
+            x = x.reshape(batch_size, sequence_length, self.num_key_heads, key_dim)
             return jnp.repeat(
-                l2_normalize(x.astype(jnp.float32)), num_value_heads // self.num_heads, axis=2
+                l2_normalize(x.astype(jnp.float32)),
+                num_value_heads // self.num_key_heads,
+                axis=2,
             )
 
         inputs = LinearAttentionInputs(
-            query=heads(query) * head_dim**-0.5,
+            query=heads(query) * key_dim**-0.5,
             key=heads(key),
             value=value.reshape(batch_size, sequence_length, num_value_heads, -1),
             log_decay=log_decay,
