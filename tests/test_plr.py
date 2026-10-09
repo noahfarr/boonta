@@ -6,15 +6,14 @@ from flax import struct
 
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
-from boonta.curricula import plr, within
+from boonta.curricula import plr
 from boonta.curricula.plr import (Graded, LevelBufferState, admit_levels,
                                   draw_levels, maximum_monte_carlo,
                                   positive_value_loss, rank_weights,
                                   replay_weights, staleness_weights,
                                   tally_episodes, update_scores)
-from boonta.environments.wrappers import (UED, RecordEpisodeStatistics,
-                                          SameStepAutoReset, UEDState,
-                                          Vectorize)
+from boonta.environments.wrappers import (RecordEpisodeStatistics,
+                                          SameStepAutoReset, Vectorize)
 from boonta.networks import ActorCritic, Network
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -236,14 +235,6 @@ class Blink(Dial):
     def step(self, key, state, action):
         state, timestep = super().step(key, state, action)
         return state, timestep.replace(terminated=state.clock >= 2.0)
-
-
-def test_within_changes_only_the_state_of_its_kind_beneath_outer_wrappers():
-    environment = RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(Dial()), 4)))
-    state, _ = environment.init(jax.random.key(0))
-    changed = within(state, UEDState, lambda inner: inner.replace(restarting=jnp.bool_(True)))
-    assert bool(changed.env_state.restarting)
-    np.testing.assert_array_equal(changed.episode_returns, state.episode_returns)
 
 
 def test_plr_fills_its_buffer_beneath_the_episode_statistics():

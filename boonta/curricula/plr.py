@@ -7,7 +7,6 @@ import lox
 from flax import struct
 
 from boonta.algorithms import Algorithm
-from boonta.curricula.curriculum import within
 from boonta.algorithms.advantage_estimators import \
     generalized_advantage_estimation
 from boonta.algorithms.wrappers.wrapper import Wrapper as AlgorithmWrapper
@@ -355,13 +354,18 @@ def plr(
 
     def pit(state):
         tally = state.algorithm_state.tally
-        return state.replace(
-            environment_state=within(
-                state.environment_state,
-                LevelBufferState,
-                lambda buffer: refill_buffer(buffer, tally),
-            )
+
+        def refill(node):
+            if isinstance(node, LevelBufferState):
+                return refill_buffer(node, tally)
+            return node
+
+        environment_state = jax.tree.map(
+            refill,
+            state.environment_state,
+            is_leaf=lambda node: isinstance(node, LevelBufferState),
         )
+        return state.replace(environment_state=environment_state)
 
     def refill_buffer(buffer, tally):
         returns = jnp.concatenate(
