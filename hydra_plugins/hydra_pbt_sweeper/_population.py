@@ -70,14 +70,15 @@ def perturb(
     for name, value in values.items():
         entry = params[name]
         low, high = float(entry.min), float(entry.max)
-        if kind(entry) in CONTINUOUS:
+        if rng.random() < resample_probability:
+            perturbed[name] = sample(entry, rng)
+        elif kind(entry) in CONTINUOUS:
             perturbed[name] = float(np.clip(value * rng.choice(factors), low, high))
         elif kind(entry) == "int_uniform":
             perturbed[name] = int(np.clip(round(value * rng.choice(factors)), low, high))
-        elif rng.random() < resample_probability:
-            perturbed[name] = sample(entry, rng)
         else:
-            perturbed[name] = value
+            exponent = round(math.log2(value)) + rng.choice([-1, 1])
+            perturbed[name] = int(2 ** np.clip(exponent, round(math.log2(low)), round(math.log2(high))))
     return perturbed
 
 
@@ -85,7 +86,7 @@ def choose(
     fitness: np.ndarray, rng: np.random.Generator, fraction: float, threshold: float
 ) -> np.ndarray:
     members, seeds = fitness.shape
-    count = max(1, int(fraction * members))
+    count = min(math.ceil(fraction * members), members // 2)
     mean = fitness.mean(axis=1)
     variance = np.zeros(members)
     if seeds > 1:

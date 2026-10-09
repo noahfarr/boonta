@@ -81,23 +81,62 @@ def test_perturbation_scales_by_a_factor_and_clips_to_the_bounds():
         assert moved["clip"] in (pytest.approx(0.232), 0.3)
         assert moved["epochs"] in (3, 5)
         assert moved["lambda"] in (0.8, 0.99)
-        assert moved["minibatches"] == 8
 
 
-def test_categoricals_resample_with_their_probability():
+def test_categoricals_shift_to_a_neighbour_and_stop_at_the_ends():
     rng = np.random.default_rng(0)
-    values = {"minibatches": 8}
     space = {"minibatches": params()["minibatches"]}
-    kept = [perturb(values, space, rng, [0.8, 1.25], 0.0)["minibatches"] for _ in range(100)]
-    drawn = [perturb(values, space, rng, [0.8, 1.25], 1.0)["minibatches"] for _ in range(100)]
-    assert set(kept) == {8}
-    assert len(set(drawn)) > 1
+    shifted = {perturb({"minibatches": 8}, space, rng, [0.8, 1.25], 0.0)["minibatches"] for _ in range(100)}
+    lowest = {perturb({"minibatches": 1}, space, rng, [0.8, 1.25], 0.0)["minibatches"] for _ in range(100)}
+    highest = {perturb({"minibatches": 32}, space, rng, [0.8, 1.25], 0.0)["minibatches"] for _ in range(100)}
+    assert shifted == {4, 16}
+    assert lowest == {1, 2}
+    assert highest == {16, 32}
+
+
+@pytest.mark.parametrize("probability", [0.0, 0.25, 1.0])
+def test_every_parameter_resamples_with_the_resample_probability(probability):
+    rng = np.random.default_rng(0)
+    values = {"lr": 1e-3, "clip": 0.2, "epochs": 4, "minibatches": 8, "lambda": 0.9}
+    neighbours = {
+        "lr": [8e-4, 1.25e-3],
+        "clip": [0.16, 0.25],
+        "epochs": [3, 5],
+        "minibatches": [4, 16],
+        "lambda": [0.8, 0.99],
+    }
+    trials = 4000
+    resampled = {name: 0 for name in values}
+    for _ in range(trials):
+        moved = perturb(values, params(), rng, [0.8, 1.25], probability)
+        for name, value in moved.items():
+            resampled[name] += not np.isclose(value, neighbours[name]).any()
+    for name in ("lr", "clip", "lambda"):
+        assert resampled[name] / trials == pytest.approx(probability, abs=0.04), name
+    for name in ("epochs", "minibatches"):
+        assert (resampled[name] > 0) == (probability > 0), name
 
 
 def test_the_bottom_fraction_copies_a_significantly_better_member():
     fitness = np.array([[1.0, 1.1], [5.0, 5.1], [9.0, 9.1], [3.0, 3.1]])
     sources = choose(fitness, np.random.default_rng(0), fraction=0.25, threshold=2.0)
     np.testing.assert_array_equal(sources, [2, 1, 2, 3])
+
+
+@pytest.mark.parametrize(
+    "members, fraction, count",
+    [(4, 0.25, 1), (10, 0.25, 3), (5, 0.2, 1), (8, 0.5, 4), (3, 0.5, 1), (2, 0.25, 1), (1, 0.25, 0)],
+)
+def test_the_quantile_holds_the_ceiling_of_the_fraction_and_at_most_half(members, fraction, count):
+    fitness = np.arange(members, dtype=np.float64).reshape(members, 1) * 100
+    copied = set()
+    for seed in range(50):
+        sources = choose(fitness, np.random.default_rng(seed), fraction=fraction, threshold=0.0)
+        losers = {member for member, source in enumerate(sources) if source != member}
+        assert losers == set(range(count))
+        assert all(source >= members - count for source in sources[:count])
+        copied |= set(sources[:count].tolist())
+    assert copied == set(range(members - count, members))
 
 
 def test_a_gap_inside_the_noise_copies_nothing():
@@ -147,7 +186,7 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
 
 
 def test_a_copy_loads_the_winners_checkpoint_and_perturbs_its_parameters(tmp_path):
-    built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=1, generations=2, threshold=0.0)
+    built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=1, generations=2, threshold=0.0, resample_probability=0.0)
     built.sweep([])
     first, second = built.launcher.batches
     scores = [float(job["optimizer.lr"]) for job in first]
