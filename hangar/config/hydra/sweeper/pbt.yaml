@@ -2,11 +2,11 @@ defaults:
   - pbt_schema
   - _self_
 
-generation: early_stopping.at
+budget_variable:
+  total_timesteps: ${total_timesteps}
+  training.num_epochs: ${training.num_epochs}
 checkpoint: checkpoint
-num_epochs: ${training.num_epochs}
 overrides:
-  - early_stopping=epochs
   - scoring=final
   - +artisan@artisans.checkpointer=checkpointer
   - +logger@loggers.orbax=orbax

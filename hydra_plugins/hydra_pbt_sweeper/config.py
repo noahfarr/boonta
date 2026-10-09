@@ -13,9 +13,8 @@ class PbtSweeperConf:
 
     metric: str = "score"
 
-    generation: str = MISSING
+    budget_variable: Dict[str, int] = MISSING
     checkpoint: str = MISSING
-    num_epochs: int = MISSING
     overrides: List[str] = field(default_factory=list)
 
     members: int = 4

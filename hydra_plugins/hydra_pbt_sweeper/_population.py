@@ -105,9 +105,8 @@ class Population(Sweeper):
         self,
         *,
         metric: str,
-        generation: str,
+        budget_variable: Dict[str, int],
         checkpoint: str,
-        num_epochs: int,
         overrides: Sequence[str],
         members: int,
         seeds: int,
@@ -120,9 +119,8 @@ class Population(Sweeper):
         params: Optional[Dict[str, Any]],
     ) -> None:
         self.metric = metric
-        self.generation = generation
+        self.budget_variable = {name: int(value) for name, value in budget_variable.items()}
         self.checkpoint = checkpoint
-        self.num_epochs = num_epochs
         self.overrides = list(overrides)
         self.members = members
         self.seeds = seeds
@@ -155,13 +153,14 @@ class Population(Sweeper):
     def validate(self) -> None:
         assert self.params, "PbtSweeper requires a non-empty `params` search space"
 
-    def span(self) -> int:
-        if self.num_epochs % self.generations:
+    def span(self) -> Dict[str, int]:
+        indivisible = {name: value for name, value in self.budget_variable.items() if value % self.generations}
+        if indivisible:
             raise ValueError(
-                f"PbtSweeper ends each generation on an epoch, so generations "
-                f"({self.generations}) must divide num_epochs ({self.num_epochs})"
+                f"PbtSweeper gives each generation an equal share of the budget, so "
+                f"generations ({self.generations}) must divide {indivisible}"
             )
-        return self.num_epochs // self.generations
+        return {name: value // self.generations for name, value in self.budget_variable.items()}
 
     def launch(self, arguments, generation, values, parents, sweep_dir, span):
         kept = [argument for argument in arguments if key(argument) not in self.reserved]
@@ -170,10 +169,9 @@ class Population(Sweeper):
             for seed in range(self.seeds):
                 run = run_dir(generation, member, seed)
                 override = kept + [f"{name}={value}" for name, value in values[member].items()]
-                override += self.overrides + [
-                    f"{self.generation}={(generation + 1) * span}",
-                    f"hydra.sweep.subdir={run}",
-                ]
+                override += self.overrides
+                override += [f"{name}={(generation + 1) * share}" for name, share in span.items()]
+                override.append(f"hydra.sweep.subdir={run}")
                 if generation > 0:
                     parent = sweep_dir / run_dir(generation - 1, parents[member], seed)
                     override.append(f"{self.checkpoint}={parent}")
@@ -190,7 +188,7 @@ class Population(Sweeper):
         return {
             *self.params,
             *(key(override) for override in self.overrides),
-            self.generation,
+            *self.budget_variable,
             self.checkpoint,
             "hydra.sweep.subdir",
         }
@@ -206,7 +204,7 @@ class Population(Sweeper):
         span = self.span()
 
         log.info(
-            "PbtSweeper running %d generations of %d epochs, %d members x %d seeds, over %d parameters",
+            "PbtSweeper running %d generations of %s, %d members x %d seeds, over %d parameters",
             self.generations,
             span,
             self.members,
