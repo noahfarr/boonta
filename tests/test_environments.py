@@ -47,7 +47,7 @@ STACKS = [
     pytest.param(lambda: Vectorize(Dial(), NUM_ENVS), id="vectorize"),
     pytest.param(lambda: Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), id="same_step_auto_reset"),
     pytest.param(
-        lambda: UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), capacity=3), id="ued"
+        lambda: UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS)), id="ued"
     ),
     pytest.param(lambda: Vectorize(NextStepAutoReset(Dial()), NUM_ENVS), id="next_step_auto_reset"),
     pytest.param(lambda: OptimisticAutoReset(Dial(), NUM_ENVS, ratio=2), id="optimistic_auto_reset"),
@@ -157,6 +157,21 @@ def test_every_wrapper_shows_the_action_mask_of_the_game(build):
     mask = mask[..., :2]
     shown = [True, True] if environment.wraps(MCP) else [True, False]
     np.testing.assert_array_equal(mask, np.broadcast_to(shown, mask.shape))
+
+
+@pytest.mark.parametrize("build", STACKS)
+def test_every_wrapper_observes_what_it_emits(build):
+    environment = build()
+    if environment.wraps(MCP):
+        pytest.skip("MCP shows the game only on the step a call fires")
+    if environment.wraps(Prompt):
+        pytest.skip("Prompt cannot tell a prompt chunk from the game in its state")
+    state, timestep = environment.init(jax.random.key(0))
+    observed = jax.tree.leaves(environment.observe(state))
+    emitted = jax.tree.leaves(timestep.obs)
+    assert len(observed) == len(emitted)
+    for seen, shown in zip(observed, emitted):
+        np.testing.assert_array_equal(seen, shown)
 
 
 def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
@@ -538,9 +553,10 @@ THETA = jnp.array([10.0, 20.0, 30.0])
 
 
 def ued(game):
-    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS), capacity=3)
+    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
     state, timestep = environment.init(jax.random.key(0))
-    return environment, environment.update(state, theta=THETA), timestep
+    state = environment.update(state, theta=THETA, weights=jnp.zeros(3))
+    return environment, state, timestep
 
 
 def games(state):
@@ -598,14 +614,20 @@ def test_a_restart_draws_each_theta_from_the_weights():
     np.testing.assert_array_equal(games(state), np.asarray(THETA)[drawn])
 
 
-def test_a_restart_without_weights_samples_every_theta_from_the_game():
+def test_a_restart_without_weights_leaves_every_game_alone():
     environment, state, _ = ued(Dial())
-    before = np.asarray(games(state))
     state = environment.update(state, restart=True)
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
+    np.testing.assert_array_equal(cut.truncated, False)
     np.testing.assert_array_equal(after.info["theta"], -1)
-    after = np.asarray(games(state))
-    assert np.all((after >= 1.0) & (after < 2.0)) and not np.array_equal(after, before)
+    np.testing.assert_array_equal(after.obs[:, 0], 2.0)
+
+
+def test_ued_runs_without_a_set_of_theta():
+    environment = UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS))
+    state, _ = environment.init(jax.random.key(0))
+    state, (first,) = play(environment, state, [idle(environment)])
+    np.testing.assert_array_equal(first.info["theta"], -1)
 
 
 def test_the_set_of_theta_stays_replicated_inside_a_sharded_state():

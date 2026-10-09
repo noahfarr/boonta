@@ -35,7 +35,7 @@ from .time_limit import TimeLimit, TimeLimitState
 from .transform_action import TransformAction
 from .transform_observation import TransformObservation
 from .transform_reward import TransformReward
-from .ued import UED, UEDState, Underspecified
+from .ued import UED, UEDState
 from .vectorize import Vectorize
 from .wrapper import Wrapper, WrapperState
 
@@ -88,7 +88,6 @@ __all__ = [
     "TransformReward",
     "UED",
     "UEDState",
-    "Underspecified",
     "Vectorize",
     "Wrapper",
     "WrapperState",

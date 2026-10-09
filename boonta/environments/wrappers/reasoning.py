@@ -41,6 +41,9 @@ class Reasoning(Wrapper):
         tokens = jnp.ones((*mask.shape[:-1], self._num_tokens), mask.dtype)
         return jnp.concatenate([mask, tokens], axis=-1)
 
+    def observe(self, state: ReasoningState) -> PyTree:
+        return state.obs
+
     def init(self, key: Key) -> tuple[ReasoningState, Timestep]:
         env_state, timestep = self._env.init(key)
         return ReasoningState(env_state=env_state, obs=timestep.obs), timestep

@@ -1,5 +1,3 @@
-from typing import Protocol
-
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -7,12 +5,6 @@ from flax import struct
 from boonta.utils import Array, Key, PyTree, Timestep, broadcast
 
 from .wrapper import Wrapper, WrapperState
-
-
-class Underspecified(Protocol):
-    def sample(self, key: Key) -> PyTree: ...
-
-    def reset(self, key: Key, theta: PyTree) -> tuple[PyTree, Timestep]: ...
 
 
 @struct.dataclass
@@ -30,21 +22,13 @@ def tag(timestep: Timestep, playing: Array) -> Timestep:
 
 
 class UED(Wrapper):
-    def __init__(self, env, capacity: int = 1):
-        super().__init__(env)
-        self.capacity = capacity
-
     def init(self, key: Key) -> tuple[UEDState, Timestep]:
         env_state, timestep = self._env.init(key)
-        template = jax.eval_shape(self._env.sample, key)
         playing = jnp.full(self.num_envs, -1, jnp.int32)
         state = UEDState(
             env_state,
-            theta=jax.tree.map(
-                lambda leaf: jnp.zeros((self.capacity, *leaf.shape), leaf.dtype),
-                template,
-            ),
-            weights=jnp.zeros(self.capacity, jnp.float32),
+            theta=None,
+            weights=None,
             restarting=jnp.bool_(False),
             assigned=jnp.bool_(False),
             upcoming=playing,
@@ -52,74 +36,80 @@ class UED(Wrapper):
         )
         return state, tag(timestep, playing)
 
-    def restart(self, key: Key, state: UEDState, env_state, timestep: Timestep):
-        draw_key, sample_key, reset_key = jax.random.split(key, 3)
-        weighted = state.weights.sum() > 0
-        drawn = jax.random.choice(
-            draw_key,
-            state.weights.shape[0],
-            (self.num_envs,),
-            p=jnp.where(weighted, state.weights, 1.0),
-        ).astype(jnp.int32)
-        index = jnp.where(
-            state.assigned, state.upcoming, jnp.where(weighted, drawn, -1)
+    def start(self, state: UEDState, env_state, index: Array, chosen: Array):
+        theta = jax.tree.map(lambda leaf: leaf[jnp.maximum(index, 0)], state.theta)
+        started = jax.vmap(lambda inner, level: self._env.update(inner, theta=level))(
+            env_state, theta
         )
-        sampled = jax.vmap(self._env.sample)(
-            jax.random.split(sample_key, self.num_envs)
-        )
-
-        def choose(stored, fresh):
-            chosen = stored[jnp.maximum(index, 0)]
-            kept = (index >= 0).reshape(-1, *([1] * (fresh.ndim - 1)))
-            return jnp.where(kept, chosen, fresh)
-
-        theta = jax.tree.map(choose, state.theta, sampled)
-        env_state, initial = jax.vmap(self._env.reset)(
-            jax.random.split(reset_key, self.num_envs), theta
-        )
-        timestep = timestep.replace(
-            obs=initial.obs, truncated=timestep.truncated | ~timestep.terminated
-        )
-        return env_state, timestep, index
-
-    def replay(self, key: Key, state: UEDState, env_state, timestep: Timestep):
-        done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
-        replayed = done & (state.playing >= 0)
-        theta = jax.tree.map(
-            lambda leaf: leaf[jnp.maximum(state.playing, 0)], state.theta
-        )
-        started, initial = jax.vmap(self._env.reset)(
-            jax.random.split(key, self.num_envs), theta
-        )
+        obs = self._env.observe(started)
+        chosen = chosen & (index >= 0)
 
         def select(fresh, leaf):
-            return jnp.where(broadcast(replayed, leaf), fresh, leaf)
+            return jnp.where(broadcast(chosen, leaf), fresh, leaf)
 
-        env_state = jax.tree.map(select, started, env_state)
-        obs = jax.tree.map(select, initial.obs, timestep.obs)
+        return jax.tree.map(select, started, env_state), chosen, obs
+
+    def replay(self, state: UEDState, env_state, timestep: Timestep):
+        done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
+        env_state, chosen, obs = self.start(state, env_state, state.playing, done)
+        obs = jax.tree.map(
+            lambda fresh, leaf: jnp.where(broadcast(chosen, leaf), fresh, leaf),
+            obs,
+            timestep.obs,
+        )
         return env_state, timestep.replace(obs=obs)
 
+    def restart(self, key: Key, state: UEDState, env_state, timestep: Timestep):
+        drawn = jnp.full(self.num_envs, -1, jnp.int32)
+        if state.weights is not None:
+            weighted = state.weights.sum() > 0
+            sampled = jax.random.choice(
+                key,
+                state.weights.shape[0],
+                (self.num_envs,),
+                p=jnp.where(weighted, state.weights, 1.0),
+            ).astype(jnp.int32)
+            drawn = jnp.where(weighted, sampled, drawn)
+        index = jnp.where(state.assigned, state.upcoming, drawn)
+        env_state, chosen, obs = self.start(
+            state, env_state, index, jnp.ones(self.num_envs, bool)
+        )
+        obs = jax.tree.map(
+            lambda fresh, leaf: jnp.where(broadcast(chosen, leaf), fresh, leaf),
+            obs,
+            timestep.obs,
+        )
+        truncated = timestep.truncated | (
+            broadcast(chosen, timestep.truncated) & ~timestep.terminated
+        )
+        timestep = timestep.replace(obs=obs, truncated=truncated)
+        return env_state, timestep, jnp.where(chosen, index, state.playing)
+
     def step(self, key: Key, state: UEDState, action: Array) -> tuple[UEDState, Timestep]:
-        step_key, replay_key, restart_key = jax.random.split(key, 3)
-        env_state, timestep = self._env.step(step_key, state.env_state, action)
-        env_state, timestep = jax.lax.cond(
-            jnp.any(state.playing >= 0),
-            lambda: self.replay(replay_key, state, env_state, timestep),
-            lambda: (env_state, timestep),
-        )
-        env_state, restarted, playing = jax.lax.cond(
-            state.restarting,
-            lambda: self.restart(restart_key, state, env_state, timestep),
-            lambda: (env_state, timestep, state.playing),
-        )
-        restarted = tag(restarted, state.playing)
+        env_state, timestep = self._env.step(key, state.env_state, action)
+        if state.theta is not None:
+            env_state, timestep = jax.lax.cond(
+                jnp.any(state.playing >= 0),
+                lambda: self.replay(state, env_state, timestep),
+                lambda: (env_state, timestep),
+            )
+            env_state, timestep, playing = jax.lax.cond(
+                state.restarting,
+                lambda: self.restart(
+                    jax.random.fold_in(key, 1), state, env_state, timestep
+                ),
+                lambda: (env_state, timestep, state.playing),
+            )
+        else:
+            playing = state.playing
+        timestep = tag(timestep, state.playing)
         state = state.replace(
             env_state=env_state,
             playing=playing,
             restarting=jnp.bool_(False),
             assigned=jnp.bool_(False),
         )
-        return state, restarted
+        return state, timestep
 
     def update(
         self,
@@ -144,8 +134,9 @@ class UED(Wrapper):
                 assigned=jnp.bool_(True),
                 upcoming=jnp.asarray(assign, jnp.int32),
             )
-        (capacity,) = state.weights.shape
-        assert all(
-            leaf.shape[0] == capacity for leaf in jax.tree.leaves(state.theta)
-        ), "theta and weights must hold one entry per slot"
+        if state.theta is not None and state.weights is not None:
+            (capacity,) = state.weights.shape
+            assert all(
+                leaf.shape[0] == capacity for leaf in jax.tree.leaves(state.theta)
+            ), "theta and weights must hold one entry per slot"
         return state

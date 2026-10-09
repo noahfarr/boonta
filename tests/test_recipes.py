@@ -326,18 +326,19 @@ def test_kinetix_evaluation_reports_a_success_rate():
 
 
 @KINETIX
-def test_kinetix_starts_from_the_theta_it_is_given():
+def test_kinetix_restarts_at_the_level_it_is_given_and_observes_it():
     _, env = kinetix_environment()
-    theta = env.sample(jax.random.key(0))
-    other = env.sample(jax.random.key(1))
-    state, timestep = env.reset(jax.random.key(2), theta)
-    for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(theta)):
-        np.testing.assert_array_equal(started, given)
-    assert bool(timestep.terminated)
+    state, _ = env.init(jax.random.key(0))
+    level, timestep = env.init(jax.random.key(1))
     assert any(
         not np.array_equal(left, right)
-        for left, right in zip(jax.tree.leaves(theta), jax.tree.leaves(other))
+        for left, right in zip(jax.tree.leaves(state), jax.tree.leaves(level))
     )
+    state = env.update(state, theta=level)
+    for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(level)):
+        np.testing.assert_array_equal(started, given)
+    for seen, shown in zip(jax.tree.leaves(env.observe(state)), jax.tree.leaves(timestep.obs)):
+        np.testing.assert_array_equal(seen, shown)
 
 
 @KINETIX

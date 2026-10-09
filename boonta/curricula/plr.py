@@ -14,7 +14,7 @@ from boonta.algorithms.wrappers.wrapper import \
     WrapperState as AlgorithmWrapperState
 from boonta.environments.wrappers import Wrapper, WrapperState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, Timestep, Transition
+from boonta.utils import Array, Key, PyTree, Timestep, Transition
 from boonta.utils.typing import Environment
 
 
@@ -129,16 +129,17 @@ class LevelBufferState(WrapperState):
 
 
 class LevelBuffer(Wrapper):
-    def __init__(self, env, capacity: int, staging: int):
+    def __init__(self, env, capacity: int, staging: int, sample: Callable[[Key], PyTree]):
         super().__init__(env)
         self.capacity = capacity
         self.staging = staging
+        self.sample = sample
 
     def init(self, key: Key) -> tuple[LevelBufferState, Timestep]:
         buffer_key, env_key = jax.random.split(key)
         env_state, timestep = self._env.init(env_key)
         slots = self.capacity + self.staging
-        template = jax.eval_shape(self._env.sample, key)
+        template = jax.eval_shape(self.sample, key)
         levels = jax.tree.map(
             lambda leaf: jnp.zeros((slots, *leaf.shape), leaf.dtype), template
         )
@@ -335,12 +336,13 @@ def plr(
     robust: bool,
     gamma: float,
     gae_lambda: float,
+    sample: Callable[[Key], PyTree],
     score: Callable[[Tally, Array], Array] = positive_value_loss,
     **kwargs,
 ) -> tuple[Graded, LevelBuffer, Pit, Lap]:
     staging = environment.num_envs
     slots = capacity + staging
-    environment = LevelBuffer(environment, capacity, staging)
+    environment = LevelBuffer(environment, capacity, staging, sample)
     algorithm = Graded(
         algorithm,
         slots=slots,
@@ -379,7 +381,7 @@ def plr(
             return buffer, levels, assignment
 
         def explore(buffer, levels):
-            fresh = jax.vmap(environment.sample)(
+            fresh = jax.vmap(sample)(
                 jax.random.split(sample_key, staging)
             )
             levels = jax.tree.map(

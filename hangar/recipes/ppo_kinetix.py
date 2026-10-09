@@ -9,14 +9,36 @@ from boonta.environments.wrappers import (UED, RecordEpisodeStatistics,
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 
+def generator():
+    from jax2d.engine import PhysicsEngine
+    from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
+                                     sample_kinetix_level)
+
+    env_params, static_env_params, ued_params = (
+        EnvParams(),
+        StaticEnvParams(),
+        UEDParams(),
+    )
+    physics_engine = PhysicsEngine(static_env_params)
+
+    def sample(key):
+        return sample_kinetix_level(
+            key, physics_engine, env_params, static_env_params, ued_params
+        )
+
+    return sample
+
+
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
 
+    extras = {}
     if cfg.curriculum.get("ued"):
         env = Vectorize(SameStepAutoReset(env), num_envs=cfg.environment.num_envs)
         env = UED(env)
         env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+        extras["sample"] = generator()
     else:
         env = SameStepAutoReset(env)
         env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
@@ -48,5 +70,5 @@ def make(cfg):
         ),
     )
 
-    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env, **extras)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
