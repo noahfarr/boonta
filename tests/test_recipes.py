@@ -110,6 +110,10 @@ def kinetix_dataset(directory):
     ]
 
 
+def few_resets(directory):
+    return ["environment.reset_ratio=8"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -141,8 +145,8 @@ CASES = [
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
-    ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), False),
-    ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), False),
+    ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
+    ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
     ("ippo", "connectx/connectx", None, False),
     ("mmd", "connectx/connectx", None, False),
@@ -150,7 +154,12 @@ CASES = [
     ("mappo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("ippo", "mapox/find_return", installed("mapox"), False),
     ("recurrent_pupo", "mapox/find_return", installed("mapox"), False),
-    ("recurrent_pupo", "ale/montezuma", installed("ale_py"), False),
+    (
+        "recurrent_pupo",
+        "ale/montezuma",
+        installed("ale_py") or rom("boonta/environments/ale/ffi/vendor/ale"),
+        False,
+    ),
     ("ppo", "isaaclab/classic/cartpole", installed("isaaclab"), False),
     (
         "recurrent_ppo",
@@ -240,17 +249,17 @@ def test_carbs_reads_the_search_space():
 
 
 @pytest.mark.parametrize(
-    "algorithm, environment, missing, offline",
+    "algorithm, environment, missing, extra",
     [
         pytest.param(*case, id=f"{case[0]}-{case[1]}", marks=pytest.mark.skipif(case[2] is not None, reason=str(case[2])))
         for case in CASES
     ],
 )
 def test_every_recipe_builds_and_runs_one_update(
-    algorithm, environment, missing, offline, tmp_path, monkeypatch
+    algorithm, environment, missing, extra, tmp_path, monkeypatch
 ):
     monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
-    overrides = SMALL + (offline(tmp_path) if offline else [])
+    overrides = SMALL + (extra(tmp_path) if extra else [])
     cfg = configure(algorithm, environment, *overrides)
     HydraConfig.instance().set_config(cfg)
     podracer = recipes.make(cfg)
