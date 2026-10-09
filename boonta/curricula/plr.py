@@ -144,7 +144,10 @@ class LevelBuffer(Wrapper):
             lambda leaf: jnp.zeros((slots, *leaf.shape), leaf.dtype), template
         )
         env_state = self._env.update(
-            env_state, theta=levels, weights=jnp.zeros(slots, jnp.float32)
+            env_state,
+            jax.random.fold_in(buffer_key, 1),
+            theta=levels,
+            weights=jnp.zeros(slots, jnp.float32),
         )
         state = LevelBufferState(
             env_state,
@@ -441,6 +444,7 @@ def plr(
         )
         buffer = environment.update(
             buffer.replace(key=key, exploring=~replaying),
+            jax.random.fold_in(key, 1),
             theta=levels,
             assign=assignment,
         )

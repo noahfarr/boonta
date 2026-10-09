@@ -26,8 +26,8 @@ class SameStepAutoReset(Wrapper):
         obs = jax.tree.map(select, initial_timestep.obs, timestep.obs)
         return env_state, timestep.replace(obs=obs)
 
-    def update(self, state: PyTree, **kwargs) -> PyTree:
-        return self._env.update(state, **kwargs)
+    def update(self, state: PyTree, key: Key, **kwargs) -> PyTree:
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state: PyTree) -> Array | None:
         return self._env.action_mask(state)

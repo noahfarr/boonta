@@ -148,8 +148,11 @@ class Team(Environment):
         keys = jax.random.split(key, self.num_agents)
         return jax.vmap(self.environment.step)(keys, state, action)
 
-    def update(self, state, **kwargs):
-        return jax.vmap(lambda state: self.environment.update(state, **kwargs))(state)
+    def update(self, state, key, **kwargs):
+        keys = jax.random.split(key, self.num_agents)
+        return jax.vmap(lambda state, key: self.environment.update(state, key, **kwargs))(
+            state, keys
+        )
 
     def action_mask(self, state):
         return jax.vmap(self.environment.action_mask)(state)
@@ -206,7 +209,11 @@ class Dial(Environment):
         return jnp.stack([state.setting > 0, state.setting <= 0], axis=-1)
 
     def update(
-        self, state: DialState, setting: jax.Array = None, theta: jax.Array = None
+        self,
+        state: DialState,
+        key: jax.Array,
+        setting: jax.Array = None,
+        theta: jax.Array = None,
     ) -> DialState:
         if setting is not None:
             state = state.replace(setting=jnp.full_like(state.setting, setting))

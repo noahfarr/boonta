@@ -20,7 +20,7 @@ class Environment(ABC, Generic[State]):
     @abstractmethod
     def step(self, key: Key, state: State, action: Array) -> tuple[State, Timestep]: ...
 
-    def update(self, state: State, **kwargs) -> State:
+    def update(self, state: State, key: Key, **kwargs) -> State:
         return state
 
     @abstractmethod

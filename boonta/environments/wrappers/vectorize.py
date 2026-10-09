@@ -28,8 +28,16 @@ class Vectorize(Wrapper):
         keys = jax.random.split(key, self.num_envs)
         return jax.vmap(self._env.step)(keys, state, action)
 
-    def update(self, state: PyTree, **kwargs) -> PyTree:
-        return self._env.update(state, **kwargs)
+    def update(self, state: PyTree, key: Key, **kwargs) -> PyTree:
+        keys = jax.random.split(key, self.num_envs)
+        return jax.vmap(lambda inner, key: self._env.update(inner, key, **kwargs))(
+            state, keys
+        )
+
+    def spread(self, state: PyTree, keys: Key, **kwargs) -> PyTree:
+        return jax.vmap(
+            lambda inner, key, kwargs: self._env.update(inner, key, **kwargs)
+        )(state, keys, kwargs)
 
     def action_mask(self, state: PyTree) -> Array | None:
         return jax.vmap(self._env.action_mask)(state)

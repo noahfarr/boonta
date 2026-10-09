@@ -64,7 +64,7 @@ class JaxUED(Environment):
         )
         return state, timestep
 
-    def update(self, state: Any, theta: PyTree = None, **kwargs) -> Any:
+    def update(self, state: Any, key: Key, theta: PyTree = None, **kwargs) -> Any:
         if theta is None:
             return state
         return self.begin(theta)
