@@ -38,8 +38,8 @@ class Wrapper(Environment):
     def step(self, key, state, action):
         return self._env.step(key, state, action)
 
-    def update(self, state, **kwargs):
-        return state.replace(env_state=self._env.update(state.env_state, **kwargs))
+    def update(self, state, key, **kwargs):
+        return state.replace(env_state=self._env.update(state.env_state, key, **kwargs))
 
     def observation_space(self):
         return self._env.observation_space()

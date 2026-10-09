@@ -137,7 +137,7 @@ def test_the_stacks_cover_every_wrapper():
 def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     _, timestep = environment.step(jax.random.key(1), state, idle(environment))
     np.testing.assert_array_equal(timestep.info["clock"] > 0, True)
     unwrapped = jax.tree.leaves(state, is_leaf=lambda leaf: hasattr(leaf, "setting"))
@@ -151,7 +151,7 @@ def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
 def test_every_wrapper_shows_the_action_mask_of_the_game(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     mask = environment.action_mask(state)
     if jnp.issubdtype(environment.action_space().dtype, jnp.integer):
         assert mask.shape[:-1] == idle(environment).shape
@@ -180,7 +180,7 @@ def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
 
     environment = pokemon_red.LogFlags(Dial())
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     assert float(state.setting) == 7.0
     np.testing.assert_array_equal(environment.action_mask(state), [True, False])
 
@@ -503,7 +503,7 @@ class Duel:
         value, updates = state
         return (value + 1.0, updates), self.timestep(value + 1.0, action)
 
-    def update(self, state, **kwargs):
+    def update(self, state, key, **kwargs):
         value, updates = state
         return value, updates + 1
 
@@ -526,7 +526,7 @@ def test_the_learner_plays_its_seat_against_each_groups_rival():
     state, timestep = environment.init(jax.random.key(0))
     assert environment.num_agents == 1 and timestep.reward.shape == (4,)
 
-    state = environment.update(state, opponents=jnp.array([[1.0], [2.0]]))
+    state = environment.update(state, jax.random.key(2), opponents=jnp.array([[1.0], [2.0]]))
     state, timestep = environment.step(jax.random.key(1), state, jnp.full(4, 5.0))
     np.testing.assert_allclose(state.joint.action[:, 1], [1, 1, 2, 2])
     np.testing.assert_allclose(timestep.reward, [4, 4, 3, 3])
@@ -538,9 +538,9 @@ def test_a_new_rival_starts_from_a_blank_carry_and_other_settings_reach_the_game
     state, _ = play(environment, state, [jnp.zeros(4)] * 3)
     np.testing.assert_allclose(state.carry, 3.0)
 
-    state = environment.update(state, opponents=jnp.array([[1.0], [2.0]]))
+    state = environment.update(state, jax.random.key(2), opponents=jnp.array([[1.0], [2.0]]))
     np.testing.assert_allclose(state.carry, 0.0)
-    _, updates = environment.update(state, decks=None).env_state
+    _, updates = environment.update(state, jax.random.key(3), decks=None).env_state
     assert int(updates) == 1
 
 
@@ -556,7 +556,7 @@ THETA = jnp.array([10.0, 20.0, 30.0])
 def ued(game):
     environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
     state, timestep = environment.init(jax.random.key(0))
-    state = environment.update(state, theta=THETA, weights=jnp.zeros(3))
+    state = environment.update(state, jax.random.key(1), theta=THETA, weights=jnp.zeros(3))
     return environment, state, timestep
 
 
@@ -576,7 +576,7 @@ def test_an_assignment_cuts_every_episode_on_the_next_step_and_starts_each_theta
     environment, state, _ = ued(Dial())
     state, _ = play(environment, state, [idle(environment)] * 2)
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(cut.truncated, True)
     np.testing.assert_array_equal(cut.info["theta"], -1)
@@ -589,7 +589,7 @@ def test_an_assignment_cuts_every_episode_on_the_next_step_and_starts_each_theta
 def test_an_episode_that_ends_replays_its_theta():
     environment, state, _ = ued(Flicker())
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, timesteps = play(environment, state, [idle(environment)] * 4)
     for timestep in timesteps[1:]:
         np.testing.assert_array_equal(timestep.info["theta"], assignment)
@@ -600,7 +600,7 @@ def test_an_episode_that_ends_replays_its_theta():
 def test_only_the_environments_that_finished_are_reset():
     environment, state, _ = ued(Dial())
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, (_, second) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(second.obs[:, 0], 1.0)
     np.testing.assert_array_equal(games(state), np.asarray(THETA)[assignment])
@@ -608,7 +608,9 @@ def test_only_the_environments_that_finished_are_reset():
 
 def test_a_restart_draws_each_theta_from_the_weights():
     environment, state, _ = ued(Dial())
-    state = environment.update(state, weights=jnp.array([1.0, 0.0, 3.0]), restart=True)
+    state = environment.update(
+        state, jax.random.key(2), weights=jnp.array([1.0, 0.0, 3.0]), restart=True
+    )
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     drawn = np.asarray(after.info["theta"])
     assert set(np.unique(drawn)) <= {0, 2}
@@ -617,7 +619,7 @@ def test_a_restart_draws_each_theta_from_the_weights():
 
 def test_a_restart_without_weights_leaves_every_game_alone():
     environment, state, _ = ued(Dial())
-    state = environment.update(state, restart=True)
+    state = environment.update(state, jax.random.key(2), restart=True)
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(cut.truncated, False)
     np.testing.assert_array_equal(after.info["theta"], -1)
@@ -707,9 +709,9 @@ def test_an_update_with_a_level_restarts_the_maze_at_that_level():
     state, _ = environment.init(jax.random.key(0))
     state, _ = environment.step(jax.random.key(1), state, jnp.int32(2))
     level = corridor()
-    assert environment.update(state, setting=7.0) is state
+    assert environment.update(state, jax.random.key(2), setting=7.0) is state
 
-    started = environment.update(state, theta=level)
+    started = environment.update(state, jax.random.key(3), theta=level)
     np.testing.assert_array_equal(started.wall_map, level.wall_map)
     np.testing.assert_array_equal(started.agent_pos, level.agent_pos)
     np.testing.assert_array_equal(started.agent_dir, level.agent_dir)
@@ -726,9 +728,9 @@ def test_a_level_reaches_the_maze_through_the_recipe_stack():
     environment = UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))
     state, _ = environment.init(jax.random.key(0))
     levels = jax.vmap(maze_generator())(jax.random.split(jax.random.key(1), 3))
-    state = environment.update(state, theta=levels, weights=jnp.zeros(3))
+    state = environment.update(state, jax.random.key(2), theta=levels, weights=jnp.zeros(3))
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     turn = jnp.zeros(NUM_ENVS, jnp.int32)
     state, (cut, after) = play(environment, state, [turn, turn])
     np.testing.assert_array_equal(cut.truncated, True)
@@ -743,7 +745,9 @@ def test_a_level_reaches_the_maze_through_the_recipe_stack():
 def test_the_maze_terminates_at_the_goal_and_truncates_at_its_time_limit():
     environment = maze(max_steps_in_episode=3)
     level = corridor()
-    state = environment.update(environment.init(jax.random.key(0))[0], theta=level)
+    state = environment.update(
+        environment.init(jax.random.key(0))[0], jax.random.key(1), theta=level
+    )
 
     _, (first, second) = play(environment, state, [jnp.int32(2), jnp.int32(2)])
     assert not bool(first.done)
@@ -771,7 +775,9 @@ def test_the_maze_generator_and_mutator_make_levels_the_maze_plays():
         mutated.goal_pos, level.goal_pos
     )
     environment = maze()
-    state = environment.update(environment.init(jax.random.key(2))[0], theta=mutated)
+    state = environment.update(
+        environment.init(jax.random.key(2))[0], jax.random.key(3), theta=mutated
+    )
     np.testing.assert_array_equal(state.wall_map, mutated.wall_map)
 
 

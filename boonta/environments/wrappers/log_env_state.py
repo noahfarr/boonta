@@ -20,8 +20,8 @@ class LogEnvState(Wrapper):
         lox.log({"env_state": state}, tags=self.tags)
         return state, timestep
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)

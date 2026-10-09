@@ -335,7 +335,7 @@ def test_kinetix_restarts_at_the_level_it_is_given_and_observes_it():
         not np.array_equal(left, right)
         for left, right in zip(jax.tree.leaves(state), jax.tree.leaves(level))
     )
-    state = env.update(state, theta=level)
+    state = env.update(state, jax.random.key(2), theta=level)
     for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(level)):
         np.testing.assert_array_equal(started, given)
     for seen, shown in zip(jax.tree.leaves(env.observe(state)), jax.tree.leaves(timestep.obs)):
