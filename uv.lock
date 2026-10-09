@@ -1071,7 +1071,6 @@ xland-minigrid = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "boonta", extra = ["hangar"] },
     { name = "pytest" },
 ]
 sweep = [
@@ -1142,10 +1141,7 @@ requires-dist = [
 provides-extras = ["ale", "benchmark", "brax", "craftax", "hangar", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "slurm", "xland-minigrid"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "boonta", extras = ["hangar"] },
-    { name = "pytest", specifier = ">=8" },
-]
+dev = [{ name = "pytest", specifier = ">=8" }]
 sweep = [
     { name = "carbs", git = "https://github.com/imbue-ai/carbs.git" },
     { name = "determined", specifier = "==0.35.0" },

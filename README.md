@@ -50,7 +50,7 @@ pip install boonta            # the library
 pip install "boonta[hangar]"  # the library, plus Hydra to run the configs in hangar
 ```
 
-The library never imports `hangar`, Hydra or OmegaConf. In a checkout, `uv sync` installs the `hangar` extra with the dev tools. Environment suites that need their own packages come as extras too, such as `boonta[craftax]`.
+The library never imports `hangar`, Hydra or OmegaConf. In a checkout, `uv sync --extra hangar` installs it. Environment suites that need their own packages come as extras too, such as `boonta[craftax]`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
 
 ## Guides
 

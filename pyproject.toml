@@ -162,7 +162,6 @@ packages = [
 
 [dependency-groups]
 dev = [
-    "boonta[hangar]",
     "pytest>=8",
 ]
 sweep = [

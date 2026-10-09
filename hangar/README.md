@@ -4,7 +4,7 @@
 
 ## Run
 
-`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync` installs them.
+`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync --extra hangar` installs them.
 
 ```bash
 uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
@@ -59,12 +59,12 @@ uv run boonta -m algorithm=ippo environment=connectx/connectx seed=0,1,2
 
 The search space is `config/search_space/<algorithm>/<environment>.yaml`, looked up like the hyperparameters above, so `search_space/ippo/connectx.yaml` holds the ConnectX space. Each file starts with `# @package search_space` and holds only the parameters. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. An algorithm-wide space goes in `search_space/<algorithm>.yaml`, and an environment's space builds on it by listing `/search_space/<algorithm>` before `_self_` in its defaults. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
 
-The sweeper is the `hydra_carbs_sweeper` plugin in `hydra_plugins/` at the repository root. It needs `carbs`, which, with the `submitit` launcher, comes from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra slurm`). Its settings live under `hydra.sweeper`: `n_trials` (default 100), `n_jobs` (trials in flight at once, 1), `num_random_samples` (4), `resample_frequency` (5), `max_failure_rate` (1.0), `max_suggestion_cost`, `seed` (0), and `warm_start_from`, an earlier sweep directory or CARBS checkpoint to start from. It runs trials in worker threads, where the default `dashboard` logger cannot start, so pick another logger, such as `logger=file`.
+The sweeper is the `hydra_carbs_sweeper` plugin in `hydra_plugins/` at the repository root. It needs `carbs`, which, with the `submitit` launcher, comes from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra hangar --extra slurm`). Its settings live under `hydra.sweeper`: `n_trials` (default 100), `n_jobs` (trials in flight at once, 1), `num_random_samples` (4), `resample_frequency` (5), `max_failure_rate` (1.0), `max_suggestion_cost`, `seed` (0), and `warm_start_from`, an earlier sweep directory or CARBS checkpoint to start from. It runs trials in worker threads, where the default `dashboard` logger cannot start, so pick another logger, such as `logger=file`.
 
 Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/launcher=submitit/ias` (in `config/hydra/launcher/`). The ConnectX sweep is:
 
 ```bash
-uv sync --group sweep
+uv sync --extra hangar --group sweep
 uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx \
     hydra.sweeper.n_trials=1024 hydra.sweeper.num_random_samples=16 hydra.sweeper.resample_frequency=16 \
     hydra.sweeper.max_failure_rate=0.5 hydra.sweeper.max_suggestion_cost=900 \
