@@ -17,8 +17,9 @@ def main(cfg):
 
     from boonta.artisans import Metrics
     from boonta.loggers import MultiLogger
-    from boonta.utils import SystemMonitor, brief, load_checkpoint, newest
+    from boonta.utils import SystemMonitor, load_checkpoint, newest
     from hangar import recipes
+    from hangar.brief import brief
 
     start = time.monotonic()
     scores = []

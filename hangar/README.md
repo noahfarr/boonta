@@ -4,7 +4,7 @@
 
 ## Run
 
-From the repository root:
+`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync` installs them. From the repository root:
 
 ```bash
 python hangar/main.py algorithm=ppo environment=gymnax/minatar/breakout
