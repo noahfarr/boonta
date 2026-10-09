@@ -1,6 +1,7 @@
 import atexit
 import signal
 import sys
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -63,9 +64,10 @@ class DashboardLogger:
         )
         self.live.start()
         atexit.register(uncover)
-        for received in (signal.SIGINT, signal.SIGTERM):
-            previous = signal.getsignal(received)
-            signal.signal(received, self.interrupted(previous))
+        if threading.current_thread() is threading.main_thread():
+            for received in (signal.SIGINT, signal.SIGTERM):
+                previous = signal.getsignal(received)
+                signal.signal(received, self.interrupted(previous))
 
     def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
         if jax.process_index() != 0:
