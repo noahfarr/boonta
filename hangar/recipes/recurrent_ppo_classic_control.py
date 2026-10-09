@@ -7,7 +7,6 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.jaxued import control_generator
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset, Vectorize)
 from boonta.networks import (ActorCritic, Categorical, FeatureExtractor,
@@ -83,8 +82,6 @@ def make(cfg):
         ),
     )
 
-    algorithm, env, pit, lap = instantiate(cfg.curriculum)(
-        algorithm, env, sample=control_generator(cfg.environment.env_id)
-    )
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

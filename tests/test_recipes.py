@@ -191,6 +191,11 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert accel.environment.num_envs == default.environment.num_envs
     assert accel.curriculum.mutate._target_ == "boonta.environments.kinetix.level_mutator"
     assert configure("ppo", MINATAR, "curriculum=plr").hydra.runtime.choices.hyperparameters == "ppo/gymnax/minatar"
+    maze = configure("recurrent_ppo", "jaxued/maze", "curriculum=plr")
+    assert maze.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/maze/plr"
+    assert maze.environment.num_envs == configure("recurrent_ppo", "jaxued/maze").environment.num_envs
+    cartpole = configure("recurrent_ppo", "jaxued/cartpole", "curriculum=plr")
+    assert cartpole.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/cartpole/plr"
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
