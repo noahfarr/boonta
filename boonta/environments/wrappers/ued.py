@@ -41,7 +41,9 @@ class UED(Wrapper):
     ):
         theta = jax.tree.map(lambda leaf: leaf[jnp.maximum(index, 0)], state.theta)
         keys = jax.random.split(key, self.num_envs)
-        started = self._env.spread(env_state, keys, theta=theta)
+        started = jax.vmap(
+            lambda inner, key, level: self._env.update(inner, key, theta=level)
+        )(env_state, keys, theta)
         obs = self._env.observe(started)
         chosen = chosen & (index >= 0)
 
