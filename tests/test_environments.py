@@ -175,6 +175,44 @@ def test_every_wrapper_observes_what_it_emits(build):
         np.testing.assert_array_equal(seen, shown)
 
 
+def missing(package):
+    return importlib.util.find_spec(package) is None
+
+
+ADAPTERS = [
+    pytest.param("gymnax", "Breakout-MinAtar", {}, id="minatar"),
+    pytest.param("gymnax", "CartPole-v1", {}, id="classic_control"),
+    pytest.param("connectx", "connectx", {"rows": 6, "columns": 7, "inarow": 4}, id="connectx"),
+    pytest.param(
+        "jaxued", "Maze", {}, id="jaxued_maze",
+        marks=pytest.mark.skipif(missing("jaxued"), reason="needs jaxued"),
+    ),
+    pytest.param(
+        "jaxued", "CartPole", {}, id="jaxued_cartpole",
+        marks=pytest.mark.skipif(missing("jaxued"), reason="needs jaxued"),
+    ),
+    pytest.param(
+        "kinetix", None,
+        {"action_type": "multi_discrete", "observation_type": "symbolic_entity"},
+        id="kinetix",
+        marks=pytest.mark.skipif(missing("kinetix"), reason="needs kinetix"),
+    ),
+]
+
+
+@pytest.mark.parametrize("namespace, env_id, kwargs", ADAPTERS)
+def test_a_step_returns_exactly_the_types_init_returns(namespace, env_id, kwargs):
+    from boonta import environments
+
+    environment = environments.make(namespace, env_id, kwargs=kwargs)
+    first = environment.init(jax.random.key(0))
+    state, timestep = first
+    second = jax.jit(environment.step)(jax.random.key(1), state, timestep.action)
+    assert jax.tree.structure(second) == jax.tree.structure(first)
+    for after, before in zip(jax.tree.leaves(second), jax.tree.leaves(first)):
+        assert jax.typeof(after) == jax.typeof(before)
+
+
 def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
     from boonta.environments.peanut_gb import pokemon_red
 
