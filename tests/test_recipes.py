@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -175,6 +176,24 @@ def test_every_recipe_has_a_smoke_case():
         suite = configure(algorithm, environment).environment.get("suite", namespace)
         covered.add(recipes.register.get((algorithm, namespace, suite)))
     assert covered >= set(recipes.register.values())
+
+
+APPLICATION = {"hangar", "hydra", "hydra_plugins", "omegaconf"}
+LIBRARY = sorted((ROOT / "boonta").rglob("*.py"))
+
+
+def imported(path):
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import):
+            yield from (alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            yield node.module
+
+
+@pytest.mark.parametrize("path", LIBRARY, ids=lambda path: str(path.relative_to(ROOT)))
+def test_no_library_module_imports_the_application(path):
+    crossings = [name for name in imported(path) if name.split(".")[0] in APPLICATION]
+    assert crossings == []
 
 
 def test_hyperparameters_cascade_to_everything_below_them():

@@ -18,8 +18,9 @@ from boonta.algorithms.wrappers.ensemble import Ensemble
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Video
-from boonta.utils import brief, load_checkpoint, newest, sharded
+from boonta.utils import load_checkpoint, newest, sharded
 from dummies import corridor
+from hangar.brief import brief
 
 NUM_ENVS, NUM_STEPS = 8, 4
 online = partial(zoo.online, devices=2)

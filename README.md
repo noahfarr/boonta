@@ -43,6 +43,15 @@
 | Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox) |
 | Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) |
 
+## Install
+
+```bash
+pip install boonta            # the library
+pip install "boonta[hangar]"  # the library, plus Hydra to run the configs in hangar
+```
+
+The library never imports `hangar`, Hydra or OmegaConf. In a checkout, `uv sync --extra hangar` installs it. Environment suites that need their own packages come as extras too, such as `boonta[craftax]`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
+
 ## Guides
 
 - [hangar](hangar/README.md): run training from the command line, config groups, several machines, sweeps
