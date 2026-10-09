@@ -3,7 +3,6 @@ from boonta.utils.typing import Environment
 
 from boonta.podracers.podracer import Lap, Pit
 
-from .accel import accel
 from .curriculum import Curriculum
 from .league import league
 from .plr import maximum_monte_carlo, plr, positive_value_loss
@@ -17,7 +16,6 @@ def default(
 
 __all__ = [
     "Curriculum",
-    "accel",
     "default",
     "league",
     "maximum_monte_carlo",

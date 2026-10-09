@@ -103,13 +103,6 @@ def level_sampler():
     return sample
 
 
-def level_mutator():
-    from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
-                                     make_mutate_env)
-
-    return make_mutate_env(StaticEnvParams(), EnvParams(), UEDParams())
-
-
 def make(
     env_id: str | list[str] | None = None,
     action_type: str = "discrete",
