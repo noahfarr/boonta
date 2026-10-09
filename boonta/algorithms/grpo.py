@@ -169,7 +169,7 @@ class GRPO:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, minibatch)
             (
-                returned,
+                variables,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -191,7 +191,7 @@ class GRPO:
                 grads["params"], state.optimizer_state, state.params["params"]
             )
             variables = {
-                name: returned.get(name, value) for name, value in state.params.items()
+                name: variables.get(name, value) for name, value in state.params.items()
             }
             params = {
                 **variables,

@@ -262,7 +262,7 @@ class RecurrentSAC:
             critic_key, actor_key = jax.random.split(key)
             trajectory = batch
 
-            (critic_loss, (returned, q_value)), grads = jax.value_and_grad(
+            (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
                 critic_loss_fn, has_aux=True, allow_int=True
             )(state.critic_params, state, trajectory, critic_key)
             updates, critic_optimizer_state = self.critic_optimizer.update(
@@ -271,7 +271,7 @@ class RecurrentSAC:
                 state.critic_params["params"],
             )
             variables = {
-                name: returned.get(name, value)
+                name: variables.get(name, value)
                 for name, value in state.critic_params.items()
             }
             state = state.replace(
@@ -284,14 +284,14 @@ class RecurrentSAC:
                 critic_optimizer_state=critic_optimizer_state,
             )
 
-            (actor_loss, (returned, log_prob)), grads = jax.value_and_grad(
+            (actor_loss, (variables, log_prob)), grads = jax.value_and_grad(
                 actor_loss_fn, has_aux=True, allow_int=True
             )(state.params, state, trajectory, actor_key)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
             variables = {
-                name: returned.get(name, value) for name, value in state.params.items()
+                name: variables.get(name, value) for name, value in state.params.items()
             }
             state = state.replace(
                 params={
@@ -301,7 +301,7 @@ class RecurrentSAC:
                 actor_optimizer_state=actor_optimizer_state,
             )
 
-            (alpha_loss, returned), grads = jax.value_and_grad(
+            (alpha_loss, variables), grads = jax.value_and_grad(
                 alpha_loss_fn, has_aux=True, allow_int=True
             )(state.alpha_params, jax.lax.stop_gradient(log_prob))
             updates, alpha_optimizer_state = self.alpha_optimizer.update(
@@ -310,7 +310,7 @@ class RecurrentSAC:
                 state.alpha_params["params"],
             )
             variables = {
-                name: returned.get(name, value)
+                name: variables.get(name, value)
                 for name, value in state.alpha_params.items()
             }
             state = state.replace(

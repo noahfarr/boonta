@@ -165,14 +165,14 @@ class IQL:
                 )
             return loss, (variables, log_prob)
 
-        (value_loss, (returned, value)), grads = jax.value_and_grad(
+        (value_loss, (variables, value)), grads = jax.value_and_grad(
             value_loss_fn, has_aux=True, allow_int=True
         )(state.value_params, state, transitions)
         updates, value_optimizer_state = self.value_optimizer.update(
             grads["params"], state.value_optimizer_state, state.value_params["params"]
         )
         variables = {
-            name: returned.get(name, value)
+            name: variables.get(name, value)
             for name, value in state.value_params.items()
         }
         state = state.replace(
@@ -183,14 +183,14 @@ class IQL:
             value_optimizer_state=value_optimizer_state,
         )
 
-        (critic_loss, (returned, q_value)), grads = jax.value_and_grad(
+        (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
             critic_loss_fn, has_aux=True, allow_int=True
         )(state.critic_params, state, transitions)
         updates, critic_optimizer_state = self.critic_optimizer.update(
             grads["params"], state.critic_optimizer_state, state.critic_params["params"]
         )
         variables = {
-            name: returned.get(name, value)
+            name: variables.get(name, value)
             for name, value in state.critic_params.items()
         }
         state = state.replace(
@@ -201,14 +201,14 @@ class IQL:
             critic_optimizer_state=critic_optimizer_state,
         )
 
-        (actor_loss, (returned, log_prob)), grads = jax.value_and_grad(
+        (actor_loss, (variables, log_prob)), grads = jax.value_and_grad(
             actor_loss_fn, has_aux=True, allow_int=True
         )(state.params, state, transitions)
         updates, actor_optimizer_state = self.actor_optimizer.update(
             grads["params"], state.actor_optimizer_state, state.params["params"]
         )
         variables = {
-            name: returned.get(name, value) for name, value in state.params.items()
+            name: variables.get(name, value) for name, value in state.params.items()
         }
         state = state.replace(
             params={

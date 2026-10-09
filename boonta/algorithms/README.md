@@ -94,7 +94,7 @@ The steps below follow `BC`, the smallest algorithm, in [`bc.py`](bc.py).
    In `update`, apply the network with `mutable=True` and pass the variables it returns to every auxiliary loss as `variables`. After the optimizer step, store back only the collections the network had at init, so a layer that keeps state, such as BatchNorm's `batch_stats`, carries it forward and nothing sown is kept:
 
    ```python
-   variables = {name: returned.get(name, value) for name, value in state.params.items()}
+   variables = {name: variables.get(name, value) for name, value in state.params.items()}
    params = {**variables, "params": optax.apply_updates(state.params["params"], updates)}
    ```
 

@@ -149,7 +149,7 @@ class PQN:
             )
             target_q_value = minibatch.aux["target_q_value"]
 
-            (loss, (returned, q_value)), grads = jax.value_and_grad(
+            (loss, (variables, q_value)), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, minibatch)
             explained_variance = 1 - jnp.var(target_q_value - q_value) / (
@@ -167,7 +167,7 @@ class PQN:
                 grads["params"], state.optimizer_state, state.params["params"]
             )
             variables = {
-                name: returned.get(name, value) for name, value in state.params.items()
+                name: variables.get(name, value) for name, value in state.params.items()
             }
             params = {
                 **variables,

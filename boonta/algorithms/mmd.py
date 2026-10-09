@@ -195,7 +195,7 @@ class MMD:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, state.magnet_params, state.alpha, minibatch)
             (
-                returned,
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -226,7 +226,7 @@ class MMD:
                 grads["params"], state.optimizer_state, state.params["params"]
             )
             variables = {
-                name: returned.get(name, value) for name, value in state.params.items()
+                name: variables.get(name, value) for name, value in state.params.items()
             }
             params = {
                 **variables,
