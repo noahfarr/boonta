@@ -149,10 +149,7 @@ class Team(Environment):
         return jax.vmap(self.environment.step)(keys, state, action)
 
     def update(self, state, key, **kwargs):
-        keys = jax.random.split(key, self.num_agents)
-        return jax.vmap(lambda state, key: self.environment.update(state, key, **kwargs))(
-            state, keys
-        )
+        return jax.vmap(lambda state: self.environment.update(state, key, **kwargs))(state)
 
     def action_mask(self, state):
         return jax.vmap(self.environment.action_mask)(state)
