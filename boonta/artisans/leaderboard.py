@@ -14,7 +14,7 @@ class Leaderboard:
     key: str = "episode_statistics/episode_return"
 
     def craft(self, algorithm, environment, state, logs) -> Metrics:
-        if self.key not in logs or any(name.startswith("pbt/") for name in logs):
+        if self.key not in logs:
             return Metrics(self.name, {})
         envs, *_ = state.timestep.reward.shape
         returns = np.asarray(jax.device_get(logs[self.key]), np.float64).reshape(

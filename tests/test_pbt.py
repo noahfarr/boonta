@@ -366,7 +366,7 @@ def test_evaluation_neither_exploits_nor_logs_pbt():
     np.testing.assert_array_equal(evaluated.algorithm_state.replaced, state.algorithm_state.replaced)
 
 
-def test_the_leaderboard_reports_the_leading_member_on_evaluation_episodes():
+def test_the_leaderboard_reports_the_leading_members_return():
     podracer = zoo.ppo(match(), num_envs=8, podracer=pbt())
     state = podracer.init(jax.random.key(0))
     window = jnp.array([0.0, 0.1, 0.5, 0.6, 1.0, 1.1, 0.4, 0.5]).reshape(8, 1)
@@ -384,8 +384,6 @@ def test_the_leaderboard_reports_the_leading_member_on_evaluation_episodes():
     assert metrics["leaderboard/best_return"] == 5.0
     assert metrics["leaderboard/mean"] == pytest.approx(2.0)
     assert metrics["leaderboard/spread"] == pytest.approx(np.std([0, 1, 5, 2]))
-    training = {**logs, f"pbt/member_0/{MULTIPLIER}": np.ones(3)}
-    assert Leaderboard().craft(podracer.algorithm, podracer.environment, state, training).data == {}
 
 
 def test_pbt_raises_a_learning_rate_too_small_to_solve_the_task():
