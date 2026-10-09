@@ -1,0 +1,23 @@
+# @package _global_
+
+algorithm:
+  num_minibatches: 32
+  update_epochs: 8
+  clip_coefficient: 0.2
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.995
+  gae_lambda: 0.9
+
+rollout:
+  num_steps: 256
+
+environment:
+  num_envs: 2048
+  kwargs:
+    action_type: discrete
+    observation_type: symbolic_flat
+
+optimizer:
+  lr: 5e-5
+  max_grad_norm: 1.0

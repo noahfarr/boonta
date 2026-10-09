@@ -14,7 +14,6 @@ from boonta.networks.layers import Flatten
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     num_actions = env.action_space().num_actions
 
@@ -44,15 +43,16 @@ def make(cfg):
         head=EpsilonGreedy(nn.Dense(num_actions)),
     )
 
-    return {
-        "algorithm": PQN(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            exploration_schedule=epsilon_schedule,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(cfg.optimizer.lr),
-            ),
+    algorithm = PQN(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        exploration_schedule=epsilon_schedule,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(cfg.optimizer.lr),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

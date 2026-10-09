@@ -83,7 +83,6 @@ def make(cfg):
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
     env = GroupedAutoReset(env, num_steps=time_limit)
-    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
         feature_extractor=View(
@@ -109,30 +108,29 @@ def make(cfg):
         batch_size=cfg.environment.num_envs * cfg.rollout.num_steps * env.num_agents,
     )
 
-    return {
-        "algorithm": RecurrentPuPO(
-            cfg=instantiate(cfg.algorithm),
-            importance_exponent=instantiate(cfg.importance_exponent),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.multi_transform(
-                    {
-                        "muon": optax.contrib.muon(
-                            learning_rate,
-                            muon_weight_dimension_numbers=MuonDimensionNumbers(
-                                -2, -1
-                            ),
-                        ),
-                        "adam": optax.adam(learning_rate),
-                    },
-                    lambda params: jax.tree.map(
-                        lambda p: "muon" if p.ndim >= 2 else "adam", params
+    algorithm = RecurrentPuPO(
+        cfg=instantiate(cfg.algorithm),
+        importance_exponent=instantiate(cfg.importance_exponent),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.multi_transform(
+                {
+                    "muon": optax.contrib.muon(
+                        learning_rate,
+                        muon_weight_dimension_numbers=MuonDimensionNumbers(-2, -1),
                     ),
-                )
-                if cfg.optimizer.get("name") == "muon"
-                else optax.adam(learning_rate),
-            ),
+                    "adam": optax.adam(learning_rate),
+                },
+                lambda params: jax.tree.map(
+                    lambda p: "muon" if p.ndim >= 2 else "adam", params
+                ),
+            )
+            if cfg.optimizer.get("name") == "muon"
+            else optax.adam(learning_rate),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

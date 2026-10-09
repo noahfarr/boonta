@@ -66,5 +66,8 @@ class Prompt(Wrapper):
         )
         return PromptState(env_state=env_state, cursor=cursor), timestep
 
+    def observe(self, state: PromptState) -> Array:
+        raise NotImplementedError
+
     def time_limit(self) -> int:
         return int(self._env.time_limit()) + self._chunks

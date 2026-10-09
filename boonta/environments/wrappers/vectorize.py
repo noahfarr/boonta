@@ -33,3 +33,6 @@ class Vectorize(Wrapper):
 
     def action_mask(self, state: PyTree) -> Array | None:
         return jax.vmap(self._env.action_mask)(state)
+
+    def observe(self, state: PyTree) -> PyTree:
+        return jax.vmap(self._env.observe)(state)

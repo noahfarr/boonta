@@ -32,6 +32,14 @@ class Kinetix(Environment):
         )
         return state, timestep
 
+    def update(self, state: Any, theta: Any = None, **kwargs) -> Any:
+        if theta is None:
+            return state
+        return theta
+
+    def observe(self, state: Any) -> Any:
+        return self._env.get_obs(state)
+
     def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
         obs, state, reward, done, info = self._env.step_env(
             key, state, action, self._params

@@ -57,9 +57,6 @@ def make(cfg):
     env = Stagger(env, spread=time_limit)
     num_actions = env.action_space().num_actions
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = LogInfo(env, keys=pokemon_red.KEYS)
-    env = pokemon_red.LogFlags(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
         feature_extractor=FeatureExtractor(
@@ -76,22 +73,25 @@ def make(cfg):
         cfg, batch_size=cfg.environment.num_envs * cfg.rollout.num_steps
     )
 
-    return {
-        "algorithm": RecurrentPPO(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.contrib.muon(
-                    learning_rate,
-                    beta=cfg.optimizer.beta,
-                    weight_decay=cfg.optimizer.weight_decay,
-                    muon_weight_dimension_numbers=lambda params: jax.tree.map(
-                        lambda p: MuonDimensionNumbers(-2, -1) if p.ndim >= 2 else None,
-                        params,
-                    ),
+    algorithm = RecurrentPPO(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.contrib.muon(
+                learning_rate,
+                beta=cfg.optimizer.beta,
+                weight_decay=cfg.optimizer.weight_decay,
+                muon_weight_dimension_numbers=lambda params: jax.tree.map(
+                    lambda p: MuonDimensionNumbers(-2, -1) if p.ndim >= 2 else None,
+                    params,
                 ),
             ),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = LogInfo(env, keys=pokemon_red.KEYS)
+    env = pokemon_red.LogFlags(env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

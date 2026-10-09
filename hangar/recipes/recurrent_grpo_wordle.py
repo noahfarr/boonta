@@ -99,14 +99,12 @@ def make(cfg):
     prompt = np.asarray(tokenizer.encode(SYSTEM_PROMPT).ids, np.int32)
     env = Prompt(env, prompt, pad)
     env = SameStepAutoReset(env)
-    env = LogAction(env)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
     env = GroupedAutoReset(
         env,
         num_steps=cfg.podracer.config.num_steps,
         group_size=cfg.algorithm.group_size,
     )
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     dtype = jnp.dtype(cfg.network.dtype)
     param_dtype = jnp.dtype(cfg.network.param_dtype)
@@ -160,4 +158,7 @@ def make(cfg):
         ),
     )
 
-    return {"algorithm": algorithm, "environment": env}
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = LogAction(env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

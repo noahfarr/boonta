@@ -31,3 +31,6 @@ class SameStepAutoReset(Wrapper):
 
     def action_mask(self, state: PyTree) -> Array | None:
         return self._env.action_mask(state)
+
+    def observe(self, state: PyTree) -> PyTree:
+        return self._env.observe(state)

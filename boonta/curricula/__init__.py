@@ -5,6 +5,7 @@ from boonta.podracers.podracer import Lap, Pit
 
 from .curriculum import Curriculum
 from .league import league
+from .plr import maximum_monte_carlo, plr, positive_value_loss
 
 
 def default(
@@ -13,4 +14,11 @@ def default(
     return algorithm, environment, lambda state: state, lambda state: state
 
 
-__all__ = ["Curriculum", "default", "league"]
+__all__ = [
+    "Curriculum",
+    "default",
+    "league",
+    "maximum_monte_carlo",
+    "plr",
+    "positive_value_loss",
+]

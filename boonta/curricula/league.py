@@ -1,6 +1,8 @@
+import jax
+
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.psro import PSRO, Member
-from boonta.environments.wrappers import Opponent
+from boonta.environments.wrappers import Opponent, OpponentState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils.typing import Environment
 
@@ -38,8 +40,17 @@ def league(
     dress = deal(environment, learners, psro.names, **table)
 
     def pit(state):
-        seated = environment.update(
-            state.environment_state, opponents=psro.opponents(state.algorithm_state)
+        opponents = psro.opponents(state.algorithm_state)
+
+        def seat(node):
+            if isinstance(node, OpponentState):
+                return environment.update(node, opponents=opponents)
+            return node
+
+        seated = jax.tree.map(
+            seat,
+            state.environment_state,
+            is_leaf=lambda node: isinstance(node, OpponentState),
         )
         return dress(state.replace(environment_state=seated))
 
