@@ -1,0 +1,14 @@
+defaults:
+  - pbt_schema
+  - _self_
+
+budget_variable:
+  total_timesteps: ${total_timesteps}
+  training.num_epochs: ${training.num_epochs}
+checkpoint: checkpoint
+overrides:
+  - scoring=final
+  - +artisan@artisans.checkpointer=checkpointer
+  - +logger@loggers.orbax=orbax
+  - ++loggers.orbax.max_to_keep=1
+  - ++loggers.orbax.best=false

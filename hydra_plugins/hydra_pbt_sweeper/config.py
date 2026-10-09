@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from hydra.core.config_store import ConfigStore
+from omegaconf import MISSING
 
 from hydra_plugins.hydra_carbs_sweeper.config import ParamConfig
 
@@ -11,6 +12,10 @@ class PbtSweeperConf:
     _target_: str = "hydra_plugins.hydra_pbt_sweeper.sweeper.PbtSweeper"
 
     metric: str = "score"
+
+    budget_variable: Dict[str, int] = MISSING
+    checkpoint: str = MISSING
+    overrides: List[str] = field(default_factory=list)
 
     members: int = 4
     seeds: int = 4
@@ -28,7 +33,7 @@ class PbtSweeperConf:
 
 ConfigStore.instance().store(
     group="hydra/sweeper",
-    name="pbt",
+    name="pbt_schema",
     node=PbtSweeperConf,
     provider="pbt_sweeper",
 )
