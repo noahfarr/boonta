@@ -355,19 +355,19 @@ def plr(
     def pit(state):
         tally = state.algorithm_state.tally
 
-        def refill(node):
+        def curate(node):
             if isinstance(node, LevelBufferState):
-                return refill_buffer(node, tally)
+                return curate_levels(node, tally)
             return node
 
         environment_state = jax.tree.map(
-            refill,
+            curate,
             state.environment_state,
             is_leaf=lambda node: isinstance(node, LevelBufferState),
         )
         return state.replace(environment_state=environment_state)
 
-    def refill_buffer(buffer, tally):
+    def curate_levels(buffer, tally):
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
