@@ -17,6 +17,7 @@ class Kinetix(Environment):
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         obs, state = self._env.reset_env(key, self._params, None)
+        state = jax.tree.map(lambda leaf: jnp.asarray(leaf, leaf.dtype), state)
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
@@ -44,7 +45,7 @@ class Kinetix(Environment):
         obs, state, reward, done, info = self._env.step_env(
             key, state, action, self._params
         )
-        truncated = state.timestep >= self._params.max_timesteps
+        truncated = jnp.asarray(state.timestep >= self._params.max_timesteps, bool)
         terminated = done & ~truncated
         timestep = Timestep(
             obs=obs,
@@ -52,7 +53,7 @@ class Kinetix(Environment):
             reward=reward,
             terminated=terminated,
             truncated=truncated,
-            info=info,
+            info=jax.tree.map(lambda leaf: jnp.asarray(leaf, leaf.dtype), info),
         )
         return state, timestep
 

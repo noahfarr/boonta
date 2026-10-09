@@ -32,6 +32,9 @@ class Gymnax(Environment):
 
     def init(self, key: Key) -> tuple[GymnaxState, Timestep]:
         obs, env_state = self._env.reset_env(key, self._params)
+        env_state = jax.tree.map(
+            lambda leaf: jnp.asarray(leaf, jnp.result_type(leaf)), env_state
+        )
         state = GymnaxState(env_state=env_state, params=self._params)
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
@@ -57,10 +60,10 @@ class Gymnax(Environment):
         timestep = Timestep(
             obs=obs,
             action=action,
-            reward=reward,
+            reward=jnp.asarray(reward, jnp.result_type(reward)),
             terminated=done,
             truncated=jnp.zeros_like(done),
-            info=info,
+            info=jax.tree.map(lambda leaf: jnp.asarray(leaf, leaf.dtype), info),
         )
         return GymnaxState(env_state=env_state, params=state.params), timestep
 
