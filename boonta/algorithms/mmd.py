@@ -81,12 +81,13 @@ class MMD:
             advantages = transitions.aux["advantages"]
             returns = transitions.aux["returns"]
 
-            (dist, value), intermediates = self.network.apply(
+            (dist, value), variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = dist.entropy().mean()
@@ -149,6 +150,7 @@ class MMD:
                     intermediates=intermediates,
                 )
             return loss, (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -190,10 +192,11 @@ class MMD:
             returns = minibatch.aux["returns"]
             advantages = minibatch.aux["advantages"]
 
-            (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, state.magnet_params, state.alpha, minibatch
-            )
+            (_, aux), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, state.magnet_params, state.alpha, minibatch)
             (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -225,6 +228,7 @@ class MMD:
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 
@@ -245,11 +249,14 @@ class MMD:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        magnet_params = jax.tree.map(
-            lambda magnet, param: self.cfg.magnet_decay * magnet
-            + (1.0 - self.cfg.magnet_decay) * param,
-            state.magnet_params,
-            state.params,
-        )
+        magnet_params = {
+            **state.params,
+            "params": jax.tree.map(
+                lambda magnet, param: self.cfg.magnet_decay * magnet
+                + (1.0 - self.cfg.magnet_decay) * param,
+                state.magnet_params["params"],
+                state.params["params"],
+            ),
+        }
         alpha = state.alpha * self.cfg.magnet_anneal
         return state.replace(magnet_params=magnet_params, alpha=alpha)

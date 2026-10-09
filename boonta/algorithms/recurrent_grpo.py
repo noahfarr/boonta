@@ -118,7 +118,7 @@ class RecurrentGRPO:
             num_valid = jnp.maximum(valid.sum(), 1.0)
 
             timesteps = trajectory.first
-            (_, dist), intermediates = self.network.apply(
+            (_, dist), variables = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -126,8 +126,9 @@ class RecurrentGRPO:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(trajectory.second.action)
             entropy = (dist.entropy() * valid).sum() / num_valid
@@ -184,6 +185,7 @@ class RecurrentGRPO:
                     intermediates=intermediates,
                 )
             return loss, (
+                variables,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -236,6 +238,7 @@ class RecurrentGRPO:
                 loss_fn, has_aux=True, allow_int=True
             )(state.params, minibatch, carry)
             (
+                variables,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -258,6 +261,7 @@ class RecurrentGRPO:
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 

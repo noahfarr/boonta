@@ -91,13 +91,16 @@ class PQN:
             )
             return target_q_value
 
-        def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, Array]:
-            dist, intermediates = self.network.apply(
+        def loss_fn(
+            params: PyTree, transitions: Transition
+        ) -> tuple[Array, tuple[PyTree, Array]]:
+            dist, variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             q_values = dist.preferences
             q_value = remove_feature_axis(
                 jnp.take_along_axis(
@@ -121,7 +124,7 @@ class PQN:
                     q_values=q_values,
                     intermediates=intermediates,
                 )
-            return loss, q_value
+            return loss, (variables, q_value)
 
         num_steps, num_envs = transitions.second.reward.shape
         batch_size = num_steps * num_envs
@@ -147,9 +150,9 @@ class PQN:
             )
             target_q_value = minibatch.aux["target_q_value"]
 
-            (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, minibatch
-            )
+            (loss, (variables, q_value)), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, minibatch)
             explained_variance = 1 - jnp.var(target_q_value - q_value) / (
                 jnp.var(target_q_value) + 1e-8
             )
@@ -166,6 +169,7 @@ class PQN:
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 

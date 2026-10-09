@@ -49,13 +49,14 @@ class BC:
     def update(self, state: BCState, key: Key, transitions: Transition) -> BCState:
         del key
 
-        def loss_fn(params: PyTree) -> tuple[Array, tuple[Array, Array]]:
-            dist, intermediates = self.network.apply(
+        def loss_fn(params: PyTree) -> tuple[Array, tuple[PyTree, Array, Array]]:
+            dist, variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             likelihood = -jnp.mean(dist.log_prob(transitions.second.action))
             entropy = jnp.mean(dist.entropy())
             loss = likelihood - self.cfg.entropy_coefficient * entropy
@@ -73,10 +74,10 @@ class BC:
                     dist=dist,
                     intermediates=intermediates,
                 )
-            return loss, (likelihood, entropy)
+            return loss, (variables, likelihood, entropy)
 
-        (loss, (likelihood, entropy)), grads = jax.value_and_grad(
-            loss_fn, has_aux=True
+        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+            loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
             {
@@ -91,6 +92,7 @@ class BC:
         )
         params = {
             **state.params,
+            **variables,
             "params": optax.apply_updates(state.params["params"], updates),
         }
         return state.replace(params=params, optimizer_state=optimizer_state)

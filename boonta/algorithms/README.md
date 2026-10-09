@@ -91,7 +91,7 @@ The steps below follow `BC`, the smallest algorithm, in [`bc.py`](bc.py).
            return state, dist.sample(seed=key), {}
    ```
 
-   In `update`, apply the network with `mutable="intermediates"` and pass the result to every auxiliary loss. Log with `lox.log({...})`.
+   In `update`, apply the network with `mutable=True`. Pop `intermediates` from the variables it returns and pass them to every auxiliary loss as `{"intermediates": ...}`. After the optimizer step, store `{**state.params, **variables, "params": new_weights}`, so a layer that keeps state, such as BatchNorm's `batch_stats`, carries it forward. Acting and target computations apply the network without `mutable`. A target network averages or copies `"params"` as before and copies every other collection from the online network. Log with `lox.log({...})`.
 
 2. Export the class in [`__init__.py`](__init__.py).
 

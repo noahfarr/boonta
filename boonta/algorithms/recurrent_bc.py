@@ -80,8 +80,8 @@ class RecurrentBC:
         batch_size, *_ = jax.tree.leaves(timesteps.obs)[0].shape
         carry = self.network.initialize_carry(key, (batch_size, 1))
 
-        def loss_fn(params: PyTree) -> tuple[Array, tuple[Array, Array]]:
-            (_, dist), intermediates = self.network.apply(
+        def loss_fn(params: PyTree) -> tuple[Array, tuple[PyTree, Array, Array]]:
+            (_, dist), variables = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -89,8 +89,9 @@ class RecurrentBC:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             log_prob = dist.log_prob(transitions.second.action)
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
             weight = weight.astype(log_prob.dtype)
@@ -120,10 +121,10 @@ class RecurrentBC:
                     carry=carry,
                     intermediates=intermediates,
                 )
-            return loss, (likelihood, entropy)
+            return loss, (variables, likelihood, entropy)
 
-        (loss, (likelihood, entropy)), grads = jax.value_and_grad(
-            loss_fn, has_aux=True
+        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+            loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
             {
@@ -139,6 +140,7 @@ class RecurrentBC:
         return state.replace(
             params={
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             },
             optimizer_state=optimizer_state,

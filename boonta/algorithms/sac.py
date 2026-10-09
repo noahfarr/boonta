@@ -86,7 +86,7 @@ class SAC:
     def update(self, state: SACState, key: Key, transitions: Transition) -> SACState:
         def critic_loss_fn(
             critic_params: PyTree, state: SACState, transitions: Transition, key: Key
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             alpha = jnp.exp(self.alpha.apply(state.alpha_params))
 
             dist = self.actor.apply(
@@ -103,26 +103,30 @@ class SAC:
                 1.0 - transitions.second.terminated
             ) * (jnp.min(next_q_value, axis=0) - alpha * next_log_prob)
 
-            q_value = remove_feature_axis(
-                self.critic.apply(
-                    critic_params, transitions.first.obs, transitions.second.action
-                )
+            q_value, variables = self.critic.apply(
+                critic_params,
+                transitions.first.obs,
+                transitions.second.action,
+                mutable=True,
             )
+            variables.pop("intermediates", None)
+            q_value = remove_feature_axis(q_value)
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
-            return loss, q_value
+            return loss, (variables, q_value)
 
         def actor_loss_fn(
             params: PyTree, state: SACState, transitions: Transition, key: Key
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             alpha = jnp.exp(self.alpha.apply(state.alpha_params))
 
-            dist, intermediates = self.actor.apply(
+            dist, variables = self.actor.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             action, log_prob = dist.sample_and_log_prob(seed=key)
 
             q_value = remove_feature_axis(
@@ -143,11 +147,15 @@ class SAC:
                     dist=dist,
                     intermediates=intermediates,
                 )
-            return loss, log_prob
+            return loss, (variables, log_prob)
 
-        def alpha_loss_fn(alpha_params: PyTree, log_prob: Array) -> Array:
-            log_alpha = self.alpha.apply(alpha_params)
-            return -(log_alpha * (log_prob + self.cfg.target_entropy)).mean()
+        def alpha_loss_fn(
+            alpha_params: PyTree, log_prob: Array
+        ) -> tuple[Array, PyTree]:
+            log_alpha, variables = self.alpha.apply(alpha_params, mutable=True)
+            variables.pop("intermediates", None)
+            loss = -(log_alpha * (log_prob + self.cfg.target_entropy)).mean()
+            return loss, variables
 
         transitions = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), transitions)
         state = state.replace(
@@ -158,8 +166,8 @@ class SAC:
             critic_key, actor_key = jax.random.split(key)
             transitions = batch
 
-            (critic_loss, q_value), grads = jax.value_and_grad(
-                critic_loss_fn, has_aux=True
+            (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
+                critic_loss_fn, has_aux=True, allow_int=True
             )(state.critic_params, state, transitions, critic_key)
             updates, critic_optimizer_state = self.critic_optimizer.update(
                 grads["params"],
@@ -169,6 +177,7 @@ class SAC:
             state = state.replace(
                 critic_params={
                     **state.critic_params,
+                    **variables,
                     "params": optax.apply_updates(
                         state.critic_params["params"], updates
                     ),
@@ -176,8 +185,8 @@ class SAC:
                 critic_optimizer_state=critic_optimizer_state,
             )
 
-            (actor_loss, log_prob), grads = jax.value_and_grad(
-                actor_loss_fn, has_aux=True
+            (actor_loss, (variables, log_prob)), grads = jax.value_and_grad(
+                actor_loss_fn, has_aux=True, allow_int=True
             )(state.params, state, transitions, actor_key)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
@@ -185,14 +194,15 @@ class SAC:
             state = state.replace(
                 params={
                     **state.params,
+                    **variables,
                     "params": optax.apply_updates(state.params["params"], updates),
                 },
                 actor_optimizer_state=actor_optimizer_state,
             )
 
-            alpha_loss, grads = jax.value_and_grad(alpha_loss_fn)(
-                state.alpha_params, jax.lax.stop_gradient(log_prob)
-            )
+            (alpha_loss, variables), grads = jax.value_and_grad(
+                alpha_loss_fn, has_aux=True, allow_int=True
+            )(state.alpha_params, jax.lax.stop_gradient(log_prob))
             updates, alpha_optimizer_state = self.alpha_optimizer.update(
                 grads["params"],
                 state.alpha_optimizer_state,
@@ -201,14 +211,20 @@ class SAC:
             state = state.replace(
                 alpha_params={
                     **state.alpha_params,
+                    **variables,
                     "params": optax.apply_updates(
                         state.alpha_params["params"], updates
                     ),
                 },
                 alpha_optimizer_state=alpha_optimizer_state,
-                target_critic_params=optax.incremental_update(
-                    state.critic_params, state.target_critic_params, self.cfg.tau
-                ),
+                target_critic_params={
+                    **state.critic_params,
+                    "params": optax.incremental_update(
+                        state.critic_params["params"],
+                        state.target_critic_params["params"],
+                        self.cfg.tau,
+                    ),
+                },
             )
 
             lox.log(

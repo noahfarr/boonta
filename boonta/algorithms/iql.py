@@ -75,7 +75,7 @@ class IQL:
 
         def value_loss_fn(
             value_params: PyTree, state: IQLState, transitions: Transition
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             q_value = remove_feature_axis(
                 self.critic.apply(
                     state.target_critic_params,
@@ -85,20 +85,22 @@ class IQL:
             )
             q_value = jnp.min(q_value, axis=0)
 
-            value = remove_feature_axis(
-                self.value.apply(value_params, transitions.first.obs)
+            value, variables = self.value.apply(
+                value_params, transitions.first.obs, mutable=True
             )
+            variables.pop("intermediates", None)
+            value = remove_feature_axis(value)
 
             advantage = q_value - value
             weight = jnp.where(
                 advantage > 0.0, self.cfg.expectile, 1.0 - self.cfg.expectile
             )
             loss = (weight * advantage**2).mean()
-            return loss, value
+            return loss, (variables, value)
 
         def critic_loss_fn(
             critic_params: PyTree, state: IQLState, transitions: Transition
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             next_value = remove_feature_axis(
                 self.value.apply(state.value_params, transitions.second.obs)
             )
@@ -107,18 +109,21 @@ class IQL:
                 + self.cfg.gamma * (1.0 - transitions.second.terminated) * next_value
             )
 
-            q_value = remove_feature_axis(
-                self.critic.apply(
-                    critic_params, transitions.first.obs, transitions.second.action
-                )
+            q_value, variables = self.critic.apply(
+                critic_params,
+                transitions.first.obs,
+                transitions.second.action,
+                mutable=True,
             )
+            variables.pop("intermediates", None)
+            q_value = remove_feature_axis(q_value)
             td_error = (q_value - target_q_value) * (1.0 - transitions.second.truncated)
             loss = 0.5 * (td_error**2).mean()
-            return loss, q_value
+            return loss, (variables, q_value)
 
         def actor_loss_fn(
             params: PyTree, state: IQLState, transitions: Transition
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             q_value = remove_feature_axis(
                 self.critic.apply(
                     state.target_critic_params,
@@ -137,12 +142,13 @@ class IQL:
                 jnp.exp(self.cfg.beta * advantage), self.cfg.max_advantage_weight
             )
 
-            dist, intermediates = self.actor.apply(
+            dist, variables = self.actor.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             log_prob = dist.log_prob(transitions.second.action)
 
             loss = -(weight * log_prob).mean()
@@ -160,24 +166,25 @@ class IQL:
                     dist=dist,
                     intermediates=intermediates,
                 )
-            return loss, log_prob
+            return loss, (variables, log_prob)
 
-        (value_loss, value), grads = jax.value_and_grad(value_loss_fn, has_aux=True)(
-            state.value_params, state, transitions
-        )
+        (value_loss, (variables, value)), grads = jax.value_and_grad(
+            value_loss_fn, has_aux=True, allow_int=True
+        )(state.value_params, state, transitions)
         updates, value_optimizer_state = self.value_optimizer.update(
             grads["params"], state.value_optimizer_state, state.value_params["params"]
         )
         state = state.replace(
             value_params={
                 **state.value_params,
+                **variables,
                 "params": optax.apply_updates(state.value_params["params"], updates),
             },
             value_optimizer_state=value_optimizer_state,
         )
 
-        (critic_loss, q_value), grads = jax.value_and_grad(
-            critic_loss_fn, has_aux=True
+        (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
+            critic_loss_fn, has_aux=True, allow_int=True
         )(state.critic_params, state, transitions)
         updates, critic_optimizer_state = self.critic_optimizer.update(
             grads["params"], state.critic_optimizer_state, state.critic_params["params"]
@@ -185,26 +192,33 @@ class IQL:
         state = state.replace(
             critic_params={
                 **state.critic_params,
+                **variables,
                 "params": optax.apply_updates(state.critic_params["params"], updates),
             },
             critic_optimizer_state=critic_optimizer_state,
         )
 
-        (actor_loss, log_prob), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
-            state.params, state, transitions
-        )
+        (actor_loss, (variables, log_prob)), grads = jax.value_and_grad(
+            actor_loss_fn, has_aux=True, allow_int=True
+        )(state.params, state, transitions)
         updates, actor_optimizer_state = self.actor_optimizer.update(
             grads["params"], state.actor_optimizer_state, state.params["params"]
         )
         state = state.replace(
             params={
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             },
             actor_optimizer_state=actor_optimizer_state,
-            target_critic_params=optax.incremental_update(
-                state.critic_params, state.target_critic_params, self.cfg.tau
-            ),
+            target_critic_params={
+                **state.critic_params,
+                "params": optax.incremental_update(
+                    state.critic_params["params"],
+                    state.target_critic_params["params"],
+                    self.cfg.tau,
+                ),
+            },
         )
 
         lox.log(

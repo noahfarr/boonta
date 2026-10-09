@@ -101,7 +101,7 @@ class RecurrentDQN:
             state: RecurrentDQNState,
             trajectory: Transition,
             key: Key,
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             transitions = jax.tree.map(lambda x: x[:, :-1], trajectory)
             next_transitions = jax.tree.map(lambda x: x[:, 1:], trajectory)
 
@@ -124,7 +124,7 @@ class RecurrentDQN:
             ) * jnp.max(next_q_values, axis=-1)
 
             timesteps = transitions.first
-            (_, dist), intermediates = self.network.apply(
+            (_, dist), variables = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -132,8 +132,9 @@ class RecurrentDQN:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             q_values = dist.preferences
             q_value = remove_feature_axis(
                 jnp.take_along_axis(
@@ -165,7 +166,7 @@ class RecurrentDQN:
                     carry=carry,
                     intermediates=intermediates,
                 )
-            return loss, q_value
+            return loss, (variables, q_value)
 
         buffer_state, _ = jax.lax.scan(
             lambda buffer_state, transition: (
@@ -183,22 +184,26 @@ class RecurrentDQN:
             loss_key = key
             trajectory = batch
 
-            (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, state, trajectory, loss_key
-            )
+            (loss, (variables, q_value)), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, state, trajectory, loss_key)
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
             state = state.replace(
                 params=params,
                 optimizer_state=optimizer_state,
-                target_params=optax.incremental_update(
-                    params, state.target_params, self.cfg.tau
-                ),
+                target_params={
+                    **params,
+                    "params": optax.incremental_update(
+                        params["params"], state.target_params["params"], self.cfg.tau
+                    ),
+                },
             )
 
             lox.log(

@@ -79,12 +79,13 @@ class GRPO:
             valid = transitions.aux["valid"]
             num_valid = jnp.maximum(valid.sum(), 1.0)
 
-            dist, intermediates = self.network.apply(
+            dist, variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = (dist.entropy() * valid).sum() / num_valid
@@ -133,6 +134,7 @@ class GRPO:
                     intermediates=intermediates,
                 )
             return loss, (
+                variables,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -164,10 +166,11 @@ class GRPO:
             num_valid = jnp.maximum(valid.sum(), 1.0)
             advantage = (advantages * valid).sum() / num_valid
 
-            (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, minibatch
-            )
+            (_, aux), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, minibatch)
             (
+                variables,
                 actor_loss,
                 reference_kl,
                 entropy,
@@ -190,6 +193,7 @@ class GRPO:
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 

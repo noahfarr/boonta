@@ -154,10 +154,14 @@ class REPPO:
 
         def critic_loss_fn(
             critic_params: PyTree, transitions: Transition
-        ) -> tuple[Array, Array]:
-            logits = self.critic.apply(
-                critic_params, transitions.first.obs, transitions.second.action
+        ) -> tuple[Array, tuple[PyTree, Array]]:
+            logits, variables = self.critic.apply(
+                critic_params,
+                transitions.first.obs,
+                transitions.second.action,
+                mutable=True,
             )
+            variables.pop("intermediates", None)
 
             target = jnp.clip(
                 transitions.aux["target_values"], self.cfg.vmin, self.cfg.vmax
@@ -174,23 +178,24 @@ class REPPO:
             q_value = jnp.sum(
                 jax.nn.softmax(logits, axis=-1) * self.cfg.bin_centers, axis=-1
             )
-            return loss, q_value
+            return loss, (variables, q_value)
 
         def actor_loss_fn(
             params: PyTree, state: REPPOState, transitions: Transition, key: Key
-        ) -> tuple[Array, tuple[Array, Array]]:
+        ) -> tuple[Array, tuple[PyTree, Array, Array]]:
             action_key, kl_key = jax.random.split(key)
             alpha = jax.lax.stop_gradient(jnp.exp(self.alpha.apply(state.alpha_params)))
             lagrangian = jax.lax.stop_gradient(
                 jnp.exp(self.lagrangian.apply(state.lagrangian_params))
             )
 
-            dist, intermediates = self.actor.apply(
+            dist, variables = self.actor.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
             action, log_prob = dist.sample_and_log_prob(seed=action_key)
 
             logits = self.critic.apply(
@@ -230,18 +235,29 @@ class REPPO:
                     dist=dist,
                     intermediates=intermediates,
                 )
-            return loss, (log_prob, kl)
+            return loss, (variables, log_prob, kl)
 
-        def alpha_loss_fn(alpha_params: PyTree, log_prob: Array) -> Array:
-            alpha = jnp.exp(self.alpha.apply(alpha_params))
+        def alpha_loss_fn(
+            alpha_params: PyTree, log_prob: Array
+        ) -> tuple[Array, PyTree]:
+            log_alpha, variables = self.alpha.apply(alpha_params, mutable=True)
+            variables.pop("intermediates", None)
+            alpha = jnp.exp(log_alpha)
             target_entropy = (
                 self.cfg.action_dim * self.cfg.target_entropy_scale - log_prob
             )
-            return (alpha * jax.lax.stop_gradient(target_entropy)).mean()
+            loss = (alpha * jax.lax.stop_gradient(target_entropy)).mean()
+            return loss, variables
 
-        def lagrangian_loss_fn(lagrangian_params: PyTree, kl: Array) -> Array:
-            log_lagrangian = self.lagrangian.apply(lagrangian_params)
-            return -(log_lagrangian * (kl - self.cfg.target_kl)).mean()
+        def lagrangian_loss_fn(
+            lagrangian_params: PyTree, kl: Array
+        ) -> tuple[Array, PyTree]:
+            log_lagrangian, variables = self.lagrangian.apply(
+                lagrangian_params, mutable=True
+            )
+            variables.pop("intermediates", None)
+            loss = -(log_lagrangian * (kl - self.cfg.target_kl)).mean()
+            return loss, variables
 
         num_steps, num_envs = transitions.second.reward.shape
         batch_size = num_steps * num_envs
@@ -270,8 +286,8 @@ class REPPO:
                 lambda leaf: jnp.take(leaf, indices, axis=0), transitions
             )
 
-            (critic_loss, q_value), grads = jax.value_and_grad(
-                critic_loss_fn, has_aux=True
+            (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
+                critic_loss_fn, has_aux=True, allow_int=True
             )(state.critic_params, minibatch)
             updates, critic_optimizer_state = self.critic_optimizer.update(
                 grads["params"],
@@ -281,6 +297,7 @@ class REPPO:
             state = state.replace(
                 critic_params={
                     **state.critic_params,
+                    **variables,
                     "params": optax.apply_updates(
                         state.critic_params["params"], updates
                     ),
@@ -288,8 +305,8 @@ class REPPO:
                 critic_optimizer_state=critic_optimizer_state,
             )
 
-            (actor_loss, (log_prob, kl)), grads = jax.value_and_grad(
-                actor_loss_fn, has_aux=True
+            (actor_loss, (variables, log_prob, kl)), grads = jax.value_and_grad(
+                actor_loss_fn, has_aux=True, allow_int=True
             )(state.params, state, minibatch, key)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
@@ -297,14 +314,15 @@ class REPPO:
             state = state.replace(
                 params={
                     **state.params,
+                    **variables,
                     "params": optax.apply_updates(state.params["params"], updates),
                 },
                 actor_optimizer_state=actor_optimizer_state,
             )
 
-            alpha_loss, grads = jax.value_and_grad(alpha_loss_fn)(
-                state.alpha_params, jax.lax.stop_gradient(log_prob)
-            )
+            (alpha_loss, variables), grads = jax.value_and_grad(
+                alpha_loss_fn, has_aux=True, allow_int=True
+            )(state.alpha_params, jax.lax.stop_gradient(log_prob))
             updates, alpha_optimizer_state = self.alpha_optimizer.update(
                 grads["params"],
                 state.alpha_optimizer_state,
@@ -313,6 +331,7 @@ class REPPO:
             state = state.replace(
                 alpha_params={
                     **state.alpha_params,
+                    **variables,
                     "params": optax.apply_updates(
                         state.alpha_params["params"], updates
                     ),
@@ -320,9 +339,9 @@ class REPPO:
                 alpha_optimizer_state=alpha_optimizer_state,
             )
 
-            lagrangian_loss, grads = jax.value_and_grad(lagrangian_loss_fn)(
-                state.lagrangian_params, jax.lax.stop_gradient(kl)
-            )
+            (lagrangian_loss, variables), grads = jax.value_and_grad(
+                lagrangian_loss_fn, has_aux=True, allow_int=True
+            )(state.lagrangian_params, jax.lax.stop_gradient(kl))
             updates, lagrangian_optimizer_state = self.lagrangian_optimizer.update(
                 grads["params"],
                 state.lagrangian_optimizer_state,
@@ -331,6 +350,7 @@ class REPPO:
             state = state.replace(
                 lagrangian_params={
                     **state.lagrangian_params,
+                    **variables,
                     "params": optax.apply_updates(
                         state.lagrangian_params["params"], updates
                     ),

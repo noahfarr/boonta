@@ -69,12 +69,13 @@ class PPO:
             advantages = transitions.aux["advantages"]
             returns = transitions.aux["returns"]
 
-            (dist, value), intermediates = self.network.apply(
+            (dist, value), variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
+            intermediates = {"intermediates": variables.pop("intermediates", {})}
 
             log_probs = dist.log_prob(transitions.second.action)
             entropy = dist.entropy().mean()
@@ -127,6 +128,7 @@ class PPO:
                     intermediates=intermediates,
                 )
             return loss, (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -142,10 +144,11 @@ class PPO:
             returns = minibatch.aux["returns"]
             advantages = minibatch.aux["advantages"]
 
-            (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, minibatch
-            )
+            (_, aux), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, minibatch)
             (
+                variables,
                 actor_loss,
                 critic_loss,
                 entropy,
@@ -173,6 +176,7 @@ class PPO:
             )
             params = {
                 **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 
