@@ -20,7 +20,6 @@ def make(cfg):
     num_actions = env.action_space().num_actions
 
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     env = Stagger(env, spread=120)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
 
@@ -43,4 +42,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
