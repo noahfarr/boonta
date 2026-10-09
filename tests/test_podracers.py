@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from jax.sharding import PartitionSpec as P
 
-from boonta.algorithms.wrappers.ensemble import Ensemble
+from boonta.algorithms.wrappers.population import Population
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
@@ -265,9 +265,9 @@ def test_a_podracer_refuses_a_component_it_would_ignore(build):
         build(curriculum=lambda state: state)
 
 
-def test_sebulba_rejects_ensembles():
+def test_sebulba_rejects_populations():
     with pytest.raises(AssertionError, match="Use anakin"):
-        on_sebulba(algorithm=Ensemble(Probe(), count=2))
+        on_sebulba(algorithm=Population(Probe(), count=2))
 
 
 class Ledger:

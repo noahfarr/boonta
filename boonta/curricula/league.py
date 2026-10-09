@@ -16,7 +16,7 @@ def league(
     capacity,
     decay,
     load=lambda checkpoint: checkpoint,
-    population=(),
+    pool=(),
     deal=lambda environment, learners, lineages, **table: lambda state: state,
     **table,
 ) -> tuple[PSRO, Environment, Pit, Lap]:
@@ -26,9 +26,9 @@ def league(
         learners=learners,
         capacity=capacity,
         decay=decay,
-        population=tuple(
+        pool=tuple(
             Member(lineage=spec.lineage, params=load(spec.checkpoint))
-            for spec in population
+            for spec in pool
         ),
         warmstarts={
             index: load(learner.warmstart)
