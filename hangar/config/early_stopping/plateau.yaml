@@ -1,0 +1,3 @@
+_target_: hangar.early_stopping.plateau
+patience: ???
+score: ${score}

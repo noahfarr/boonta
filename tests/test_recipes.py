@@ -234,7 +234,7 @@ def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
 
 
 def test_only_carbs_sweeps_the_search_space():
-    assert "search_space" not in configure("ppo", MINATAR)
+    assert "search_space" not in configure("dqn", MINATAR)
     plain = configure("ippo", "connectx/connectx", "hydra.mode=MULTIRUN")
     assert len(plain.search_space) == 13
     assert plain.hydra.sweeper.params is None
