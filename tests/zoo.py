@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from boonta.algorithms.bc import BC, BCConfig
+from boonta.algorithms.cispo import CISPO, CISPOConfig
 from boonta.algorithms.dqn import DQN, DQNConfig
 from boonta.algorithms.grpo import GRPO, GRPOConfig
 from boonta.algorithms.iql import IQL, IQLConfig
@@ -14,6 +15,7 @@ from boonta.algorithms.mmd import MMD, MMDConfig
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.algorithms.pqn import PQN, PQNConfig
 from boonta.algorithms.recurrent_bc import RecurrentBC, RecurrentBCConfig
+from boonta.algorithms.recurrent_cispo import RecurrentCISPO, RecurrentCISPOConfig
 from boonta.algorithms.recurrent_dqn import RecurrentDQN, RecurrentDQNConfig
 from boonta.algorithms.recurrent_grpo import RecurrentGRPO, RecurrentGRPOConfig
 from boonta.algorithms.recurrent_ppo import RecurrentPPO, RecurrentPPOConfig
@@ -259,6 +261,37 @@ def mmd(
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
 
 
+def cispo(
+    environment,
+    num_envs=32,
+    num_steps=12,
+    podracer=online,
+    optimizer=None,
+    auxiliary_losses=(),
+    group_size=4,
+):
+    algorithm = CISPO(
+        cfg=CISPOConfig(
+            group_size=group_size,
+            num_minibatches=4,
+            update_epochs=2,
+            epsilon_low=1.0,
+            epsilon_high=0.2,
+            kl_coefficient=0.0,
+            gamma=0.99,
+        ),
+        network=Network(feature_extractor=encoder(), head=policy(environment)),
+        optimizer=optimizer or adam(),
+        auxiliary_losses=auxiliary_losses,
+    )
+    return podracer(
+        algorithm,
+        group(environment, num_envs, num_steps, group_size),
+        num_envs,
+        num_steps,
+    )
+
+
 def grpo(
     environment,
     num_envs=32,
@@ -453,6 +486,42 @@ def recurrent_pupo(
         auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
+
+
+def recurrent_cispo(
+    environment,
+    num_envs=32,
+    num_steps=12,
+    podracer=online,
+    optimizer=None,
+    auxiliary_losses=(),
+    torso=None,
+    group_size=4,
+):
+    algorithm = RecurrentCISPO(
+        cfg=RecurrentCISPOConfig(
+            group_size=group_size,
+            num_minibatches=4,
+            update_epochs=2,
+            epsilon_low=1.0,
+            epsilon_high=0.2,
+            kl_coefficient=0.0,
+            gamma=0.99,
+        ),
+        network=Network(
+            feature_extractor=encoder(),
+            torso=torso or gru(),
+            head=policy(environment),
+        ),
+        optimizer=optimizer or adam(),
+        auxiliary_losses=auxiliary_losses,
+    )
+    return podracer(
+        algorithm,
+        group(environment, num_envs, num_steps, group_size),
+        num_envs,
+        num_steps,
+    )
 
 
 def recurrent_grpo(
