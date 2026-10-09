@@ -7,18 +7,11 @@
 *boonta* [ˈbuːn.tə]: the Boonta Eve Classic, the podrace Anakin Skywalker wins on Tatooine in *The Phantom Menace*.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/demo-dark.webp">
-  <img src="docs/demo-light.webp" width="100%" alt="Three podracers launch on a desert track and each takes the lead in turn: Anakin, 5M+ steps per second end to end on the GPU; Sebulba, asynchronous acting and learning; Quadinaros, offline RL and behaviour cloning. Then all three park in the hangar.">
-</picture>
-
-</div>
-
-## How it fits together
-
-<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/structure-dark.webp">
   <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
 </picture>
+
+</div>
 
 ## Podracers
 
