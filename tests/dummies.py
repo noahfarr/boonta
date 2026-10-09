@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import lox
@@ -220,6 +221,24 @@ class Dial(Environment):
 
     def expert(self, state: DialState) -> jax.Array:
         return jnp.int32(0)
+
+
+class Tally(nn.Module):
+    layer: nn.Module
+
+    @nn.compact
+    def __call__(self, *args, **kwargs):
+        count = self.variable("counts", "count", jnp.zeros, (), jnp.int32)
+        if self.is_mutable_collection("counts") and not self.is_initializing():
+            count.value = count.value + 1
+        return self.layer(*args, **kwargs)
+
+
+def tallied(module):
+    def build(*args, **kwargs):
+        return Tally(module(*args, **kwargs))
+
+    return build
 
 
 @struct.dataclass(frozen=True)

@@ -38,8 +38,8 @@ def train(podracer, num_updates=1):
 
 
 def energy(weight):
-    def loss(intermediates, **kwargs):
-        features = intermediates["intermediates"]["features"].astype(jnp.float32)
+    def loss(variables, **kwargs):
+        features = variables["intermediates"]["features"].astype(jnp.float32)
         mean_square = jnp.mean(features**2)
         lox.log({"features/energy": mean_square})
         return weight * mean_square
@@ -51,8 +51,8 @@ def energy(weight):
 def test_auxiliary_losses_receive_the_sown_features_and_the_update_state(build):
     shapes, keywords = [], []
 
-    def record(intermediates, **kwargs):
-        shapes.append(intermediates["intermediates"]["features"].shape)
+    def record(variables, **kwargs):
+        shapes.append(variables["intermediates"]["features"].shape)
         keywords.append(set(kwargs))
         return 0.0
 
@@ -83,7 +83,7 @@ def test_a_loss_on_the_sown_features_trains_the_network(build):
     assert shrunk.mean() < plain.mean()
 
 
-SHARED = {"params", "apply", "transitions", "dist", "intermediates"}
+SHARED = {"params", "apply", "transitions", "dist", "variables"}
 
 EVERY = [
     pytest.param(zoo.ppo, corridor, {"value"}, id="ppo"),
@@ -111,10 +111,10 @@ def test_every_algorithm_hands_its_auxiliary_losses_the_same_inputs(
 ):
     received, replayed = [], []
 
-    def record(params, apply, transitions, dist, intermediates, **kwargs):
-        received.append({"params", "apply", "transitions", "dist", "intermediates", *kwargs})
+    def record(params, apply, transitions, dist, variables, **kwargs):
+        received.append({"params", "apply", "transitions", "dist", "variables", *kwargs})
         replayed.append(apply(params).log_prob(transitions.second.action).shape)
-        assert set(intermediates["intermediates"]) == {"features"}
+        assert set(variables["intermediates"]) == {"features"}
         return 0.0
 
     podracer = build(environment(), auxiliary_losses=(record,))
@@ -140,7 +140,7 @@ def trajectory(flags, ending="terminated"):
     return Transition(first=timestep, second=timestep)
 
 
-def intermediates(features):
+def sown(features):
     return {"intermediates": {"features": jnp.asarray(features, jnp.float32)}}
 
 
@@ -155,7 +155,7 @@ def test_dr3_is_the_coefficient_times_the_mean_dot_product_of_consecutive_featur
     coefficient,
 ):
     loss = DR3(coefficient=coefficient)(
-        intermediates=intermediates(FEATURES),
+        variables=sown(FEATURES),
         transitions=trajectory([[False] * 3] * 2),
     )
 
@@ -166,7 +166,7 @@ def test_dr3_is_the_coefficient_times_the_mean_dot_product_of_consecutive_featur
 def test_dr3_skips_pairs_that_cross_an_episode_end(ending):
     first, *_ = FEATURES
     loss = DR3(coefficient=1.0)(
-        intermediates=intermediates([first]),
+        variables=sown([first]),
         transitions=trajectory([[False, True, False]], ending),
     )
 
@@ -176,7 +176,7 @@ def test_dr3_skips_pairs_that_cross_an_episode_end(ending):
 def test_dr3_is_zero_when_every_pair_crosses_an_episode_end():
     first, *_ = FEATURES
     loss = DR3(coefficient=1.0)(
-        intermediates=intermediates([first]),
+        variables=sown([first]),
         transitions=trajectory([[True, True, True]]),
     )
 
@@ -189,7 +189,7 @@ def test_dr3_gradient_pushes_consecutive_features_apart():
 
     def loss(features):
         return DR3(coefficient=2.0)(
-            intermediates=intermediates(features), transitions=transitions
+            variables=sown(features), transitions=transitions
         )
 
     gradient = jax.grad(loss)(features)
@@ -202,7 +202,7 @@ def test_dr3_gradient_pushes_consecutive_features_apart():
 def test_dr3_rejects_shuffled_single_transitions():
     with pytest.raises(AssertionError, match="trajectories"):
         DR3(coefficient=1.0)(
-            intermediates=intermediates([[1.0, 0.0], [0.0, 1.0]]),
+            variables=sown([[1.0, 0.0], [0.0, 1.0]]),
             transitions=trajectory([False, False]),
         )
 

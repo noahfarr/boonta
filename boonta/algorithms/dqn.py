@@ -75,7 +75,7 @@ class DQN:
     def update(self, state: DQNState, key: Key, transitions: Transition) -> DQNState:
         def loss_fn(
             params: PyTree, state: DQNState, transitions: Transition
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             next_q_values = self.network.apply(
                 state.target_params, transitions.second.obs, temperature=1.0
             ).preferences
@@ -83,11 +83,11 @@ class DQN:
                 1.0 - transitions.second.terminated
             ) * jnp.max(next_q_values, axis=-1)
 
-            dist, intermediates = self.network.apply(
+            dist, variables = self.network.apply(
                 params,
                 transitions.first.obs,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
             q_values = dist.preferences
             q_value = remove_feature_axis(
@@ -110,9 +110,9 @@ class DQN:
                     transitions=transitions,
                     dist=dist,
                     q_values=q_values,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
-            return loss, q_value
+            return loss, (variables, q_value)
 
         transitions = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), transitions)
         state = state.replace(
@@ -123,22 +123,28 @@ class DQN:
             del key
             transitions = batch
 
-            (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, state, transitions
-            )
+            (loss, (variables, q_value)), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, state, transitions)
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: variables.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
             state = state.replace(
                 params=params,
                 optimizer_state=optimizer_state,
-                target_params=optax.incremental_update(
-                    params, state.target_params, self.cfg.tau
-                ),
+                target_params={
+                    **params,
+                    "params": optax.incremental_update(
+                        params["params"], state.target_params["params"], self.cfg.tau
+                    ),
+                },
             )
 
             lox.log(

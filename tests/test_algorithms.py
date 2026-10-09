@@ -1,3 +1,4 @@
+import dataclasses
 import re
 from functools import partial
 
@@ -10,9 +11,10 @@ from jax.sharding import PartitionSpec as P
 
 import zoo
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.wrappers.ensemble import Ensemble
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
-                     recall_continuous)
+                     recall_continuous, tallied)
 
 LEARNERS = [
     pytest.param(zoo.ppo, corridor, 100, id="ppo-corridor"),
@@ -379,3 +381,88 @@ def test_every_torso_replays_what_it_acted_on(gaps, torso, podracer):
     )
     assert recorded
     np.testing.assert_allclose(recorded, 0.0, atol=1e-5)
+
+
+def ensembled(algorithm, *args):
+    return zoo.online(Ensemble(algorithm=algorithm, count=2), *args)
+
+
+STATEFUL = [
+    pytest.param(zoo.ppo, corridor, id="ppo"),
+    pytest.param(zoo.mmd, corridor, id="mmd"),
+    pytest.param(zoo.grpo, corridor, id="grpo"),
+    pytest.param(zoo.pqn, corridor, id="pqn"),
+    pytest.param(zoo.dqn, corridor, id="dqn"),
+    pytest.param(zoo.sac, reach, id="sac"),
+    pytest.param(zoo.reppo, reach, id="reppo"),
+    pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
+    pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
+    pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
+    pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
+    pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),
+    pytest.param(zoo.bc, corridor, id="bc"),
+    pytest.param(zoo.iql, reach, id="iql"),
+    pytest.param(zoo.recurrent_bc, recall, id="recurrent_bc"),
+    pytest.param(partial(zoo.ppo, podracer=ensembled), corridor, id="ensemble-ppo"),
+    pytest.param(
+        partial(zoo.recurrent_ppo, podracer=ensembled), recall, id="ensemble-recurrent_ppo"
+    ),
+]
+
+
+def trained(algorithm_state):
+    if hasattr(algorithm_state, "algorithm_states"):
+        for inner in algorithm_state.algorithm_states:
+            yield from trained(inner)
+        return
+    names = {field.name for field in dataclasses.fields(algorithm_state)}
+    for name in sorted(names):
+        optimized = name.removesuffix("params") + "optimizer_state" in names
+        if name == "params" or (name.endswith("_params") and optimized):
+            yield name, getattr(algorithm_state, name)
+
+
+def counts(algorithm_state):
+    return [
+        np.asarray(leaf)
+        for _, variables in trained(algorithm_state)
+        for leaf in jax.tree.leaves(variables["counts"])
+    ]
+
+
+def paths(tree):
+    return [jax.tree_util.keystr(path) for path, _ in jax.tree_util.tree_leaves_with_path(tree)]
+
+
+@pytest.mark.parametrize("build, environment", STATEFUL)
+def test_every_algorithm_carries_what_its_layers_write_during_the_update(
+    build, environment, monkeypatch
+):
+    monkeypatch.setattr(zoo, "FeatureExtractor", tallied(zoo.FeatureExtractor))
+    monkeypatch.setattr(zoo, "Parameter", tallied(zoo.Parameter))
+    podracer = build(environment())
+    initial = podracer.init(jax.random.key(0))
+    assert all(int(count) == 0 for count in counts(initial.algorithm_state))
+
+    state, _ = podracer.train(initial, jax.random.key(1), 10)
+    advanced = counts(state.algorithm_state)
+    assert advanced
+    assert all(int(count) > 0 for count in advanced)
+    assert not [path for path in paths(state.algorithm_state) if "intermediates" in path]
+    assert jax.tree.structure(state.algorithm_state) == jax.tree.structure(
+        initial.algorithm_state
+    )
+    assert not [
+        path
+        for path in paths(state.algorithm_state)
+        if "optimizer_state" in path and "counts" in path
+    ]
+
+    stepped, _, _ = podracer.algorithm.step(
+        state.algorithm_state, jax.random.key(2), state.timestep
+    )
+    evaluated, _ = podracer.evaluate(state, jax.random.key(3), 8)
+    for after in (stepped, evaluated.algorithm_state):
+        for before, now in zip(advanced, counts(after), strict=True):
+            np.testing.assert_array_equal(before, now)

@@ -115,9 +115,9 @@ class RecurrentPQN:
 
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
-        ) -> tuple[Array, Array]:
+        ) -> tuple[Array, tuple[PyTree, Array]]:
             timesteps = trajectory.first
-            (_, dist), intermediates = self.network.apply(
+            (_, dist), variables = self.network.apply(
                 params,
                 timesteps.obs,
                 timesteps.action,
@@ -125,7 +125,7 @@ class RecurrentPQN:
                 timesteps.done,
                 carry=carry,
                 temperature=1.0,
-                mutable="intermediates",
+                mutable=True,
             )
             q_values = dist.preferences
             q_value = remove_feature_axis(
@@ -157,9 +157,9 @@ class RecurrentPQN:
                     dist=dist,
                     q_values=q_values,
                     carry=carry,
-                    intermediates=intermediates,
+                    variables=variables,
                 )
-            return loss, q_value
+            return loss, (variables, q_value)
 
         num_steps, num_envs = transitions.second.reward.shape
 
@@ -195,9 +195,9 @@ class RecurrentPQN:
             )
             target_q_value = trajectory.aux["target_q_value"]
 
-            (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, trajectory, carry
-            )
+            (loss, (variables, q_value)), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(state.params, trajectory, carry)
             explained_variance = 1 - jnp.var(target_q_value - q_value) / (
                 jnp.var(target_q_value) + 1e-8
             )
@@ -212,8 +212,11 @@ class RecurrentPQN:
             updates, optimizer_state = self.optimizer.update(
                 grads["params"], state.optimizer_state, state.params["params"]
             )
+            variables = {
+                name: variables.get(name, value) for name, value in state.params.items()
+            }
             params = {
-                **state.params,
+                **variables,
                 "params": optax.apply_updates(state.params["params"], updates),
             }
 

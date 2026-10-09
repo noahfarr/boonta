@@ -13,9 +13,9 @@ class DR3:
     coefficient: float
 
     def __call__(
-        self, intermediates: PyTree, transitions: Transition, **kwargs
+        self, variables: PyTree, transitions: Transition, **kwargs
     ) -> Array:
-        features = intermediates["intermediates"]["features"].astype(jnp.float32)
+        features = variables["intermediates"]["features"].astype(jnp.float32)
         assert features.ndim == 3, (
             f"DR3 pairs each state's features with the next state's, so it needs "
             f"them as (batch, time, width) trajectories; got shape {features.shape}. "
