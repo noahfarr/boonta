@@ -179,6 +179,16 @@ def test_hyperparameters_cascade_to_everything_below_them():
     assert configure("ppo", "isaaclab/classic/ant").optimizer.lr == 5e-4
 
 
+def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environment():
+    default = configure("ppo", "kinetix/kinetix")
+    accel = configure("ppo", "kinetix/holdout_m", "curriculum=accel")
+    assert default.hydra.runtime.choices.hyperparameters == "ppo/kinetix"
+    assert accel.hydra.runtime.choices.hyperparameters == "ppo/kinetix/accel"
+    assert accel.environment.num_envs == default.environment.num_envs
+    assert accel.curriculum.mutate._target_ == "boonta.environments.kinetix.level_mutator"
+    assert configure("ppo", MINATAR, "curriculum=plr").hydra.runtime.choices.hyperparameters == "ppo/gymnax/minatar"
+
+
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
 def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
     cfg = configure("ppo", MINATAR, *overrides)
