@@ -53,7 +53,7 @@ def main(cfg):
 
     state = load_checkpoint(newest(cfg.checkpoint), podracer.init(init_key))
 
-    first_epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
+    epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
     assert remainder == 0, (
         f"the checkpoint stopped at step {int(state.algorithm_state.step)}, which is not "
         f"an epoch boundary of this run ({num_steps} steps per epoch)"
@@ -90,7 +90,7 @@ def main(cfg):
 
     try:
         data = {}
-        if first_epoch == 0:
+        if epoch == 0:
             data = monitor.metrics(step=0)
             if cfg.evaluation.num_steps:
                 _, logs = podracer.evaluate(state, baseline_key, cfg.evaluation.num_steps)
@@ -98,7 +98,7 @@ def main(cfg):
                 data |= craft(state, logs, 0)
             logger.log(data, steps=jnp.array([0, 0]))
 
-        for epoch in range(first_epoch, cfg.training.num_epochs):
+        for epoch in range(epoch, cfg.training.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
             data = reduce(logs, "training/")
