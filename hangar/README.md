@@ -42,7 +42,7 @@ Hydra resolves the config relative to `main.py`, so the command works from any d
 
 Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
 
-`hyperparameters/<algorithm>/<environment>.yaml` is applied automatically, after the algorithm and environment and before the curriculum. When there is no file for the exact environment, the `cascade` resolver walks up the environment path until it finds one, and falls back to `hyperparameters/<algorithm>.yaml`. So `hyperparameters/ppo/gymnax/minatar.yaml` covers every MinAtar game.
+`hyperparameters/<algorithm>/<environment>.yaml` is applied automatically, after the algorithm, environment and curriculum. When there is no file for the exact environment, the `cascade` resolver walks up the environment path until it finds one, and falls back to `hyperparameters/<algorithm>.yaml`. So `hyperparameters/ppo/gymnax/minatar.yaml` covers every MinAtar game. At each step it first tries `<environment>/<curriculum>.yaml`, which holds what a curriculum needs on that environment, such as the level sampler `hyperparameters/ppo/kinetix/plr.yaml` gives PLR.
 
 ## Recipes
 

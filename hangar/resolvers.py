@@ -20,17 +20,21 @@ def get_action_dim(cfg):
     return action_dim
 
 
-def cascade(group: str, algorithm: str, environment: str) -> str:
+def cascade(group: str, algorithm: str, environment: str, curriculum: str = None) -> str:
     loader = GlobalHydra.instance().config_loader()
+
+    def offers(path):
+        parent, leaf = path.rsplit("/", 1)
+        return leaf in loader.get_group_options(f"{group}/{parent}")
 
     parts = environment.split("/")
     while parts:
-        parent = "/".join(parts[:-1])
-        leaf = parts[-1]
-        search = f"{group}/{algorithm}/{parent}" if parent else f"{group}/{algorithm}"
+        path = f"{algorithm}/{'/'.join(parts)}"
 
-        if leaf in loader.get_group_options(search):
-            return f"{algorithm}/{'/'.join(parts)}"
+        if curriculum is not None and offers(f"{path}/{curriculum}"):
+            return f"{path}/{curriculum}"
+        if offers(path):
+            return path
 
         parts.pop()
 

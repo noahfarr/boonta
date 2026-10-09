@@ -20,8 +20,8 @@ defaults:
   - algorithm: ppo
   - environment: gymnax/minatar/breakout
   - logger: dashboard
-  - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment}}
   - curriculum: default
+  - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
   - scoring: best
   - optional search_space: ${cascade:search_space,${algorithm},${environment}}
 
