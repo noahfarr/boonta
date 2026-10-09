@@ -4,13 +4,13 @@
 
 ## Run
 
-`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync` installs them. From the repository root:
+`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync` installs them.
 
 ```bash
-python hangar/main.py algorithm=ppo environment=gymnax/minatar/breakout
+uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-Hydra resolves the config relative to `main.py`, so the command works from any directory, and `python -m hangar.main` runs the same thing from an installed package. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
+`boonta` is the console command for `hangar/main.py`. Hydra resolves the config relative to `main.py`, so it works from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
 
 | Override | Effect |
 | --- | --- |
@@ -22,7 +22,7 @@ Hydra resolves the config relative to `main.py`, so the command works from any d
 
 ### Several machines
 
-`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 python hangar/main.py num_processes=8`. `main.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
+`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 uv run boonta num_processes=8`. `main.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
 
 ## Config groups
 
@@ -53,8 +53,8 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 `hydra/sweeper=carbs` turns a multirun into a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. A grid multirun is unaffected:
 
 ```bash
-python hangar/main.py -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx
-python hangar/main.py -m algorithm=ippo environment=connectx/connectx seed=0,1,2
+uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx
+uv run boonta -m algorithm=ippo environment=connectx/connectx seed=0,1,2
 ```
 
 The search space is `config/search_space/<algorithm>/<environment>.yaml`, looked up like the hyperparameters above, so `search_space/ippo/connectx.yaml` holds the ConnectX space. Each file starts with `# @package search_space` and holds only the parameters. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. An algorithm-wide space goes in `search_space/<algorithm>.yaml`, and an environment's space builds on it by listing `/search_space/<algorithm>` before `_self_` in its defaults. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
@@ -65,7 +65,7 @@ Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/
 
 ```bash
 uv sync --group sweep
-python hangar/main.py -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx \
+uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx \
     hydra.sweeper.n_trials=1024 hydra.sweeper.num_random_samples=16 hydra.sweeper.resample_frequency=16 \
     hydra.sweeper.max_failure_rate=0.5 hydra.sweeper.max_suggestion_cost=900 \
     logger=[file,orbax] loggers.orbax.max_to_keep=1 ++loggers.orbax.best=false \

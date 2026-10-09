@@ -60,7 +60,7 @@ The state is `SebulbaState(actors, algorithm_state)`. `algorithm_state` exists o
 The default config puts the learner and one actor on device 0. To give them separate GPUs, move the actor mesh:
 
 ```bash
-python hangar/main.py podracer=sebulba podracer.config.actor.start=1
+uv run boonta podracer=sebulba podracer.config.actor.start=1
 ```
 
 ## quadinaros
@@ -69,7 +69,7 @@ python hangar/main.py podracer=sebulba podracer.config.actor.start=1
 
 ## Several machines
 
-Set `num_processes` to the total number of processes and start one per GPU, for example with `srun --nodes=2 --ntasks-per-node=4 python hangar/main.py num_processes=8`. `main.py` then calls `jax.distributed.initialize`, and the default meshes of `anakin` and `quadinaros` span every device of every process. `sebulba` runs on one machine. See [`hangar/README.md`](../../hangar/README.md).
+Set `num_processes` to the total number of processes and start one per GPU, for example with `srun --nodes=2 --ntasks-per-node=4 uv run boonta num_processes=8`. `main.py` then calls `jax.distributed.initialize`, and the default meshes of `anakin` and `quadinaros` span every device of every process. `sebulba` runs on one machine. See [`hangar/README.md`](../../hangar/README.md).
 
 ## Add a podracer
 

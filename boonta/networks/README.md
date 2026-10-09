@@ -56,7 +56,7 @@ A recurrent model is built from three config groups in [`hangar/config/`](../../
 Each cell file picks its torso. `gru` and `rtu` run in an [`RNN`](blocks/rnn.py), a sequential scan. `min_gru` runs in an [`SSM`](blocks/ssm.py), a parallel scan. `self_attention` is its own torso. For example:
 
 ```bash
-python hangar/main.py algorithm=recurrent_ppo cell=min_gru stack=highway num_layers=2
+uv run boonta algorithm=recurrent_ppo cell=min_gru stack=highway num_layers=2
 ```
 
 Every torso and stack is a [`Block`](blocks/block.py): `__call__(carry, x, done)` returns `(carry, x)`, and `initialize_carry(key, input_shape)` returns a blank carry. Where `done` is set the block starts again from the blank carry, so episodes never leak into each other.

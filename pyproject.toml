@@ -35,6 +35,9 @@ dependencies = [
     "wandb>=0.28.0",
 ]
 
+[project.scripts]
+boonta = "hangar.main:main"
+
 [project.optional-dependencies]
 ale = [
     "ale_py[xla]>=0.12.0",
