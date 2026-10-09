@@ -27,7 +27,7 @@ class Tally:
     returns: Array
 
 
-def blank(slots: int) -> Tally:
+def empty_tally(slots: int) -> Tally:
     zeros = jnp.zeros(slots, jnp.float32)
     return Tally(
         episodes=zeros,
@@ -37,10 +37,10 @@ def blank(slots: int) -> Tally:
     )
 
 
-def tally(
+def tally_episodes(
     transitions: Transition, values: Array, advantages: Array, slots: int
 ) -> Tally:
-    def accumulate(carry, step):
+    def accumulate_episode(carry, step):
         positive, value, reward, length = carry
         advantage, current, earned, done = step
         positive = positive + jnp.maximum(advantage, 0.0)
@@ -54,7 +54,7 @@ def tally(
     zeros = jnp.zeros(values.shape[1:], jnp.float32)
     done = transitions.second.done.astype(jnp.float32)
     _, (regret, value, returns) = jax.lax.scan(
-        accumulate,
+        accumulate_episode,
         (zeros, zeros, zeros, zeros),
         (
             advantages.astype(jnp.float32),
@@ -65,7 +65,7 @@ def tally(
     )
     theta = transitions.second.info["theta"]
     index = jnp.where((done > 0) & (theta >= 0), theta, slots).reshape(-1)
-    empty = blank(slots)
+    empty = empty_tally(slots)
     return Tally(
         episodes=empty.episodes.at[index].add(1.0, mode="drop"),
         regret=empty.regret.at[index].add(regret.reshape(-1), mode="drop"),
@@ -83,7 +83,7 @@ def maximum_monte_carlo(tally: Tally, returns: Array) -> Array:
     return best - tally.value / jnp.maximum(tally.episodes, 1.0)
 
 
-def rank(scores: Array, size: Array, temperature: float) -> Array:
+def rank_weights(scores: Array, size: Array, temperature: float) -> Array:
     (capacity,) = scores.shape
     valid = jnp.arange(capacity) < size
     order = jnp.argsort(-jnp.where(valid, scores, -jnp.inf))
@@ -93,7 +93,7 @@ def rank(scores: Array, size: Array, temperature: float) -> Array:
     return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
 
 
-def stale(timestamps: Array, size: Array, episodes: Array) -> Array:
+def staleness_weights(timestamps: Array, size: Array, episodes: Array) -> Array:
     (capacity,) = timestamps.shape
     valid = jnp.arange(capacity) < size
     staleness = jnp.where(valid, episodes - timestamps, 0).astype(jnp.float32)
@@ -105,7 +105,7 @@ def stale(timestamps: Array, size: Array, episodes: Array) -> Array:
     )
 
 
-def weigh(
+def replay_weights(
     scores: Array,
     timestamps: Array,
     size: Array,
@@ -113,7 +113,7 @@ def weigh(
     temperature: float,
     staleness: float,
 ) -> Array:
-    return (1.0 - staleness) * rank(scores, size, temperature) + staleness * stale(
+    return (1.0 - staleness) * rank_weights(scores, size, temperature) + staleness * staleness_weights(
         timestamps, size, episodes
     )
 
@@ -183,7 +183,7 @@ class Graded(AlgorithmWrapper):
     def init(self, key: Key, timestep: Timestep) -> GradedState:
         algorithm_state = self.algorithm.init(key, timestep)
         return GradedState(
-            algorithm_state, step=algorithm_state.step, tally=blank(self.slots)
+            algorithm_state, step=algorithm_state.step, tally=empty_tally(self.slots)
         )
 
     def step(self, state: GradedState, key: Key, timestep: Timestep, temperature=1.0):
@@ -199,7 +199,7 @@ class Graded(AlgorithmWrapper):
         advantages, _ = generalized_advantage_estimation(
             transitions, values, values[-1], self.gamma, self.gae_lambda
         )
-        counted = tally(
+        counted = tally_episodes(
             jax.tree.map(lambda leaf: leaf[1:], transitions),
             values[1:],
             advantages[1:],
@@ -227,7 +227,7 @@ class Graded(AlgorithmWrapper):
         return state.replace(algorithm_state=updated, tally=counted)
 
 
-def rescore(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBufferState:
+def update_scores(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBufferState:
     capacity = buffer.scores.shape[0]
     finished = (tally.episodes[:capacity] > 0) & (jnp.arange(capacity) < buffer.size)
     return buffer.replace(
@@ -240,7 +240,7 @@ def rescore(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBuffe
     )
 
 
-def draw(
+def draw_levels(
     buffer: LevelBufferState,
     key: Key,
     count: int,
@@ -249,8 +249,8 @@ def draw(
 ) -> tuple[LevelBufferState, Array]:
     (capacity,) = buffer.scores.shape
 
-    def pick(buffer, key):
-        weights = weigh(
+    def pick_level(buffer, key):
+        weights = replay_weights(
             buffer.scores,
             buffer.timestamps,
             buffer.size,
@@ -265,10 +265,10 @@ def draw(
         )
         return buffer, index
 
-    return jax.lax.scan(pick, buffer, jax.random.split(key, count))
+    return jax.lax.scan(pick_level, buffer, jax.random.split(key, count))
 
 
-def admit(
+def admit_levels(
     buffer: LevelBufferState,
     levels,
     tally: Tally,
@@ -280,9 +280,9 @@ def admit(
     capacity = buffer.scores.shape[0]
     slots = scored.shape[0]
 
-    def insert(carry, source):
+    def insert_level(carry, source):
         buffer, levels, admitted = carry
-        weights = weigh(
+        weights = replay_weights(
             buffer.scores,
             buffer.timestamps,
             buffer.size,
@@ -321,7 +321,7 @@ def admit(
         return (buffer, levels, admitted + replaced.astype(jnp.int32)), None
 
     (buffer, levels, admitted), _ = jax.lax.scan(
-        insert, (buffer, levels, jnp.int32(0)), jnp.arange(capacity, slots)
+        insert_level, (buffer, levels, jnp.int32(0)), jnp.arange(capacity, slots)
     )
     return buffer, levels, admitted
 
@@ -359,18 +359,18 @@ def plr(
             environment_state=within(
                 state.environment_state,
                 LevelBufferState,
-                lambda buffer: refill(buffer, tally),
+                lambda buffer: refill_buffer(buffer, tally),
             )
         )
 
-    def refill(buffer, tally):
+    def refill_buffer(buffer, tally):
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
         scored = jnp.where(tally.episodes > 0, score(tally, returns), -jnp.inf)
 
-        buffer = rescore(buffer, tally, scored)
-        buffer, levels, admitted = admit(
+        buffer = update_scores(buffer, tally, scored)
+        buffer, levels, admitted = admit_levels(
             buffer,
             buffer.theta,
             tally,
@@ -386,7 +386,7 @@ def plr(
         )
 
         def replay(buffer, levels):
-            buffer, assignment = draw(buffer, draw_key, staging, temperature, staleness)
+            buffer, assignment = draw_levels(buffer, draw_key, staging, temperature, staleness)
             return buffer, levels, assignment
 
         def explore(buffer, levels):
@@ -401,7 +401,7 @@ def plr(
         buffer, levels, assignment = jax.lax.cond(
             replaying, replay, explore, buffer, levels
         )
-        level_weights = weigh(
+        level_weights = replay_weights(
             buffer.scores,
             buffer.timestamps,
             buffer.size,

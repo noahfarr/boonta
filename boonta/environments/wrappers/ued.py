@@ -17,7 +17,7 @@ class UEDState(WrapperState):
     playing: Array
 
 
-def tag(timestep: Timestep, playing: Array) -> Timestep:
+def tag_theta(timestep: Timestep, playing: Array) -> Timestep:
     return timestep.replace(info={**(timestep.info or {}), "theta": playing})
 
 
@@ -34,9 +34,9 @@ class UED(Wrapper):
             upcoming=playing,
             playing=playing,
         )
-        return state, tag(timestep, playing)
+        return state, tag_theta(timestep, playing)
 
-    def start(self, state: UEDState, env_state, index: Array, chosen: Array):
+    def start_theta(self, state: UEDState, env_state, index: Array, chosen: Array):
         theta = jax.tree.map(lambda leaf: leaf[jnp.maximum(index, 0)], state.theta)
         started = jax.vmap(lambda inner, level: self._env.update(inner, theta=level))(
             env_state, theta
@@ -49,9 +49,9 @@ class UED(Wrapper):
 
         return jax.tree.map(select, started, env_state), chosen, obs
 
-    def replay(self, state: UEDState, env_state, timestep: Timestep):
+    def replay_finished(self, state: UEDState, env_state, timestep: Timestep):
         done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
-        env_state, chosen, obs = self.start(state, env_state, state.playing, done)
+        env_state, chosen, obs = self.start_theta(state, env_state, state.playing, done)
         obs = jax.tree.map(
             lambda fresh, leaf: jnp.where(broadcast(chosen, leaf), fresh, leaf),
             obs,
@@ -59,7 +59,7 @@ class UED(Wrapper):
         )
         return env_state, timestep.replace(obs=obs)
 
-    def restart(self, key: Key, state: UEDState, env_state, timestep: Timestep):
+    def restart_theta(self, key: Key, state: UEDState, env_state, timestep: Timestep):
         drawn = jnp.full(self.num_envs, -1, jnp.int32)
         if state.weights is not None:
             weighted = state.weights.sum() > 0
@@ -71,7 +71,7 @@ class UED(Wrapper):
             ).astype(jnp.int32)
             drawn = jnp.where(weighted, sampled, drawn)
         index = jnp.where(state.assigned, state.upcoming, drawn)
-        env_state, chosen, obs = self.start(
+        env_state, chosen, obs = self.start_theta(
             state, env_state, index, jnp.ones(self.num_envs, bool)
         )
         obs = jax.tree.map(
@@ -90,19 +90,19 @@ class UED(Wrapper):
         if state.theta is not None:
             env_state, timestep = jax.lax.cond(
                 jnp.any(state.playing >= 0),
-                lambda: self.replay(state, env_state, timestep),
+                lambda: self.replay_finished(state, env_state, timestep),
                 lambda: (env_state, timestep),
             )
             env_state, timestep, playing = jax.lax.cond(
                 state.restarting,
-                lambda: self.restart(
+                lambda: self.restart_theta(
                     jax.random.fold_in(key, 1), state, env_state, timestep
                 ),
                 lambda: (env_state, timestep, state.playing),
             )
         else:
             playing = state.playing
-        timestep = tag(timestep, state.playing)
+        timestep = tag_theta(timestep, state.playing)
         state = state.replace(
             env_state=env_state,
             playing=playing,
