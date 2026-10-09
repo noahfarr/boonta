@@ -58,6 +58,9 @@ isaaclab-arena = [
 jaxmarl = [
     "jaxmarl",
 ]
+jaxued = [
+    "jaxued",
+]
 jumanji = [
     "jumanji",
 ]
@@ -126,6 +129,7 @@ explicit = true
 carbs = { git = "https://github.com/imbue-ai/carbs.git" }
 hydra-slurmpilot-launcher = { git = "ssh://git@github.com/noahfarr/hydra-slurmpilot-launcher.git" }
 isaaclab-arena = { git = "https://github.com/isaac-sim/IsaacLab-Arena" }
+jaxued = { git = "https://github.com/DramaCow/jaxued", rev = "0f8f1284677375b889e4f13a32c9617cd009f8c4" }
 libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
 lox = { git = "https://github.com/huterguier/lox" }
 mapox = { git = "https://github.com/gabe00122/mapox" }
