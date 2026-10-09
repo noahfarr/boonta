@@ -41,8 +41,8 @@ class PadObservation(Wrapper):
         state, timestep = self._env.step(key, state, action)
         return state, timestep.replace(obs=self.transform(timestep.obs))
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)

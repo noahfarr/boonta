@@ -58,7 +58,7 @@ def turn(state):
     setting = state.algorithm_state.version + 100.0
     return state.replace(
         environment_state=Vectorize(Dial(), NUM_ENVS).update(
-            state.environment_state, setting=setting
+            state.environment_state, jax.random.key(0), setting=setting
         )
     )
 

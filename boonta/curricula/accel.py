@@ -57,6 +57,7 @@ def accel(
                 timestamps=finished.timestamps,
                 episodes=finished.episodes,
             ),
+            jax.random.fold_in(buffer.key, 2),
             theta=levels,
             assign=capacity + jnp.arange(staging, dtype=jnp.int32),
         )

@@ -141,8 +141,8 @@ class Scored(Wrapper):
         )
         return state, timestep
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)
@@ -172,8 +172,8 @@ class Dressed(Wrapper):
         state, timestep = self._env.step(key, state, action)
         return state, self.dress(state, timestep)
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)

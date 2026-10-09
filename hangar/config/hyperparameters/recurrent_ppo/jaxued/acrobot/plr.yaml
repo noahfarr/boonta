@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - /hyperparameters/recurrent_ppo/jaxued/acrobot
+  - _self_
+
+curriculum:
+  replay_probability: 0.8
+  temperature: 0.3
+  sample:
+    _target_: boonta.environments.jaxued.control_generator
+    env_id: ${environment.env_id}
+  score:
+    _target_: boonta.curricula.maximum_monte_carlo
+    _partial_: true
