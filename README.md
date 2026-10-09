@@ -51,6 +51,7 @@
 | --- | --- |
 | PLR | Replays the levels the agent learns most from, with [robust prioritized level replay](https://arxiv.org/abs/2110.02439), on environments with levels such as Kinetix and JaxUED's maze |
 | League | Trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers |
+| PBT | Trains a population in one run and tunes each member's learning rate with [population-based training](https://arxiv.org/abs/1711.09846) |
 
 ## Install
 
