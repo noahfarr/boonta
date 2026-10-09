@@ -12,7 +12,7 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 def generator():
     from jax2d.engine import PhysicsEngine
     from kinetix.environment import (EnvParams, StaticEnvParams, UEDParams,
-                                     sample_kinetix_level)
+                                     make_mutate_env, sample_kinetix_level)
 
     env_params, static_env_params, ued_params = (
         EnvParams(),
@@ -26,7 +26,8 @@ def generator():
             key, physics_engine, env_params, static_env_params, ued_params
         )
 
-    return sample
+    mutate = make_mutate_env(static_env_params, env_params, ued_params)
+    return sample, mutate
 
 
 def make(cfg):
@@ -62,8 +63,9 @@ def make(cfg):
         ),
     )
 
+    sample, mutate = generator()
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(
-        algorithm, env, sample=generator()
+        algorithm, env, sample=sample, mutate=mutate
     )
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
