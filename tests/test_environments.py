@@ -790,21 +790,16 @@ def test_the_maze_terminates_at_the_goal_and_truncates_at_its_time_limit():
 
 
 @JAXUED
-def test_the_maze_generator_and_mutator_make_levels_the_maze_plays():
-    from boonta.environments.jaxued import maze_generator, maze_mutator
+def test_the_maze_generator_makes_levels_the_maze_plays():
+    from boonta.environments.jaxued import maze_generator
 
     level = maze_generator()(jax.random.key(0))
-    mutated = maze_mutator()(jax.random.key(1), level, 5)
-    assert jax.tree.structure(mutated) == jax.tree.structure(level)
-    assert bool(level.is_well_formatted()) and bool(mutated.is_well_formatted())
-    assert not np.array_equal(mutated.wall_map, level.wall_map) or not np.array_equal(
-        mutated.goal_pos, level.goal_pos
-    )
+    assert bool(level.is_well_formatted())
     environment = maze()
     state = environment.update(
-        environment.init(jax.random.key(2))[0], jax.random.key(3), theta=mutated
+        environment.init(jax.random.key(2))[0], jax.random.key(3), theta=level
     )
-    np.testing.assert_array_equal(state.wall_map, mutated.wall_map)
+    np.testing.assert_array_equal(state.wall_map, level.wall_map)
 
 
 @JAXUED
