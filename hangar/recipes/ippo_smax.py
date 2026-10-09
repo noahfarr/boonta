@@ -12,7 +12,6 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = SameStepAutoReset(env)
-    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     num_actions = env.action_space().num_actions
 
@@ -53,4 +52,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

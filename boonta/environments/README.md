@@ -55,13 +55,14 @@ A stateless wrapper that forgets this raises as soon as anything reconfigures th
 
 [`Vectorize(env, num_envs)`](wrappers/vectorize.py) runs `num_envs` copies of a single environment with `jax.vmap`. A podracer always gets a batched environment. [`Batched`](wrappers/batched.py) is for an environment that already steps a whole batch itself, such as the Gymnasium adapter. It has the interface of `Vectorize` without the `vmap`.
 
-A typical stack, from [`hangar/recipes/ppo_minatar.py`](../../hangar/recipes/ppo_minatar.py):
+A typical stack, from [`hangar/recipes/ppo_minatar.py`](../../hangar/recipes/ppo_minatar.py). The curriculum sits at one fixed point: after the auto-reset and `Vectorize`, before the statistics.
 
 ```python
 env = environments.make(**cfg.environment)
 env = SameStepAutoReset(env)
-env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 env = Vectorize(env, num_envs=cfg.environment.num_envs)
+algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 ```
 
 ## Add an environment

@@ -3,7 +3,7 @@ from boonta.utils.typing import Environment
 
 from boonta.podracers.podracer import Lap, Pit
 
-from .curriculum import Curriculum
+from .curriculum import Curriculum, within
 from .league import league
 from .plr import maximum_monte_carlo, plr, positive_value_loss
 
@@ -21,4 +21,5 @@ __all__ = [
     "maximum_monte_carlo",
     "plr",
     "positive_value_loss",
+    "within",
 ]

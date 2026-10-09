@@ -15,13 +15,10 @@ from boonta.networks.layers import Identity, Parameter
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     action_dim, *_ = env.action_space().shape
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = NormalizeObservation(env)
-    env = NormalizeReward(env, gamma=cfg.algorithm.gamma)
 
     actor = Network(
         feature_extractor=FeatureExtractor(
@@ -79,4 +76,7 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = NormalizeObservation(env)
+    env = NormalizeReward(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

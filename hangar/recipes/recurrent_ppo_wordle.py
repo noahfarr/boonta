@@ -100,8 +100,6 @@ def make(cfg):
     prompt = np.asarray(tokenizer.encode(SYSTEM_PROMPT).ids, np.int32)
     env = Prompt(env, prompt, pad)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    env = LogAction(env)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
 
     dtype = jnp.dtype(cfg.network.dtype)
@@ -157,4 +155,6 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = LogAction(env)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

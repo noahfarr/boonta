@@ -218,10 +218,7 @@ def make(cfg):
         spec["kwargs"]["levels"] = bank
     env = environments.make(**spec)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env)
-    env = Scored(env)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = Dressed(env, static)
 
     network = Network(
         feature_extractor=Entities(
@@ -257,6 +254,9 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env)
+    env = Scored(env)
+    env = Dressed(env, static)
     return {
         "algorithm": algorithm,
         "environment": env,

@@ -61,7 +61,6 @@ def make(cfg):
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
     env = GroupedAutoReset(env, num_steps=time_limit)
-    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
         feature_extractor=View(sizes=sizes),
@@ -81,4 +80,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

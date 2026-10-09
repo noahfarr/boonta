@@ -7,12 +7,13 @@ import lox
 from flax import struct
 
 from boonta.algorithms import Algorithm
+from boonta.curricula.curriculum import within
 from boonta.algorithms.advantage_estimators import \
     generalized_advantage_estimation
 from boonta.algorithms.wrappers.wrapper import Wrapper as AlgorithmWrapper
 from boonta.algorithms.wrappers.wrapper import \
     WrapperState as AlgorithmWrapperState
-from boonta.environments.wrappers import Wrapper, WrapperState
+from boonta.environments.wrappers import UED, Wrapper, WrapperState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
 from boonta.utils.typing import Environment
@@ -342,7 +343,7 @@ def plr(
 ) -> tuple[Graded, LevelBuffer, Pit, Lap]:
     staging = environment.num_envs
     slots = capacity + staging
-    environment = LevelBuffer(environment, capacity, staging, sample)
+    environment = LevelBuffer(UED(environment), capacity, staging, sample)
     algorithm = Graded(
         algorithm,
         slots=slots,
@@ -353,8 +354,16 @@ def plr(
     )
 
     def pit(state):
-        buffer = state.environment_state
         tally = state.algorithm_state.tally
+        return state.replace(
+            environment_state=within(
+                state.environment_state,
+                LevelBufferState,
+                lambda buffer: refill(buffer, tally),
+            )
+        )
+
+    def refill(buffer, tally):
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
@@ -431,6 +440,6 @@ def plr(
             theta=levels,
             assign=assignment,
         )
-        return state.replace(environment_state=buffer)
+        return buffer
 
     return algorithm, environment, pit, lambda state: state

@@ -12,7 +12,6 @@ from boonta.networks import (ActorCritic, Categorical, FeatureExtractor,
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     space = env.action_space()
     if jnp.issubdtype(space.dtype, jnp.integer):
@@ -45,4 +44,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

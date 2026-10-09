@@ -28,18 +28,17 @@ def make(cfg):
 
 ## What make(cfg) returns
 
-A dict that is splatted into the podracer's `make`. `algorithm` and `environment` are always there. Any other key becomes a podracer argument: `dataset` for `quadinaros`, and `pit` or `lap` for a recipe that hooks into the loop. See [podracers](../../boonta/podracers/README.md).
+A dict that is splatted into the podracer's `make`. `algorithm`, `environment`, `pit` and `lap` are always there; `pit` and `lap` come from the curriculum. Any other key becomes a podracer argument, such as `dataset` for `quadinaros`. See [podracers](../../boonta/podracers/README.md).
 
 ## A recipe, step by step
 
 [`ppo_minatar.py`](ppo_minatar.py) is a whole recipe in 50 lines.
 
-1. Build the environment from its config and wrap it. The action count is read before `Vectorize`, which adds a batch axis.
+1. Build the environment from its config, add the auto-reset and vectorize it. The action count is read before `Vectorize`, which adds a batch axis.
 
    ```python
    env = environments.make(**cfg.environment)
    env = SameStepAutoReset(env)
-   env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
    num_actions = env.action_space().num_actions
 
@@ -72,17 +71,22 @@ A dict that is splatted into the podracer's `make`. `algorithm` and `environment
 3. Build the algorithm. `instantiate(cfg.algorithm)` makes the config dataclass named in `hangar/config/algorithm/ppo.yaml`. The optimizer is built here from `cfg.optimizer`.
 
    ```python
-   return {
-       "algorithm": PPO(
-           cfg=instantiate(cfg.algorithm),
-           network=network,
-           optimizer=optax.chain(
-               optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-               optax.adam(cfg.optimizer.lr),
-           ),
+   algorithm = PPO(
+       cfg=instantiate(cfg.algorithm),
+       network=network,
+       optimizer=optax.chain(
+           optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+           optax.adam(cfg.optimizer.lr),
        ),
-       "environment": env,
-   }
+   )
+   ```
+
+4. Apply the curriculum, then the wrappers that record or reshape what the agent experiences. The curriculum always gets a vectorized, auto-resetting environment and only wraps the outside, so the statistics see the levels it chose.
+
+   ```python
+   algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+   env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+   return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
    ```
 
 A learning rate that anneals comes from `learning_rate(cfg, batch_size)` in [`schedules.py`](schedules.py). Recipes do not build their own cosine schedule; a test checks this.

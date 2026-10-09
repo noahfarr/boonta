@@ -6,11 +6,16 @@ from flax import struct
 
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
+from boonta.curricula import plr, within
 from boonta.curricula.plr import (Graded, LevelBufferState, admit, draw,
                                   maximum_monte_carlo, positive_value_loss,
                                   rank, rescore, stale, tally, weigh)
+from boonta.environments.wrappers import (UED, RecordEpisodeStatistics,
+                                          SameStepAutoReset, UEDState,
+                                          Vectorize)
 from boonta.networks import ActorCritic, Network
-from boonta.utils import Timestep, Transition
+from boonta.podracers import anakin
+from boonta.utils import Timestep, Transition, mesh
 from dummies import Dial
 
 
@@ -223,3 +228,45 @@ def test_exploratory_plr_trains_after_a_fresh_rollout_too():
 def test_the_cut_that_opens_a_rollout_is_never_scored():
     updated, _ = moved(robust=True, theta=2)
     np.testing.assert_array_equal(updated.tally.episodes, [0, 0, 4])
+
+
+class Blink(Dial):
+    def step(self, key, state, action):
+        state, timestep = super().step(key, state, action)
+        return state, timestep.replace(terminated=state.clock >= 2.0)
+
+
+def test_within_changes_only_the_state_of_its_kind_beneath_outer_wrappers():
+    environment = RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(Dial()), 4)))
+    state, _ = environment.init(jax.random.key(0))
+    changed = within(state, UEDState, lambda inner: inner.replace(restarting=jnp.bool_(True)))
+    assert bool(changed.env_state.restarting)
+    np.testing.assert_array_equal(changed.episode_returns, state.episode_returns)
+
+
+def test_plr_fills_its_buffer_beneath_the_episode_statistics():
+    algorithm = graded(robust=True).algorithm
+    environment = Vectorize(SameStepAutoReset(Blink()), 8)
+    algorithm, environment, pit, lap = plr(
+        algorithm,
+        environment,
+        capacity=4,
+        replay_probability=0.5,
+        staleness=0.3,
+        temperature=1.0,
+        minimum_fill=0.5,
+        robust=True,
+        gamma=0.99,
+        gae_lambda=0.95,
+        sample=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),
+    )
+    environment = RecordEpisodeStatistics(environment)
+    config = anakin.AnakinConfig(num_envs=8, num_steps=8, mesh=mesh(1))
+    podracer = anakin.make(config, algorithm, environment, pit, lap)
+    state = podracer.init(jax.random.key(0))
+    state, logs = podracer.train(state, jax.random.key(1), 6)
+    sizes = np.asarray(logs["plr/levels/size"])
+    assert sizes.ravel()[-1] == 4
+    assert np.asarray(logs["plr/levels/replaying"]).any()
+    played = np.asarray(state.environment_state.env_state.env_state.playing)
+    assert np.all(played >= 0)

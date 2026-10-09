@@ -22,7 +22,6 @@ def make(cfg):
     env = OptimisticAutoReset(
         env, num_envs=cfg.environment.num_envs, ratio=cfg.environment.reset_ratio
     )
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
         feature_extractor=FeatureExtractor(
@@ -68,4 +67,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

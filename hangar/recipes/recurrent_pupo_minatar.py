@@ -27,7 +27,6 @@ def make(cfg):
     if linear:
         env = FlattenObservation(env)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     num_actions = env.action_space().num_actions
     hidden_dim = cfg.cell.features
@@ -90,4 +89,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

@@ -24,7 +24,6 @@ def make(cfg):
         num_steps=cfg.podracer.config.num_steps,
         group_size=cfg.algorithm.group_size,
     )
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     network = Network(
         feature_extractor=FeatureExtractor(
@@ -52,4 +51,5 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

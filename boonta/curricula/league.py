@@ -1,6 +1,7 @@
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.psro import PSRO, Member
-from boonta.environments.wrappers import Opponent
+from boonta.curricula.curriculum import within
+from boonta.environments.wrappers import Opponent, OpponentState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils.typing import Environment
 
@@ -38,8 +39,11 @@ def league(
     dress = deal(environment, learners, psro.names, **table)
 
     def pit(state):
-        seated = environment.update(
-            state.environment_state, opponents=psro.opponents(state.algorithm_state)
+        opponents = psro.opponents(state.algorithm_state)
+        seated = within(
+            state.environment_state,
+            OpponentState,
+            lambda inner: environment.update(inner, opponents=opponents),
         )
         return dress(state.replace(environment_state=seated))
 

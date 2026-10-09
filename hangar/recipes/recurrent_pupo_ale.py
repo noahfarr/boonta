@@ -35,9 +35,6 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     hidden_dim = cfg.cell.features
 
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    env = RecordRestartStatistics(env)
-
     network = Network(
         feature_extractor=FeatureExtractor(
             observation_extractor=Ram(features=hidden_dim, dtype=dtype),
@@ -77,4 +74,6 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = RecordRestartStatistics(env)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

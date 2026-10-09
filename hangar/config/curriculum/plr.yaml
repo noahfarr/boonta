@@ -1,6 +1,5 @@
 _target_: boonta.curricula.plr
 _partial_: true
-ued: true
 capacity: 4000
 replay_probability: 0.5
 staleness: 0.3
