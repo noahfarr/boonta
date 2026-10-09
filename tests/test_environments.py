@@ -1,3 +1,4 @@
+import importlib.util
 from functools import partial
 
 import jax
@@ -636,6 +637,142 @@ def test_the_set_of_theta_stays_replicated_inside_a_sharded_state():
     assert jax.tree.leaves(axes.theta, is_leaf=lambda leaf: leaf is None) == [None]
     assert axes.weights is None
     assert axes.playing == "data"
+
+
+JAXUED = pytest.mark.skipif(
+    importlib.util.find_spec("jaxued") is None, reason="needs jaxued"
+)
+
+CORRIDOR = """
+.....
+#####
+.>.G.
+#####
+.....
+"""
+
+
+def maze(**kwargs):
+    from boonta import environments
+
+    return environments.make("jaxued", "Maze", kwargs=kwargs)
+
+
+def corridor():
+    from jaxued.environments.maze import Level
+
+    return Level.from_str(CORRIDOR).pad_to_shape(13, 13)
+
+
+def same_leaves(left, right):
+    left, right = jax.tree.leaves(left), jax.tree.leaves(right)
+    assert len(left) == len(right)
+    for seen, shown in zip(left, right):
+        np.testing.assert_array_equal(seen, shown)
+
+
+MAZES = [
+    pytest.param(maze, id="maze"),
+    pytest.param(lambda: UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS)), id="recipe_stack"),
+    pytest.param(
+        lambda: RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))),
+        id="recipe_stack_with_statistics",
+    ),
+]
+
+
+@JAXUED
+@pytest.mark.parametrize("build", MAZES)
+def test_the_maze_observes_what_it_emits_through_every_wrapper(build):
+    environment = build()
+    state, timestep = environment.init(jax.random.key(0))
+    same_leaves(environment.observe(state), timestep.obs)
+    state, timestep = environment.step(jax.random.key(1), state, jnp.zeros_like(timestep.action) + 2)
+    same_leaves(environment.observe(state), timestep.obs)
+
+
+@JAXUED
+def test_the_maze_steps_into_the_state_it_was_given():
+    environment = maze()
+    state, timestep = environment.init(jax.random.key(0))
+    stepped, _ = environment.step(jax.random.key(1), state, timestep.action)
+    assert jax.tree.structure(stepped) == jax.tree.structure(state)
+    for after, before in zip(jax.tree.leaves(stepped), jax.tree.leaves(state)):
+        assert after.dtype == before.dtype and after.shape == before.shape
+
+
+@JAXUED
+def test_an_update_with_a_level_restarts_the_maze_at_that_level():
+    environment = maze()
+    state, _ = environment.init(jax.random.key(0))
+    state, _ = environment.step(jax.random.key(1), state, jnp.int32(2))
+    level = corridor()
+    assert environment.update(state, setting=7.0) is state
+
+    started = environment.update(state, theta=level)
+    np.testing.assert_array_equal(started.wall_map, level.wall_map)
+    np.testing.assert_array_equal(started.agent_pos, level.agent_pos)
+    np.testing.assert_array_equal(started.agent_dir, level.agent_dir)
+    np.testing.assert_array_equal(started.goal_pos, level.goal_pos)
+    assert int(started.time) == 0 and not bool(started.terminal)
+    obs, _ = environment._env.reset_to_level(jax.random.key(2), level, environment._params)
+    same_leaves(environment.observe(started), {"image": obs.image, "agent_dir": obs.agent_dir})
+
+
+@JAXUED
+def test_a_level_reaches_the_maze_through_the_recipe_stack():
+    from boonta.environments.jaxued import maze_generator
+
+    environment = UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))
+    state, _ = environment.init(jax.random.key(0))
+    levels = jax.vmap(maze_generator())(jax.random.split(jax.random.key(1), 3))
+    state = environment.update(state, theta=levels, weights=jnp.zeros(3))
+    assignment = jnp.arange(NUM_ENVS) % 3
+    state = environment.update(state, assign=assignment)
+    turn = jnp.zeros(NUM_ENVS, jnp.int32)
+    state, (cut, after) = play(environment, state, [turn, turn])
+    np.testing.assert_array_equal(cut.truncated, True)
+    np.testing.assert_array_equal(after.info["theta"], assignment)
+    games = state.env_state
+    np.testing.assert_array_equal(games.wall_map, np.asarray(levels.wall_map)[assignment])
+    np.testing.assert_array_equal(games.goal_pos, np.asarray(levels.goal_pos)[assignment])
+    np.testing.assert_array_equal(games.time, 1)
+
+
+@JAXUED
+def test_the_maze_terminates_at_the_goal_and_truncates_at_its_time_limit():
+    environment = maze(max_steps_in_episode=3)
+    level = corridor()
+    state = environment.update(environment.init(jax.random.key(0))[0], theta=level)
+
+    _, (first, second) = play(environment, state, [jnp.int32(2), jnp.int32(2)])
+    assert not bool(first.done)
+    assert bool(second.terminated) and not bool(second.truncated)
+    assert float(second.reward) > 0
+
+    _, timesteps = play(environment, state, [jnp.int32(0)] * 3)
+    assert [bool(timestep.done) for timestep in timesteps] == [False, False, True]
+    assert bool(timesteps[-1].truncated) and not bool(timesteps[-1].terminated)
+
+    environment = maze(max_steps_in_episode=2)
+    _, (_, last) = play(environment, state, [jnp.int32(2), jnp.int32(2)])
+    assert bool(last.terminated) and not bool(last.truncated)
+
+
+@JAXUED
+def test_the_maze_generator_and_mutator_make_levels_the_maze_plays():
+    from boonta.environments.jaxued import maze_generator, maze_mutator
+
+    level = maze_generator()(jax.random.key(0))
+    mutated = maze_mutator()(jax.random.key(1), level)
+    assert jax.tree.structure(mutated) == jax.tree.structure(level)
+    assert bool(level.is_well_formatted()) and bool(mutated.is_well_formatted())
+    assert not np.array_equal(mutated.wall_map, level.wall_map) or not np.array_equal(
+        mutated.goal_pos, level.goal_pos
+    )
+    environment = maze()
+    state = environment.update(environment.init(jax.random.key(2))[0], theta=mutated)
+    np.testing.assert_array_equal(state.wall_map, mutated.wall_map)
 
 
 def test_rival_parameters_stay_replicated_inside_a_sharded_state():

@@ -1,0 +1,28 @@
+# @package _global_
+
+total_timesteps: 245_760_000
+
+environment:
+  num_envs: 32
+
+rollout:
+  num_steps: 256
+
+cell:
+  _target_: flax.linen.OptimizedLSTMCell
+  features: 256
+
+algorithm:
+  num_minibatches: 1
+  update_epochs: 5
+  clip_coefficient: 0.2
+  clip_value_loss: true
+  entropy_coefficient: 1e-3
+  value_coefficient: 0.5
+  gamma: 0.995
+  gae_lambda: 0.98
+  normalize_advantage: true
+
+optimizer:
+  lr: 1e-4
+  max_grad_norm: 0.5
