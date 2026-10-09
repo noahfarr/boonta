@@ -381,9 +381,9 @@ def test_the_leaderboard_reports_the_leading_member_on_evaluation_episodes():
 
     metrics = Leaderboard().craft(podracer.algorithm, podracer.environment, state, logs).data
 
-    assert metrics["pbt/evaluation/best_return"] == 5.0
-    assert metrics["pbt/evaluation/mean"] == pytest.approx(2.0)
-    assert metrics["pbt/evaluation/spread"] == pytest.approx(np.std([0, 1, 5, 2]))
+    assert metrics["leaderboard/best_return"] == 5.0
+    assert metrics["leaderboard/mean"] == pytest.approx(2.0)
+    assert metrics["leaderboard/spread"] == pytest.approx(np.std([0, 1, 5, 2]))
     training = {**logs, f"pbt/member_0/{MULTIPLIER}": np.ones(3)}
     assert Leaderboard().craft(podracer.algorithm, podracer.environment, state, training).data == {}
 
@@ -416,4 +416,4 @@ def test_pbt_raises_a_learning_rate_too_small_to_solve_the_task():
     multipliers = read_hyperparameters(trained.algorithm, state.algorithm_state)[MULTIPLIER]
     assert float(multipliers.min()) > 1.0
     metrics = Leaderboard().craft(trained.algorithm, trained.environment, state, logs).data
-    assert metrics["pbt/evaluation/best_return"] >= environment.solved
+    assert metrics["leaderboard/best_return"] >= environment.solved

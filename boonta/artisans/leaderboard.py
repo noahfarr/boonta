@@ -10,7 +10,7 @@ from .artifact import Metrics
 
 @dataclass
 class Leaderboard:
-    name: str = "pbt"
+    name: str = "leaderboard"
     key: str = "episode_statistics/episode_return"
 
     def craft(self, algorithm, environment, state, logs) -> Metrics:
@@ -29,8 +29,8 @@ class Leaderboard:
         return Metrics(
             self.name,
             {
-                "pbt/evaluation/best_return": np.take(member_returns, leader),
-                "pbt/evaluation/mean": np.nanmean(member_returns),
-                "pbt/evaluation/spread": np.nanstd(member_returns),
+                f"{self.name}/best_return": np.take(member_returns, leader),
+                f"{self.name}/mean": np.nanmean(member_returns),
+                f"{self.name}/spread": np.nanstd(member_returns),
             },
         )
