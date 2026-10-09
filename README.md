@@ -27,9 +27,9 @@
 | --- | --- |
 | On-policy | [PPO](https://arxiv.org/abs/1707.06347), [REPPO](https://arxiv.org/abs/2507.11019), [PQN](https://arxiv.org/abs/2407.04811), [GRPO](https://arxiv.org/abs/2402.03300) |
 | Off-policy | [DQN](https://arxiv.org/abs/1312.5602), [SAC](https://arxiv.org/abs/1801.01290) |
-| Offline | [IQL](https://arxiv.org/abs/2110.06169) |
-| Recurrent | [PPO](https://arxiv.org/abs/1707.06347), [PuPO](https://github.com/PufferAI/PufferLib), [PQN](https://arxiv.org/abs/2407.04811), [GRPO](https://arxiv.org/abs/2402.03300), [DQN](https://arxiv.org/abs/1312.5602), [SAC](https://arxiv.org/abs/1801.01290) |
-| Multi-agent | [IPPO](https://arxiv.org/abs/2011.09533), [MAPPO](https://arxiv.org/abs/2103.01955), [PSRO](https://arxiv.org/abs/1711.00832) |
+| Offline | Behavior cloning, [IQL](https://arxiv.org/abs/2110.06169) |
+| Recurrent | [PPO](https://arxiv.org/abs/1707.06347), [PuPO](https://github.com/PufferAI/PufferLib), [PQN](https://arxiv.org/abs/2407.04811), [GRPO](https://arxiv.org/abs/2402.03300), [DQN](https://arxiv.org/abs/1312.5602), [SAC](https://arxiv.org/abs/1801.01290), behavior cloning |
+| Multi-agent | [IPPO](https://arxiv.org/abs/2011.09533), [MAPPO](https://arxiv.org/abs/2103.01955), [MMD](https://arxiv.org/abs/2206.05825), [PSRO](https://arxiv.org/abs/1711.00832) |
 
 ## Environments
 
@@ -39,9 +39,11 @@
 | Continuous control | [Brax](https://github.com/google/brax), [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground), [Isaac Lab](https://github.com/isaac-sim/IsaacLab) |
 | Grid worlds and puzzles | [Jumanji](https://github.com/instadeepai/jumanji), [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) |
 | Open-ended | [Craftax](https://github.com/MichaelTMatthews/Craftax) |
+| Levels for curricula | [Kinetix](https://github.com/FLAIROx/Kinetix), [JaxUED](https://github.com/DramaCow/jaxued) mazes and control tasks |
 | Atari | [ALE](https://github.com/Farama-Foundation/Arcade-Learning-Environment) |
-| Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox) |
-| Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) |
+| Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox), [ConnectX](https://www.kaggle.com/competitions/connectx) |
+| Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB), Wordle |
+| Anything in Python | [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments |
 
 ## Curricula
 
