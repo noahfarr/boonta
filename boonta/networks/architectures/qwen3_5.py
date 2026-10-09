@@ -12,7 +12,8 @@ from ..blocks import (GLU, Block, GatedDeltaNet, LinearAttention, OutputGate,
 
 class Qwen3_5Layer(Block):
     features: int
-    layer_type: str
+    index: int
+    attention_interval: int
     num_heads: int
     num_groups: int
     head_dim: int
@@ -32,7 +33,7 @@ class Qwen3_5Layer(Block):
 
     @nn.nowrap
     def mixer(self) -> Block:
-        if self.layer_type == "full_attention":
+        if (self.index + 1) % self.attention_interval == 0:
             return SelfAttention(
                 features=self.features,
                 num_heads=self.num_heads,
@@ -62,24 +63,22 @@ class Qwen3_5Layer(Block):
                 param_dtype=self.param_dtype,
                 name="attention",
             )
-        if self.layer_type == "linear_attention":
-            return LinearAttention(
-                cell=GatedDeltaNet(
-                    features=self.features,
-                    num_heads=self.linear_num_heads,
-                    num_value_heads=self.linear_num_value_heads,
-                    head_dim=self.linear_head_dim,
-                    value_head_dim=self.linear_value_head_dim,
-                    kernel_size=self.kernel_size,
-                    epsilon=self.epsilon,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    parent=None,
-                ),
-                chunk_size=self.chunk_size,
-                name="linear_attention",
-            )
-        raise ValueError(f"unknown layer type {self.layer_type!r}")
+        return LinearAttention(
+            cell=GatedDeltaNet(
+                features=self.features,
+                num_heads=self.linear_num_heads,
+                num_value_heads=self.linear_num_value_heads,
+                head_dim=self.linear_head_dim,
+                value_head_dim=self.linear_value_head_dim,
+                kernel_size=self.kernel_size,
+                epsilon=self.epsilon,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                parent=None,
+            ),
+            chunk_size=self.chunk_size,
+            name="linear_attention",
+        )
 
     @nn.compact
     def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
@@ -104,7 +103,7 @@ class Qwen3_5Layer(Block):
 
 class Qwen3_5(Block):
     features: int
-    layer_types: tuple[str, ...]
+    num_layers: int
     num_heads: int
     num_groups: int
     head_dim: int
@@ -115,6 +114,7 @@ class Qwen3_5(Block):
     linear_num_value_heads: int
     linear_head_dim: int
     linear_value_head_dim: int
+    attention_interval: int = 4
     kernel_size: int = 4
     chunk_size: int = 64
     hidden_dim: int | None = None
@@ -122,15 +122,12 @@ class Qwen3_5(Block):
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
 
-    @property
-    def num_layers(self) -> int:
-        return len(self.layer_types)
-
     @nn.nowrap
     def layer(self, index: int, cls=Qwen3_5Layer, name: str | None = None) -> Qwen3_5Layer:
         return cls(
             features=self.features,
-            layer_type=self.layer_types[index],
+            index=index,
+            attention_interval=self.attention_interval,
             num_heads=self.num_heads,
             num_groups=self.num_groups,
             head_dim=self.head_dim,

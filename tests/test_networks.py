@@ -494,7 +494,8 @@ def reference_qwen3_5():
 def qwen3_5_from(config, context_length):
     return Qwen3_5(
         features=config.hidden_size,
-        layer_types=tuple(config.layer_types),
+        num_layers=config.num_hidden_layers,
+        attention_interval=config.layer_types.index("full_attention") + 1,
         num_heads=config.num_attention_heads,
         num_groups=config.num_key_value_heads,
         head_dim=config.head_dim,

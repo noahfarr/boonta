@@ -94,7 +94,8 @@ def gated_delta_net(dtype=None):
 def qwen3_5(dtype=None):
     return Qwen3_5(
         features=WIDTH,
-        layer_types=("linear_attention", "full_attention"),
+        num_layers=2,
+        attention_interval=2,
         num_heads=2,
         num_groups=1,
         head_dim=8,
