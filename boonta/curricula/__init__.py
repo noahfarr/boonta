@@ -5,6 +5,7 @@ from boonta.podracers.podracer import Lap, Pit
 
 from .curriculum import Curriculum
 from .league import league
+from .pbt import pbt
 from .plr import maximum_monte_carlo, plr, positive_value_loss
 
 
@@ -18,6 +19,7 @@ __all__ = [
     "Curriculum",
     "default",
     "league",
+    "pbt",
     "maximum_monte_carlo",
     "plr",
     "positive_value_loss",
