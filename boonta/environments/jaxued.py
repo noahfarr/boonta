@@ -102,17 +102,10 @@ def maze_generator(
     return make_level_generator(height, width, n_walls)
 
 
-def maze_mutator(
-    max_num_edits: int = 100, num_edits: int = 5
-) -> Callable[[Key, PyTree], PyTree]:
+def maze_mutator(max_num_edits: int = 100) -> Callable[[Key, PyTree, int], PyTree]:
     from jaxued.environments.maze import make_level_mutator_minimax
 
-    mutate = make_level_mutator_minimax(max_num_edits)
-
-    def edit_level(key: Key, level: PyTree) -> PyTree:
-        return mutate(key, level, num_edits)
-
-    return edit_level
+    return make_level_mutator_minimax(max_num_edits)
 
 
 def make(
