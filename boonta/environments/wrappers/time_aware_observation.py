@@ -28,6 +28,9 @@ class TimeAwareObservation(Wrapper):
         feature = time / self.max_steps - 0.5
         return jnp.concatenate([obs, feature[None].astype(obs.dtype)])
 
+    def observe(self, state: TimeAwareObservationState) -> Array:
+        return self.append_time(self._env.observe(state.env_state), state.time)
+
     def init(
         self, key: Key
     ) -> tuple[TimeAwareObservationState, Timestep]:

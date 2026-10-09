@@ -154,6 +154,9 @@ class Team(Environment):
     def action_mask(self, state):
         return jax.vmap(self.environment.action_mask)(state)
 
+    def observe(self, state):
+        return jax.vmap(self.environment.observe)(state)
+
 
 @struct.dataclass(frozen=True)
 class DialState:
@@ -202,8 +205,14 @@ class Dial(Environment):
     def action_mask(self, state: DialState) -> jax.Array:
         return jnp.stack([state.setting > 0, state.setting <= 0], axis=-1)
 
-    def update(self, state: DialState, setting: jax.Array) -> DialState:
-        return state.replace(setting=jnp.full_like(state.setting, setting))
+    def update(
+        self, state: DialState, setting: jax.Array = None, theta: jax.Array = None
+    ) -> DialState:
+        if setting is not None:
+            state = state.replace(setting=jnp.full_like(state.setting, setting))
+        if theta is not None:
+            state = state.replace(clock=jnp.zeros_like(state.clock), params=theta)
+        return state
 
     def expert(self, state: DialState) -> jax.Array:
         return jnp.int32(0)

@@ -1,0 +1,13 @@
+_target_: boonta.curricula.plr
+_partial_: true
+capacity: 4000
+replay_probability: 0.5
+staleness: 0.3
+temperature: 1.0
+minimum_fill: 0.5
+robust: true
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+score:
+  _target_: boonta.curricula.positive_value_loss
+  _partial_: true

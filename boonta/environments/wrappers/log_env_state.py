@@ -25,3 +25,6 @@ class LogEnvState(Wrapper):
 
     def action_mask(self, state):
         return self._env.action_mask(state)
+
+    def observe(self, state):
+        return self._env.observe(state)

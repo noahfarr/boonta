@@ -72,6 +72,10 @@ class NormalizeObservation(Wrapper):
             normalize_leaf, obs, batch_mean, variance
         )
 
+    def observe(self, state: NormalizeObservationState) -> PyTree:
+        obs = self._env.observe(state.env_state)
+        return self.normalize(obs, state.mean, state.m2, state.count)
+
     def init(
         self, key: Key
     ) -> tuple[NormalizeObservationState, Timestep]:

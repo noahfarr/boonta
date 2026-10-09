@@ -18,7 +18,6 @@ def make(cfg):
 
     env = SameStepAutoReset(env)
     env = Stagger(env, spread=cfg.environment.kwargs.size)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
 
     network = Network(
@@ -38,14 +37,15 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": PPO(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(cfg.optimizer.lr),
-            ),
+    algorithm = PPO(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(cfg.optimizer.lr),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

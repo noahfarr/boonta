@@ -139,5 +139,8 @@ class MCP(Wrapper):
     def action_mask(self, state: MCPState) -> Array:
         return jnp.ones((*self._action_shape, self._vocab_size), dtype=bool)
 
+    def observe(self, state: MCPState) -> Array:
+        raise NotImplementedError
+
     def time_limit(self) -> int:
         return int(self._env.time_limit()) * self._tokens_per_call

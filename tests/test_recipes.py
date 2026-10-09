@@ -132,6 +132,7 @@ CASES = [
     ("bc", HOPPER, installed("brax"), hopper_pool),
     ("iql", HOPPER, installed("brax"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
+    ("ppo", "kinetix/kinetix", installed("kinetix"), False),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
@@ -322,6 +323,22 @@ def test_kinetix_evaluation_reports_a_success_rate():
     finished = rates[~np.isnan(rates)]
     assert finished.size
     assert np.all(np.isin(finished, [0.0, 1.0]))
+
+
+@KINETIX
+def test_kinetix_restarts_at_the_level_it_is_given_and_observes_it():
+    _, env = kinetix_environment()
+    state, _ = env.init(jax.random.key(0))
+    level, timestep = env.init(jax.random.key(1))
+    assert any(
+        not np.array_equal(left, right)
+        for left, right in zip(jax.tree.leaves(state), jax.tree.leaves(level))
+    )
+    state = env.update(state, theta=level)
+    for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(level)):
+        np.testing.assert_array_equal(started, given)
+    for seen, shown in zip(jax.tree.leaves(env.observe(state)), jax.tree.leaves(timestep.obs)):
+        np.testing.assert_array_equal(seen, shown)
 
 
 @KINETIX

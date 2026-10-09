@@ -218,10 +218,7 @@ def make(cfg):
         spec["kwargs"]["levels"] = bank
     env = environments.make(**spec)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env)
-    env = Scored(env)
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = Dressed(env, static)
 
     network = Network(
         feature_extractor=Entities(
@@ -247,15 +244,23 @@ def make(cfg):
         cfg, batch_size=dataset.batch_size * dataset.length
     )
 
-    return {
-        "algorithm": RecurrentBC(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(learning_rate),
-            ),
+    algorithm = RecurrentBC(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(learning_rate),
         ),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env)
+    env = Scored(env)
+    env = Dressed(env, static)
+    return {
+        "algorithm": algorithm,
         "environment": env,
         "dataset": dataset,
+        "pit": pit,
+        "lap": lap,
     }

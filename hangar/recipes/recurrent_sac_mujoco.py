@@ -13,7 +13,6 @@ from boonta.networks.layers import Identity, Parameter
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     action_dim, *_ = env.action_space().shape
 
@@ -58,16 +57,17 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": RecurrentSAC(
-            cfg=instantiate(cfg.algorithm, target_entropy=-float(action_dim)),
-            actor=actor,
-            critic=critic,
-            alpha=Parameter(),
-            buffer=instantiate(cfg.buffer),
-            actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
-            critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
-            alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
-        ),
-        "environment": env,
-    }
+    algorithm = RecurrentSAC(
+        cfg=instantiate(cfg.algorithm, target_entropy=-float(action_dim)),
+        actor=actor,
+        critic=critic,
+        alpha=Parameter(),
+        buffer=instantiate(cfg.buffer),
+        actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
+        critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
+        alpha_optimizer=optax.adam(cfg.optimizer.alpha_lr),
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

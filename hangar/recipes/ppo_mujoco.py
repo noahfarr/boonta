@@ -12,7 +12,6 @@ from boonta.networks import ActorCritic, FeatureExtractor, Gaussian, Network
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = SameStepAutoReset(env)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     action_dim, *_ = env.action_space().shape
 
@@ -35,14 +34,15 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": PPO(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(cfg.optimizer.lr),
-            ),
+    algorithm = PPO(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(cfg.optimizer.lr),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

@@ -12,12 +12,8 @@ from boonta.networks.layers import Identity
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
 
     action_dim, *_ = env.action_space().shape
-
-    env = ClipAction(env)
-    env = NormalizeObservation(env)
 
     network = Network(
         feature_extractor=FeatureExtractor(observation_extractor=Identity()),
@@ -49,14 +45,17 @@ def make(cfg):
         ),
     )
 
-    return {
-        "algorithm": PPO(
-            cfg=instantiate(cfg.algorithm),
-            network=network,
-            optimizer=optax.chain(
-                optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-                optax.adam(cfg.optimizer.lr),
-            ),
+    algorithm = PPO(
+        cfg=instantiate(cfg.algorithm),
+        network=network,
+        optimizer=optax.chain(
+            optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
+            optax.adam(cfg.optimizer.lr),
         ),
-        "environment": env,
-    }
+    )
+
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = ClipAction(env)
+    env = NormalizeObservation(env)
+    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
