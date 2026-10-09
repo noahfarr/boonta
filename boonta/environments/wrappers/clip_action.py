@@ -17,8 +17,8 @@ class ClipAction(Wrapper):
         state, timestep = self._env.step(key, state, jnp.clip(action, low, high))
         return state, timestep.replace(action=action)
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)

@@ -6,7 +6,7 @@ An environment is a game the agent plays. Every environment, whether it is writt
 | --- | --- |
 | `init(key)` | starts an episode and returns `(state, timestep)` |
 | `step(key, state, action)` | advances one step and returns `(state, timestep)` |
-| `update(state, **kwargs)` | changes settings inside a running state |
+| `update(state, key, **kwargs)` | changes settings inside a running state |
 | `observe(state)` | the observation of a state (raises unless the game supports it) |
 | `close(state)` | frees anything the state holds outside JAX |
 | `observation_space()`, `action_space()` | describe the shapes, as a [`Space`](spaces.py) |
@@ -29,7 +29,9 @@ Podracers never call `init` in the middle of training, so a finished episode mus
 
 ## Free parameters
 
-A game with free parameters, such as Kinetix's levels, takes `update(state, theta=...)`. It means "play this theta from its start": it starts a new episode, while every other `update` keyword changes settings without ending one. [`UED`](wrappers/ued.py) marks the boundary. It takes the first observation from `observe` and truncates the step it cuts.
+A game with free parameters, such as Kinetix's levels, takes `update(state, key, theta=...)`. It means "play this theta from its start": it starts a new episode, while every other `update` keyword changes settings without ending one. [`UED`](wrappers/ued.py) marks the boundary. It takes the first observation from `observe` and truncates the step it cuts.
+
+`update` always takes a key, right after the state. A game that needs randomness to start a theta, such as a pole whose first angle is drawn, uses it, and every other game ignores it. [`Vectorize`](wrappers/vectorize.py) passes the state, the key and the settings straight to the game, unvmapped, and [`UED`](wrappers/ued.py) vmaps over the environments itself with one key and one theta each. A caller passes a key it already holds. A `pit` is handed no key, so it derives one from its state: PLR folds its level buffer's key, and the league folds the step count into a fixed key.
 
 ## Wrappers
 
@@ -47,8 +49,8 @@ class TransformReward(Wrapper):
         state, timestep = self._env.step(key, state, action)
         return state, timestep.replace(reward=self.fn(timestep.reward))
 
-    def update(self, state, **kwargs):
-        return self._env.update(state, **kwargs)
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
 
     def action_mask(self, state):
         return self._env.action_mask(state)

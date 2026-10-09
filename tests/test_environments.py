@@ -137,7 +137,7 @@ def test_the_stacks_cover_every_wrapper():
 def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     _, timestep = environment.step(jax.random.key(1), state, idle(environment))
     np.testing.assert_array_equal(timestep.info["clock"] > 0, True)
     unwrapped = jax.tree.leaves(state, is_leaf=lambda leaf: hasattr(leaf, "setting"))
@@ -151,7 +151,7 @@ def test_reconfiguration_reaches_the_game_through_every_wrapper(build):
 def test_every_wrapper_shows_the_action_mask_of_the_game(build):
     environment = build()
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     mask = environment.action_mask(state)
     if jnp.issubdtype(environment.action_space().dtype, jnp.integer):
         assert mask.shape[:-1] == idle(environment).shape
@@ -180,7 +180,7 @@ def test_log_flags_passes_reconfiguration_and_the_action_mask_through():
 
     environment = pokemon_red.LogFlags(Dial())
     state, _ = environment.init(jax.random.key(0))
-    state = environment.update(state, setting=7.0)
+    state = environment.update(state, jax.random.key(2), setting=7.0)
     assert float(state.setting) == 7.0
     np.testing.assert_array_equal(environment.action_mask(state), [True, False])
 
@@ -503,7 +503,7 @@ class Duel:
         value, updates = state
         return (value + 1.0, updates), self.timestep(value + 1.0, action)
 
-    def update(self, state, **kwargs):
+    def update(self, state, key, **kwargs):
         value, updates = state
         return value, updates + 1
 
@@ -526,7 +526,7 @@ def test_the_learner_plays_its_seat_against_each_groups_rival():
     state, timestep = environment.init(jax.random.key(0))
     assert environment.num_agents == 1 and timestep.reward.shape == (4,)
 
-    state = environment.update(state, opponents=jnp.array([[1.0], [2.0]]))
+    state = environment.update(state, jax.random.key(2), opponents=jnp.array([[1.0], [2.0]]))
     state, timestep = environment.step(jax.random.key(1), state, jnp.full(4, 5.0))
     np.testing.assert_allclose(state.joint.action[:, 1], [1, 1, 2, 2])
     np.testing.assert_allclose(timestep.reward, [4, 4, 3, 3])
@@ -538,9 +538,9 @@ def test_a_new_rival_starts_from_a_blank_carry_and_other_settings_reach_the_game
     state, _ = play(environment, state, [jnp.zeros(4)] * 3)
     np.testing.assert_allclose(state.carry, 3.0)
 
-    state = environment.update(state, opponents=jnp.array([[1.0], [2.0]]))
+    state = environment.update(state, jax.random.key(2), opponents=jnp.array([[1.0], [2.0]]))
     np.testing.assert_allclose(state.carry, 0.0)
-    _, updates = environment.update(state, decks=None).env_state
+    _, updates = environment.update(state, jax.random.key(3), decks=None).env_state
     assert int(updates) == 1
 
 
@@ -556,7 +556,7 @@ THETA = jnp.array([10.0, 20.0, 30.0])
 def ued(game):
     environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
     state, timestep = environment.init(jax.random.key(0))
-    state = environment.update(state, theta=THETA, weights=jnp.zeros(3))
+    state = environment.update(state, jax.random.key(1), theta=THETA, weights=jnp.zeros(3))
     return environment, state, timestep
 
 
@@ -576,7 +576,7 @@ def test_an_assignment_cuts_every_episode_on_the_next_step_and_starts_each_theta
     environment, state, _ = ued(Dial())
     state, _ = play(environment, state, [idle(environment)] * 2)
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(cut.truncated, True)
     np.testing.assert_array_equal(cut.info["theta"], -1)
@@ -589,7 +589,7 @@ def test_an_assignment_cuts_every_episode_on_the_next_step_and_starts_each_theta
 def test_an_episode_that_ends_replays_its_theta():
     environment, state, _ = ued(Flicker())
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, timesteps = play(environment, state, [idle(environment)] * 4)
     for timestep in timesteps[1:]:
         np.testing.assert_array_equal(timestep.info["theta"], assignment)
@@ -600,7 +600,7 @@ def test_an_episode_that_ends_replays_its_theta():
 def test_only_the_environments_that_finished_are_reset():
     environment, state, _ = ued(Dial())
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     state, (_, second) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(second.obs[:, 0], 1.0)
     np.testing.assert_array_equal(games(state), np.asarray(THETA)[assignment])
@@ -608,7 +608,9 @@ def test_only_the_environments_that_finished_are_reset():
 
 def test_a_restart_draws_each_theta_from_the_weights():
     environment, state, _ = ued(Dial())
-    state = environment.update(state, weights=jnp.array([1.0, 0.0, 3.0]), restart=True)
+    state = environment.update(
+        state, jax.random.key(2), weights=jnp.array([1.0, 0.0, 3.0]), restart=True
+    )
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     drawn = np.asarray(after.info["theta"])
     assert set(np.unique(drawn)) <= {0, 2}
@@ -617,7 +619,7 @@ def test_a_restart_draws_each_theta_from_the_weights():
 
 def test_a_restart_without_weights_leaves_every_game_alone():
     environment, state, _ = ued(Dial())
-    state = environment.update(state, restart=True)
+    state = environment.update(state, jax.random.key(2), restart=True)
     state, (cut, after) = play(environment, state, [idle(environment)] * 2)
     np.testing.assert_array_equal(cut.truncated, False)
     np.testing.assert_array_equal(after.info["theta"], -1)
@@ -671,29 +673,55 @@ def same_leaves(left, right):
         np.testing.assert_array_equal(seen, shown)
 
 
-MAZES = [
+def control(env_id):
+    from boonta import environments
+
+    return lambda: environments.make("jaxued", env_id)
+
+
+GAMES = [
     pytest.param(maze, id="maze"),
-    pytest.param(lambda: UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS)), id="recipe_stack"),
-    pytest.param(
-        lambda: RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))),
-        id="recipe_stack_with_statistics",
-    ),
+    pytest.param(control("CartPole"), id="cartpole"),
+    pytest.param(control("Acrobot"), id="acrobot"),
+    pytest.param(control("Pendulum"), id="pendulum"),
+]
+
+CONTROLS = GAMES[1:]
+
+
+def recipe_stack(game):
+    return lambda: RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(game()), NUM_ENVS)))
+
+
+JAXUED_STACKS = [
+    *GAMES,
+    *[pytest.param(recipe_stack(*param.values), id=f"{param.id}_recipe_stack") for param in GAMES],
 ]
 
 
 @JAXUED
-@pytest.mark.parametrize("build", MAZES)
-def test_the_maze_observes_what_it_emits_through_every_wrapper(build):
+@pytest.mark.parametrize("build", JAXUED_STACKS)
+def test_jaxued_games_observe_what_they_emit_through_every_wrapper(build):
     environment = build()
     state, timestep = environment.init(jax.random.key(0))
     same_leaves(environment.observe(state), timestep.obs)
-    state, timestep = environment.step(jax.random.key(1), state, jnp.zeros_like(timestep.action) + 2)
+    state, timestep = environment.step(jax.random.key(1), state, jnp.zeros_like(timestep.action))
     same_leaves(environment.observe(state), timestep.obs)
 
 
 @JAXUED
-def test_the_maze_steps_into_the_state_it_was_given():
-    environment = maze()
+@pytest.mark.parametrize("build", JAXUED_STACKS)
+def test_reconfiguration_reaches_jaxued_games_through_every_wrapper(build):
+    environment = build()
+    state, _ = environment.init(jax.random.key(0))
+    updated = environment.update(state, jax.random.key(1), setting=7.0)
+    same_leaves(updated, state)
+
+
+@JAXUED
+@pytest.mark.parametrize("build", GAMES)
+def test_jaxued_games_step_into_the_state_they_were_given(build):
+    environment = build()
     state, timestep = environment.init(jax.random.key(0))
     stepped, _ = environment.step(jax.random.key(1), state, timestep.action)
     assert jax.tree.structure(stepped) == jax.tree.structure(state)
@@ -707,9 +735,9 @@ def test_an_update_with_a_level_restarts_the_maze_at_that_level():
     state, _ = environment.init(jax.random.key(0))
     state, _ = environment.step(jax.random.key(1), state, jnp.int32(2))
     level = corridor()
-    assert environment.update(state, setting=7.0) is state
+    assert environment.update(state, jax.random.key(2), setting=7.0) is state
 
-    started = environment.update(state, theta=level)
+    started = environment.update(state, jax.random.key(3), theta=level)
     np.testing.assert_array_equal(started.wall_map, level.wall_map)
     np.testing.assert_array_equal(started.agent_pos, level.agent_pos)
     np.testing.assert_array_equal(started.agent_dir, level.agent_dir)
@@ -726,9 +754,9 @@ def test_a_level_reaches_the_maze_through_the_recipe_stack():
     environment = UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))
     state, _ = environment.init(jax.random.key(0))
     levels = jax.vmap(maze_generator())(jax.random.split(jax.random.key(1), 3))
-    state = environment.update(state, theta=levels, weights=jnp.zeros(3))
+    state = environment.update(state, jax.random.key(2), theta=levels, weights=jnp.zeros(3))
     assignment = jnp.arange(NUM_ENVS) % 3
-    state = environment.update(state, assign=assignment)
+    state = environment.update(state, jax.random.key(2), assign=assignment)
     turn = jnp.zeros(NUM_ENVS, jnp.int32)
     state, (cut, after) = play(environment, state, [turn, turn])
     np.testing.assert_array_equal(cut.truncated, True)
@@ -743,7 +771,9 @@ def test_a_level_reaches_the_maze_through_the_recipe_stack():
 def test_the_maze_terminates_at_the_goal_and_truncates_at_its_time_limit():
     environment = maze(max_steps_in_episode=3)
     level = corridor()
-    state = environment.update(environment.init(jax.random.key(0))[0], theta=level)
+    state = environment.update(
+        environment.init(jax.random.key(0))[0], jax.random.key(1), theta=level
+    )
 
     _, (first, second) = play(environment, state, [jnp.int32(2), jnp.int32(2)])
     assert not bool(first.done)
@@ -764,15 +794,80 @@ def test_the_maze_generator_and_mutator_make_levels_the_maze_plays():
     from boonta.environments.jaxued import maze_generator, maze_mutator
 
     level = maze_generator()(jax.random.key(0))
-    mutated = maze_mutator()(jax.random.key(1), level)
+    mutated = maze_mutator()(jax.random.key(1), level, 5)
     assert jax.tree.structure(mutated) == jax.tree.structure(level)
     assert bool(level.is_well_formatted()) and bool(mutated.is_well_formatted())
     assert not np.array_equal(mutated.wall_map, level.wall_map) or not np.array_equal(
         mutated.goal_pos, level.goal_pos
     )
     environment = maze()
-    state = environment.update(environment.init(jax.random.key(2))[0], theta=mutated)
+    state = environment.update(
+        environment.init(jax.random.key(2))[0], jax.random.key(3), theta=mutated
+    )
     np.testing.assert_array_equal(state.wall_map, mutated.wall_map)
+
+
+@JAXUED
+@pytest.mark.parametrize("build", CONTROLS)
+def test_a_control_level_starts_from_a_state_its_key_draws(build):
+    environment = build()
+    state, _ = environment.init(jax.random.key(0))
+    level = environment._sample(jax.random.key(1))
+    first = environment.update(state, jax.random.key(2), theta=level)
+    again = environment.update(state, jax.random.key(2), theta=level)
+    other = environment.update(state, jax.random.key(3), theta=level)
+    same_leaves(first, again)
+    same_leaves(first.level_params, jax.tree.map(lambda leaf: np.float32(leaf), level))
+    assert int(first.time) == 0
+    assert not np.array_equal(environment.observe(first), environment.observe(other))
+
+
+@JAXUED
+def test_the_maze_starts_a_level_the_same_way_whatever_the_key():
+    environment = maze()
+    state, _ = environment.init(jax.random.key(0))
+    same_leaves(
+        environment.update(state, jax.random.key(1), theta=corridor()),
+        environment.update(state, jax.random.key(2), theta=corridor()),
+    )
+
+
+@JAXUED
+@pytest.mark.parametrize("build", CONTROLS)
+def test_a_control_level_reaches_the_game_through_the_recipe_stack(build):
+    game = build()
+    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
+    state, _ = environment.init(jax.random.key(0))
+    levels = jax.vmap(game._sample)(jax.random.split(jax.random.key(1), 3))
+    state = environment.update(state, jax.random.key(2), theta=levels, weights=jnp.zeros(3))
+    assignment = jnp.arange(NUM_ENVS) % 3
+    state = environment.update(state, jax.random.key(3), assign=assignment)
+    idle = jnp.zeros((NUM_ENVS, *game.action_space().shape), game.action_space().dtype)
+    state, (cut, after) = play(environment, state, [idle, idle])
+    np.testing.assert_array_equal(cut.truncated, True)
+    np.testing.assert_array_equal(after.info["theta"], assignment)
+    same_leaves(
+        state.env_state.level_params,
+        jax.tree.map(lambda leaf: np.asarray(leaf)[assignment], levels),
+    )
+    starts = np.asarray(jax.tree.leaves(state.env_state)[0])
+    assert len(np.unique(starts)) == NUM_ENVS
+
+
+@JAXUED
+def test_a_pole_terminates_when_it_falls_and_a_pendulum_truncates_at_its_time_limit():
+    pole = control("CartPole")()
+    state, _ = pole.init(jax.random.key(0))
+    _, timesteps = play(pole, state, [jnp.int32(0)] * 60)
+    done = [bool(timestep.done) for timestep in timesteps]
+    ended = done.index(True)
+    assert bool(timesteps[ended].terminated) and not bool(timesteps[ended].truncated)
+
+    pendulum = control("Pendulum")()
+    state, _ = pendulum.init(jax.random.key(0))
+    _, timesteps = play(pendulum, state, [jnp.zeros(1)] * pendulum.time_limit())
+    assert not any(bool(timestep.done) for timestep in timesteps[:-1])
+    assert bool(timesteps[-1].truncated) and not bool(timesteps[-1].terminated)
 
 
 def test_rival_parameters_stay_replicated_inside_a_sharded_state():

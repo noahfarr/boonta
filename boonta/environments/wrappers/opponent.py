@@ -101,9 +101,13 @@ class Opponent(Wrapper):
             return None
         return self._seat(jnp.moveaxis(mask, -2, -1))
 
-    def update(self, state: OpponentState, opponents: PyTree = None, **kwargs):
+    def update(
+        self, state: OpponentState, key: Key, opponents: PyTree = None, **kwargs
+    ):
         if kwargs:
-            state = state.replace(env_state=self._env.update(state.env_state, **kwargs))
+            state = state.replace(
+                env_state=self._env.update(state.env_state, key, **kwargs)
+            )
         if opponents is None:
             return state
         params = jax.tree.map(

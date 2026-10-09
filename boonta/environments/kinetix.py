@@ -32,7 +32,7 @@ class Kinetix(Environment):
         )
         return state, timestep
 
-    def update(self, state: Any, theta: Any = None, **kwargs) -> Any:
+    def update(self, state: Any, key: Key, theta: Any = None, **kwargs) -> Any:
         if theta is None:
             return state
         return theta

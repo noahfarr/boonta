@@ -8,7 +8,6 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.jaxued import maze_generator, maze_mutator
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset, Vectorize)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
@@ -69,11 +68,6 @@ def make(cfg):
         ),
     )
 
-    level = cfg.environment.kwargs
-    sample = maze_generator(level.height, level.width, level.n_walls)
-    mutate = maze_mutator(**cfg.environment.mutation)
-    algorithm, env, pit, lap = instantiate(cfg.curriculum)(
-        algorithm, env, sample=sample, mutate=mutate
-    )
+    algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

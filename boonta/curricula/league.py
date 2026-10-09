@@ -41,10 +41,11 @@ def league(
 
     def pit(state):
         opponents = psro.opponents(state.algorithm_state)
+        key = jax.random.fold_in(jax.random.key(0), state.algorithm_state.step)
 
         def seat(node):
             if isinstance(node, OpponentState):
-                return environment.update(node, opponents=opponents)
+                return environment.update(node, key, opponents=opponents)
             return node
 
         seated = jax.tree.map(

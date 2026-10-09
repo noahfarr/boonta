@@ -134,6 +134,9 @@ CASES = [
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "kinetix/kinetix", installed("kinetix"), False),
     ("recurrent_ppo", "jaxued/maze", installed("jaxued"), False),
+    ("recurrent_ppo", "jaxued/cartpole", installed("jaxued"), False),
+    ("recurrent_ppo", "jaxued/acrobot", installed("jaxued"), False),
+    ("recurrent_ppo", "jaxued/pendulum", installed("jaxued"), False),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
@@ -188,6 +191,11 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert accel.environment.num_envs == default.environment.num_envs
     assert accel.curriculum.mutate._target_ == "boonta.environments.kinetix.level_mutator"
     assert configure("ppo", MINATAR, "curriculum=plr").hydra.runtime.choices.hyperparameters == "ppo/gymnax/minatar"
+    maze = configure("recurrent_ppo", "jaxued/maze", "curriculum=plr")
+    assert maze.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/maze/plr"
+    assert maze.environment.num_envs == configure("recurrent_ppo", "jaxued/maze").environment.num_envs
+    cartpole = configure("recurrent_ppo", "jaxued/cartpole", "curriculum=plr")
+    assert cartpole.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/cartpole/plr"
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
@@ -345,7 +353,7 @@ def test_kinetix_restarts_at_the_level_it_is_given_and_observes_it():
         not np.array_equal(left, right)
         for left, right in zip(jax.tree.leaves(state), jax.tree.leaves(level))
     )
-    state = env.update(state, theta=level)
+    state = env.update(state, jax.random.key(2), theta=level)
     for started, given in zip(jax.tree.leaves(state), jax.tree.leaves(level)):
         np.testing.assert_array_equal(started, given)
     for seen, shown in zip(jax.tree.leaves(env.observe(state)), jax.tree.leaves(timestep.obs)):
