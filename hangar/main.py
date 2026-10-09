@@ -68,7 +68,6 @@ def main(cfg):
 
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
     scoring = instantiate(cfg.scoring)
-    early_stopping = instantiate(cfg.early_stopping)
 
     def reduce(logs, prefix):
         logs = jax.device_get({k: v for k, v in logs.items() if "/" in k})
@@ -118,9 +117,6 @@ def main(cfg):
             returns = data.get(cfg.score)
             if returns is not None and np.isfinite(returns).any():
                 scores.append(float(np.nanmean(returns)))
-
-            if early_stopping(epoch + 1, int(steps.max()), data):
-                break
 
         if cfg.evaluation.num_steps and cfg.score in data:
             logger.log_summary({"score": data[cfg.score].reshape(-1)})

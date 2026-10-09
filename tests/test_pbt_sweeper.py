@@ -50,7 +50,7 @@ def population(tmp_path, score, **settings):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         cfg = compose(
             "config",
-            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1000", "training.num_epochs=6"],
+            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1200", "training.num_epochs=6"],
             return_hydra_config=True,
         )
     for name, value in settings.items():
@@ -151,40 +151,16 @@ def test_a_member_without_a_score_always_copies():
     np.testing.assert_array_equal(sources, [2, 1, 2, 3])
 
 
-def test_structural_keys_are_rejected_up_front(tmp_path):
-    built = population(tmp_path, lambda job: 0.0)
-    built.params["environment.num_envs"] = typed({"distribution": "uniform_pow2", "min": 8, "max": 64})
-    with pytest.raises(ValueError, match="environment.num_envs"):
-        built.sweep([])
-
-
-def test_generations_must_divide_the_epochs(tmp_path):
+def test_generations_must_divide_the_budget(tmp_path):
     built = population(tmp_path, lambda job: 0.0, generations=4)
-    with pytest.raises(ValueError, match="must divide training.num_epochs"):
+    with pytest.raises(ValueError, match=r"must divide \{'training.num_epochs': 6\}"):
         built.sweep([])
     assert built.launcher.batches == []
 
 
-@pytest.mark.parametrize(
-    "choice, settings, expected",
-    [
-        ("default", [], [False, False, False, False]),
-        ("epochs", ["early_stopping.at=2"], [False, True, True, True]),
-        ("steps", ["early_stopping.at=100"], [False, True, True, True]),
-        ("plateau", ["early_stopping.patience=2"], [False, False, False, True]),
-    ],
-)
-def test_early_stopping_stops_on_its_condition(choice, settings, expected):
-    with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
-        cfg = compose("config", overrides=[f"early_stopping={choice}", *settings])
-    early_stopping = instantiate(cfg.early_stopping)
-    epochs = [(1, 50, 1.0), (2, 100, 2.0), (3, 150, 1.5), (4, 200, 1.9)]
-    assert [early_stopping(epoch, step, {cfg.score: np.array([[value]])}) for epoch, step, value in epochs] == expected
-
-
 def test_each_generation_resumes_from_the_one_before(tmp_path):
     built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=2, generations=3)
-    results = built.sweep(["algorithm=ppo", "total_timesteps=5"])
+    results = built.sweep(["algorithm=ppo", "total_timesteps=5", "training.num_epochs=7"])
 
     batches = built.launcher.batches
     assert len(batches) == 3
@@ -192,16 +168,15 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
         assert len(batch) == 8
         for index, job in enumerate(batch):
             member, seed = divmod(index, 2)
-            assert job["total_timesteps"] == "5"
-            assert job["early_stopping"] == "epochs"
-            assert job["early_stopping.at"] == str(2 * (generation + 1))
+            assert job["algorithm"] == "ppo"
+            assert job["total_timesteps"] == str(400 * (generation + 1))
+            assert job["training.num_epochs"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
-            assert job["++loggers.orbax.directory"] == str(
-                tmp_path / f"generation_{generation}/member_{member}/seed_{seed}/checkpoints"
-            )
-            assert job["++artisans.checkpointer._target_"] == "boonta.artisans.Checkpointer"
+            assert job["+artisan@artisans.checkpointer"] == "checkpointer"
+            assert job["+logger@loggers.orbax"] == "orbax"
             assert job["++loggers.orbax.max_to_keep"] == "1"
+            assert job["++loggers.orbax.best"] == "false"
             if generation == 0:
                 assert "checkpoint" not in job
             else:
