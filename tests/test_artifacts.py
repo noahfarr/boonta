@@ -18,7 +18,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Video
-from boonta.utils import load_checkpoint, newest, sharded
+from boonta.utils import load_checkpoint, newest, save_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief
 
@@ -107,6 +107,16 @@ def test_resume_restores_each_saved_field_and_leaves_the_rest_fresh(tmp_path, fi
         assert moved(getattr(fresh, field), getattr(trained, field))
         expected = trained if field in fields else fresh
         assert_restored(getattr(expected, field), getattr(restored, field))
+
+
+def test_a_saved_run_resumes_from_its_save_path(tmp_path):
+    podracer = build_podracer(zoo.ppo)
+    trained = train(podracer)
+    save_checkpoint(tmp_path / "saved", {"algorithm_state": trained.algorithm_state})
+
+    restored = load_checkpoint(newest(tmp_path / "saved"), podracer.init(jax.random.key(0)))
+
+    assert_restored(trained.algorithm_state, restored.algorithm_state)
 
 
 def test_resume_fails_when_a_saved_field_changed_shape(tmp_path):

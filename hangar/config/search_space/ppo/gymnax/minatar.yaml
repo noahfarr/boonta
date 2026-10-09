@@ -1,0 +1,11 @@
+# @package search_space
+optimizer.lr:
+  distribution: log_normal
+  min: 2.5e-5
+  max: 2.5e-3
+  center: 2.5e-4
+algorithm.entropy_coefficient:
+  distribution: log_normal
+  min: 1e-3
+  max: 1e-1
+  center: 1e-2
