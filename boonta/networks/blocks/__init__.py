@@ -22,7 +22,7 @@ from .tower import Tower
 from .residual import Residual
 from .rnn import RNN, RNNCellBase, reset_carry
 from .rtu import RTUCarry, RTUCell
-from .self_attention import (SelfAttention, SelfAttentionCarry,
+from .self_attention import (OutputGate, SelfAttention, SelfAttentionCarry,
                              causal_attention_mask, joint_attention_mask)
 from .ssm import SSM, SSMCellBase
 from .stack import Stack
@@ -47,6 +47,7 @@ __all__ = [
     "LoRA",
     "MinGRUCell",
     "PatchEmbedding",
+    "OutputGate",
     "Projection",
     "QueryKeyNorm",
     "RNNCellBase",
