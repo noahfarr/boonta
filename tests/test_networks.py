@@ -441,9 +441,9 @@ def test_linear_attention_matches_a_per_token_recurrence(decay, delta_rule, chun
     state = jax.random.normal(jax.random.key(9), (2, 3, 8, 5))
     expected, expected_state = per_token(inputs, done, state, delta_rule)
     if chunk_size:
-        outputs, final = chunkwise(inputs, done, state, delta_rule, chunk_size)
+        outputs, final = chunkwise(inputs, done, state, chunk_size)
     else:
-        outputs, final = recurrent(inputs, done, state, delta_rule)
+        outputs, final = recurrent(inputs, done, state)
     np.testing.assert_allclose(outputs, expected, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(final, expected_state, rtol=1e-4, atol=1e-4)
 

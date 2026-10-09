@@ -86,7 +86,14 @@ def attention(context_length=4, dtype=None):
 
 def gated_delta_net(dtype=None):
     return LinearAttention(
-        cell=GatedDeltaNet(features=WIDTH, num_key_heads=2, key_dim=8, dtype=dtype),
+        cell=GatedDeltaNet(
+            features=WIDTH,
+            num_key_heads=2,
+            num_value_heads=2,
+            key_dim=8,
+            value_dim=16,
+            dtype=dtype,
+        ),
         chunk_size=2,
     )
 

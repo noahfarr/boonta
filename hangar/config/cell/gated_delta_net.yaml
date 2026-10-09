@@ -7,4 +7,6 @@ cell:
   _target_: boonta.networks.GatedDeltaNet
   features: 128
   num_key_heads: 4
+  num_value_heads: 4
   key_dim: 32
+  value_dim: 64

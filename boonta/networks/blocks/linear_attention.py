@@ -1,3 +1,5 @@
+from functools import partial
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -33,10 +35,6 @@ class LinearAttentionCellBase(nn.Module):
         raise NotImplementedError
 
     @nn.nowrap
-    def state_shape(self) -> tuple[int, int, int]:
-        raise NotImplementedError
-
-    @nn.nowrap
     def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> Carry:
         raise NotImplementedError
 
@@ -53,8 +51,9 @@ def fill(inputs: LinearAttentionInputs) -> tuple[Array, ...]:
 
 
 def recurrent(
-    inputs: LinearAttentionInputs, done: Array, state: Array, delta_rule: bool = True
+    inputs: LinearAttentionInputs, done: Array, state: Array
 ) -> tuple[Array, Array]:
+    delta_rule = inputs.beta is not None
     query, key, value, log_decay, beta = fill(inputs)
 
     def step(state: Array, inputs) -> tuple[Array, Array]:
@@ -78,9 +77,9 @@ def chunkwise(
     inputs: LinearAttentionInputs,
     done: Array,
     state: Array,
-    delta_rule: bool = True,
     chunk_size: int = 64,
 ) -> tuple[Array, Array]:
+    delta_rule = inputs.beta is not None
     query, key, value, log_decay, beta = fill(inputs)
     batch_size, sequence_length, num_heads, value_dim = value.shape
     size = min(chunk_size, sequence_length)
@@ -146,7 +145,6 @@ def chunkwise(
 
 class LinearAttention(Block):
     cell: LinearAttentionCellBase
-    delta_rule: bool = True
     chunk_size: int = 64
 
     @nn.compact
@@ -158,18 +156,23 @@ class LinearAttention(Block):
             carry = self.initialize_carry(jax.random.key(0), x.shape)
         cell_carry, inputs = self.cell(carry.cell, x, done)
         if sequence_length == 1:
-            outputs, state = recurrent(inputs, done, carry.state, self.delta_rule)
+            outputs, state = recurrent(inputs, done, carry.state)
         else:
-            outputs, state = chunkwise(
-                inputs, done, carry.state, self.delta_rule, self.chunk_size
-            )
+            outputs, state = chunkwise(inputs, done, carry.state, self.chunk_size)
         carry = LinearAttentionCarry(state=state.astype(carry.state.dtype), cell=cell_carry)
         return carry, self.cell.output(outputs, x)
 
     @nn.nowrap
     def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> LinearAttentionCarry:
-        batch_size, *_ = input_shape
+        batch_size, *features = input_shape
+        cell = self.cell.clone(parent=None)
+        carry = cell.initialize_carry(key, input_shape)
+        x = jax.ShapeDtypeStruct((batch_size, 1, *features), jnp.float32)
+        done = jax.ShapeDtypeStruct((batch_size, 1), jnp.bool_)
+        (_, inputs), _ = jax.eval_shape(partial(cell.init_with_output, key), carry, x, done)
+        *_, num_heads, key_dim = inputs.key.shape
+        *_, value_dim = inputs.value.shape
         return LinearAttentionCarry(
-            state=jnp.zeros((batch_size, *self.cell.state_shape()), jnp.float32),
-            cell=self.cell.initialize_carry(key, input_shape),
+            state=jnp.zeros((batch_size, num_heads, key_dim, value_dim), jnp.float32),
+            cell=carry,
         )

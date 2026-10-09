@@ -95,9 +95,9 @@ class ShortConvolution(Block):
 class GatedDeltaNet(LinearAttentionCellBase):
     features: int
     num_key_heads: int = 6
-    num_value_heads: int | None = None
+    num_value_heads: int = 6
     key_dim: int = 256
-    value_dim: int | None = None
+    value_dim: int = 512
     kernel_size: int = 4
     epsilon: float = 1e-5
     dtype: Dtype | None = None
@@ -105,20 +105,13 @@ class GatedDeltaNet(LinearAttentionCellBase):
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
 
     @nn.nowrap
-    def state_shape(self) -> tuple[int, int, int]:
-        num_value_heads = self.num_value_heads or self.num_key_heads
-        assert (
-            num_value_heads % self.num_key_heads == 0
-        ), f"num_value_heads must be divisible by num_key_heads, but was num_value_heads: {num_value_heads}, num_key_heads: {self.num_key_heads}"
-        return num_value_heads, self.key_dim, self.value_dim or 2 * self.key_dim
-
-    @nn.nowrap
     def widths(self) -> tuple[int, int]:
-        num_value_heads, _, value_dim = self.state_shape()
-        return self.num_key_heads * self.key_dim, num_value_heads * value_dim
+        return self.num_key_heads * self.key_dim, self.num_value_heads * self.value_dim
 
     def setup(self):
-        num_value_heads, _, _ = self.state_shape()
+        assert (
+            self.num_value_heads % self.num_key_heads == 0
+        ), f"num_value_heads must be divisible by num_key_heads, but was num_value_heads: {self.num_value_heads}, num_key_heads: {self.num_key_heads}"
         key_width, value_width = self.widths()
         dense = partial(
             nn.Dense,
@@ -139,13 +132,13 @@ class GatedDeltaNet(LinearAttentionCellBase):
         self.query_convolution = convolution(key_width)
         self.key_convolution = convolution(key_width)
         self.value_convolution = convolution(value_width)
-        self.alpha = dense(num_value_heads)
-        self.beta = dense(num_value_heads)
+        self.alpha = dense(self.num_value_heads)
+        self.beta = dense(self.num_value_heads)
         self.log_rate = self.param(
-            "log_rate", log_uniform_init(), (num_value_heads,), self.param_dtype
+            "log_rate", log_uniform_init(), (self.num_value_heads,), self.param_dtype
         )
         self.step_bias = self.param(
-            "step_bias", inverse_softplus_init(), (num_value_heads,), self.param_dtype
+            "step_bias", inverse_softplus_init(), (self.num_value_heads,), self.param_dtype
         )
         self.gate = dense(value_width)
         self.norm = nn.RMSNorm(
@@ -157,7 +150,6 @@ class GatedDeltaNet(LinearAttentionCellBase):
         self, carry: GatedDeltaNetCarry, x: Array, done: Array
     ) -> tuple[GatedDeltaNetCarry, LinearAttentionInputs]:
         batch_size, sequence_length, _ = x.shape
-        num_value_heads, key_dim, _ = self.state_shape()
         query_window, query = self.query_convolution(carry.query, self.query(x), done)
         key_window, key = self.key_convolution(carry.key, self.key(x), done)
         value_window, value = self.value_convolution(carry.value, self.value(x), done)
@@ -169,17 +161,17 @@ class GatedDeltaNet(LinearAttentionCellBase):
         )
 
         def heads(x: Array) -> Array:
-            x = x.reshape(batch_size, sequence_length, self.num_key_heads, key_dim)
+            x = x.reshape(batch_size, sequence_length, self.num_key_heads, self.key_dim)
             return jnp.repeat(
                 l2_normalize(x.astype(jnp.float32)),
-                num_value_heads // self.num_key_heads,
+                self.num_value_heads // self.num_key_heads,
                 axis=2,
             )
 
         inputs = LinearAttentionInputs(
-            query=heads(query) * key_dim**-0.5,
+            query=heads(query) * self.key_dim**-0.5,
             key=heads(key),
-            value=value.reshape(batch_size, sequence_length, num_value_heads, -1),
+            value=value.reshape(batch_size, sequence_length, self.num_value_heads, -1),
             log_decay=log_decay,
             beta=nn.sigmoid(beta),
         )
