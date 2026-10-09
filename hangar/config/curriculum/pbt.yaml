@@ -1,11 +1,19 @@
-_target_: boonta.curricula.pbt
-_partial_: true
-members: 4
-seeds: 2
-interval: 10
-fraction: 0.25
-threshold: 2.0
-window: 10
-low: 0.1
-high: 10.0
-factors: [0.8, 1.25]
+# @package _global_
+curriculum:
+  _target_: boonta.curricula.pbt
+  _partial_: true
+  members: 4
+  seeds: 4
+  interval: 10
+  fraction: 0.25
+  threshold: 2.0
+  window: 10
+  search:
+    learning_rate_multiplier: [0.1, 10.0]
+  factors: [0.8, 1.25]
+
+artisans:
+  leaderboard:
+    _target_: boonta.artisans.Leaderboard
+
+score: pbt/evaluation/best_return
