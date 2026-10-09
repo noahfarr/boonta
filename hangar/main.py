@@ -53,7 +53,7 @@ def main(cfg):
 
     state = load_checkpoint(newest(cfg.checkpoint), podracer.init(init_key))
 
-    resumed, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
+    first_epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
     assert remainder == 0, (
         f"the checkpoint stopped at step {int(state.algorithm_state.step)}, which is not "
         f"an epoch boundary of this run ({num_steps} steps per epoch)"
@@ -68,7 +68,7 @@ def main(cfg):
 
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
     scoring = instantiate(cfg.scoring)
-    stop = instantiate(cfg.early_stopping)
+    early_stopping = instantiate(cfg.early_stopping)
 
     def reduce(logs, prefix):
         logs = jax.device_get({k: v for k, v in logs.items() if "/" in k})
@@ -90,7 +90,7 @@ def main(cfg):
 
     try:
         data = {}
-        if not resumed:
+        if first_epoch == 0:
             data = monitor.metrics(step=0)
             if cfg.evaluation.num_steps:
                 _, logs = podracer.evaluate(state, baseline_key, cfg.evaluation.num_steps)
@@ -98,7 +98,7 @@ def main(cfg):
                 data |= craft(state, logs, 0)
             logger.log(data, steps=jnp.array([0, 0]))
 
-        for epoch in range(resumed, cfg.training.num_epochs):
+        for epoch in range(first_epoch, cfg.training.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
             data = reduce(logs, "training/")
@@ -119,7 +119,7 @@ def main(cfg):
             if returns is not None and np.isfinite(returns).any():
                 scores.append(float(np.nanmean(returns)))
 
-            if stop(epoch + 1, int(steps.max()), data):
+            if early_stopping(epoch + 1, int(steps.max()), data):
                 break
 
         if cfg.evaluation.num_steps and cfg.score in data:

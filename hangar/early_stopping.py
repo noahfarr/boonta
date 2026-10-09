@@ -17,7 +17,7 @@ def plateau(patience, score):
     best = -np.inf
     waited = 0
 
-    def stop(epoch, step, data):
+    def early_stopping(epoch, step, data):
         nonlocal best, waited
         returns = data.get(score)
         value = -np.inf
@@ -29,4 +29,4 @@ def plateau(patience, score):
         waited += 1
         return waited >= patience
 
-    return stop
+    return early_stopping

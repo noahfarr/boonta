@@ -177,9 +177,9 @@ def test_generations_must_divide_the_epochs(tmp_path):
 def test_early_stopping_stops_on_its_condition(choice, settings, expected):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         cfg = compose("config", overrides=[f"early_stopping={choice}", *settings])
-    stop = instantiate(cfg.early_stopping)
+    early_stopping = instantiate(cfg.early_stopping)
     epochs = [(1, 50, 1.0), (2, 100, 2.0), (3, 150, 1.5), (4, 200, 1.9)]
-    assert [stop(epoch, step, {cfg.score: np.array([[value]])}) for epoch, step, value in epochs] == expected
+    assert [early_stopping(epoch, step, {cfg.score: np.array([[value]])}) for epoch, step, value in epochs] == expected
 
 
 def test_each_generation_resumes_from_the_one_before(tmp_path):
