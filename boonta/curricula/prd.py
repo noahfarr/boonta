@@ -29,7 +29,7 @@ def wipe(evicted: Array, size: int) -> Array:
 
 
 @dataclass
-class SuccessorRepresentation:
+class SuccessorFootprint:
     gamma: float = 1.0
     rate: float = 0.1
     columns: int | None = None
@@ -134,6 +134,26 @@ class SuccessorRepresentation:
         )
 
 
+class UniformFootprint:
+    def init(self, archive_size: int) -> Array:
+        return jnp.full(archive_size, 1.0 / archive_size)
+
+    def pour(self, spread: Array, term: Array) -> Array:
+        return jnp.full_like(term, jnp.sum(spread * term))
+
+    def expected_visits(self, spread: Array, start: Array) -> Array:
+        return spread
+
+    def spill(self, spread: Array, weight: Array) -> Array:
+        return spread * jnp.sum(weight)
+
+    def forget(self, spread: Array, wiped: Array) -> Array:
+        return spread
+
+    def backup(self, spread: Array, leaving: Array, landing: Array, onward: Array, key: Key) -> Array:
+        return spread
+
+
 def piled(size: int, index: Array, value: Array, lanes: int = 256) -> Array:
     lane = jnp.arange(jnp.shape(index)[0]) % lanes
     blank = jnp.zeros((lanes, size), jnp.float32)
@@ -235,19 +255,19 @@ class Advantage:
 
 @struct.dataclass
 class SelectorState:
-    footprint: Successor
+    footprint: Successor | Array
     roots: Array
     gain: GainState
 
 
-class Reach:
-    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
+class SuccessorRelevance:
+    def __call__(self, state: SelectorState, footprint: SuccessorFootprint | UniformFootprint) -> Array:
         mass = footprint.spill(state.footprint, state.roots)
         return mass / jnp.maximum(jnp.sum(mass), 1e-12)
 
 
-class Uniform:
-    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
+class UniformRelevance:
+    def __call__(self, state: SelectorState, footprint: SuccessorFootprint | UniformFootprint) -> Array:
         return jnp.ones_like(state.roots)
 
 
@@ -264,8 +284,8 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 
 @dataclass
 class Selector(archive_auto_reset.Selector):
-    footprint: SuccessorRepresentation
-    relevance: Reach | Uniform
+    footprint: SuccessorFootprint | UniformFootprint
+    relevance: SuccessorRelevance | UniformRelevance
     gain: Advantage
     k: float = 4.0
 
