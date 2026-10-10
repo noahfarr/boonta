@@ -184,6 +184,7 @@ ADAPTERS = [
     pytest.param("gymnax", "Breakout-MinAtar", {}, id="minatar"),
     pytest.param("gymnax", "CartPole-v1", {}, id="classic_control"),
     pytest.param("connectx", "connectx", {"rows": 6, "columns": 7, "inarow": 4}, id="connectx"),
+    pytest.param("dune_sea", "forks", {"depth": 6}, id="forks"),
     pytest.param(
         "jaxued", "Maze", {}, id="jaxued_maze",
         marks=pytest.mark.skipif(missing("jaxued"), reason="needs jaxued"),

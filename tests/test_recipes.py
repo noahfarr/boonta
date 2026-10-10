@@ -121,6 +121,7 @@ CASES = [
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
+    ("ppo", "dune_sea/forks", None, False),
     ("ppo", MINATAR, None, False),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),

@@ -1,0 +1,9 @@
+namespace: dune_sea
+suite: forks
+env_id: forks
+kwargs:
+  depth: 24
+  length: 4
+  lure: 0.8
+  hazard: 0.005
+  seed: 0
