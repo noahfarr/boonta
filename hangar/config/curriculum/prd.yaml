@@ -15,6 +15,11 @@ environment:
     selection:
       _target_: boonta.curricula.prd.Selector
       k: 4.0
+      successor:
+        _target_: boonta.curricula.prd.SuccessorRepresentation
+        gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
+        rate: 0.1
+        columns: 256
       gain:
         _target_: boonta.curricula.prd.Advantage
         gamma: ${algorithm.gamma}
