@@ -6,15 +6,9 @@ from flax import struct
 import numpy as np
 
 import zoo
-from boonta.curricula.erd import ERD, erd
-from boonta.curricula.prd import (
-    PRD,
-    Advantage,
-    Current,
-    Occupancy,
-    SuccessorRepresentation,
-    prd,
-)
+from boonta.curricula import erd, prd
+from boonta.curricula.prd import (Advantage, Current, Occupancy,
+                                  SuccessorRepresentation)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -112,10 +106,10 @@ def train(selection, updates=3, steps=4):
 @pytest.mark.parametrize(
     "selection",
     [
-        PRD(footprint=SuccessorRepresentation(gamma=0.75), relevance=Current(), gain=Advantage(), k=2.0),
-        PRD(footprint=SuccessorRepresentation(gamma=0.75, columns=4), relevance=Current(), gain=Advantage(), k=2.0),
-        PRD(footprint=SuccessorRepresentation(gamma=0.75), relevance=Occupancy(), gain=Advantage(), k=2.0),
-        ERD(k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Current(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75, columns=4), relevance=Current(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Occupancy(), gain=Advantage(), k=2.0),
+        erd.Selector(k=2.0),
     ],
     ids=["prd-current", "prd-sparse-current", "prd-occupancy", "erd"],
 )
@@ -176,8 +170,8 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, selection",
     [
-        (prd, PRD(footprint=SuccessorRepresentation(), relevance=Current(), gain=Advantage())),
-        (erd, ERD()),
+        (prd.pit, prd.Selector(footprint=SuccessorRepresentation(), relevance=Current(), gain=Advantage())),
+        (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],
 )

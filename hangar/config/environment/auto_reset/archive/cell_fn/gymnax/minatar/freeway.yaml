@@ -1,0 +1,3 @@
+_target_: boonta.environments.gymnax.keyed
+_partial_: true
+bucket: 2

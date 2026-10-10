@@ -9,8 +9,8 @@ from flax import struct
 from boonta.utils import Array, Key, PyTree, broadcast, remove_batch_axis
 from boonta.utils.table import claim
 
+from .auto_reset import AutoReset
 from .time_limit import TimeLimitState
-from .vectorize import Vectorize
 from .wrapper import WrapperState
 
 
@@ -278,7 +278,7 @@ def widen(cell_fn: Callable[[PyTree], Array]) -> Callable[[PyTree], Array]:
     return widened
 
 
-class Selection:
+class Selector:
     def init(self, archive_size: int, num_actions: int) -> PyTree:
         return ()
 
@@ -293,8 +293,8 @@ class Selection:
 
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
-    archive_state: ArchiveState
-    selection: PyTree
+    archive_state: ArchiveState = struct.field(metadata={"axis": None})
+    selection: PyTree = struct.field(metadata={"axis": None})
     assigned: Array
     due: Array
     slot: Array
@@ -346,13 +346,13 @@ def unwrap(environment):
     return env
 
 
-class ArchiveAutoReset(Vectorize):
+class ArchiveAutoReset(AutoReset):
     def __init__(
         self,
         env,
         num_envs: int,
         cell_fn: Callable,
-        selection: Selection,
+        selection: Selector,
         capacity: int = 16384,
         cell_size: int = 4,
         num_probes: int = 8,
@@ -400,8 +400,8 @@ class ArchiveAutoReset(Vectorize):
             return jnp.ones(self.num_envs, bool)
         return jnp.reshape(self.eligibility_fn(env_state), (self.num_envs, -1)).all(axis=-1)
 
-    def init(self, key: Key, group_size: int = 1):
-        env_state, timestep = super().init(key, group_size)
+    def init(self, key: Key):
+        env_state, timestep = super().init(key)
         archive_state = self.archive.init(env_state)
         archive_state, index, position, _, evicted = self.archive.add(
             archive_state,

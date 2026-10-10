@@ -9,7 +9,7 @@ from boonta.environments.wrappers import TimeLimit
 from boonta.environments.wrappers.archive_auto_reset import (
     Archive,
     ArchiveAutoReset,
-    Selection,
+    Selector,
     lru,
     share,
 )
@@ -68,7 +68,7 @@ def factory(fn):
     return lambda env: fn
 
 
-class Echo(Selection):
+class Echo(Selector):
     def select(self, state, wrapper, archive_auto_reset_state, key, policy):
         return state, jnp.full(4, archive_auto_reset_state.slot[0], jnp.int32)
 

@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.prd.pit
+  _partial_: true
+
+environment:
+  auto_reset:
+    selection:
+      _target_: boonta.curricula.prd.Selector
+      k: 4.0
+      footprint:
+        _target_: boonta.curricula.prd.SuccessorRepresentation
+        gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
+        rate: 0.1
+        columns: 256
+      relevance:
+        _target_: boonta.curricula.prd.Occupancy
+        rate: 0.2
+      gain:
+        _target_: boonta.curricula.prd.Advantage
+        gamma: ${algorithm.gamma}
+        gae_lambda: ${algorithm.gae_lambda}
+        rate: 0.2

@@ -1,0 +1,13 @@
+defaults:
+  - archive/cell_fn@cell_fn: ${environment}
+  - _self_
+
+_target_: boonta.environments.wrappers.archive_auto_reset.ArchiveAutoReset
+num_envs: ${environment.num_envs}
+selection: ???
+capacity: 16384
+cell_size: 4
+num_probes: 8
+warmup: 0
+stagger: 0
+gamma: ${algorithm.gamma}

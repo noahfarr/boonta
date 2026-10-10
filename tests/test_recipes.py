@@ -114,6 +114,14 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def prioritized_restarts(directory):
+    return ["curriculum=prd", "environment.auto_reset.capacity=64"]
+
+
+def exploring_restarts(directory):
+    return ["curriculum=erd", "environment.auto_reset.capacity=64"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -123,6 +131,8 @@ CASES = [
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
     ("ppo", MINATAR, None, False),
+    ("ppo", MINATAR, None, prioritized_restarts),
+    ("ppo", MINATAR, None, exploring_restarts),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
     ("grpo", MINATAR, None, False),
