@@ -9,7 +9,8 @@ from flax import struct
 from boonta.utils.typing import Array, Dtype, Key
 
 from .block import Block
-from .linear_attention import LinearAttentionCellBase, LinearAttentionInputs
+from .linear_attention import (LinearAttentionCarry, LinearAttentionCellBase,
+                               LinearAttentionInputs)
 
 
 @struct.dataclass
@@ -168,12 +169,14 @@ class GatedDeltaNet(LinearAttentionCellBase):
                 axis=2,
             )
 
+        beta = nn.sigmoid(beta)
         inputs = LinearAttentionInputs(
             query=heads(query) * self.key_dim**-0.5,
             key=heads(key),
             value=value.reshape(batch_size, sequence_length, self.num_value_heads, -1),
             log_decay=log_decay,
-            beta=nn.sigmoid(beta),
+            erase=beta,
+            write=beta,
         )
         return GatedDeltaNetCarry(query_window, key_window, value_window), inputs
 
@@ -189,13 +192,18 @@ class GatedDeltaNet(LinearAttentionCellBase):
         )
 
     @nn.nowrap
-    def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> GatedDeltaNetCarry:
+    def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> LinearAttentionCarry:
         batch_size, *_ = input_shape
         key_width, value_width = self.widths()
         window = partial(jnp.zeros, dtype=self.dtype)
         history = self.kernel_size - 1
-        return GatedDeltaNetCarry(
-            query=window((batch_size, history, key_width)),
-            key=window((batch_size, history, key_width)),
-            value=window((batch_size, history, value_width)),
+        return LinearAttentionCarry(
+            state=jnp.zeros(
+                (batch_size, self.num_value_heads, self.key_dim, self.value_dim), jnp.float32
+            ),
+            cell=GatedDeltaNetCarry(
+                query=window((batch_size, history, key_width)),
+                key=window((batch_size, history, key_width)),
+                value=window((batch_size, history, value_width)),
+            ),
         )

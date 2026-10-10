@@ -394,52 +394,44 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     assert implementation == expected
 
 
-def linear_inputs(decay, delta_rule, batch=2, length=37, heads=3, key_dim=8, value_dim=5):
-    keys = jax.random.split(jax.random.key(7), 5)
+def linear_inputs(decay, erase, batch=2, length=37, heads=3, key_dim=8, value_dim=5):
+    keys = jax.random.split(jax.random.key(7), 6)
     key = jax.random.normal(keys[1], (batch, length, heads, key_dim))
     return LinearAttentionInputs(
         query=jax.random.normal(keys[0], (batch, length, heads, key_dim)),
         key=key / jnp.linalg.norm(key, axis=-1, keepdims=True),
         value=jax.random.normal(keys[2], (batch, length, heads, value_dim)),
-        log_decay=-2.0 * jax.random.uniform(keys[3], (batch, length, heads)) if decay else None,
-        beta=jax.random.uniform(keys[4], (batch, length, heads)) if delta_rule else None,
+        log_decay=-2.0 * jax.random.uniform(keys[3], (batch, length, heads)) * decay,
+        erase=jax.random.uniform(keys[4], (batch, length, heads)) * erase,
+        write=jax.random.uniform(keys[5], (batch, length, heads)),
     )
 
 
-def per_token(inputs, done, state, delta_rule):
-    query, key, value = (
-        np.asarray(x, np.float64) for x in (inputs.query, inputs.key, inputs.value)
+def per_token(inputs, done, state):
+    query, key, value, log_decay, erase, write = (
+        np.asarray(x, np.float64)
+        for x in (inputs.query, inputs.key, inputs.value, inputs.log_decay, inputs.erase, inputs.write)
     )
-    batch, length, heads, _ = value.shape
-    log_decay = np.zeros((batch, length, heads))
-    if inputs.log_decay is not None:
-        log_decay = np.asarray(inputs.log_decay, np.float64)
-    beta = np.ones((batch, length, heads))
-    if inputs.beta is not None:
-        beta = np.asarray(inputs.beta, np.float64)
     state = np.asarray(state, np.float64)
     outputs = np.zeros_like(value)
-    for step in range(length):
+    for step in range(value.shape[1]):
         state = np.where(np.asarray(done)[:, step, None, None, None], 0.0, state)
         state = state * np.exp(log_decay[:, step])[..., None, None]
-        written = value[:, step]
-        if delta_rule:
-            written = written - np.einsum("bhk,bhkv->bhv", key[:, step], state)
-        state = state + np.einsum(
-            "bhk,bhv->bhkv", key[:, step], written * beta[:, step, :, None]
-        )
+        erased = np.einsum("bhk,bhkv->bhv", key[:, step], state) * erase[:, step, :, None]
+        written = value[:, step] * write[:, step, :, None] - erased
+        state = state + np.einsum("bhk,bhv->bhkv", key[:, step], written)
         outputs[:, step] = np.einsum("bhk,bhkv->bhv", query[:, step], state)
     return outputs, state
 
 
-@pytest.mark.parametrize("delta_rule", [False, True], ids=["linear", "delta"])
+@pytest.mark.parametrize("erase", [False, True], ids=["additive", "erasing"])
 @pytest.mark.parametrize("decay", [False, True], ids=["constant", "decayed"])
 @pytest.mark.parametrize("chunk_size", [0, 1, 4, 16, 64], ids=lambda size: f"chunk{size}")
-def test_linear_attention_matches_a_per_token_recurrence(decay, delta_rule, chunk_size):
-    inputs = linear_inputs(decay, delta_rule)
+def test_linear_attention_matches_a_per_token_recurrence(decay, erase, chunk_size):
+    inputs = linear_inputs(decay, erase)
     done = jax.random.uniform(jax.random.key(8), inputs.value.shape[:2]) < 0.1
     state = jax.random.normal(jax.random.key(9), (2, 3, 8, 5))
-    expected, expected_state = per_token(inputs, done, state, delta_rule)
+    expected, expected_state = per_token(inputs, done, state)
     if chunk_size:
         outputs, final = chunkwise(inputs, done, state, chunk_size)
     else:

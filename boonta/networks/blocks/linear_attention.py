@@ -1,5 +1,3 @@
-from functools import partial
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -15,8 +13,9 @@ class LinearAttentionInputs:
     query: Array
     key: Array
     value: Array
-    log_decay: Array | None = None
-    beta: Array | None = None
+    log_decay: Array
+    erase: Array
+    write: Array
 
 
 @struct.dataclass
@@ -35,40 +34,42 @@ class LinearAttentionCellBase(nn.Module):
         raise NotImplementedError
 
     @nn.nowrap
-    def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> Carry:
+    def initialize_carry(
+        self, key: Key, input_shape: tuple[int, ...]
+    ) -> LinearAttentionCarry:
         raise NotImplementedError
 
 
-def fill(inputs: LinearAttentionInputs) -> tuple[Array, ...]:
-    batch_size, sequence_length, num_heads, _ = inputs.value.shape
-    gates = jnp.zeros((batch_size, sequence_length, num_heads), jnp.float32)
-    log_decay = gates if inputs.log_decay is None else inputs.log_decay
-    beta = gates + 1.0 if inputs.beta is None else inputs.beta
+def unpack(inputs: LinearAttentionInputs) -> tuple[Array, ...]:
     return tuple(
         x.astype(jnp.float32)
-        for x in (inputs.query, inputs.key, inputs.value, log_decay, beta)
+        for x in (
+            inputs.query,
+            inputs.key,
+            inputs.value,
+            inputs.log_decay,
+            inputs.erase,
+            inputs.write,
+        )
     )
 
 
 def recurrent(
     inputs: LinearAttentionInputs, done: Array, state: Array
 ) -> tuple[Array, Array]:
-    delta_rule = inputs.beta is not None
-    query, key, value, log_decay, beta = fill(inputs)
-
     def step(state: Array, inputs) -> tuple[Array, Array]:
-        query, key, value, log_decay, beta, done = inputs
+        query, key, value, log_decay, erase, write, done = inputs
         state = jnp.where(done[:, None, None, None], 0.0, state)
         state = state * jnp.exp(log_decay)[..., None, None]
-        if delta_rule:
-            value = value - jnp.einsum("bhk,bhkv->bhv", key, state)
-        state = state + jnp.einsum("bhk,bhv->bhkv", key, value * beta[..., None])
+        readout = jnp.einsum("bhk,bhkv->bhv", key, state)
+        written = value * write[..., None] - readout * erase[..., None]
+        state = state + jnp.einsum("bhk,bhv->bhkv", key, written)
         return state, jnp.einsum("bhk,bhkv->bhv", query, state)
 
     state, outputs = jax.lax.scan(
         step,
         state.astype(jnp.float32),
-        tuple(jnp.moveaxis(x, 1, 0) for x in (query, key, value, log_decay, beta, done)),
+        tuple(jnp.moveaxis(x, 1, 0) for x in (*unpack(inputs), done)),
     )
     return jnp.moveaxis(outputs, 0, 1), state
 
@@ -79,9 +80,7 @@ def chunkwise(
     state: Array,
     chunk_size: int = 64,
 ) -> tuple[Array, Array]:
-    delta_rule = inputs.beta is not None
-    query, key, value, log_decay, beta = fill(inputs)
-    batch_size, sequence_length, num_heads, value_dim = value.shape
+    batch_size, sequence_length, num_heads, value_dim = inputs.value.shape
     size = min(chunk_size, sequence_length)
     padding = -sequence_length % size
     num_chunks = (sequence_length + padding) // size
@@ -93,9 +92,7 @@ def chunkwise(
             x = jnp.swapaxes(x, 2, 3)
         return x
 
-    query, key, value, log_decay, beta = (
-        chunk(x) for x in (query, key, value, log_decay, beta)
-    )
+    query, key, value, log_decay, erase, write = (chunk(x) for x in unpack(inputs))
     resets = jnp.cumsum(chunk(done.astype(jnp.int32)), axis=-1)[:, :, None]
 
     cumulative = jnp.cumsum(log_decay, axis=-1)
@@ -109,19 +106,16 @@ def chunkwise(
     tail = jnp.where(resets == resets[..., -1:], jnp.exp(final - cumulative), 0.0)
     persist = jnp.where(fresh[..., -1], jnp.exp(final[..., 0]), 0.0)
 
-    targets = value * beta[..., None]
-    readouts = jnp.zeros_like(key)
-    if delta_rule:
-        weighted_key = key * beta[..., None]
-        system = jnp.einsum("...id,...jd->...ij", weighted_key, key) * pairwise
-        system = jnp.tril(system, -1) + jnp.eye(size, dtype=system.dtype)
-        solved = jax.scipy.linalg.solve_triangular(
-            system,
-            jnp.concatenate([targets, weighted_key * head[..., None]], axis=-1),
-            lower=True,
-            unit_diagonal=True,
-        )
-        targets, readouts = jnp.split(solved, [value_dim], axis=-1)
+    erased_key = key * erase[..., None]
+    system = jnp.einsum("...id,...jd->...ij", erased_key, key) * pairwise
+    system = jnp.tril(system, -1) + jnp.eye(size, dtype=system.dtype)
+    solved = jax.scipy.linalg.solve_triangular(
+        system,
+        jnp.concatenate([value * write[..., None], erased_key * head[..., None]], axis=-1),
+        lower=True,
+        unit_diagonal=True,
+    )
+    targets, readouts = jnp.split(solved, [value_dim], axis=-1)
     intra = jnp.einsum("...id,...jd->...ij", query, key) * pairwise
     query = query * head[..., None]
     key = key * tail[..., None]
@@ -163,16 +157,7 @@ class LinearAttention(Block):
         return carry, self.cell.output(outputs, x)
 
     @nn.nowrap
-    def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> LinearAttentionCarry:
-        batch_size, *features = input_shape
-        cell = self.cell.clone(parent=None)
-        carry = cell.initialize_carry(key, input_shape)
-        x = jax.ShapeDtypeStruct((batch_size, 1, *features), jnp.float32)
-        done = jax.ShapeDtypeStruct((batch_size, 1), jnp.bool_)
-        (_, inputs), _ = jax.eval_shape(partial(cell.init_with_output, key), carry, x, done)
-        *_, num_heads, key_dim = inputs.key.shape
-        *_, value_dim = inputs.value.shape
-        return LinearAttentionCarry(
-            state=jnp.zeros((batch_size, num_heads, key_dim, value_dim), jnp.float32),
-            cell=carry,
-        )
+    def initialize_carry(
+        self, key: Key, input_shape: tuple[int, ...]
+    ) -> LinearAttentionCarry:
+        return self.cell.initialize_carry(key, input_shape)
