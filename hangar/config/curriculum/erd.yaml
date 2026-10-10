@@ -10,6 +10,6 @@ curriculum:
 
 environment:
   auto_reset:
-    selection:
+    selector:
       _target_: boonta.curricula.erd.Selector
       k: 4.0

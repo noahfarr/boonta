@@ -12,7 +12,7 @@ curriculum:
 
 environment:
   auto_reset:
-    selection:
+    selector:
       _target_: boonta.curricula.prd.Selector
       k: 4.0
       successor:

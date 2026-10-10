@@ -1,2 +1,2 @@
-# @package _global_.environment.auto_reset.selection.relevance
+# @package _global_.environment.auto_reset.selector.relevance
 _target_: boonta.curricula.prd.UniformRelevance

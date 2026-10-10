@@ -148,12 +148,12 @@ class Archive:
 
 
 def pick(key: Key, logits: Array, shape) -> Array:
-    top = jnp.max(logits)
-    weight = jnp.where(jnp.isfinite(logits), jnp.exp(logits - top), 0.0)
-    ladder = jnp.cumsum(weight)
-    toss = jax.random.uniform(key, shape, ladder.dtype) * ladder[-1]
-    index = jnp.searchsorted(ladder, toss, side="right")
-    return jnp.clip(index, 0, jnp.shape(logits)[0] - 1).astype(jnp.int32)
+    highest = jnp.max(logits)
+    weights = jnp.where(jnp.isfinite(logits), jnp.exp(logits - highest), 0.0)
+    cumulative = jnp.cumsum(weights)
+    draws = jax.random.uniform(key, shape, cumulative.dtype) * cumulative[-1]
+    picked = jnp.searchsorted(cumulative, draws, side="right")
+    return jnp.clip(picked, 0, jnp.shape(logits)[0] - 1).astype(jnp.int32)
 
 
 def share(k: float, num_envs: int) -> int:
@@ -185,7 +185,7 @@ class Selector:
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
-    selection: PyTree = struct.field(metadata={"axis": None})
+    selector_state: PyTree = struct.field(metadata={"axis": None})
     assigned_slots: Array
     due_mask: Array
     current_slots: Array
@@ -232,16 +232,16 @@ class ArchiveAutoReset(AutoReset):
         env,
         num_envs: int,
         cell_fn: Callable,
-        selection: Selector,
+        selector: Selector,
         capacity: int = 16384,
         num_probes: int = 8,
         eviction_fn: Callable[[ArchiveState], Array] = noeviction,
         eligibility_fn: Callable = anywhere,
         gamma: float = 0.99,
-        reseed_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
+        refresh_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
     ):
         super().__init__(env, num_envs=num_envs)
-        self.selection = selection
+        self.selector = selector
         self.actions = int(getattr(env.action_space(), "num_actions", 1))
         self.archive = Archive(
             archive_size=capacity,
@@ -251,17 +251,17 @@ class ArchiveAutoReset(AutoReset):
         )
         self.eligibility_fn = eligibility_fn(env=env)
         self.gamma = gamma
-        self.reseed_fn = reseed_fn
+        self.refresh_fn = refresh_fn
 
-    def block(self, state, placed: int) -> Array:
-        return jnp.arange(self.num_envs) >= self.num_envs - placed
+    def block(self, num_placed: int) -> Array:
+        return jnp.arange(self.num_envs) >= self.num_envs - num_placed
 
-    def occupied(self, state, placed: int) -> Array:
-        size = self.archive.archive_size
-        held = ~self.block(state, placed) & (state.current_slots >= 0)
+    def occupied(self, state, num_placed: int) -> Array:
+        archive_size = self.archive.archive_size
+        held_mask = ~self.block(num_placed) & (state.current_slots >= 0)
         return (
-            jnp.zeros(size)
-            .at[jnp.where(held, state.current_slots, size)]
+            jnp.zeros(archive_size)
+            .at[jnp.where(held_mask, state.current_slots, archive_size)]
             .add(1.0, mode="drop")
         )
 
@@ -282,7 +282,7 @@ class ArchiveAutoReset(AutoReset):
         state = ArchiveAutoResetState(
             env_state=env_state,
             archive_state=archive_state,
-            selection=self.selection.init(self.archive.archive_size, self.actions),
+            selector_state=self.selector.init(self.archive.archive_size, self.actions),
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
             due_mask=jnp.zeros(self.num_envs, bool),
             current_slots=claimed_slots,
@@ -316,7 +316,7 @@ class ArchiveAutoReset(AutoReset):
 
         def load_snapshots():
             archived_states = self.archive.take(state.archive_state, state.assigned_slots)
-            archived_states = self.reseed_fn(archived_states, seed_key)
+            archived_states = self.refresh_fn(archived_states, seed_key)
             return jax.tree.map(
                 lambda archived, reset: jnp.where(
                     broadcast(restart_mask, reset), archived, reset
@@ -410,23 +410,25 @@ class ArchiveAutoReset(AutoReset):
             }
         )
 
-    def place(self, state, key: Key, transitions: PyTree):
-        update_key, choose_key = jax.random.split(key)
+    def assign(self, state, key: Key, transitions: PyTree):
+        update_key, select_key = jax.random.split(key)
         if transitions is not None:
             state = state.replace(
-                selection=self.selection.update(state.selection, update_key, transitions)
+                selector_state=self.selector.update(state.selector_state, update_key, transitions)
             )
-        selection, selected_slots = self.selection.select(state.selection, self, state, choose_key)
-        placed, *_ = jnp.shape(selected_slots)
-        block = self.block(state, placed)
+        selector_state, selected_slots = self.selector.select(
+            state.selector_state, self, state, select_key
+        )
+        num_placed, *_ = jnp.shape(selected_slots)
+        block_mask = self.block(num_placed)
         assigned_slots = (
             jnp.full(self.num_envs, -1, jnp.int32)
-            .at[self.num_envs - placed :]
+            .at[self.num_envs - num_placed :]
             .set(selected_slots)
         )
         lox.log(
             {
-                "archive/placed": jnp.sum(block, dtype=jnp.float32),
+                "archive/placed": jnp.sum(block_mask, dtype=jnp.float32),
                 "archive/num_cells": jnp.sum(state.archive_state.mask, dtype=jnp.float32),
                 "archive/num_eligible": jnp.sum(
                     self.archive.eligible(state.archive_state), dtype=jnp.float32
@@ -434,9 +436,9 @@ class ArchiveAutoReset(AutoReset):
             }
         )
         return state.replace(
-            selection=selection,
-            assigned_slots=jnp.where(block, assigned_slots, -1),
-            due_mask=block,
+            selector_state=selector_state,
+            assigned_slots=jnp.where(block_mask, assigned_slots, -1),
+            due_mask=block_mask,
         )
 
     def update(self, state, key: Key, **kwargs):

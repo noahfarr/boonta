@@ -1,2 +1,2 @@
-# @package _global_.environment.auto_reset.selection.footprint
+# @package _global_.environment.auto_reset.selector.footprint
 _target_: boonta.curricula.prd.UniformFootprint
