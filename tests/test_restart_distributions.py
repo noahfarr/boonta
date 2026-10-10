@@ -59,14 +59,6 @@ class Ladder(Environment):
         return LENGTH
 
 
-class Steady:
-    def start(self, key, timestep):
-        return None
-
-    def act(self, key, timestep, carry, temperature):
-        return jnp.ones(jnp.shape(timestep.reward), jnp.int32), carry
-
-
 def stack(timesteps):
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *timesteps)
 
@@ -92,7 +84,7 @@ def train(selection, updates=3, steps=4):
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
-    archive_auto_reset_state = env.place(archive_auto_reset_state, key, None, Steady())
+    archive_auto_reset_state = env.place(archive_auto_reset_state, key, None)
     for _ in range(updates):
         firsts, seconds = [], []
         for _ in range(steps):
@@ -108,7 +100,7 @@ def train(selection, updates=3, steps=4):
             first=stack(firsts), second=stack(seconds), aux={"value": blank, "log_prob": blank}
         )
         key, sub = jax.random.split(key)
-        archive_auto_reset_state = env.place(archive_auto_reset_state, sub, transitions, Steady())
+        archive_auto_reset_state = env.place(archive_auto_reset_state, sub, transitions)
     key, sub = jax.random.split(key)
     _, cut = env.step(sub, archive_auto_reset_state, jnp.ones(NUM_ENVS, jnp.int32))
     return env, archive_auto_reset_state, cut

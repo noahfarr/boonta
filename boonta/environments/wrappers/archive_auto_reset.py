@@ -286,7 +286,7 @@ class Selector:
         return state
 
     def select(
-        self, state: PyTree, wrapper, archive_auto_reset_state, key: Key, policy
+        self, state: PyTree, wrapper, archive_auto_reset_state, key: Key
     ) -> tuple[PyTree, Array]:
         raise NotImplementedError
 
@@ -554,13 +554,13 @@ class ArchiveAutoReset(AutoReset):
             }
         )
 
-    def place(self, state, key: Key, transitions: PyTree, policy):
+    def place(self, state, key: Key, transitions: PyTree):
         update_key, choose_key = jax.random.split(key)
         if transitions is not None:
             state = state.replace(
                 selection=self.selection.update(state.selection, update_key, transitions)
             )
-        selection, index = self.selection.select(state.selection, self, state, choose_key, policy)
+        selection, index = self.selection.select(state.selection, self, state, choose_key)
         placed, *_ = jnp.shape(index)
         block = self.block(state, placed)
         assigned = jnp.full(self.num_envs, -1, jnp.int32).at[self.num_envs - placed :].set(index)
