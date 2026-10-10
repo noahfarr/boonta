@@ -15,9 +15,7 @@
 
 ## Why boonta
 
-boonta is made for scaling up reinforcement learning. Give it a JAX environment and thousands of copies run at once, while acting, stepping and learning compile into a single program with no Python in the loop. That program spreads across every device on every machine, so an experiment that starts on one GPU grows into a cluster run without touching the algorithm.
-
-The models grow with it. To boonta, a policy is anything that observes, acts and learns from reward, so one PPO trains an MLP on CartPole, a CNN on Breakout and Qwen3 playing Wordle through tool calls. Prompts and tool results are observations and only the tokens the model writes are actions, so LLM agents need no loss masking. And because the algorithm, the environment and the training loop stay out of each other's way, offline data, recurrent memory, curricula and self-play leagues come for free.
+boonta is built to scale reinforcement learning up, in compute and in models. When the environment runs on the GPU, acting, stepping and learning compile into one program that plays thousands of environments at once and spreads across every GPU of a cluster. A policy is anything that observes and acts, so the same PPO that balances CartPole with an MLP fine-tunes Qwen3 to play Wordle through tool calls.
 
 ## Podracers
 
