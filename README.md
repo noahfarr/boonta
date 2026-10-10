@@ -15,10 +15,7 @@
 
 ## Why boonta
 
-- **One command per run.** `boonta algorithm=ppo environment=brax/mujoco/ant` trains and logs. Swap either side with an override.
-- **One GPU to a cluster.** The same run spreads over several machines with `num_processes`.
-- **Sweeps and curricula built in.** CARBS, population-based training, PLR and league play are config options, not extra code.
-- **Plain JAX underneath.** Hydra stays in `hangar`, so the library drops into your own code.
+One command trains a run, such as `boonta algorithm=ppo environment=brax/mujoco/ant`, and swapping the algorithm or the environment takes one override. The same run spreads from one GPU over several machines, and sweeps with CARBS or population-based training and curricula such as PLR and league play are config options rather than extra code. Underneath it is plain JAX. Hydra stays in `hangar`, so the library drops into your own code.
 
 ## Podracers
 
