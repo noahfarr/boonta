@@ -19,8 +19,8 @@ from flashbax.buffers.trajectory_buffer import Experience, can_sample
 
 from boonta.utils import Array, Key
 
-from .episode import (candidates, episode_starts, expand, startable, validate,
-                      window)
+from .episode_buffer import (candidates, episode_starts, expand, startable,
+                             validate, window)
 
 
 def importance_weights(probabilities: Array, size: int, beta: float = 0.4) -> Array:
