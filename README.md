@@ -41,7 +41,7 @@
 | Open-ended | [Craftax](https://github.com/MichaelTMatthews/Craftax) |
 | Levels for curricula | [Kinetix](https://github.com/FLAIROx/Kinetix), [JaxUED](https://github.com/DramaCow/jaxued) mazes and control tasks |
 | Atari | [ALE](https://github.com/Farama-Foundation/Arcade-Learning-Environment) |
-| Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox), [ConnectX](https://www.kaggle.com/competitions/connectx) |
+| Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox), [BluffJAX](https://github.com/AryamanReddi99/bluffjax) poker and bluffing games, [ConnectX](https://www.kaggle.com/competitions/connectx) |
 | Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB), Wordle |
 | Anything in Python | [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments |
 
