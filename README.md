@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-In boonta, an LLM is just another policy. Every token is an action, a tool call is an environment wrapper, and the same PPO that plays Breakout fine-tunes Qwen3 to play Wordle. There is no inference server and no separate trainer: with a JAX game, generating, playing and learning compile into one program on the GPU. Everything else in RL comes along, from offline datasets and recurrent memory to self-play leagues, because the algorithm, the environment and the training loop never reach into each other.
+In boonta, an LLM is just another torso. The tokens it writes are actions, while prompts and tool results are observations, so agentic RL is the same partially observable problem as any other and needs no loss masking. The same PPO that plays Breakout fine-tunes Qwen3 to play Wordle, and with a JAX game, generating, playing and learning compile into one program on the GPU. [Not every token is an action](https://noahfarr.github.io/blog/2026/not-every-token-is-an-action/) explains why. Everything else in RL comes along, from offline datasets and recurrent memory to self-play leagues, because the algorithm, the environment and the training loop never reach into each other.
 
 ## Podracers
 
