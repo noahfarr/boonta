@@ -24,7 +24,7 @@ from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
 from boonta.environments.wrappers import (GroupedAutoReset,
                                           RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+                                          SameStepAutoReset)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
                              EpsilonGreedy, FeatureExtractor, Gaussian,
                              Highway, MinGRUCell, Network, RTUCell,
@@ -164,13 +164,12 @@ def trajectories(num_envs, length=8, capacity=4096, batch_size=32):
 
 
 def wrap(environment, num_envs, gamma=0.99):
-    environment = SameStepAutoReset(environment)
-    environment = RecordEpisodeStatistics(environment, gamma=gamma)
-    return Vectorize(environment, num_envs=num_envs)
+    environment = SameStepAutoReset(environment, num_envs=num_envs)
+    return RecordEpisodeStatistics(environment, gamma=gamma)
 
 
 def group(environment, num_envs, num_steps, group_size, gamma=0.99):
-    environment = Vectorize(SameStepAutoReset(environment), num_envs=num_envs)
+    environment = SameStepAutoReset(environment, num_envs=num_envs)
     environment = GroupedAutoReset(environment, num_steps=num_steps, group_size=group_size)
     return RecordEpisodeStatistics(environment, gamma=gamma)
 
