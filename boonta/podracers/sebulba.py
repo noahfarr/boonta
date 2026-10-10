@@ -60,7 +60,7 @@ class Sebulba:
     config: SebulbaConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[RolloutState] = lambda state: state
+    pit: Pit[RolloutState] = lambda state, transitions: state
     lap: Lap[RolloutState] = lambda state: state
     shardings: PyTree = None
 
@@ -94,7 +94,7 @@ class Sebulba:
         return state, transition
 
     def unroll(self, state: RolloutState, key: Key):
-        state = self.pit(state)
+        state = self.pit(state, None)
         keys = jax.random.split(key, self.config.num_steps)
         return jax.lax.scan(partial(self.rollout, temperature=1.0), state, keys)
 
@@ -132,7 +132,7 @@ class Sebulba:
                 environment_state=environment_state,
                 carry=take(carry, index, num_devices),
             )
-            rollout_state = jax.jit(lambda state: self.pit(self.lap(state)))(
+            rollout_state = jax.jit(lambda state: self.pit(self.lap(state), None))(
                 jax.device_put(actor_state.board(algorithm_state), device)
             )
             num_laps += jax.device_get(rollout_state.algorithm_state.step) - start
@@ -278,7 +278,8 @@ class Sebulba:
                     timestep=timestep,
                     environment_state=environment_state,
                 )
-            )
+            ),
+            None,
         )
         rollout_keys = jax.random.split(rollout_key, num_steps)
         state, _ = jax.lax.scan(
@@ -297,7 +298,7 @@ def make(
     config: SebulbaConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[RolloutState] = lambda state: state,
+    pit: Pit[RolloutState] = lambda state, transitions: state,
     lap: Lap[RolloutState] = lambda state: state,
 ) -> Sebulba:
 

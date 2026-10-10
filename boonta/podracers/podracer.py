@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Protocol, Self, TypeVar
 
-from boonta.utils import Key, PyTree, Timestep
+from boonta.utils import Key, PyTree, Timestep, Transition
 from boonta.utils.typing import EnvState
 
 State = TypeVar("State")
@@ -22,7 +22,7 @@ class PodracerState(Protocol):
 
 Boarded = TypeVar("Boarded", bound=PodracerState)
 
-Pit = Callable[[Boarded], Boarded]
+Pit = Callable[[Boarded, Transition | None], Boarded]
 Lap = Callable[[Boarded], Boarded]
 
 

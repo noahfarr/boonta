@@ -355,7 +355,7 @@ def plr(
         robust=robust,
     )
 
-    def pit(state):
+    def pit(state, transitions):
         tally = state.algorithm_state.tally
 
         def curate(node):

@@ -37,7 +37,7 @@ class Quadinaros:
     algorithm: Algorithm
     environment: Environment
     dataset: Dataset
-    pit: Pit[QuadinarosState] = lambda state: state
+    pit: Pit[QuadinarosState] = lambda state, transitions: state
     lap: Lap[QuadinarosState] = lambda state: state
 
     def step(self, state: QuadinarosState, key):
@@ -54,7 +54,7 @@ class Quadinaros:
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step + self.batch_size
         )
-        return self.pit(state.replace(algorithm_state=algorithm_state)), None
+        return self.pit(state.replace(algorithm_state=algorithm_state), batch), None
 
     def rollout(self, state: QuadinarosState, key, temperature):
         algorithm_key, environment_key = jax.random.split(key)
@@ -91,7 +91,8 @@ class Quadinaros:
                     dataset_state=self.dataset.init(),
                     algorithm_state=algorithm_state,
                 )
-            )
+            ),
+            None,
         )
 
     @property
@@ -120,7 +121,8 @@ class Quadinaros:
                     timestep=timestep,
                     environment_state=environment_state,
                 )
-            )
+            ),
+            None,
         )
         state, _ = jax.lax.scan(
             partial(self.rollout, temperature=0.0), state, rollout_keys
@@ -151,7 +153,7 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     dataset: Dataset,
-    pit: Pit[QuadinarosState] = lambda state: state,
+    pit: Pit[QuadinarosState] = lambda state, transitions: state,
     lap: Lap[QuadinarosState] = lambda state: state,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
