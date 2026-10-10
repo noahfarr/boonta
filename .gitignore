@@ -248,3 +248,6 @@ figures/
 hangar/arc/cmd.yaml
 hangar/arc/run.sh
 hangar/arc/setup.sh
+hangar/arc/launch.sh
+hangar/arc/pack.sh
+hangar/arc/stage.sh
