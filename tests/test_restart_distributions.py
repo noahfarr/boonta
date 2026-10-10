@@ -128,7 +128,7 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
     env, archive_auto_reset_state, cut = train(selection)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - share(2.0, NUM_ENVS)
     eligible = env.archive.eligible(archive_auto_reset_state.archive_state)
-    assert bool(jnp.all(archive_auto_reset_state.restart_due_mask == block))
+    assert bool(jnp.all(archive_auto_reset_state.due_mask == block))
     assert bool(jnp.all(eligible[archive_auto_reset_state.assigned_slots[block]]))
     assert bool(jnp.all(cut.done[block]))
 
@@ -206,6 +206,6 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curri
     state, logs = podracer.train(state, jax.random.key(1), 20)
     archived = locate(state.environment_state)
     assert int(jnp.sum(archived.archive_state.mask)) == Corridor().length - 1
-    assert bool(jnp.any(archived.restart_due_mask))
+    assert bool(jnp.any(archived.due_mask))
     assert np.isfinite(np.asarray(logs["archive/placed"])).all()
     assert all(np.isfinite(leaf).all() for leaf in jax.tree.leaves(state.algorithm_state.params))

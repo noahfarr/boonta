@@ -187,7 +187,7 @@ class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
     selection: PyTree = struct.field(metadata={"axis": None})
     assigned_slots: Array
-    restart_due_mask: Array
+    due_mask: Array
     current_slots: Array
     rho: Array
     age: Array
@@ -284,7 +284,7 @@ class ArchiveAutoReset(AutoReset):
             archive_state=archive_state,
             selection=self.selection.init(self.archive.archive_size, self.actions),
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
-            restart_due_mask=jnp.zeros(self.num_envs, bool),
+            due_mask=jnp.zeros(self.num_envs, bool),
             current_slots=claimed_slots,
             rho=jnp.ones(self.num_envs, bool),
             age=jnp.zeros(self.num_envs, jnp.int32),
@@ -304,39 +304,39 @@ class ArchiveAutoReset(AutoReset):
         env_state, timestep = super().step(step_key, state.env_state, action)
         state = state.replace(env_state=env_state, age=age)
         episode_mask = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
-        truncation_mask = state.restart_due_mask & ~episode_mask
+        truncation_mask = state.due_mask & ~episode_mask
         timestep = timestep.replace(
             truncated=timestep.truncated | broadcast(truncation_mask, timestep.truncated)
         )
         done = episode_mask | truncation_mask
-        archive_restart_mask = done & (state.assigned_slots >= 0)
-        reset_env_states, _ = jax.vmap(self._env.init)(
+        restart_mask = done & (state.assigned_slots >= 0)
+        reset_states, _ = jax.vmap(self._env.init)(
             jax.random.split(reset_key, self.num_envs)
         )
 
         def load_snapshots():
-            archived_env_states = self.archive.take(state.archive_state, state.assigned_slots)
-            archived_env_states = self.reseed_fn(archived_env_states, seed_key)
+            archived_states = self.archive.take(state.archive_state, state.assigned_slots)
+            archived_states = self.reseed_fn(archived_states, seed_key)
             return jax.tree.map(
                 lambda archived, reset: jnp.where(
-                    broadcast(archive_restart_mask, reset), archived, reset
+                    broadcast(restart_mask, reset), archived, reset
                 ),
-                archived_env_states,
-                reset_env_states,
+                archived_states,
+                reset_states,
             )
 
-        reset_env_states = jax.lax.cond(
-            jnp.any(archive_restart_mask), load_snapshots, lambda: reset_env_states
+        reset_states = jax.lax.cond(
+            jnp.any(restart_mask), load_snapshots, lambda: reset_states
         )
         state = state.replace(
             env_state=jax.tree.map(
                 lambda reset, live: jnp.where(broadcast(done, live), reset, live),
-                reset_env_states,
+                reset_states,
                 state.env_state,
             ),
-            rho=jnp.where(done, ~archive_restart_mask, state.rho),
+            rho=jnp.where(done, ~restart_mask, state.rho),
             age=jnp.where(done, 0, state.age),
-            restart_due_mask=jnp.zeros_like(state.restart_due_mask),
+            due_mask=jnp.zeros_like(state.due_mask),
         )
         timestep = timestep.replace(
             obs=jax.tree.map(
@@ -348,11 +348,11 @@ class ArchiveAutoReset(AutoReset):
         archive_state, claimed_slots, opened_mask, evicted_slots = self.archive.add(
             state.archive_state,
             reset_time_limit(state.env_state),
-            ~archive_restart_mask,
+            ~restart_mask,
             state.rho,
             done | self.eligible(state.env_state),
         )
-        current_slots = jnp.where(archive_restart_mask, state.assigned_slots, claimed_slots)
+        current_slots = jnp.where(restart_mask, state.assigned_slots, claimed_slots)
         decay = self.gamma ** (age - 1).astype(jnp.float32)
         reward = timestep.reward.reshape(self.num_envs, -1).sum(axis=-1)
         earned = state.earned + reward
@@ -381,7 +381,7 @@ class ArchiveAutoReset(AutoReset):
                     state,
                     timestep,
                     current_slots,
-                    done & ~archive_restart_mask,
+                    done & ~restart_mask,
                     evicted_slots,
                 )
             ),
@@ -436,7 +436,7 @@ class ArchiveAutoReset(AutoReset):
         return state.replace(
             selection=selection,
             assigned_slots=jnp.where(block, assigned_slots, -1),
-            restart_due_mask=block,
+            due_mask=block,
         )
 
     def update(self, state, key: Key, **kwargs):
