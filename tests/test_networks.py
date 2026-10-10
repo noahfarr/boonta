@@ -402,23 +402,30 @@ def linear_inputs(decay, erase, batch=2, length=37, heads=3, key_dim=8, value_di
         key=key / jnp.linalg.norm(key, axis=-1, keepdims=True),
         value=jax.random.normal(keys[2], (batch, length, heads, value_dim)),
         log_decay=-2.0 * jax.random.uniform(keys[3], (batch, length, heads)) * decay,
-        erase=jax.random.uniform(keys[4], (batch, length, heads)) * erase,
-        write=jax.random.uniform(keys[5], (batch, length, heads)),
+        erase_gate=jax.random.uniform(keys[4], (batch, length, heads)) * erase,
+        write_gate=jax.random.uniform(keys[5], (batch, length, heads)),
     )
 
 
 def per_token(inputs, done, state):
-    query, key, value, log_decay, erase, write = (
+    query, key, value, log_decay, erase_gate, write_gate = (
         np.asarray(x, np.float64)
-        for x in (inputs.query, inputs.key, inputs.value, inputs.log_decay, inputs.erase, inputs.write)
+        for x in (
+            inputs.query,
+            inputs.key,
+            inputs.value,
+            inputs.log_decay,
+            inputs.erase_gate,
+            inputs.write_gate,
+        )
     )
     state = np.asarray(state, np.float64)
     outputs = np.zeros_like(value)
     for step in range(value.shape[1]):
         state = np.where(np.asarray(done)[:, step, None, None, None], 0.0, state)
         state = state * np.exp(log_decay[:, step])[..., None, None]
-        erased = np.einsum("bhk,bhkv->bhv", key[:, step], state) * erase[:, step, :, None]
-        written = value[:, step] * write[:, step, :, None] - erased
+        erased = np.einsum("bhk,bhkv->bhv", key[:, step], state) * erase_gate[:, step, :, None]
+        written = value[:, step] * write_gate[:, step, :, None] - erased
         state = state + np.einsum("bhk,bhv->bhkv", key[:, step], written)
         outputs[:, step] = np.einsum("bhk,bhkv->bhv", query[:, step], state)
     return outputs, state

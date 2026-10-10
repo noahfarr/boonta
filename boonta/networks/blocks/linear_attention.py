@@ -14,8 +14,8 @@ class LinearAttentionInputs:
     key: Array
     value: Array
     log_decay: Array
-    erase: Array
-    write: Array
+    erase_gate: Array
+    write_gate: Array
 
 
 @struct.dataclass
@@ -48,8 +48,8 @@ def unpack(inputs: LinearAttentionInputs) -> tuple[Array, ...]:
             inputs.key,
             inputs.value,
             inputs.log_decay,
-            inputs.erase,
-            inputs.write,
+            inputs.erase_gate,
+            inputs.write_gate,
         )
     )
 
@@ -58,11 +58,11 @@ def recurrent(
     inputs: LinearAttentionInputs, done: Array, state: Array
 ) -> tuple[Array, Array]:
     def step(state: Array, inputs) -> tuple[Array, Array]:
-        query, key, value, log_decay, erase, write, done = inputs
+        query, key, value, log_decay, erase_gate, write_gate, done = inputs
         state = jnp.where(done[:, None, None, None], 0.0, state)
         state = state * jnp.exp(log_decay)[..., None, None]
         readout = jnp.einsum("bhk,bhkv->bhv", key, state)
-        written = value * write[..., None] - readout * erase[..., None]
+        written = value * write_gate[..., None] - readout * erase_gate[..., None]
         state = state + jnp.einsum("bhk,bhv->bhkv", key, written)
         return state, jnp.einsum("bhk,bhkv->bhv", query, state)
 
@@ -92,7 +92,9 @@ def chunkwise(
             x = jnp.swapaxes(x, 2, 3)
         return x
 
-    query, key, value, log_decay, erase, write = (chunk(x) for x in unpack(inputs))
+    query, key, value, log_decay, erase_gate, write_gate = (
+        chunk(x) for x in unpack(inputs)
+    )
     resets = jnp.cumsum(chunk(done.astype(jnp.int32)), axis=-1)[:, :, None]
 
     cumulative = jnp.cumsum(log_decay, axis=-1)
@@ -106,12 +108,12 @@ def chunkwise(
     tail = jnp.where(resets == resets[..., -1:], jnp.exp(final - cumulative), 0.0)
     persist = jnp.where(fresh[..., -1], jnp.exp(final[..., 0]), 0.0)
 
-    erased_key = key * erase[..., None]
+    erased_key = key * erase_gate[..., None]
     system = jnp.einsum("...id,...jd->...ij", erased_key, key) * pairwise
     system = jnp.tril(system, -1) + jnp.eye(size, dtype=system.dtype)
     solved = jax.scipy.linalg.solve_triangular(
         system,
-        jnp.concatenate([value * write[..., None], erased_key * head[..., None]], axis=-1),
+        jnp.concatenate([value * write_gate[..., None], erased_key * head[..., None]], axis=-1),
         lower=True,
         unit_diagonal=True,
     )

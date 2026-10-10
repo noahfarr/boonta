@@ -175,8 +175,8 @@ class GatedDeltaNet(LinearAttentionCellBase):
             key=heads(key),
             value=value.reshape(batch_size, sequence_length, self.num_value_heads, -1),
             log_decay=log_decay,
-            erase=beta,
-            write=beta,
+            erase_gate=beta,
+            write_gate=beta,
         )
         return GatedDeltaNetCarry(query_window, key_window, value_window), inputs
 
