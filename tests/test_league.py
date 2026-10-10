@@ -799,7 +799,7 @@ def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
 
     assert wrapped is algorithm
     assert placed is environment
-    assert pit(state) is state
+    assert pit(state, None) is state
     assert lap(state) is state
 
 

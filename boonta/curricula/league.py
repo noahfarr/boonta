@@ -39,7 +39,7 @@ def league(
     environment = Opponent(environment, play, initialize, groups=len(learners))
     dress = deal(environment, learners, psro.names, **table)
 
-    def pit(state):
+    def pit(state, transitions):
         opponents = psro.opponents(state.algorithm_state)
         key = jax.random.fold_in(jax.random.key(0), state.algorithm_state.step)
 
