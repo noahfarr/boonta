@@ -1,7 +1,6 @@
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 
 from boonta.utils import Array, Key, PyTree
 
@@ -18,11 +17,8 @@ class Vectorize(Wrapper):
         ), "Vectorize cannot wrap a Batched environment; it already produces batches"
         self.num_envs = num_envs
 
-    def init(self, key: Key, group_size: int = 1) -> tuple[PyTree, Any]:
-        num_groups = self.num_envs // group_size
-        group_keys = jax.random.split(key, num_groups)
-        keys = jnp.repeat(group_keys, group_size, axis=0)
-        return jax.vmap(self._env.init)(keys)
+    def init(self, key: Key) -> tuple[PyTree, Any]:
+        return jax.vmap(self._env.init)(jax.random.split(key, self.num_envs))
 
     def step(self, key: Key, state: PyTree, action: Array) -> tuple[PyTree, Any]:
         keys = jax.random.split(key, self.num_envs)

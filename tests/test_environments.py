@@ -14,7 +14,7 @@ from boonta.environments import wrappers
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAction, ClipAction,
                                           ClipReward, DomainRandomization,
-                                          FlattenObservation, GroupedAutoReset,
+                                          FlattenObservation, Group,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
@@ -53,8 +53,8 @@ STACKS = [
     pytest.param(lambda: NextStepAutoReset(Dial(), NUM_ENVS), id="next_step_auto_reset"),
     pytest.param(lambda: OptimisticAutoReset(Dial(), NUM_ENVS, ratio=2), id="optimistic_auto_reset"),
     pytest.param(
-        lambda: GroupedAutoReset(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4),
-        id="grouped_auto_reset",
+        lambda: Group(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4),
+        id="group",
     ),
     pytest.param(lambda: RecordEpisodeStatistics(Vectorize(Dial(), NUM_ENVS)), id="record_episode_statistics"),
     pytest.param(lambda: Vectorize(TimeLimit(Dial(), 100), NUM_ENVS), id="time_limit"),
@@ -277,10 +277,8 @@ def test_optimistic_auto_reset_restarts_every_finished_environment():
     np.testing.assert_array_equal(state.clock, 0)
 
 
-def test_grouped_auto_reset_restarts_each_group_from_one_start():
-    environment = GroupedAutoReset(
-        SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4, group_size=2
-    )
+def test_a_group_restarts_each_group_from_one_start():
+    environment = Group(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4, group_size=2)
     state, _ = environment.init(jax.random.key(0))
     state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 4)
     noise = np.asarray(state.env_state.noise).reshape(-1, 2)
@@ -292,7 +290,7 @@ def test_grouped_auto_reset_restarts_each_group_from_one_start():
 
 
 def test_a_batched_environment_restarts_its_groups_from_one_start():
-    environment = GroupedAutoReset(
+    environment = Group(
         Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=100),
         num_steps=4,
         group_size=2,
@@ -353,7 +351,7 @@ def test_episode_statistics_log_each_finished_episode_once():
 
 def test_every_grouped_window_cut_is_logged_as_an_episode():
     environment = RecordEpisodeStatistics(
-        GroupedAutoReset(SameStepAutoReset(Corridor(), NUM_ENVS), num_steps=4)
+        Group(SameStepAutoReset(Corridor(), NUM_ENVS), num_steps=4)
     )
     rewards, logs = statistics(environment, [jnp.ones(NUM_ENVS, jnp.int32)] * 16)
     assert len(logs["episode_statistics/episode_return"]) == 4 * NUM_ENVS

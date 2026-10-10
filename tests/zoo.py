@@ -22,7 +22,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.environments.wrappers import (GroupedAutoReset,
+from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
@@ -170,7 +170,7 @@ def wrap(environment, num_envs, gamma=0.99):
 
 def group(environment, num_envs, num_steps, group_size, gamma=0.99):
     environment = SameStepAutoReset(environment, num_envs=num_envs)
-    environment = GroupedAutoReset(environment, num_steps=num_steps, group_size=group_size)
+    environment = Group(environment, num_steps=num_steps, group_size=group_size)
     return RecordEpisodeStatistics(environment, gamma=gamma)
 
 

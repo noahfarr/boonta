@@ -15,8 +15,8 @@ class NextStepAutoResetState(WrapperState):
 
 class NextStepAutoReset(AutoReset):
 
-    def init(self, key: Key, group_size: int = 1) -> tuple[NextStepAutoResetState, Timestep]:
-        env_state, timestep = super().init(key, group_size)
+    def init(self, key: Key) -> tuple[NextStepAutoResetState, Timestep]:
+        env_state, timestep = super().init(key)
         return NextStepAutoResetState(env_state, jnp.zeros(self.num_envs, bool)), timestep
 
     def step(
