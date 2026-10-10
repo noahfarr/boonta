@@ -11,7 +11,7 @@ from boonta.environments.wrappers import archive_auto_reset
 from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
                                                              plant, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, Transition
 from boonta.utils.typing import Environment
 
 from .pilot import Pilot
@@ -238,61 +238,17 @@ class SelectorState:
     footprint: Successor
     roots: Array
     gain: GainState
-    relevance: PyTree = ()
 
 
-class Relevance:
-    def init(self, archive_size: int) -> PyTree:
-        return ()
-
-    def forget(self, charted: PyTree, wiped: Array) -> PyTree:
-        return charted
-
-    def tally(self, charted: PyTree, transitions: Transition, start_block: int) -> PyTree:
-        return charted
-
-
-class Current(Relevance):
+class Reach:
     def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
         mass = footprint.spill(state.footprint, state.roots)
         return mass / jnp.maximum(jnp.sum(mass), 1e-12)
 
 
-class Flat(Relevance):
+class Uniform:
     def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
         return jnp.ones_like(state.roots)
-
-
-@struct.dataclass
-class Tallied:
-    visits: Array
-
-
-@dataclass
-class Occupancy(Relevance):
-    rate: float = 0.2
-
-    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
-        visits = state.relevance.visits
-        return visits / jnp.maximum(jnp.sum(visits), 1e-12)
-
-    def init(self, archive_size: int) -> Tallied:
-        return Tallied(visits=jnp.zeros(archive_size))
-
-    def forget(self, charted: Tallied, wiped: Array) -> Tallied:
-        return charted.replace(visits=jnp.where(wiped, 0.0, charted.visits))
-
-    def tally(self, charted: Tallied, transitions: Transition, start_block: int) -> Tallied:
-        cell = transitions.first.info["cell"]
-        size, *_ = jnp.shape(charted.visits)
-        starts = jnp.arange(jnp.shape(cell)[1]) < start_block
-        seen = (cell >= 0) & starts[None, :]
-        counted = piled(
-            size,
-            jnp.reshape(jnp.where(seen, cell, size), (-1,)),
-            jnp.reshape(seen.astype(jnp.float32), (-1,)),
-        )
-        return charted.replace(visits=(1.0 - self.rate) * charted.visits + counted)
 
 
 def moments(value: Array, over: Array) -> tuple[Array, Array]:
@@ -309,7 +265,7 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 @dataclass
 class Selector(archive_auto_reset.Selector):
     footprint: SuccessorRepresentation
-    relevance: Relevance
+    relevance: Reach | Uniform
     gain: Advantage
     k: float = 4.0
 
@@ -318,7 +274,6 @@ class Selector(archive_auto_reset.Selector):
             footprint=self.footprint.init(archive_size),
             roots=jnp.zeros(archive_size),
             gain=self.gain.init(archive_size, num_actions),
-            relevance=self.relevance.init(archive_size),
         )
 
     def update(self, state: SelectorState, key: Key, transitions: Transition) -> SelectorState:
@@ -354,11 +309,6 @@ class Selector(archive_auto_reset.Selector):
             footprint=footprint,
             roots=roots,
             gain=self.gain.update(self.gain.forget(state.gain, wiped), transitions),
-            relevance=self.relevance.tally(
-                self.relevance.forget(state.relevance, wiped),
-                transitions,
-                envs - share(self.k, envs),
-            ),
         )
 
     def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key, policy):

@@ -1,6 +1,7 @@
 # @package _global_
 
 defaults:
+  - /curriculum/prd/relevance: successor_representation
   - override /environment/auto_reset@_global_.environment.auto_reset: archive
   - _self_
 
@@ -18,9 +19,6 @@ environment:
         gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
         rate: 0.1
         columns: 256
-      relevance:
-        _target_: boonta.curricula.prd.Occupancy
-        rate: 0.2
       gain:
         _target_: boonta.curricula.prd.Advantage
         gamma: ${algorithm.gamma}
