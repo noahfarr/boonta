@@ -242,7 +242,7 @@ class ArchiveAutoReset(AutoReset):
     ):
         super().__init__(env, num_envs=num_envs)
         self.selector = selector
-        self.actions = int(getattr(env.action_space(), "num_actions", 1))
+        self.num_actions = int(getattr(env.action_space(), "num_actions", 1))
         self.archive = Archive(
             archive_size=capacity,
             cell_fn=widen(cell_fn(env=env)),
@@ -282,7 +282,7 @@ class ArchiveAutoReset(AutoReset):
         state = ArchiveAutoResetState(
             env_state=env_state,
             archive_state=archive_state,
-            selector_state=self.selector.init(self.archive.archive_size, self.actions),
+            selector_state=self.selector.init(self.archive.archive_size, self.num_actions),
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
             due_mask=jnp.zeros(self.num_envs, bool),
             current_slots=claimed_slots,
