@@ -63,6 +63,10 @@ def layout(depth: int, length: int, lure: float, seed: int):
     return index[start], successor, reward, terminal, rows, columns
 
 
+def cell(env):
+    return lambda env_state: env_state.cell
+
+
 class ChainOfForks(Environment):
     def __init__(
         self,

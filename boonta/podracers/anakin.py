@@ -32,7 +32,7 @@ class Anakin:
     config: AnakinConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[AnakinState] = lambda state: state
+    pit: Pit[AnakinState] = lambda state, transitions: state
     lap: Lap[AnakinState] = lambda state: state
 
     def rollout(self, state: AnakinState, key, temperature):
@@ -75,7 +75,8 @@ class Anakin:
                     environment_state=environment_state,
                     algorithm_state=algorithm_state,
                 )
-            )
+            ),
+            None,
         )
 
     @property
@@ -95,7 +96,7 @@ class Anakin:
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions
             )
-            return self.pit(state.replace(algorithm_state=algorithm_state)), None
+            return self.pit(state.replace(algorithm_state=algorithm_state), transitions), None
 
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(step, state, keys)
@@ -111,7 +112,8 @@ class Anakin:
                     timestep=timestep,
                     environment_state=environment_state,
                 )
-            )
+            ),
+            None,
         )
         state, _ = jax.lax.scan(
             partial(self.rollout, temperature=0.0), state, rollout_keys
@@ -128,7 +130,7 @@ def make(
     config: AnakinConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[AnakinState] = lambda state: state,
+    pit: Pit[AnakinState] = lambda state, transitions: state,
     lap: Lap[AnakinState] = lambda state: state,
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)

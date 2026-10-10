@@ -54,7 +54,7 @@ def environment_states(state):
     return [state.environment_state]
 
 
-def turn(state):
+def turn(state, transitions):
     setting = state.algorithm_state.version + 100.0
     return state.replace(
         environment_state=Vectorize(Dial(), NUM_ENVS).update(
@@ -303,7 +303,7 @@ def test_quadinaros_updates_the_dataset_once_per_train_call_and_closes_it():
 
 
 def test_quadinaros_pit_steers_the_data():
-    def steer(state):
+    def steer(state, batch):
         transitions = state.dataset_state.transitions
         obs = transitions.first.obs.at[..., 1].set(state.algorithm_state.version)
         first = transitions.first.replace(obs=obs)
