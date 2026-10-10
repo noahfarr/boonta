@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-One command trains a run, such as `boonta algorithm=ppo environment=brax/mujoco/ant`, and swapping the algorithm or the environment takes one override. The same run spreads from one GPU over several machines, and sweeps with CARBS or population-based training and curricula such as PLR and league play are config options rather than extra code. Underneath it is plain JAX. Hydra stays in `hangar`, so the library drops into your own code.
+boonta splits reinforcement learning into three parts that never reach into each other. An algorithm decides and learns but never touches the environment or the devices. An environment has one interface, whether it is written in JAX, runs in Gymnasium or calls C++. A podracer runs the loop and owns the devices. So the same PPO trains a CNN on MinAtar or an MLP on CartPole, and moving it from a JAX environment on the GPU to a slow Gymnasium one means picking another podracer, not rewriting the algorithm.
 
 ## Podracers
 
