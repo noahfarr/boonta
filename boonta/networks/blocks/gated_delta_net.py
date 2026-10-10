@@ -161,7 +161,7 @@ class GatedDeltaNet(LinearAttentionCellBase):
         def heads(x: Array) -> Array:
             x = x.reshape(batch_size, sequence_length, self.num_key_heads, self.key_dim)
             return jnp.repeat(
-                l2_normalize(x.astype(jnp.float32)),
+                l2_normalize(x.astype(jnp.float32)).astype(x.dtype),
                 self.num_value_heads // self.num_key_heads,
                 axis=2,
             )

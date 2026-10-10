@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax import struct
+from jax.ad_checkpoint import checkpoint_name
 
 from boonta.utils.typing import Array, Carry, Key
 
@@ -92,48 +93,60 @@ def chunkwise(
             x = jnp.swapaxes(x, 2, 3)
         return x
 
-    query, key, value, log_decay, erase_gate, write_gate = (
-        chunk(x) for x in unpack(inputs)
+    dtype = inputs.value.dtype
+
+    def matmul(lhs: Array, rhs: Array) -> Array:
+        return jnp.matmul(
+            lhs.astype(dtype), rhs.astype(dtype), preferred_element_type=jnp.float32
+        )
+
+    def prepare(query, key, value, log_decay, erase_gate, write_gate, resets):
+        cumulative = jnp.cumsum(log_decay, axis=-1)
+        lower = jnp.tril(jnp.ones((size, size), bool))
+        same = (resets[..., :, None] == resets[..., None, :]) & lower
+        gap = cumulative[..., :, None] - cumulative[..., None, :]
+        pairwise = jnp.where(same, jnp.exp(jnp.where(same, gap, 0.0)), 0.0)
+        fresh = resets == 0
+        head = jnp.where(fresh, jnp.exp(cumulative), 0.0)
+        final = cumulative[..., -1:]
+        tail = jnp.where(resets == resets[..., -1:], jnp.exp(final - cumulative), 0.0)
+        persist = jnp.where(fresh[..., -1], jnp.exp(final[..., 0]), 0.0)
+
+        system = erase_gate[..., None] * matmul(key, jnp.swapaxes(key, -1, -2)) * pairwise
+        system = jnp.tril(system, -1) + jnp.eye(size, dtype=system.dtype)
+        erased_key = key * erase_gate[..., None]
+        solved = jax.scipy.linalg.solve_triangular(
+            system,
+            jnp.concatenate(
+                [value * write_gate[..., None], erased_key * head[..., None]], axis=-1
+            ),
+            lower=True,
+            unit_diagonal=True,
+        )
+        solved = checkpoint_name(solved, "solved")
+        targets, readouts = jnp.split(solved, [value_dim], axis=-1)
+        intra = matmul(query, jnp.swapaxes(key, -1, -2)) * pairwise
+        return query * head[..., None], key * tail[..., None], targets, readouts, intra, persist
+
+    query, key, value = (chunk(x) for x in (inputs.query, inputs.key, inputs.value))
+    log_decay, erase_gate, write_gate = (
+        chunk(x.astype(jnp.float32))
+        for x in (inputs.log_decay, inputs.erase_gate, inputs.write_gate)
     )
     resets = jnp.cumsum(chunk(done.astype(jnp.int32)), axis=-1)[:, :, None]
-
-    cumulative = jnp.cumsum(log_decay, axis=-1)
-    lower = jnp.tril(jnp.ones((size, size), bool))
-    same = (resets[..., :, None] == resets[..., None, :]) & lower
-    gap = cumulative[..., :, None] - cumulative[..., None, :]
-    pairwise = jnp.where(same, jnp.exp(jnp.where(same, gap, 0.0)), 0.0)
-    fresh = resets == 0
-    head = jnp.where(fresh, jnp.exp(cumulative), 0.0)
-    final = cumulative[..., -1:]
-    tail = jnp.where(resets == resets[..., -1:], jnp.exp(final - cumulative), 0.0)
-    persist = jnp.where(fresh[..., -1], jnp.exp(final[..., 0]), 0.0)
-
-    erased_key = key * erase_gate[..., None]
-    system = jnp.einsum("...id,...jd->...ij", erased_key, key) * pairwise
-    system = jnp.tril(system, -1) + jnp.eye(size, dtype=system.dtype)
-    solved = jax.scipy.linalg.solve_triangular(
-        system,
-        jnp.concatenate([value * write_gate[..., None], erased_key * head[..., None]], axis=-1),
-        lower=True,
-        unit_diagonal=True,
+    policy = jax.checkpoint_policies.save_only_these_names("solved")
+    chunks = jax.checkpoint(prepare, policy=policy)(
+        query, key, value, log_decay, erase_gate, write_gate, resets
     )
-    targets, readouts = jnp.split(solved, [value_dim], axis=-1)
-    intra = jnp.einsum("...id,...jd->...ij", query, key) * pairwise
-    query = query * head[..., None]
-    key = key * tail[..., None]
 
     def step(state: Array, inputs) -> tuple[Array, Array]:
         query, key, targets, readouts, intra, persist = inputs
-        correction = targets - readouts @ state
-        output = query @ state + intra @ correction
-        state = state * persist[..., None, None] + jnp.swapaxes(key, -1, -2) @ correction
+        correction = targets - matmul(readouts, state)
+        output = matmul(query, state) + matmul(intra, correction)
+        state = state * persist[..., None, None] + matmul(jnp.swapaxes(key, -1, -2), correction)
         return state, output
 
-    state, outputs = jax.lax.scan(
-        step,
-        state.astype(jnp.float32),
-        (query, key, targets, readouts, intra, persist),
-    )
+    state, outputs = jax.lax.scan(step, state.astype(jnp.float32), chunks)
     outputs = jnp.moveaxis(jnp.swapaxes(outputs, 2, 3), 0, 1)
     outputs = outputs.reshape(batch_size, num_chunks * size, num_heads, value_dim)
     return outputs[:, :sequence_length], state
