@@ -70,7 +70,7 @@ def factory(fn):
 
 class Echo(Selector):
     def select(self, state, wrapper, archive_auto_reset_state, key):
-        return state, jnp.full(4, archive_auto_reset_state.slot[0], jnp.int32)
+        return state, jnp.full(4, archive_auto_reset_state.current_slots[0], jnp.int32)
 
 
 def archive(archive_size=ARCHIVE_SIZE, cell_fn=cell_of, **kwargs):
@@ -348,8 +348,8 @@ def test_a_finished_episode_spawns_a_fresh_world():
 def test_occupied_counts_envs_outside_the_block_by_their_current_slot():
     env = build()
     state, _ = env.init(jax.random.key(0))
-    slot = jnp.full(NUM_ENVS, -1, jnp.int32).at[1].set(3).at[2].set(3).at[3].set(5)
-    state = state.replace(slot=slot)
+    current_slots = jnp.full(NUM_ENVS, -1, jnp.int32).at[1].set(3).at[2].set(3).at[3].set(5)
+    state = state.replace(current_slots=current_slots)
     counted = env.occupied(state, placed=4)
     assert float(counted[3]) == 2.0
     assert float(counted[5]) == 1.0
@@ -386,7 +386,7 @@ def test_every_step_reports_the_cell_the_env_is_in():
         cell = timestep.info["cell"]
         assert bool(jnp.all(cell >= 0))
         assert bool(jnp.all(state.archive_state.mask[cell]))
-        assert bool(jnp.all(cell == state.slot))
+        assert bool(jnp.all(cell == state.current_slots))
 
 
 def test_without_an_update_every_episode_is_reported_as_rho():
@@ -462,16 +462,17 @@ def test_a_state_the_eligibility_rejects_is_stored_but_not_marked_eligible():
 def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     env = build()
     state, _ = drive(env, steps=2, action=1)
-    cell = int(state.slot[0])
+    cell = int(state.current_slots[0])
     state = env.place(state, jax.random.key(3), None)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
-    assert bool(jnp.all(state.due == block))
-    assert bool(jnp.all(state.assigned[block] == cell)) and bool(jnp.all(state.assigned[~block] == -1))
+    assert bool(jnp.all(state.restart_due_mask == block))
+    assert bool(jnp.all(state.assigned_slots[block] == cell))
+    assert bool(jnp.all(state.assigned_slots[~block] == -1))
     after, cut = env.step(jax.random.key(4), state, jnp.ones(NUM_ENVS, jnp.int32))
     assert bool(jnp.all(cut.truncated[block])) and not bool(jnp.any(cut.truncated[~block]))
-    assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.slot[block] == cell))
-    assert bool(jnp.all(after.age[block] == 0)) and not bool(jnp.any(after.due))
-    stored = after.archive_state.cell_states.snapshot.tag[after.slot[block]]
+    assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.current_slots[block] == cell))
+    assert bool(jnp.all(after.age[block] == 0)) and not bool(jnp.any(after.restart_due_mask))
+    stored = after.archive_state.cell_states.snapshot.tag[after.current_slots[block]]
     assert bool(jnp.all(after.env_state.tag[block] == stored))
     assert bool(jnp.all(after.env_state.tag[~block] == state.env_state.tag[~block] + 1))
     assert bool(jnp.all(cut.obs[block, 1] == stored))
