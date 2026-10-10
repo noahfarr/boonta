@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-boonta is built to scale reinforcement learning up, in compute and in models. Training plays thousands of environments at once, keeps every device busy and grows from one GPU to a cluster without touching the algorithm. The same PPO that balances CartPole with an MLP also fine-tunes LLMs and VLAs.
+boonta is built to scale reinforcement learning up, in compute and in models. Training plays thousands of environments at once, keeps every device busy and grows from one GPU to a cluster without touching the algorithm. Models scale the same way, from a small network learning CartPole from scratch to LLMs and VLAs fine-tuned as agents, all trained by the same algorithms. And because the algorithm, the environment and the training loop stay out of each other's way, offline data, multi-agent self-play and curricula slot in without rewriting anything.
 
 ## Podracers
 
