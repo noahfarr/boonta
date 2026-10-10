@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-boonta splits reinforcement learning into three pieces that stay out of each other's way. The algorithm decides and learns without ever touching the environment or the hardware. The environment looks the same whether it is written in JAX, runs in Gymnasium or calls into C++. The podracer runs the loop and owns the devices. Because each piece only knows its own job, the same PPO trains a CNN on MinAtar, an MLP on CartPole or Qwen3 playing Wordle through tool calls, and moving it from a JAX environment on the GPU to a slow Gymnasium one takes a different podracer, not a rewrite.
+In boonta, the same PPO trains a CNN on MinAtar, an MLP on CartPole or Qwen3 playing Wordle through tool calls. That works because each piece only knows its own job. The algorithm decides and learns without ever touching the environment or the hardware. The environment looks the same whether it is written in JAX, runs in Gymnasium or calls into C++. The podracer runs the loop and owns the devices, so moving from a JAX environment on the GPU to a slow Gymnasium one takes a different podracer, not a rewrite.
 
 ## Podracers
 
