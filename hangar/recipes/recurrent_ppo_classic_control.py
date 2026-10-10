@@ -7,8 +7,7 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import (ActorCritic, Categorical, FeatureExtractor,
                              Gaussian, Network)
 
@@ -45,8 +44,7 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     space = env.action_space()
 
-    env = SameStepAutoReset(env)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     if jnp.issubdtype(space.dtype, jnp.integer):
         actor = Categorical(

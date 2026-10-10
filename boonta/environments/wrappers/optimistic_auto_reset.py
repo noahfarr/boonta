@@ -3,10 +3,10 @@ import jax.numpy as jnp
 
 from boonta.utils import Array, Key, PyTree, Timestep, broadcast
 
-from .vectorize import Vectorize
+from .auto_reset import AutoReset
 
 
-class OptimisticAutoReset(Vectorize):
+class OptimisticAutoReset(AutoReset):
 
     def __init__(self, env, num_envs: int, ratio: int):
         super().__init__(env, num_envs=num_envs)

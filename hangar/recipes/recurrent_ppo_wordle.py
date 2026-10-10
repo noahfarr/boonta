@@ -10,8 +10,7 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
 from boonta.environments.wrappers import (MCP, LogAction, Prompt,
-                                          RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+                                          RecordEpisodeStatistics)
 from boonta.networks import (ActorCritic, Categorical, Chunked, LoRA, Network,
                              Qwen3, Unembed)
 from boonta.networks.pretrained import init_fn
@@ -99,8 +98,7 @@ def make(cfg):
     )
     prompt = np.asarray(tokenizer.encode(SYSTEM_PROMPT).ids, np.int32)
     env = Prompt(env, prompt, pad)
-    env = SameStepAutoReset(env)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     dtype = jnp.dtype(cfg.network.dtype)
     param_dtype = jnp.dtype(cfg.network.param_dtype)

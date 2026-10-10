@@ -13,7 +13,7 @@ from boonta.curricula.plr import (Graded, LevelBufferState, admit_levels,
                                   replay_weights, staleness_weights,
                                   tally_episodes, update_scores)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+                                          SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -239,7 +239,7 @@ class Blink(Dial):
 
 def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     algorithm = graded(robust=True).algorithm
-    environment = Vectorize(SameStepAutoReset(Blink()), 8)
+    environment = SameStepAutoReset(Blink(), 8)
     algorithm, environment, pit, lap = plr(
         algorithm,
         environment,

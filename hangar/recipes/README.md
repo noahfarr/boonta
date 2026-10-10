@@ -34,15 +34,12 @@ A dict that is splatted into the podracer's `make`. `algorithm`, `environment`, 
 
 [`ppo_minatar.py`](ppo_minatar.py) is a whole recipe in 50 lines.
 
-1. Build the environment from its config, add the auto-reset and vectorize it. The action count is read before `Vectorize`, which adds a batch axis.
+1. Build the environment from its config, then wrap it in the auto-reset its config chooses, which also vectorizes it. `environment/auto_reset` defaults to `same_step`.
 
    ```python
    env = environments.make(**cfg.environment)
-   env = SameStepAutoReset(env)
-
    num_actions = env.action_space().num_actions
-
-   env = Vectorize(env, num_envs=cfg.environment.num_envs)
+   env = instantiate(cfg.environment.auto_reset, env)
    ```
 
 2. Build the network. The head is the policy, here a `Categorical` over the actions next to a value head.

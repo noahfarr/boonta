@@ -5,9 +5,7 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.ppo import PPO
 from boonta.environments.wrappers import (FlattenObservation,
-                                          RecordEpisodeStatistics,
-                                          SameStepAutoReset, Stagger,
-                                          Vectorize)
+                                          RecordEpisodeStatistics, Stagger)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 
@@ -16,9 +14,8 @@ def make(cfg):
     env = FlattenObservation(env)
     num_actions = env.action_space().num_actions
 
-    env = SameStepAutoReset(env)
+    env = instantiate(cfg.environment.auto_reset, env)
     env = Stagger(env, spread=cfg.environment.kwargs.size)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
 
     network = Network(
         feature_extractor=FeatureExtractor(

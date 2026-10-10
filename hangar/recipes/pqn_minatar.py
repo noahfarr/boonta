@@ -5,19 +5,15 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.pqn import PQN
-from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import EpsilonGreedy, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    env = SameStepAutoReset(env)
-
     num_actions = env.action_space().num_actions
-
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     epsilon_schedule = optax.linear_schedule(
         cfg.exploration.start,

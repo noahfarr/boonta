@@ -9,7 +9,7 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_pupo import RecurrentPuPO
-from boonta.environments.wrappers import (GroupedAutoReset,
+from boonta.environments.wrappers import (Group,
                                           RecordMultiAgentEpisodeStatistics,
                                           Vectorize)
 from boonta.networks import ActorCritic, Categorical, Network
@@ -82,7 +82,7 @@ def make(cfg):
     time_limit = env.time_limit()
 
     env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = GroupedAutoReset(env, num_steps=time_limit)
+    env = Group(env, num_steps=time_limit)
 
     network = Network(
         feature_extractor=View(

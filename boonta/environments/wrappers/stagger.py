@@ -17,9 +17,9 @@ class Stagger(Wrapper):
         super().__init__(env)
         self.spread = spread
 
-    def init(self, key: Key, **kwargs) -> tuple[StaggerState, Timestep]:
+    def init(self, key: Key) -> tuple[StaggerState, Timestep]:
         env_key, spread_key = jax.random.split(key)
-        env_state, timestep = self._env.init(env_key, **kwargs)
+        env_state, timestep = self._env.init(env_key)
         budget = jax.random.randint(
             spread_key, jnp.shape(timestep.truncated), 0, self.spread
         )
