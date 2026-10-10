@@ -310,7 +310,7 @@ class ArchiveAutoReset(AutoReset):
         )
         done = episode_mask | truncation_mask
         restart_mask = done & (state.assigned_slots >= 0)
-        reset_states, _ = jax.vmap(self._env.init)(
+        env_states, _ = jax.vmap(self._env.init)(
             jax.random.split(reset_key, self.num_envs)
         )
 
@@ -322,16 +322,16 @@ class ArchiveAutoReset(AutoReset):
                     broadcast(restart_mask, reset), archived, reset
                 ),
                 archived_states,
-                reset_states,
+                env_states,
             )
 
-        reset_states = jax.lax.cond(
-            jnp.any(restart_mask), load_snapshots, lambda: reset_states
+        env_states = jax.lax.cond(
+            jnp.any(restart_mask), load_snapshots, lambda: env_states
         )
         state = state.replace(
             env_state=jax.tree.map(
                 lambda reset, live: jnp.where(broadcast(done, live), reset, live),
-                reset_states,
+                env_states,
                 state.env_state,
             ),
             rho=jnp.where(done, ~restart_mask, state.rho),
