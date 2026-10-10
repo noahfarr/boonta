@@ -12,9 +12,9 @@ import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
 from boonta.environments import wrappers
 from boonta.environments.spaces import Space
-from boonta.environments.wrappers import (MCP, PBRS, Batched, ChunkAction, ClipAction,
+from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAction, ClipAction,
                                           ClipReward, DomainRandomization,
-                                          FlattenObservation, GroupedAutoReset,
+                                          FlattenObservation, Group,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
@@ -46,19 +46,19 @@ class Lever(Dial):
 
 STACKS = [
     pytest.param(lambda: Vectorize(Dial(), NUM_ENVS), id="vectorize"),
-    pytest.param(lambda: Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), id="same_step_auto_reset"),
+    pytest.param(lambda: SameStepAutoReset(Dial(), NUM_ENVS), id="same_step_auto_reset"),
     pytest.param(
-        lambda: UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS)), id="ued"
+        lambda: UED(SameStepAutoReset(Dial(), NUM_ENVS)), id="ued"
     ),
-    pytest.param(lambda: Vectorize(NextStepAutoReset(Dial()), NUM_ENVS), id="next_step_auto_reset"),
+    pytest.param(lambda: NextStepAutoReset(Dial(), NUM_ENVS), id="next_step_auto_reset"),
     pytest.param(lambda: OptimisticAutoReset(Dial(), NUM_ENVS, ratio=2), id="optimistic_auto_reset"),
     pytest.param(
-        lambda: GroupedAutoReset(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), num_steps=4),
-        id="grouped_auto_reset",
+        lambda: Group(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4),
+        id="group",
     ),
     pytest.param(lambda: RecordEpisodeStatistics(Vectorize(Dial(), NUM_ENVS)), id="record_episode_statistics"),
     pytest.param(lambda: Vectorize(TimeLimit(Dial(), 100), NUM_ENVS), id="time_limit"),
-    pytest.param(lambda: Vectorize(Stagger(SameStepAutoReset(Dial()), spread=4), NUM_ENVS), id="stagger"),
+    pytest.param(lambda: Stagger(SameStepAutoReset(Dial(), NUM_ENVS), spread=4), id="stagger"),
     pytest.param(lambda: Vectorize(StickyAction(Dial()), NUM_ENVS), id="sticky_action"),
     pytest.param(lambda: Vectorize(ChunkAction(Dial(), 3), NUM_ENVS), id="chunk_action"),
     pytest.param(lambda: Vectorize(TimeAwareObservation(Dial(), 100), NUM_ENVS), id="time_aware_observation"),
@@ -131,7 +131,7 @@ def test_the_stacks_cover_every_wrapper():
             environment = environment._env
     exported = {getattr(wrappers, name) for name in wrappers.__all__}
     expected = {kind for kind in exported if isinstance(kind, type) and issubclass(kind, Wrapper)}
-    assert expected - covered == {Wrapper}
+    assert expected - covered == {Wrapper, AutoReset}
 
 
 @pytest.mark.parametrize("build", STACKS)
@@ -238,31 +238,31 @@ def cue(state):
 
 
 def test_same_step_auto_reset_reports_the_end_and_shows_the_next_start():
-    environment = SameStepAutoReset(recall())
+    environment = SameStepAutoReset(recall(), 1)
     state, timestep = environment.init(jax.random.key(0))
     answer = state.cue
     state, (_, _, last) = play(environment, state, [answer] * 3)
 
-    assert bool(last.terminated) and float(last.reward) == 1.0
-    assert int(state.clock) == 0
+    assert bool(last.terminated[0]) and float(last.reward[0]) == 1.0
+    assert int(state.clock[0]) == 0
     np.testing.assert_array_equal(last.obs, environment.observe(state))
 
 
 def test_next_step_auto_reset_spends_one_empty_step_on_the_reset():
-    environment = NextStepAutoReset(recall())
+    environment = NextStepAutoReset(recall(), 1)
     state, _ = environment.init(jax.random.key(0))
     answer = state.env_state.cue
     state, (*_, last, reset) = play(environment, state, [answer] * 4)
 
-    assert bool(last.terminated) and float(last.reward) == 1.0
-    assert not bool(reset.terminated) and float(reset.reward) == 0.0
-    assert int(state.env_state.clock) == 0
+    assert bool(last.terminated[0]) and float(last.reward[0]) == 1.0
+    assert not bool(reset.terminated[0]) and float(reset.reward[0]) == 0.0
+    assert int(state.env_state.clock[0]) == 0
 
 
 def test_next_step_auto_reset_restarts_a_team_once_every_agent_is_done():
-    environment = NextStepAutoReset(TimeLimit(Team(Dial(), 2), 2))
+    environment = NextStepAutoReset(TimeLimit(Team(Dial(), 2), 2), 1)
     state, _ = environment.init(jax.random.key(0))
-    state, (_, last, reset) = play(environment, state, [jnp.zeros(2, jnp.int32)] * 3)
+    state, (_, last, reset) = play(environment, state, [jnp.zeros((1, 2), jnp.int32)] * 3)
 
     assert bool(last.truncated.all())
     assert not bool(reset.done.any())
@@ -277,10 +277,8 @@ def test_optimistic_auto_reset_restarts_every_finished_environment():
     np.testing.assert_array_equal(state.clock, 0)
 
 
-def test_grouped_auto_reset_restarts_each_group_from_one_start():
-    environment = GroupedAutoReset(
-        Vectorize(SameStepAutoReset(Dial()), NUM_ENVS), num_steps=4, group_size=2
-    )
+def test_a_group_restarts_each_group_from_one_start():
+    environment = Group(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4, group_size=2)
     state, _ = environment.init(jax.random.key(0))
     state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 4)
     noise = np.asarray(state.env_state.noise).reshape(-1, 2)
@@ -292,7 +290,7 @@ def test_grouped_auto_reset_restarts_each_group_from_one_start():
 
 
 def test_a_batched_environment_restarts_its_groups_from_one_start():
-    environment = GroupedAutoReset(
+    environment = Group(
         Stagger(Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), spread=100),
         num_steps=4,
         group_size=2,
@@ -338,9 +336,7 @@ def statistics(environment, actions):
 
 def test_episode_statistics_log_each_finished_episode_once():
     gamma = 0.5
-    environment = RecordEpisodeStatistics(
-        Vectorize(SameStepAutoReset(Corridor()), NUM_ENVS), gamma=gamma
-    )
+    environment = RecordEpisodeStatistics(SameStepAutoReset(Corridor(), NUM_ENVS), gamma=gamma)
     forward = [jnp.full(NUM_ENVS, step % 3 % 2, jnp.int32) for step in range(9)]
     rewards, logs = statistics(environment, forward)
 
@@ -355,7 +351,7 @@ def test_episode_statistics_log_each_finished_episode_once():
 
 def test_every_grouped_window_cut_is_logged_as_an_episode():
     environment = RecordEpisodeStatistics(
-        GroupedAutoReset(Vectorize(SameStepAutoReset(Corridor()), NUM_ENVS), num_steps=4)
+        Group(SameStepAutoReset(Corridor(), NUM_ENVS), num_steps=4)
     )
     rewards, logs = statistics(environment, [jnp.ones(NUM_ENVS, jnp.int32)] * 16)
     assert len(logs["episode_statistics/episode_return"]) == 4 * NUM_ENVS
@@ -376,7 +372,7 @@ def test_a_time_limit_truncates_once_and_never_overrides_a_termination():
 
 def test_stagger_cuts_each_environment_once_inside_its_spread():
     spread = 6
-    environment = Vectorize(Stagger(SameStepAutoReset(Dial()), spread=spread), 64)
+    environment = Stagger(SameStepAutoReset(Dial(), 64), spread=spread)
     state, _ = environment.init(jax.random.key(0))
     budgets = np.asarray(state.budget)
     assert budgets.min() >= 0 and budgets.max() < spread and len(np.unique(budgets)) > 1
@@ -388,9 +384,7 @@ def test_stagger_cuts_each_environment_once_inside_its_spread():
 
 
 def test_stagger_never_marks_a_natural_end_or_logs_its_own_cut():
-    environment = Vectorize(
-        Stagger(RecordEpisodeStatistics(SameStepAutoReset(recall())), spread=6), 64
-    )
+    environment = Stagger(RecordEpisodeStatistics(SameStepAutoReset(recall(), 64)), spread=6)
     _, logs = statistics(environment, [jnp.zeros(64, jnp.int32)] * 12)
     np.testing.assert_array_equal(logs["episode_statistics/episode_length"], 3)
 
@@ -404,7 +398,7 @@ def test_normalized_observations_have_zero_mean_and_unit_variance():
 
 
 def test_normalized_rewards_divide_by_the_spread_of_returns():
-    environment = NormalizeReward(Vectorize(SameStepAutoReset(reach()), 256), gamma=0.0)
+    environment = NormalizeReward(SameStepAutoReset(reach(), 256), gamma=0.0)
     state, _ = environment.init(jax.random.key(0))
     state, timesteps = play(environment, state, [jnp.zeros((256, 2))] * 30)
     rewards = np.asarray(timesteps[-1].reward)
@@ -457,10 +451,10 @@ def test_a_chunk_of_actions_plays_in_order_and_stops_at_the_episode_end():
 
 
 def test_time_aware_observations_count_up_and_restart_with_the_episode():
-    environment = SameStepAutoReset(TimeAwareObservation(recall(), time_limit=4))
+    environment = SameStepAutoReset(TimeAwareObservation(recall(), time_limit=4), 1)
     state, _ = environment.init(jax.random.key(0))
-    _, timesteps = play(environment, state, [jnp.int32(0)] * 4)
-    np.testing.assert_allclose([float(t.obs[-1]) for t in timesteps], [-0.25, 0.0, -0.5, -0.25])
+    _, timesteps = play(environment, state, [jnp.zeros(1, jnp.int32)] * 4)
+    np.testing.assert_allclose([float(t.obs[0, -1]) for t in timesteps], [-0.25, 0.0, -0.5, -0.25])
 
 
 def test_pbrs_adds_the_discounted_change_in_potential():
@@ -516,7 +510,7 @@ def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
     from boonta.environments import gymnax
 
     cartpole = gymnax.make("CartPole-v1", params={"max_steps_in_episode": 7})
-    assert RecordEpisodeStatistics(Vectorize(SameStepAutoReset(cartpole), 2)).time_limit() == 7
+    assert RecordEpisodeStatistics(SameStepAutoReset(cartpole, 2)).time_limit() == 7
     assert Vectorize(TimeLimit(cartpole, 5), 2).time_limit() == 5
 
     with pytest.raises(NotImplementedError):
@@ -610,7 +604,7 @@ THETA = jnp.array([10.0, 20.0, 30.0])
 
 
 def ued(game):
-    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
+    environment = UED(SameStepAutoReset(game, NUM_ENVS))
     state, timestep = environment.init(jax.random.key(0))
     state = environment.update(state, jax.random.key(1), theta=THETA, weights=jnp.zeros(3))
     return environment, state, timestep
@@ -683,7 +677,7 @@ def test_a_restart_without_weights_leaves_every_game_alone():
 
 
 def test_ued_runs_without_a_set_of_theta():
-    environment = UED(Vectorize(SameStepAutoReset(Dial()), NUM_ENVS))
+    environment = UED(SameStepAutoReset(Dial(), NUM_ENVS))
     state, _ = environment.init(jax.random.key(0))
     state, (first,) = play(environment, state, [idle(environment)])
     np.testing.assert_array_equal(first.info["theta"], -1)
@@ -746,7 +740,7 @@ CONTROLS = GAMES[1:]
 
 
 def recipe_stack(game):
-    return lambda: RecordEpisodeStatistics(UED(Vectorize(SameStepAutoReset(game()), NUM_ENVS)))
+    return lambda: RecordEpisodeStatistics(UED(SameStepAutoReset(game(), NUM_ENVS)))
 
 
 JAXUED_STACKS = [
@@ -807,7 +801,7 @@ def test_an_update_with_a_level_restarts_the_maze_at_that_level():
 def test_a_level_reaches_the_maze_through_the_recipe_stack():
     from boonta.environments.jaxued import maze_generator
 
-    environment = UED(Vectorize(SameStepAutoReset(maze()), NUM_ENVS))
+    environment = UED(SameStepAutoReset(maze(), NUM_ENVS))
     state, _ = environment.init(jax.random.key(0))
     levels = jax.vmap(maze_generator())(jax.random.split(jax.random.key(1), 3))
     state = environment.update(state, jax.random.key(2), theta=levels, weights=jnp.zeros(3))
@@ -887,7 +881,7 @@ def test_the_maze_starts_a_level_the_same_way_whatever_the_key():
 @pytest.mark.parametrize("build", CONTROLS)
 def test_a_control_level_reaches_the_game_through_the_recipe_stack(build):
     game = build()
-    environment = UED(Vectorize(SameStepAutoReset(game), NUM_ENVS))
+    environment = UED(SameStepAutoReset(game, NUM_ENVS))
     state, _ = environment.init(jax.random.key(0))
     levels = jax.vmap(game._sample)(jax.random.split(jax.random.key(1), 3))
     state = environment.update(state, jax.random.key(2), theta=levels, weights=jnp.zeros(3))

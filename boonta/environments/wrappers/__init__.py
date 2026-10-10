@@ -1,10 +1,11 @@
+from .auto_reset import AutoReset
 from .batched import Batched
 from .chunk_action import ChunkAction
 from .clip_action import ClipAction
 from .clip_reward import ClipReward
 from .domain_randomization import DomainRandomization
 from .flatten_observation import FlattenObservation
-from .grouped_auto_reset import GroupedAutoReset
+from .group import Group, GroupState
 from .log_action import LogAction
 from .log_env_state import LogEnvState
 from .log_info import LogInfo
@@ -44,13 +45,15 @@ __all__ = [
     "MCP",
     "PBRS",
     "PBRSState",
+    "AutoReset",
     "Batched",
     "ChunkAction",
     "ClipAction",
     "ClipReward",
     "DomainRandomization",
     "FlattenObservation",
-    "GroupedAutoReset",
+    "Group",
+    "GroupState",
     "LogAction",
     "LogEnvState",
     "LogInfo",

@@ -7,9 +7,7 @@ from optax.contrib._muon import MuonDimensionNumbers
 
 from boonta import environments
 from boonta.algorithms.recurrent_pupo import RecurrentPuPO
-from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                          SameStepAutoReset, Stagger,
-                                          Vectorize)
+from boonta.environments.wrappers import RecordEpisodeStatistics, Stagger
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 from . import schedules
@@ -62,9 +60,8 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     hidden_dim = cfg.cell.features
 
-    env = SameStepAutoReset(env)
+    env = instantiate(cfg.environment.auto_reset, env)
     env = Stagger(env, spread=120)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
 
     encoders = {"conv": Board, "flat": Flat}
     encoder = encoders[cfg.get("encoder", "conv")]

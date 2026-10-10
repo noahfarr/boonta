@@ -6,8 +6,7 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.ppo import PPO
 from boonta.environments.wrappers import (DomainRandomization,
-                                          RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+                                          RecordEpisodeStatistics)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 
@@ -19,11 +18,8 @@ def randomize_gravity(key, params):
 def make(cfg):
     env = environments.make(**cfg.environment)
     env = DomainRandomization(env, randomize_gravity)
-    env = SameStepAutoReset(env)
-
     num_actions = env.action_space().num_actions
-
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=FeatureExtractor(

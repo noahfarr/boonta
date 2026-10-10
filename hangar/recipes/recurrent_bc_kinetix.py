@@ -9,9 +9,7 @@ from omegaconf import OmegaConf
 
 from boonta import datasets, environments
 from boonta.algorithms.recurrent_bc import RecurrentBC
-from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize,
-                                          Wrapper)
+from boonta.environments.wrappers import RecordEpisodeStatistics, Wrapper
 from boonta.networks import Block, Categorical, Network, ViTLayer
 from boonta.utils.typing import Dtype
 
@@ -217,8 +215,7 @@ def make(cfg):
         spec["env_id"] = None
         spec["kwargs"]["levels"] = bank
     env = environments.make(**spec)
-    env = SameStepAutoReset(env)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=Entities(

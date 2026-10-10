@@ -9,8 +9,7 @@ from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
 from boonta.environments.peanut_gb import pokemon_red
 from boonta.environments.wrappers import (LogInfo, RecordEpisodeStatistics,
-                                          SameStepAutoReset, Stagger,
-                                          TimeLimit, Vectorize)
+                                          Stagger, TimeLimit)
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 
 from . import schedules
@@ -53,10 +52,9 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     time_limit = env.time_limit()
     env = TimeLimit(env, time_limit)
-    env = SameStepAutoReset(env)
-    env = Stagger(env, spread=time_limit)
     num_actions = env.action_space().num_actions
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
+    env = instantiate(cfg.environment.auto_reset, env)
+    env = Stagger(env, spread=time_limit)
 
     network = Network(
         feature_extractor=FeatureExtractor(
