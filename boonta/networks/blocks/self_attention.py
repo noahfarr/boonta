@@ -42,6 +42,24 @@ def joint_attention_mask(input_mask: Array, segment_starts: Array) -> Array:
     return attention_mask & valid_mask
 
 
+class OutputGate(nn.Module):
+    num_heads: int
+    head_dim: int
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, attention: Array, x: Array) -> Array:
+        gate = nn.DenseGeneral(
+            (self.num_heads, self.head_dim),
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="projection",
+        )(x)
+        return attention * nn.sigmoid(gate)
+
+
 class SelfAttention(Block):
     features: int
     num_heads: int
@@ -53,6 +71,7 @@ class SelfAttention(Block):
     positional_embedding: Callable[
         [Array, Array, Array, Array], tuple[Array, Array, Array | None]
     ] = lambda query, key, query_positions, key_positions: (query, key, None)
+    output_gate: Callable[[Array, Array], Array] = lambda attention, x: attention
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
@@ -147,6 +166,7 @@ class SelfAttention(Block):
             mask=mask,
             implementation=implementation,
         ).astype(query.dtype)
+        attention = self.output_gate(attention, x)
 
         y = nn.DenseGeneral(
             self.features,

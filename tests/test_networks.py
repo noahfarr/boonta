@@ -8,12 +8,15 @@ import pytest
 
 import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
-                             FeatureExtractor, Gaussian, Highway, Network,
-                             RTUCell, SquashedGaussian, Tower, distributions,
-                             llama, repeat)
+                             FeatureExtractor, Gaussian, Highway,
+                             GatedDeltaNet, LinearAttention,
+                             LinearAttentionInputs, Network, RTUCell,
+                             SquashedGaussian, Tower, distributions, llama,
+                             repeat)
+from boonta.networks.blocks.linear_attention import chunkwise, recurrent
 from boonta.networks.blocks.ssm import binary_operator
 from boonta.networks.kernels import get_scan_implementation
-from boonta.utils import get_attention_implementation
+from boonta.utils import get_attention_implementation, load_qwen3_5
 
 BATCH, LENGTH, CHUNK = 3, 8, 4
 KEY = jax.random.key(0)
@@ -116,10 +119,11 @@ def count(stack):
     "stack",
     [
         lambda num_layers: repeat(zoo.gru(), num_layers),
-        lambda num_layers: llama(zoo.gru(), num_layers, zoo.WIDTH),
+        lambda num_layers: llama((zoo.gru(),), num_layers, zoo.WIDTH),
+        lambda num_layers: llama((zoo.gru(),) * 2, num_layers, zoo.WIDTH),
         lambda num_layers: Tower(Highway(zoo.gru()), num_layers),
     ],
-    ids=["repeat", "llama", "tower"],
+    ids=["repeat", "llama", "llama-pattern", "tower"],
 )
 def test_every_layer_of_a_stack_owns_its_weights(stack):
     one, two, three = (count(stack(num_layers)) for num_layers in (1, 2, 3))
@@ -388,3 +392,182 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     gpu(capability)
     implementation, _ = get_attention_implementation(head_dim, *lengths)
     assert implementation == expected
+
+
+def linear_inputs(decay, erase, batch=2, length=37, heads=3, key_dim=8, value_dim=5):
+    keys = jax.random.split(jax.random.key(7), 6)
+    key = jax.random.normal(keys[1], (batch, length, heads, key_dim))
+    return LinearAttentionInputs(
+        query=jax.random.normal(keys[0], (batch, length, heads, key_dim)),
+        key=key / jnp.linalg.norm(key, axis=-1, keepdims=True),
+        value=jax.random.normal(keys[2], (batch, length, heads, value_dim)),
+        log_decay=-2.0 * jax.random.uniform(keys[3], (batch, length, heads)) * decay,
+        erase_gate=jax.random.uniform(keys[4], (batch, length, heads)) * erase,
+        write_gate=jax.random.uniform(keys[5], (batch, length, heads)),
+    )
+
+
+def per_token(inputs, done, state):
+    query, key, value, log_decay, erase_gate, write_gate = (
+        np.asarray(x, np.float64)
+        for x in (
+            inputs.query,
+            inputs.key,
+            inputs.value,
+            inputs.log_decay,
+            inputs.erase_gate,
+            inputs.write_gate,
+        )
+    )
+    state = np.asarray(state, np.float64)
+    outputs = np.zeros_like(value)
+    for step in range(value.shape[1]):
+        state = np.where(np.asarray(done)[:, step, None, None, None], 0.0, state)
+        state = state * np.exp(log_decay[:, step])[..., None, None]
+        erased = np.einsum("bhk,bhkv->bhv", key[:, step], state) * erase_gate[:, step, :, None]
+        written = value[:, step] * write_gate[:, step, :, None] - erased
+        state = state + np.einsum("bhk,bhv->bhkv", key[:, step], written)
+        outputs[:, step] = np.einsum("bhk,bhkv->bhv", query[:, step], state)
+    return outputs, state
+
+
+@pytest.mark.parametrize("erase", [False, True], ids=["additive", "erasing"])
+@pytest.mark.parametrize("decay", [False, True], ids=["constant", "decayed"])
+@pytest.mark.parametrize("chunk_size", [0, 1, 4, 16, 64], ids=lambda size: f"chunk{size}")
+def test_linear_attention_matches_a_per_token_recurrence(decay, erase, chunk_size):
+    inputs = linear_inputs(decay, erase)
+    done = jax.random.uniform(jax.random.key(8), inputs.value.shape[:2]) < 0.1
+    state = jax.random.normal(jax.random.key(9), (2, 3, 8, 5))
+    expected, expected_state = per_token(inputs, done, state)
+    if chunk_size:
+        outputs, final = chunkwise(inputs, done, state, chunk_size)
+    else:
+        outputs, final = recurrent(inputs, done, state)
+    np.testing.assert_allclose(outputs, expected, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(final, expected_state, rtol=1e-4, atol=1e-4)
+
+
+def test_a_gated_delta_net_forgets_everything_before_an_episode_start_inside_a_chunk():
+    torso, params = build("gated_delta_net")
+    x = sequence()
+    carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    _, outputs = torso.apply(params, carry, x, starts(5))
+    _, fresh = torso.apply(params, carry, x[:, 5:], starts()[:, : LENGTH - 5])
+    np.testing.assert_allclose(outputs[:, 5:], fresh, rtol=1e-4, atol=1e-5)
+
+
+def reference_qwen3_5():
+    torch = pytest.importorskip("torch")
+    modeling = pytest.importorskip("transformers.models.qwen3_5.modeling_qwen3_5")
+    configuration = pytest.importorskip("transformers.models.qwen3_5.configuration_qwen3_5")
+    torch.manual_seed(0)
+    config = configuration.Qwen3_5TextConfig(
+        vocab_size=97,
+        hidden_size=32,
+        intermediate_size=48,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        linear_conv_kernel_dim=4,
+        linear_key_head_dim=8,
+        linear_value_head_dim=8,
+        linear_num_key_heads=2,
+        linear_num_value_heads=4,
+        rope_parameters={
+            "rope_type": "default",
+            "rope_theta": 10_000.0,
+            "partial_rotary_factor": 0.25,
+            "mrope_section": [1, 1, 0],
+            "mrope_interleaved": True,
+        },
+        tie_word_embeddings=False,
+    )
+    config._attn_implementation = "eager"
+    model = modeling.Qwen3_5ForCausalLM(config).eval()
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.copy_(torch.randn_like(parameter) * (0.5 if parameter.ndim == 1 else 0.2))
+    state = {name: jnp.asarray(value.numpy()) for name, value in model.state_dict().items()}
+    return torch, config, model, state
+
+
+def qwen3_5_from(config, context_length):
+    assert config.rms_norm_eps == 1e-6
+    delta = LinearAttention(
+        cell=GatedDeltaNet(
+            features=config.hidden_size,
+            num_key_heads=config.linear_num_key_heads,
+            num_value_heads=config.linear_num_value_heads,
+            key_dim=config.linear_key_head_dim,
+            value_dim=config.linear_value_head_dim,
+            kernel_size=config.linear_conv_kernel_dim,
+            epsilon=config.rms_norm_eps,
+        ),
+        chunk_size=4,
+    )
+    attention = zoo.qwen3_5_attention(
+        config.hidden_size,
+        config.num_attention_heads,
+        config.num_key_value_heads,
+        config.head_dim,
+        int(config.head_dim * config.rope_parameters["partial_rotary_factor"]),
+        config.rope_parameters["rope_theta"],
+        context_length,
+    )
+    blocks = tuple(attention if kind == "full_attention" else delta for kind in config.layer_types)
+    return llama(
+        blocks,
+        num_layers=len(blocks),
+        features=config.hidden_size,
+        hidden_dim=config.intermediate_size,
+    )
+
+
+def qwen3_5_logits(stack, params, state, carry, tokens, done):
+    embedded = state["model.embed_tokens.weight"][tokens]
+    carry, hidden = stack.apply(params, carry, embedded, done)
+    return carry, hidden @ state["lm_head.weight"].T
+
+
+def test_qwen3_5_matches_transformers_over_a_sequence_and_token_by_token():
+    torch, config, model, state = reference_qwen3_5()
+    batch, length, prefill = 2, 11, 6
+    tokens = np.random.default_rng(0).integers(0, config.vocab_size, (batch, length))
+    with torch.no_grad():
+        whole = model(torch.as_tensor(tokens)).logits.numpy()
+        output = model(torch.as_tensor(tokens[:, :prefill]), use_cache=True)
+        stepped = [output.logits.numpy()]
+        for step in range(prefill, length):
+            output = model(
+                torch.as_tensor(tokens[:, step : step + 1]),
+                past_key_values=output.past_key_values,
+                use_cache=True,
+            )
+            stepped.append(output.logits.numpy())
+    stepped = np.concatenate(stepped, axis=1)
+
+    stack = qwen3_5_from(config, length)
+    params = load_qwen3_5(stack, state, prefix="model")
+    done = jnp.zeros((batch, length), bool).at[:, 0].set(True)
+    carry = stack.initialize_carry(KEY, (batch, config.hidden_size))
+    _, logits = qwen3_5_logits(stack, params, state, carry, jnp.asarray(tokens), done)
+    np.testing.assert_allclose(logits, whole, rtol=1e-4, atol=1e-4)
+
+    carry, first = qwen3_5_logits(
+        stack, params, state, carry, jnp.asarray(tokens[:, :prefill]), done[:, :prefill]
+    )
+    pieces = [first]
+    for step in range(prefill, length):
+        carry, piece = qwen3_5_logits(
+            stack,
+            params,
+            state,
+            carry,
+            jnp.asarray(tokens[:, step : step + 1]),
+            done[:, step : step + 1],
+        )
+        pieces.append(piece)
+    decoded = jnp.concatenate(pieces, axis=1)
+    np.testing.assert_allclose(decoded, stepped, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(decoded, logits, rtol=1e-4, atol=1e-4)

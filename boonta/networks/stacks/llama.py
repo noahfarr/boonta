@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Sequence
 from itertools import chain
 
 import flax.linen as nn
@@ -10,7 +11,7 @@ from ..blocks import GLU, Block, Residual, Stack, Stateless
 
 
 def llama(
-    block: Block,
+    blocks: Sequence[Block],
     num_layers: int,
     features: int,
     expansion_factor: int = 4,
@@ -44,5 +45,7 @@ def llama(
             ),
         )
 
-    layers = chain.from_iterable(layer(copy.deepcopy(block)) for _ in range(num_layers))
+    layers = chain.from_iterable(
+        layer(copy.deepcopy(blocks[index % len(blocks)])) for index in range(num_layers)
+    )
     return Stack((*layers, Stateless(nn.RMSNorm(dtype=dtype, param_dtype=param_dtype))))

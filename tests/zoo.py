@@ -26,10 +26,12 @@ from boonta.environments.wrappers import (GroupedAutoReset,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, Vectorize)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
-                             EpsilonGreedy, FeatureExtractor, Gaussian,
-                             Highway, MinGRUCell, Network, RTUCell,
+                             EpsilonGreedy, FeatureExtractor, GatedDeltaNet,
+                             Gaussian, Highway, LinearAttention, MinGRUCell,
+                             Network, OutputGate, QueryKeyNorm, RTUCell,
                              SelfAttention, SquashedGaussian, Tower,
-                             causal_attention_mask, llama, repeat)
+                             causal_attention_mask, llama,
+                             partial_rotary_embedding, repeat)
 from boonta.networks.layers import Identity, Parameter
 from boonta.podracers import anakin, quadinaros, sebulba
 from boonta.utils import mesh
@@ -82,12 +84,63 @@ def attention(context_length=4, dtype=None):
     )
 
 
+def gated_delta_net(dtype=None):
+    return LinearAttention(
+        cell=GatedDeltaNet(
+            features=WIDTH,
+            num_key_heads=2,
+            num_value_heads=2,
+            key_dim=8,
+            value_dim=16,
+            dtype=dtype,
+        ),
+        chunk_size=2,
+    )
+
+
+def qwen3_5_attention(
+    features, num_heads, num_groups, head_dim, rotary_dim, max_wavelength, context_length, dtype=None
+):
+    return SelfAttention(
+        features=features,
+        num_heads=num_heads,
+        attention_mask=causal_attention_mask,
+        num_groups=num_groups,
+        head_dim=head_dim,
+        use_bias=False,
+        context_length=context_length,
+        positional_embedding=QueryKeyNorm(
+            partial(partial_rotary_embedding, max_wavelength=max_wavelength, rotary_dim=rotary_dim),
+            dtype=dtype,
+        ),
+        output_gate=OutputGate(num_heads=num_heads, head_dim=head_dim, dtype=dtype),
+        dtype=dtype,
+    )
+
+
+def qwen3_5(dtype=None):
+    delta = LinearAttention(
+        cell=GatedDeltaNet(
+            features=WIDTH,
+            num_key_heads=2,
+            num_value_heads=4,
+            key_dim=8,
+            value_dim=8,
+            epsilon=1e-6,
+            dtype=dtype,
+        ),
+        chunk_size=2,
+    )
+    attention = qwen3_5_attention(WIDTH, 2, 1, 8, 4, 10_000.0, 6, dtype=dtype)
+    return llama((delta, attention), num_layers=2, features=WIDTH, hidden_dim=2 * WIDTH, dtype=dtype)
+
+
 def highway(dtype=None):
     return Tower(block=Highway(blocks=min_gru(dtype), dtype=dtype), num_layers=2)
 
 
 def llama_stack(dtype=None):
-    return llama(attention(dtype=dtype), num_layers=2, features=WIDTH, dtype=dtype)
+    return llama((attention(dtype=dtype),), num_layers=2, features=WIDTH, dtype=dtype)
 
 
 def repeated(dtype=None):
@@ -100,6 +153,8 @@ TORSOS = {
     "rtu": rtu,
     "attention-one-rollout": partial(attention, 4),
     "attention-longer-than-a-rollout": partial(attention, 6),
+    "gated_delta_net": gated_delta_net,
+    "qwen3_5": qwen3_5,
     "highway": highway,
     "llama": llama_stack,
     "repeat": repeated,
