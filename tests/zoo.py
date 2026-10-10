@@ -108,7 +108,11 @@ TORSOS = {
 
 def policy(environment):
     if discrete(environment):
-        return Categorical(nn.Dense(num_actions(environment)))
+        shape = environment.action_space().shape
+        return Categorical(
+            nn.DenseGeneral((*shape, num_actions(environment))),
+            reinterpreted_batch_ndims=len(shape),
+        )
     return Gaussian(nn.Dense(2 * action_dim(environment)))
 
 

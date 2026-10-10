@@ -12,12 +12,14 @@ from jax.sharding import PartitionSpec as P
 import zoo
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
 from boonta.algorithms.wrappers.population import Population
+from boonta.environments.wrappers import ChunkAction
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
 
 LEARNERS = [
     pytest.param(zoo.ppo, corridor, 100, id="ppo-corridor"),
+    pytest.param(zoo.ppo, lambda: ChunkAction(corridor(), 2), 100, id="ppo-corridor-in-chunks"),
     pytest.param(zoo.ppo, reach, 100, id="ppo-reach"),
     pytest.param(zoo.mmd, corridor, 100, id="mmd-corridor"),
     pytest.param(zoo.grpo, corridor, 100, id="grpo-corridor"),
