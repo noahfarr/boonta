@@ -7,8 +7,9 @@ import numpy as np
 
 import zoo
 from boonta.curricula import erd, prd
-from boonta.curricula.prd import (Advantage, Reach, SuccessorRepresentation,
-                                  Uniform)
+from boonta.curricula.prd import (Advantage, SuccessorFootprint,
+                                  SuccessorRelevance, UniformFootprint,
+                                  UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -106,12 +107,21 @@ def train(selection, updates=3, steps=4):
 @pytest.mark.parametrize(
     "selection",
     [
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Reach(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75, columns=4), relevance=Reach(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Uniform(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorFootprint(gamma=0.75), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorFootprint(gamma=0.75, columns=4), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorFootprint(gamma=0.75), relevance=UniformRelevance(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=UniformFootprint(), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=UniformFootprint(), relevance=UniformRelevance(), gain=Advantage(), k=2.0),
         erd.Selector(k=2.0),
     ],
-    ids=["prd-reach", "prd-sparse-reach", "prd-uniform", "erd"],
+    ids=[
+        "prd-successor",
+        "prd-sparse-successor",
+        "prd-uniform-relevance",
+        "prd-uniform-footprint",
+        "prd-uniform",
+        "erd",
+    ],
 )
 def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
     env, archive_auto_reset_state, cut = train(selection)
@@ -160,7 +170,7 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, selection",
     [
-        (prd.pit, prd.Selector(footprint=SuccessorRepresentation(), relevance=Reach(), gain=Advantage())),
+        (prd.pit, prd.Selector(footprint=SuccessorFootprint(), relevance=SuccessorRelevance(), gain=Advantage())),
         (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],

@@ -1,6 +1,7 @@
 # @package _global_
 
 defaults:
+  - /curriculum/prd/footprint: successor_representation
   - /curriculum/prd/relevance: successor_representation
   - override /environment/auto_reset@_global_.environment.auto_reset: archive
   - _self_
@@ -14,11 +15,6 @@ environment:
     selection:
       _target_: boonta.curricula.prd.Selector
       k: 4.0
-      footprint:
-        _target_: boonta.curricula.prd.SuccessorRepresentation
-        gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
-        rate: 0.1
-        columns: 256
       gain:
         _target_: boonta.curricula.prd.Advantage
         gamma: ${algorithm.gamma}

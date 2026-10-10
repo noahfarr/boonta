@@ -1,0 +1,5 @@
+# @package _global_.environment.auto_reset.selection.footprint
+_target_: boonta.curricula.prd.SuccessorFootprint
+gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
+rate: 0.1
+columns: 256
