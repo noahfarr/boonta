@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-In boonta, the same PPO trains a CNN on MinAtar, an MLP on CartPole or Qwen3 playing Wordle through tool calls. That works because each piece only knows its own job. The algorithm decides and learns without ever touching the environment or the hardware. The environment looks the same whether it is written in JAX, runs in Gymnasium or calls into C++. The podracer runs the loop and owns the devices, so moving from a JAX environment on the GPU to a slow Gymnasium one takes a different podracer, not a rewrite.
+In boonta, an LLM is just another policy. Every token is an action, a tool call is an environment wrapper, and the same PPO that plays Breakout fine-tunes Qwen3 to play Wordle. There is no inference server and no separate trainer: with a JAX game, generating, playing and learning compile into one program on the GPU. Everything else in RL comes along, from offline datasets and recurrent memory to self-play leagues, because the algorithm, the environment and the training loop never reach into each other.
 
 ## Podracers
 
