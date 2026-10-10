@@ -465,13 +465,13 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     cell = int(state.current_slots[0])
     state = env.place(state, jax.random.key(3), None)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
-    assert bool(jnp.all(state.restart_due_mask == block))
+    assert bool(jnp.all(state.due_mask == block))
     assert bool(jnp.all(state.assigned_slots[block] == cell))
     assert bool(jnp.all(state.assigned_slots[~block] == -1))
     after, cut = env.step(jax.random.key(4), state, jnp.ones(NUM_ENVS, jnp.int32))
     assert bool(jnp.all(cut.truncated[block])) and not bool(jnp.any(cut.truncated[~block]))
     assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.current_slots[block] == cell))
-    assert bool(jnp.all(after.age[block] == 0)) and not bool(jnp.any(after.restart_due_mask))
+    assert bool(jnp.all(after.age[block] == 0)) and not bool(jnp.any(after.due_mask))
     stored = after.archive_state.cell_states.snapshot.tag[after.current_slots[block]]
     assert bool(jnp.all(after.env_state.tag[block] == stored))
     assert bool(jnp.all(after.env_state.tag[~block] == state.env_state.tag[~block] + 1))
