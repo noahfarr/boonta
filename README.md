@@ -15,7 +15,7 @@
 
 ## Why boonta
 
-boonta is built to scale reinforcement learning up, in compute and in models. Environments on the GPU compile together with the agent into one program that plays thousands of games at once across every GPU of a cluster, and environments on the CPU feed the learners through asynchronous actors so no device sits idle. A policy is anything that observes and acts, so the same PPO that balances CartPole with an MLP fine-tunes Qwen3 to play Wordle through tool calls.
+boonta is built to scale reinforcement learning up, in compute and in models. Training plays thousands of environments at once, keeps every device busy and grows from one GPU to a cluster without touching the algorithm. A policy is anything that observes and acts, so the same PPO that balances CartPole with an MLP fine-tunes Qwen3 to play Wordle through tool calls.
 
 ## Podracers
 
