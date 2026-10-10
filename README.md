@@ -8,7 +8,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/structure-dark.webp">
-  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
+  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more), the environment (vectorize around auto-reset around the game) and, for offline training, the dataset. Beside the track a grandstand watches the race: artisans along its wall craft checkpoints, metrics and videos, and loggers broadcast them from the tower on its roof.">
 </picture>
 
 </div>
