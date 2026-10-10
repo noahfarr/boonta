@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 from openai import AsyncOpenAI
+from transformers import AutoTokenizer
 
 PROMPT = """You are solving an ARC-AGI puzzle. Each grid is a rectangle of cells holding colours 0-9, written one row per line with one digit per cell and no spaces.
 
@@ -24,6 +25,15 @@ Reply with the test output grid only, inside one fenced block like this:
 0120
 3300
 ```"""
+
+
+FORCE = "\n\nI have run out of thinking time, so I will commit to my best answer now.\n</think>\n\n"
+
+
+def render_chat(tokenizer, prompt, effort):
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True, reasoning_effort=effort
+    )
 
 
 def render(grid):
@@ -105,21 +115,33 @@ async def attempt(client, semaphore, args, task, job, sink):
     name, test_index, index, transform, temperature, seed = job
     train, test = augment(task, transform)
     prompt = compose(train, test[test_index]["input"])
+    text = render_chat(args.tokenizer, prompt, args.effort)
+    sampling = {"temperature": temperature, "top_p": 0.95, "seed": seed}
+    extra = {"top_k": 20, "min_p": 0.0, "skip_special_tokens": False}
     async with semaphore:
         start = time.time()
         try:
-            response = await client.chat.completions.create(
-                model=args.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=args.max_tokens,
-                temperature=temperature,
-                top_p=0.95,
-                seed=seed,
-                extra_body={"top_k": 20, "min_p": 0.0, "chat_template_kwargs": {"reasoning_effort": args.effort}},
+            first = await client.completions.create(
+                model=args.model, prompt=text, max_tokens=args.max_tokens, extra_body=extra, **sampling
             )
+            thought = first.choices[0].text
+            finish = first.choices[0].finish_reason
+            tokens = first.usage.completion_tokens
+            forced = "</think>" not in thought
+            if forced:
+                second = await client.completions.create(
+                    model=args.model,
+                    prompt=text + thought + FORCE,
+                    max_tokens=args.answer_tokens,
+                    extra_body=extra,
+                    **sampling,
+                )
+                thought += FORCE + second.choices[0].text
+                finish = second.choices[0].finish_reason
+                tokens += second.usage.completion_tokens
             error = None
         except Exception as exception:
-            response, error = None, repr(exception)
+            thought, error = None, repr(exception)
         end = time.time()
     record = {
         "task": name,
@@ -132,17 +154,17 @@ async def attempt(client, semaphore, args, task, job, sink):
         "end": end,
         "error": error,
     }
-    if response is not None:
-        choice = response.choices[0]
-        content = choice.message.content or ""
-        reasoning = getattr(choice.message, "reasoning_content", None) or getattr(choice.message, "reasoning", None) or ""
+    if thought is not None:
+        reasoning, _, content = thought.rpartition("</think>")
+        content = content.replace("<|im_end|>", "")
         grid = parse(content)
         prediction = backward(grid, transform) if grid is not None else None
         target = task["test"][test_index].get("output")
         record |= {
-            "prompt_tokens": response.usage.prompt_tokens,
-            "completion_tokens": response.usage.completion_tokens,
-            "finish_reason": choice.finish_reason,
+            "prompt_tokens": first.usage.prompt_tokens,
+            "completion_tokens": tokens,
+            "forced": forced,
+            "finish_reason": finish,
             "content": content[-4000:],
             "reasoning_chars": len(reasoning),
             "reasoning_tail": reasoning[-1500:],
@@ -151,7 +173,7 @@ async def attempt(client, semaphore, args, task, job, sink):
         }
     sink.write(json.dumps(record) + "\n")
     sink.flush()
-    print(name, test_index, index, record.get("completion_tokens"), record.get("correct"), round(end - start), flush=True)
+    print(name, test_index, index, record.get("completion_tokens"), record.get("forced"), record.get("correct"), round(end - start), flush=True)
 
 
 async def main():
@@ -160,16 +182,20 @@ async def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--mode", choices=["zeroshot", "augment"], default="zeroshot")
     parser.add_argument("--augmentations", type=int, default=8)
-    parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--shard", default="0")
     parser.add_argument("--shards", type=int, default=1)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--effort", default="xhigh")
+    parser.add_argument("--answer-tokens", type=int, default=4096)
+    parser.add_argument("--tokenizer", default="/dev/shm/arc/model")
     parser.add_argument("--concurrency", type=int, default=64)
     parser.add_argument("--model", default="qwen")
     parser.add_argument("--url", default="http://127.0.0.1:8000/v1")
     args = parser.parse_args()
-    names = sorted(path.stem for path in Path(args.data).glob("*.json"))[args.shard :: args.shards]
+    args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    every = sorted(path.stem for path in Path(args.data).glob("*.json"))
+    names = [name for shard in args.shard.split(",") for name in every[int(shard) :: args.shards]]
     if args.limit:
         names = names[: args.limit]
     tasks = {name: json.loads((Path(args.data) / f"{name}.json").read_text()) for name in names}
