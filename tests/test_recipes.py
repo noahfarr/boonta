@@ -150,6 +150,8 @@ CASES = [
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
     ("ippo", "connectx/connectx", None, False),
+    ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
+    ("ippo", "bluffjax/goofspiel", installed("bluffjax"), False),
     ("mmd", "connectx/connectx", None, False),
     ("ippo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("mappo", "jaxmarl/smax/3m", installed("jaxmarl"), False),

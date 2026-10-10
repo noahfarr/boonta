@@ -43,13 +43,14 @@ def register_targets(lib, targets):
             jax.ffi.register_ffi_target(target, capsule(handler()), platform=platform)
 
 
-from . import (ale, brax, connectx, craftax, dune_sea, gymnasium, gymnax,
-               isaaclab, isaaclab_arena, jaxmarl, jaxued, jumanji, kinetix,
-               libero, mapox, mujoco_playground, peanut_gb, wordle,
+from . import (ale, bluffjax, brax, connectx, craftax, dune_sea, gymnasium,
+               gymnax, isaaclab, isaaclab_arena, jaxmarl, jaxued, jumanji,
+               kinetix, libero, mapox, mujoco_playground, peanut_gb, wordle,
                xland_minigrid)
 
 registry = {
     "ale": ale.make,
+    "bluffjax": bluffjax.make,
     "brax": brax.make,
     "connectx": connectx.make,
     "craftax": craftax.make,

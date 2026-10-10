@@ -184,6 +184,9 @@ ADAPTERS = [
     pytest.param("gymnax", "Breakout-MinAtar", {}, id="minatar"),
     pytest.param("gymnax", "CartPole-v1", {}, id="classic_control"),
     pytest.param("connectx", "connectx", {"rows": 6, "columns": 7, "inarow": 4}, id="connectx"),
+    pytest.param("bluffjax", "kuhn_poker", {}, id="bluffjax_kuhn_poker", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
+    pytest.param("bluffjax", "goofspiel", {}, id="bluffjax_goofspiel", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
+    pytest.param("bluffjax", "werewolf", {}, id="bluffjax_werewolf", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("dune_sea", "chain_of_forks", {"depth": 6}, id="chain_of_forks"),
     pytest.param(
         "jaxued", "Maze", {}, id="jaxued_maze",
