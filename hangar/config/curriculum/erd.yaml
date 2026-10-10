@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.erd.pit
+  _partial_: true
+
+environment:
+  auto_reset:
+    selection:
+      _target_: boonta.curricula.erd.Selector
+      k: 4.0

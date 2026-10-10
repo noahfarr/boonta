@@ -7,7 +7,8 @@ from flax import struct
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
-from boonta.environments.wrappers.archive_auto_reset import (Selection, locate, pick,
+from boonta.environments.wrappers import archive_auto_reset
+from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
                                                              plant, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Transition
@@ -233,7 +234,7 @@ class Advantage:
 
 
 @struct.dataclass
-class PRDState:
+class SelectorState:
     footprint: Successor
     roots: Array
     gain: GainState
@@ -252,13 +253,13 @@ class Relevance:
 
 
 class Current(Relevance):
-    def __call__(self, state: PRDState, footprint: SuccessorRepresentation) -> Array:
+    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
         mass = footprint.spill(state.footprint, state.roots)
         return mass / jnp.maximum(jnp.sum(mass), 1e-12)
 
 
 class Flat(Relevance):
-    def __call__(self, state: PRDState, footprint: SuccessorRepresentation) -> Array:
+    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
         return jnp.ones_like(state.roots)
 
 
@@ -271,7 +272,7 @@ class Tallied:
 class Occupancy(Relevance):
     rate: float = 0.2
 
-    def __call__(self, state: PRDState, footprint: SuccessorRepresentation) -> Array:
+    def __call__(self, state: SelectorState, footprint: SuccessorRepresentation) -> Array:
         visits = state.relevance.visits
         return visits / jnp.maximum(jnp.sum(visits), 1e-12)
 
@@ -306,21 +307,21 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 
 
 @dataclass
-class PRD(Selection):
+class Selector(archive_auto_reset.Selector):
     footprint: SuccessorRepresentation
     relevance: Relevance
     gain: Advantage
     k: float = 4.0
 
-    def init(self, archive_size: int, num_actions: int) -> PRDState:
-        return PRDState(
+    def init(self, archive_size: int, num_actions: int) -> SelectorState:
+        return SelectorState(
             footprint=self.footprint.init(archive_size),
             roots=jnp.zeros(archive_size),
             gain=self.gain.init(archive_size, num_actions),
             relevance=self.relevance.init(archive_size),
         )
 
-    def update(self, state: PRDState, key: Key, transitions: Transition) -> PRDState:
+    def update(self, state: SelectorState, key: Key, transitions: Transition) -> SelectorState:
         first, second = transitions.first, transitions.second
         leaving, landing = first.info["cell"], second.info["cell"]
         steps, envs = jnp.shape(leaving)
@@ -360,7 +361,7 @@ class PRD(Selection):
             ),
         )
 
-    def select(self, state: PRDState, wrapper, archive_auto_reset_state, key: Key, policy):
+    def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key, policy):
         archive_state = archive_auto_reset_state.archive_state
         mask = wrapper.archive.eligible(archive_state)
         placed = share(self.k, wrapper.num_envs)
@@ -371,7 +372,7 @@ class PRD(Selection):
         return state, index
 
     def allot(
-        self, state: PRDState, mask: Array, occupied: Array | float, key: Key, count: int
+        self, state: SelectorState, mask: Array, occupied: Array | float, key: Key, count: int
     ) -> Array:
         worth = self.relevant(state) * self.gain(state.gain)
 
@@ -386,22 +387,22 @@ class PRD(Selection):
         )
         return index
 
-    def relevant(self, state: PRDState) -> Array:
+    def relevant(self, state: SelectorState) -> Array:
         return self.relevance(state, self.footprint)
 
-    def diminishing_factor(self, state: PRDState, visits: Array | float) -> Array:
+    def diminishing_factor(self, state: SelectorState, visits: Array | float) -> Array:
         scale = state.gain.scale
         return jnp.where(scale > 0.0, 1.0 / (1.0 + visits / jnp.maximum(scale, 1e-30)) ** 2, 1.0)
 
-    def committed_visits(self, state: PRDState, occupied: Array | float) -> Array:
+    def committed_visits(self, state: SelectorState, occupied: Array | float) -> Array:
         return self.footprint.spill(state.footprint, jnp.zeros_like(state.roots) + occupied)
 
-    def value(self, state: PRDState, visits: Array | float = 0.0) -> Array:
+    def value(self, state: SelectorState, visits: Array | float = 0.0) -> Array:
         term = self.relevant(state) * self.gain(state.gain) * self.diminishing_factor(state, visits)
         return self.footprint.pour(state.footprint, term)
 
     def saturation(
-        self, state: PRDState, mask: Array, occupied: Array | float, index: Array
+        self, state: SelectorState, mask: Array, occupied: Array | float, index: Array
     ) -> None:
         size, *_ = jnp.shape(mask)
         committed = self.committed_visits(state, occupied)
@@ -422,7 +423,7 @@ class PRD(Selection):
             }
         )
 
-    def watch(self, state: PRDState, mask: Array, index: Array) -> None:
+    def watch(self, state: SelectorState, mask: Array, index: Array) -> None:
         size, *_ = jnp.shape(mask)
         count = jnp.maximum(jnp.sum(mask, dtype=jnp.float32), 1.0)
         weights = jnp.zeros(size).at[index].add(1.0 / max(jnp.shape(index)[0], 1))
@@ -450,12 +451,12 @@ class PRD(Selection):
         )
 
 
-def prd(
+def pit(
     algorithm: Algorithm, environment: Environment, seed: int = 0, **kwargs
 ) -> tuple[Algorithm, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
 
-    def pit(state, transitions):
+    def place(state, transitions):
         key = jax.random.fold_in(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
@@ -463,4 +464,4 @@ def prd(
         placed = wrapper.place(locate(state.environment_state), key, transitions, policy)
         return state.replace(environment_state=plant(state.environment_state, placed))
 
-    return algorithm, environment, pit, lambda state: state
+    return algorithm, environment, place, lambda state: state

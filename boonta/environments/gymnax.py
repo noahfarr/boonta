@@ -67,6 +67,9 @@ class Gymnax(Environment):
         )
         return GymnaxState(env_state=env_state, params=state.params), timestep
 
+    def observe(self, state: GymnaxState) -> Array:
+        return self._env.get_obs(state.env_state, state.params)
+
     def observation_space(self) -> Space:
         space = self._env.observation_space(self._params)
         return Space(
@@ -84,6 +87,23 @@ class Gymnax(Environment):
 
     def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
+
+
+def keyed(env, bucket: int = 2):
+    game = getattr(env, "unwrapped", env)
+
+    def cell(env_state):
+        raw = env_state.unwrapped
+        obs = jax.vmap(lambda state: game._env.get_obs(state, game._params))(raw)
+        batch = jnp.shape(obs)[0]
+        player = jnp.argmax(obs[..., 0].reshape(batch, -1), axis=-1).astype(jnp.int32)
+        counts = jnp.sum(obs[..., 1:], axis=(1, 2)).astype(jnp.int32) // bucket
+        key = player
+        for channel in range(counts.shape[-1]):
+            key = key * jnp.int32(1000003) + counts[:, channel]
+        return key
+
+    return cell
 
 
 def make(env_id, params=None, **kwargs):
