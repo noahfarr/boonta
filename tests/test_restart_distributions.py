@@ -80,7 +80,6 @@ def train(selection, updates=3, steps=4):
         cell_fn=lambda env: (lambda state: state.tag),
         selection=selection,
         capacity=32,
-        cell_size=2,
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
@@ -194,7 +193,6 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curri
                 cell_fn=lambda env: (lambda state: state.position),
                 selection=selection,
                 capacity=32,
-                cell_size=2,
             )
         )
 
