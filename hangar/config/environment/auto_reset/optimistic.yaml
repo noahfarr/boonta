@@ -1,0 +1,3 @@
+_target_: boonta.environments.wrappers.OptimisticAutoReset
+num_envs: ${environment.num_envs}
+ratio: 64

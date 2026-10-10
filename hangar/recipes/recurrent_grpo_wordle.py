@@ -9,9 +9,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_grpo import RecurrentGRPO
-from boonta.environments.wrappers import (MCP, GroupedAutoReset, LogAction,
-                                          Prompt, RecordEpisodeStatistics,
-                                          SameStepAutoReset, Vectorize)
+from boonta.environments.wrappers import (MCP, Group, LogAction, Prompt,
+                                          RecordEpisodeStatistics)
 from boonta.networks import Categorical, Chunked, LoRA, Network, Qwen3, Unembed
 from boonta.networks.pretrained import init_fn
 from boonta.utils import (load_config, load_qwen3, load_tokenizer,
@@ -98,9 +97,8 @@ def make(cfg):
     )
     prompt = np.asarray(tokenizer.encode(SYSTEM_PROMPT).ids, np.int32)
     env = Prompt(env, prompt, pad)
-    env = SameStepAutoReset(env)
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = GroupedAutoReset(
+    env = instantiate(cfg.environment.auto_reset, env)
+    env = Group(
         env,
         num_steps=cfg.podracer.config.num_steps,
         group_size=cfg.algorithm.group_size,

@@ -111,7 +111,7 @@ def kinetix_dataset(directory):
 
 
 def few_resets(directory):
-    return ["environment.reset_ratio=8"]
+    return ["environment.auto_reset.ratio=8"]
 
 
 MINATAR = "gymnax/minatar/breakout"
@@ -347,12 +347,12 @@ def test_kinetix_evaluation_reports_a_success_rate():
     import lox
 
     from boonta.environments.wrappers import (RecordEpisodeStatistics,
-                                              SameStepAutoReset, Vectorize)
+                                              SameStepAutoReset)
     from hangar.recipes.recurrent_bc_kinetix import Scored, cardinality
 
     static, env = kinetix_environment()
     time_limit = env.time_limit()
-    env = Vectorize(Scored(RecordEpisodeStatistics(SameStepAutoReset(env))), num_envs=4)
+    env = Scored(RecordEpisodeStatistics(SameStepAutoReset(env, num_envs=4)))
     action = jnp.zeros((4, len(cardinality(static))), jnp.int32)
 
     def roll(key):

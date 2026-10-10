@@ -7,7 +7,6 @@ training:
 
 environment:
   num_envs: 1024
-  reset_ratio: 64
 
 rollout:
   num_steps: 64

@@ -1,4 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
 namespace: craftax
 suite: craftax_classic
 env_id: Craftax-Classic-Symbolic-v1
-reset_ratio: 64
