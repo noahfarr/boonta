@@ -16,66 +16,16 @@ from .wrapper import WrapperState
 
 @struct.dataclass
 class CellState:
-    snapshots: PyTree
-    head: Array
-    mask: Array
-    identities: Array
+    snapshot: PyTree
     time: Array
     rho: Array
     eligible: Array
 
 
-@dataclass
-class Cell:
-    size: int = 1
-
-    def init(self, env_state: PyTree) -> CellState:
-        return CellState(
-            snapshots=jax.tree.map(
-                lambda leaf: jnp.zeros((self.size, *leaf.shape), leaf.dtype), env_state
-            ),
-            head=jnp.zeros((), jnp.int32),
-            mask=jnp.zeros(self.size, bool),
-            identities=jnp.full(self.size, -1, jnp.int32),
-            time=jnp.zeros((), jnp.int32),
-            rho=jnp.zeros((), bool),
-            eligible=jnp.zeros((), bool),
-        )
-
-    def holds(self, state: CellState, identity: Array) -> Array:
-        return jnp.any(state.mask & (state.identities == identity[..., None]), axis=-1)
-
-    def admits(
-        self, state: CellState, rho: Array, dirty: Array, eligible: Array, known: Array
-    ) -> Array:
-        upgrade = eligible & ~state.eligible
-        downgrade = state.eligible & ~eligible
-        return dirty | (~known & (upgrade | (~downgrade & (rho | ~state.rho))))
-
-    def add(
-        self,
-        state: CellState,
-        rho: Array,
-        clock: Array,
-        dirty: Array,
-        eligible: Array,
-        identity: Array,
-    ) -> CellState:
-        head = jnp.where(dirty, 0, state.head)
-        mask = jnp.where(dirty, jnp.zeros_like(state.mask), state.mask)
-        identities = jnp.where(dirty, jnp.full_like(state.identities, -1), state.identities)
-        return state.replace(
-            head=(head + 1) % self.size,
-            mask=mask.at[head].set(True),
-            identities=identities.at[head].set(identity),
-            time=clock,
-            rho=rho,
-            eligible=eligible,
-        )
-
-    def sample(self, state: CellState, key: Key) -> Array:
-        logits = jnp.where(state.mask, 0.0, -jnp.inf)
-        return jnp.where(jnp.any(state.mask), jax.random.categorical(key, logits), 0)
+def admits(state: CellState, rho: Array, evicted: Array, eligible: Array) -> Array:
+    upgrade = eligible & ~state.eligible
+    downgrade = state.eligible & ~eligible
+    return evicted | upgrade | (~downgrade & (rho | ~state.rho))
 
 
 @struct.dataclass
@@ -94,22 +44,26 @@ def lru(state: ArchiveState) -> Array:
     return state.cell_states.time.astype(jnp.float32)
 
 
+def anywhere(env) -> Callable[[PyTree], Array]:
+    return lambda env_state: jnp.bool_(True)
+
+
 @dataclass
 class Archive:
     archive_size: int
     cell_fn: Callable[[PyTree], Array]
     eviction_fn: Callable[[ArchiveState], Array] = noeviction
-    cell_size: int = 1
     num_probes: int = 8
-    identity_fn: Callable[[PyTree], Array] | None = None
-
-    def __post_init__(self):
-        self.cell = Cell(size=self.cell_size)
 
     def init(self, env_state: PyTree) -> ArchiveState:
         _, *key_shape = jax.eval_shape(self.cell_fn, env_state).shape
         snapshot = jax.eval_shape(lambda tree: jax.tree.map(remove_batch_axis, tree), env_state)
-        cell_state = jax.eval_shape(self.cell.init, snapshot)
+        cell_state = CellState(
+            snapshot=snapshot,
+            time=jax.ShapeDtypeStruct((), jnp.int32),
+            rho=jax.ShapeDtypeStruct((), jnp.bool),
+            eligible=jax.ShapeDtypeStruct((), jnp.bool),
+        )
         return ArchiveState(
             keys=jnp.zeros((self.archive_size, *key_shape), jnp.int32),
             mask=jnp.zeros(self.archive_size, jnp.bool),
@@ -122,29 +76,15 @@ class Archive:
 
     def at(self, state: ArchiveState, slot: Array) -> CellState:
         return jax.tree.map(
-            lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.replace(snapshots=None)
+            lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.replace(snapshot=None)
         )
 
     def put(self, state: ArchiveState, slot: Array, cell_state: CellState) -> ArchiveState:
         slot = jnp.where(slot >= 0, slot, self.archive_size)
-        held = jax.tree.map(
-            lambda held, new: held.at[slot].set(new, mode="drop"),
-            state.cell_states.replace(snapshots=None),
-            cell_state.replace(snapshots=None),
+        cell_states = jax.tree.map(
+            lambda held, new: held.at[slot].set(new, mode="drop"), state.cell_states, cell_state
         )
-        return state.replace(cell_states=held.replace(snapshots=state.cell_states.snapshots))
-
-    def write(
-        self, state: ArchiveState, slot: Array, position: Array, env_state: PyTree
-    ) -> ArchiveState:
-        row = jnp.where((slot >= 0) & (position >= 0), slot, self.archive_size)
-        column = jnp.clip(position, 0)
-        stored = jax.tree.map(
-            lambda held, new: held.at[row, column].set(new, mode="drop"),
-            state.cell_states.snapshots,
-            env_state,
-        )
-        return state.replace(cell_states=state.cell_states.replace(snapshots=stored))
+        return state.replace(cell_states=cell_states)
 
     def add(
         self,
@@ -153,70 +93,48 @@ class Archive:
         done: Array,
         rho: Array | None = None,
         eligible: Array | None = None,
-    ) -> tuple[ArchiveState, Array, Array, Array, Array]:
+    ) -> tuple[ArchiveState, Array, Array, Array]:
         rho = jnp.ones_like(done) if rho is None else rho
         eligible = jnp.ones_like(done) if eligible is None else eligible
-        key = self.cell_fn(env_state)
+        cell_key = self.cell_fn(env_state)
         keys, mask, index, opened = claim(
             state.keys,
             state.mask,
-            key,
+            cell_key,
             done,
             self.num_probes,
             self.eviction_fn(state),
         )
         slot = jnp.clip(index, 0)
-        dirty = opened & state.mask[slot] & jnp.any(state.keys[slot] != keys[slot], axis=-1)
-        cell_state = self.at(state, slot)
-        if self.identity_fn is None:
-            identity = jnp.full(jnp.shape(done), -1, jnp.int32)
-            known = jnp.zeros_like(dirty)
-        else:
-            identity = self.identity_fn(env_state).astype(jnp.int32)
-            known = self.cell.holds(cell_state, identity)
-        writes = (index >= 0) & self.cell.admits(cell_state, rho, dirty, eligible, known)
+        evicted = opened & state.mask[slot] & jnp.any(state.keys[slot] != keys[slot], axis=-1)
+        admitted = (index >= 0) & admits(self.at(state, slot), rho, evicted, eligible)
         order = jnp.arange(jnp.shape(done)[0], dtype=jnp.float32)
         priority = (
             2.0 * eligible.astype(jnp.float32)
             + rho.astype(jnp.float32)
             + 0.5 * (1.0 - order / (order.shape[0] + 1.0))
         )
-        writer = (
+        highest_priority = (
             jnp.full(self.archive_size, -1.0)
-            .at[jnp.where(writes, slot, self.archive_size)]
+            .at[jnp.where(admitted, slot, self.archive_size)]
             .max(priority, mode="drop")
         )
-        writes = writes & (priority == writer[slot])
-        added = jax.vmap(self.cell.add)(
-            cell_state,
-            rho,
-            jnp.broadcast_to(state.clock, jnp.shape(done)),
-            dirty,
-            eligible,
-            identity,
+        winner = admitted & (priority == highest_priority[slot])
+        cell_state = CellState(
+            snapshot=env_state,
+            time=jnp.broadcast_to(state.clock, jnp.shape(done)),
+            rho=rho,
+            eligible=eligible,
         )
-        cell_state = jax.tree.map(
-            lambda new, old: jnp.where(broadcast(writes, new), new, old), added, cell_state
-        )
-        position = jnp.where(writes, jnp.where(dirty, 0, self.at(state, slot).head), -1)
         state = self.put(
             state.replace(keys=keys, mask=mask, clock=state.clock + 1),
-            jnp.where(writes, slot, -1),
+            jnp.where(winner, slot, -1),
             cell_state,
         )
-        state = self.write(state, slot, position, env_state)
-        return state, index, position, opened, jnp.where(dirty, index, -1)
+        return state, index, opened, jnp.where(evicted, index, -1)
 
-    def locate(self, state: ArchiveState, index: Array, key: Key) -> Array:
-        subkeys = jax.random.split(key, jnp.shape(index)[0])
-        position = jax.vmap(self.cell.sample)(self.at(state, index), subkeys)
-        return jnp.where(index >= 0, position, -1)
-
-    def take(self, state: ArchiveState, slot: Array, position: Array) -> PyTree:
-        return jax.tree.map(
-            lambda leaf: leaf[jnp.clip(slot, 0), jnp.clip(position, 0)],
-            state.cell_states.snapshots,
-        )
+    def take(self, state: ArchiveState, slot: Array) -> PyTree:
+        return jax.tree.map(lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.snapshot)
 
     def eligible(self, state: ArchiveState) -> Array:
         return state.mask & state.cell_states.eligible
@@ -264,7 +182,6 @@ class ArchiveAutoResetState(WrapperState):
     assigned: Array
     due: Array
     slot: Array
-    position: Array
     rho: Array
     age: Array
     earned: Array
@@ -276,15 +193,6 @@ def reset_time_limit(state: PyTree) -> PyTree:
         state = state.replace(time=jnp.zeros_like(state.time))
     if isinstance(state, WrapperState):
         state = state.replace(env_state=reset_time_limit(state.env_state))
-    return state
-
-
-def stagger_time_limit(state: PyTree, key: Key, spread: int) -> PyTree:
-    if isinstance(state, TimeLimitState):
-        elapsed = jax.random.randint(key, jnp.shape(state.time), 0, spread, state.time.dtype)
-        state = state.replace(time=elapsed)
-    if isinstance(state, WrapperState):
-        state = state.replace(env_state=stagger_time_limit(state.env_state, key, spread))
     return state
 
 
@@ -319,14 +227,10 @@ class ArchiveAutoReset(AutoReset):
         cell_fn: Callable,
         selection: Selector,
         capacity: int = 16384,
-        cell_size: int = 4,
         num_probes: int = 8,
-        eviction_fn: Callable[[ArchiveState], Array] | None = None,
-        eligibility_fn: Callable | None = None,
-        identity_fn: Callable | None = None,
-        warmup: int = 0,
+        eviction_fn: Callable[[ArchiveState], Array] = noeviction,
+        eligibility_fn: Callable = anywhere,
         gamma: float = 0.99,
-        stagger: int = 0,
         reseed_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
     ):
         super().__init__(env, num_envs=num_envs)
@@ -335,22 +239,15 @@ class ArchiveAutoReset(AutoReset):
         self.archive = Archive(
             archive_size=capacity,
             cell_fn=widen(cell_fn(env=env)),
-            eviction_fn=noeviction if eviction_fn is None else eviction_fn,
-            cell_size=cell_size,
+            eviction_fn=eviction_fn,
             num_probes=num_probes,
-            identity_fn=None if identity_fn is None else identity_fn(env=env),
         )
-        self.eligibility_fn = None if eligibility_fn is None else eligibility_fn(env=env)
-        self.warmup = warmup
+        self.eligibility_fn = eligibility_fn(env=env)
         self.gamma = gamma
-        self.stagger = stagger
         self.reseed_fn = reseed_fn
 
-    def ready(self, state) -> Array:
-        return jnp.sum(self.archive.eligible(state.archive_state), dtype=jnp.int32) >= self.warmup
-
     def block(self, state, placed: int) -> Array:
-        return (jnp.arange(self.num_envs) >= self.num_envs - placed) & self.ready(state)
+        return jnp.arange(self.num_envs) >= self.num_envs - placed
 
     def occupied(self, state, placed: int) -> Array:
         size = self.archive.archive_size
@@ -358,20 +255,19 @@ class ArchiveAutoReset(AutoReset):
         return jnp.zeros(size).at[jnp.where(held, state.slot, size)].add(1.0, mode="drop")
 
     def eligible(self, env_state: PyTree) -> Array:
-        if self.eligibility_fn is None:
-            return jnp.ones(self.num_envs, bool)
-        return jnp.reshape(self.eligibility_fn(env_state), (self.num_envs, -1)).all(axis=-1)
+        eligible = jnp.asarray(self.eligibility_fn(env_state))
+        if jnp.ndim(eligible) == 0:
+            return jnp.broadcast_to(eligible, (self.num_envs,))
+        return jnp.reshape(eligible, (self.num_envs, -1)).all(axis=-1)
 
     def init(self, key: Key):
         env_state, timestep = super().init(key)
         archive_state = self.archive.init(env_state)
-        archive_state, index, position, _, evicted = self.archive.add(
+        archive_state, index, _, evicted = self.archive.add(
             archive_state,
             reset_time_limit(env_state),
             jnp.ones(self.num_envs, bool),
         )
-        if self.stagger:
-            env_state = stagger_time_limit(env_state, jax.random.fold_in(key, 7), self.stagger)
         state = ArchiveAutoResetState(
             env_state=env_state,
             archive_state=archive_state,
@@ -379,7 +275,6 @@ class ArchiveAutoReset(AutoReset):
             assigned=jnp.full(self.num_envs, -1, jnp.int32),
             due=jnp.zeros(self.num_envs, bool),
             slot=index,
-            position=position,
             rho=jnp.ones(self.num_envs, bool),
             age=jnp.zeros(self.num_envs, jnp.int32),
             earned=jnp.zeros(self.num_envs),
@@ -390,7 +285,7 @@ class ArchiveAutoReset(AutoReset):
         )
 
     def step(self, key: Key, state, action):
-        step_key, fresh_key, place_key, seed_key = jax.random.split(key, 4)
+        step_key, fresh_key, seed_key = jax.random.split(key, 3)
         rho = state.rho
         age = state.age + 1
         env_state, timestep = super().step(step_key, state.env_state, action)
@@ -405,20 +300,14 @@ class ArchiveAutoReset(AutoReset):
         fresh, _ = jax.vmap(self._env.init)(jax.random.split(fresh_key, self.num_envs))
 
         def load_snapshots():
-            placed = self.archive.locate(state.archive_state, state.assigned, place_key)
-            taken = self.archive.take(state.archive_state, state.assigned, placed)
-            restart = jax.tree.map(
+            taken = self.archive.take(state.archive_state, state.assigned)
+            return jax.tree.map(
                 lambda archived, born: jnp.where(broadcast(warm, born), archived, born),
                 self.reseed_fn(taken, seed_key),
                 fresh,
             )
-            return restart, placed
 
-        restart, placed = jax.lax.cond(
-            jnp.any(warm),
-            load_snapshots,
-            lambda: (fresh, jnp.full(self.num_envs, -1, jnp.int32)),
-        )
+        restart = jax.lax.cond(jnp.any(warm), load_snapshots, lambda: fresh)
         state = state.replace(
             env_state=jax.tree.map(
                 lambda spawned, live: jnp.where(broadcast(done, live), spawned, live),
@@ -436,7 +325,7 @@ class ArchiveAutoReset(AutoReset):
                 timestep.obs,
             )
         )
-        archive_state, index, position, opened, evicted = self.archive.add(
+        archive_state, index, opened, evicted = self.archive.add(
             state.archive_state,
             reset_time_limit(state.env_state),
             ~warm,
@@ -444,7 +333,6 @@ class ArchiveAutoReset(AutoReset):
             done | self.eligible(state.env_state),
         )
         slot = jnp.where(warm, state.assigned, index)
-        position = jnp.where(warm, placed, position)
         decay = self.gamma ** (age - 1).astype(jnp.float32)
         reward = timestep.reward.reshape(self.num_envs, -1).sum(axis=-1)
         earned = state.earned + reward
@@ -465,7 +353,6 @@ class ArchiveAutoReset(AutoReset):
             state.replace(
                 archive_state=archive_state,
                 slot=slot,
-                position=position,
                 earned=jnp.where(done, 0.0, earned),
                 graded=jnp.where(done, 0.0, graded),
             ),
