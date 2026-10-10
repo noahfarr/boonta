@@ -15,7 +15,9 @@
 
 ## Why boonta
 
-boonta treats every agent the same way: a policy that observes, acts and learns from rewards. A CNN playing Breakout, an MLP balancing CartPole and Qwen3 playing Wordle through tool calls differ only in their torso, so one PPO trains all three. Prompts and tool results are observations and only the tokens the model writes are actions, which is why LLM agents need no loss masking ([not every token is an action](https://noahfarr.github.io/blog/2026/not-every-token-is-an-action/)). Because the algorithm, the environment and the training loop never reach into each other, the rest comes along too: offline datasets, recurrent memory, curricula and self-play leagues, on one GPU or many.
+boonta treats every agent the same way: a policy that observes, acts and learns from rewards. A CNN playing Breakout, an MLP balancing CartPole and Qwen3 playing Wordle through tool calls differ only in their torso, so one PPO trains all three. Prompts and tool results are observations and only the tokens the model writes are actions, so LLM agents need no loss masking. Because the algorithm, the environment and the training loop never reach into each other, the rest comes along too: offline datasets, recurrent memory, curricula and self-play leagues.
+
+It is also built to be fast. With a JAX environment, acting, stepping and learning compile into one program with no Python in the loop, and that program shards across every device of every machine, so the same run scales from one GPU to a cluster.
 
 ## Podracers
 
