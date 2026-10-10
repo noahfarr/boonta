@@ -8,8 +8,8 @@ import numpy as np
 import zoo
 from boonta.curricula import erd, prd
 from boonta.curricula.prd import (Advantage, SuccessorFootprint,
-                                  SuccessorRelevance, UniformFootprint,
-                                  UniformRelevance)
+                                  SuccessorRelevance, SuccessorRepresentation,
+                                  UniformFootprint, UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -71,6 +71,16 @@ def stack(timesteps):
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *timesteps)
 
 
+def selector(footprint, relevance, columns=None):
+    return prd.Selector(
+        successor=SuccessorRepresentation(gamma=0.75, columns=columns),
+        footprint=footprint,
+        relevance=relevance,
+        gain=Advantage(),
+        k=2.0,
+    )
+
+
 def train(selection, updates=3, steps=4):
     env = ArchiveAutoReset(
         Ladder(),
@@ -107,11 +117,11 @@ def train(selection, updates=3, steps=4):
 @pytest.mark.parametrize(
     "selection",
     [
-        prd.Selector(footprint=SuccessorFootprint(gamma=0.75), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorFootprint(gamma=0.75, columns=4), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorFootprint(gamma=0.75), relevance=UniformRelevance(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=UniformFootprint(), relevance=SuccessorRelevance(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=UniformFootprint(), relevance=UniformRelevance(), gain=Advantage(), k=2.0),
+        selector(SuccessorFootprint(), SuccessorRelevance()),
+        selector(SuccessorFootprint(), SuccessorRelevance(), columns=4),
+        selector(SuccessorFootprint(), UniformRelevance()),
+        selector(UniformFootprint(), SuccessorRelevance()),
+        selector(UniformFootprint(), UniformRelevance()),
         erd.Selector(k=2.0),
     ],
     ids=[
@@ -130,6 +140,14 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
     assert bool(jnp.all(archive_auto_reset_state.due == block))
     assert bool(jnp.all(eligible[archive_auto_reset_state.assigned[block]]))
     assert bool(jnp.all(cut.done[block]))
+
+
+def test_a_uniform_footprint_keeps_the_relevance_of_the_successor_representation():
+    uniform = selector(UniformFootprint(), SuccessorRelevance())
+    _, state, _ = train(uniform)
+    relevance = uniform.relevant(state.selection)
+    assert float(jnp.std(relevance[state.archive_state.mask])) > 0.0
+    np.testing.assert_allclose(jnp.sum(relevance), 1.0, rtol=1e-5)
 
 
 def window(cell, action, reward, truncated):
@@ -170,7 +188,7 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, selection",
     [
-        (prd.pit, prd.Selector(footprint=SuccessorFootprint(), relevance=SuccessorRelevance(), gain=Advantage())),
+        (prd.pit, selector(SuccessorFootprint(), SuccessorRelevance())),
         (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],

@@ -29,7 +29,7 @@ def wipe(evicted: Array, size: int) -> Array:
 
 
 @dataclass
-class SuccessorFootprint:
+class SuccessorRepresentation:
     gamma: float = 1.0
     rate: float = 0.1
     columns: int | None = None
@@ -134,24 +134,31 @@ class SuccessorFootprint:
         )
 
 
+class SuccessorFootprint:
+    def pour(self, successor: SuccessorRepresentation, table: Successor, term: Array) -> Array:
+        return successor.pour(table, term)
+
+    def expected_visits(
+        self, successor: SuccessorRepresentation, table: Successor, start: Array
+    ) -> Array:
+        return successor.expected_visits(table, start)
+
+    def spill(self, successor: SuccessorRepresentation, table: Successor, weight: Array) -> Array:
+        return successor.spill(table, weight)
+
+
 class UniformFootprint:
-    def init(self, archive_size: int) -> Array:
-        return jnp.full(archive_size, 1.0 / archive_size)
+    def pour(self, successor: SuccessorRepresentation, table: Successor, term: Array) -> Array:
+        return jnp.full_like(term, jnp.mean(term))
 
-    def pour(self, spread: Array, term: Array) -> Array:
-        return jnp.full_like(term, jnp.sum(spread * term))
+    def expected_visits(
+        self, successor: SuccessorRepresentation, table: Successor, start: Array
+    ) -> Array:
+        size, _ = jnp.shape(table.weights)
+        return jnp.full(size, 1.0 / size)
 
-    def expected_visits(self, spread: Array, start: Array) -> Array:
-        return spread
-
-    def spill(self, spread: Array, weight: Array) -> Array:
-        return spread * jnp.sum(weight)
-
-    def forget(self, spread: Array, wiped: Array) -> Array:
-        return spread
-
-    def backup(self, spread: Array, leaving: Array, landing: Array, onward: Array, key: Key) -> Array:
-        return spread
+    def spill(self, successor: SuccessorRepresentation, table: Successor, weight: Array) -> Array:
+        return jnp.full_like(weight, jnp.mean(weight))
 
 
 def piled(size: int, index: Array, value: Array, lanes: int = 256) -> Array:
@@ -255,20 +262,24 @@ class Advantage:
 
 @struct.dataclass
 class SelectorState:
-    footprint: Successor | Array
+    successor: Successor
     roots: Array
     gain: GainState
 
 
 class SuccessorRelevance:
-    def __call__(self, state: SelectorState, footprint: SuccessorFootprint | UniformFootprint) -> Array:
-        mass = footprint.spill(state.footprint, state.roots)
+    def __call__(
+        self, successor: SuccessorRepresentation, table: Successor, roots: Array
+    ) -> Array:
+        mass = successor.spill(table, roots)
         return mass / jnp.maximum(jnp.sum(mass), 1e-12)
 
 
 class UniformRelevance:
-    def __call__(self, state: SelectorState, footprint: SuccessorFootprint | UniformFootprint) -> Array:
-        return jnp.ones_like(state.roots)
+    def __call__(
+        self, successor: SuccessorRepresentation, table: Successor, roots: Array
+    ) -> Array:
+        return jnp.ones_like(roots)
 
 
 def moments(value: Array, over: Array) -> tuple[Array, Array]:
@@ -284,6 +295,7 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 
 @dataclass
 class Selector(archive_auto_reset.Selector):
+    successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: SuccessorRelevance | UniformRelevance
     gain: Advantage
@@ -291,7 +303,7 @@ class Selector(archive_auto_reset.Selector):
 
     def init(self, archive_size: int, num_actions: int) -> SelectorState:
         return SelectorState(
-            footprint=self.footprint.init(archive_size),
+            successor=self.successor.init(archive_size),
             roots=jnp.zeros(archive_size),
             gain=self.gain.init(archive_size, num_actions),
         )
@@ -304,17 +316,17 @@ class Selector(archive_auto_reset.Selector):
         size, *_ = jnp.shape(state.roots)
 
         def tread(held, rung):
-            footprint, roots = held
+            table, roots = held
             leaving, landing, done, evicted, start, key = rung
             roots = roots.at[jnp.where(start & (leaving >= 0), leaving, size)].add(1.0, mode="drop")
             wiped = wipe(evicted, size)
-            footprint = self.footprint.forget(footprint, wiped)
-            footprint = self.footprint.backup(footprint, leaving, landing, ~done & (landing >= 0), key)
-            return (footprint, jnp.where(wiped, 0.0, roots)), wiped
+            table = self.successor.forget(table, wiped)
+            table = self.successor.backup(table, leaving, landing, ~done & (landing >= 0), key)
+            return (table, jnp.where(wiped, 0.0, roots)), wiped
 
-        (footprint, roots), wiped = jax.lax.scan(
+        (table, roots), wiped = jax.lax.scan(
             tread,
-            (state.footprint, state.roots),
+            (state.successor, state.roots),
             (
                 leaving,
                 landing,
@@ -326,7 +338,7 @@ class Selector(archive_auto_reset.Selector):
         )
         wiped = jnp.any(wiped, axis=0)
         return state.replace(
-            footprint=footprint,
+            successor=table,
             roots=roots,
             gain=self.gain.update(self.gain.forget(state.gain, wiped), transitions),
         )
@@ -348,9 +360,10 @@ class Selector(archive_auto_reset.Selector):
 
         def assign(visits, key):
             factor = self.diminishing_factor(state, visits)
-            marginal = self.footprint.pour(state.footprint, worth * factor)
+            marginal = self.footprint.pour(self.successor, state.successor, worth * factor)
             cell = random_argmax(marginal, mask, key, ())
-            return visits + self.footprint.expected_visits(state.footprint, cell), cell
+            spread = self.footprint.expected_visits(self.successor, state.successor, cell)
+            return visits + spread, cell
 
         _, index = jax.lax.scan(
             assign, self.committed_visits(state, occupied), jax.random.split(key, count)
@@ -358,18 +371,20 @@ class Selector(archive_auto_reset.Selector):
         return index
 
     def relevant(self, state: SelectorState) -> Array:
-        return self.relevance(state, self.footprint)
+        return self.relevance(self.successor, state.successor, state.roots)
 
     def diminishing_factor(self, state: SelectorState, visits: Array | float) -> Array:
         scale = state.gain.scale
         return jnp.where(scale > 0.0, 1.0 / (1.0 + visits / jnp.maximum(scale, 1e-30)) ** 2, 1.0)
 
     def committed_visits(self, state: SelectorState, occupied: Array | float) -> Array:
-        return self.footprint.spill(state.footprint, jnp.zeros_like(state.roots) + occupied)
+        return self.footprint.spill(
+            self.successor, state.successor, jnp.zeros_like(state.roots) + occupied
+        )
 
     def value(self, state: SelectorState, visits: Array | float = 0.0) -> Array:
         term = self.relevant(state) * self.gain(state.gain) * self.diminishing_factor(state, visits)
-        return self.footprint.pour(state.footprint, term)
+        return self.footprint.pour(self.successor, state.successor, term)
 
     def saturation(
         self, state: SelectorState, mask: Array, occupied: Array | float, index: Array
@@ -377,7 +392,7 @@ class Selector(archive_auto_reset.Selector):
         size, *_ = jnp.shape(mask)
         committed = self.committed_visits(state, occupied)
         restarts = jnp.zeros(size).at[index].add(1.0)
-        visits = committed + self.footprint.spill(state.footprint, restarts)
+        visits = committed + self.footprint.spill(self.successor, state.successor, restarts)
         scale = jnp.maximum(state.gain.scale, 1e-30)
         before = jnp.where(mask, self.value(state, committed), -jnp.inf)
         best, runner_up = jax.lax.top_k(before, 2)[0]
@@ -401,7 +416,7 @@ class Selector(archive_auto_reset.Selector):
         value = self.value(state)
         gain = self.gain(state.gain)
         relevance = self.relevant(state)
-        reach = self.footprint.spill(state.footprint, state.roots)
+        reach = self.successor.spill(state.successor, state.roots)
         lox.log(
             {
                 "archive/span": jnp.sum(reach) / jnp.maximum(jnp.sum(state.roots), 1.0),
