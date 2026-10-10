@@ -94,12 +94,6 @@ def build(inner=None, cell_fn=cell_of, **kwargs):
     )
 
 
-def recurrent(**kwargs):
-    env = build(**kwargs)
-    env.carry(jax.ShapeDtypeStruct((1, 3), jnp.float32))
-    return env
-
-
 def drive(env, steps=20, seed=0, action=0):
     key = jax.random.key(seed)
     state, timestep = env.init(key)
@@ -113,14 +107,14 @@ def test_an_empty_archive_holds_no_cells_and_zeroed_slots():
     state = archive().init(batch(jnp.zeros(NUM_ENVS)))
     assert state.keys.shape == (ARCHIVE_SIZE, 1)
     assert state.mask.shape == (ARCHIVE_SIZE,) and state.mask.dtype == jnp.bool
-    assert state.cell_states.snapshots.env_state.tag[:, 0].shape == (ARCHIVE_SIZE,)
+    assert state.cell_states.snapshots.tag[:, 0].shape == (ARCHIVE_SIZE,)
     assert int(state.mask.sum()) == 0
 
 
 def test_the_stored_shape_drops_the_env_axis_and_takes_the_archive_axis():
     state = archive().init(batch(jnp.zeros(NUM_ENVS)))
-    assert state.cell_states.snapshots.env_state.depth.shape == (ARCHIVE_SIZE, 1)
-    assert state.cell_states.snapshots.env_state.tag.shape == (ARCHIVE_SIZE, 1)
+    assert state.cell_states.snapshots.depth.shape == (ARCHIVE_SIZE, 1)
+    assert state.cell_states.snapshots.tag.shape == (ARCHIVE_SIZE, 1)
 
 
 def test_adding_a_state_stores_it_at_the_slot_it_claimed():
@@ -130,7 +124,7 @@ def test_adding_a_state_stores_it_at_the_slot_it_claimed():
     state, index, position, _, _ = held.add(state, arriving, jnp.ones(NUM_ENVS, bool))
     assert bool(jnp.all(index >= 0))
     assert int(state.mask.sum()) == NUM_ENVS
-    assert bool(jnp.all(state.cell_states.snapshots.env_state.tag[index, position] == arriving.tag))
+    assert bool(jnp.all(state.cell_states.snapshots.tag[index, position] == arriving.tag))
 
 
 def test_a_cell_seen_twice_lands_in_the_same_slot():
@@ -150,7 +144,7 @@ def test_revisiting_a_cell_overwrites_the_state_it_holds():
     state, index, position, _, _ = held.add(state, Trail(jnp.full(NUM_ENVS, 1), jnp.arange(NUM_ENVS)), live)
     state, again, position, _, _ = held.add(state, Trail(jnp.full(NUM_ENVS, 9), jnp.arange(NUM_ENVS)), live)
     assert bool(jnp.all(index == again))
-    assert bool(jnp.all(state.cell_states.snapshots.env_state.depth[index, position] == 9))
+    assert bool(jnp.all(state.cell_states.snapshots.depth[index, position] == 9))
 
 
 def test_one_writer_per_cell_and_the_eligible_one_wins():
@@ -164,11 +158,11 @@ def test_one_writer_per_cell_and_the_eligible_one_wins():
     assert bool(jnp.all(index == index[0]))
     slot = int(index[0])
     assert bool(state.cell_states.eligible[slot])
-    assert int(state.cell_states.snapshots.env_state.depth[slot, 0]) == 4
+    assert int(state.cell_states.snapshots.depth[slot, 0]) == 4
     rho = jnp.arange(NUM_ENVS) == 5
     state, index, position, _, _ = held.add(state, crowd, live, rho, jnp.zeros(NUM_ENVS, bool))
     assert bool(state.cell_states.eligible[slot])
-    assert int(state.cell_states.snapshots.env_state.depth[slot, 0]) == 4
+    assert int(state.cell_states.snapshots.depth[slot, 0]) == 4
 
 
 def test_a_warm_visit_cannot_overwrite_a_cell_a_cold_one_reached():
@@ -180,7 +174,7 @@ def test_a_warm_visit_cannot_overwrite_a_cell_a_cold_one_reached():
     state, again, place, _, _ = held.add(state, Trail(jnp.full(NUM_ENVS, 9), jnp.arange(NUM_ENVS)), live, ~cold)
     assert bool(jnp.all(index == again))
     assert bool(jnp.all(place == -1))
-    assert bool(jnp.all(state.cell_states.snapshots.env_state.depth[index, position] == 1))
+    assert bool(jnp.all(state.cell_states.snapshots.depth[index, position] == 1))
     assert bool(jnp.all(state.cell_states.rho[index]))
 
 
@@ -191,11 +185,11 @@ def test_a_warm_visit_fills_a_cell_no_cold_one_has_reached_until_one_does():
     warm = jnp.zeros(NUM_ENVS, bool)
     state, index, position, _, _ = held.add(state, Trail(jnp.full(NUM_ENVS, 3), jnp.arange(NUM_ENVS)), live, warm)
     assert bool(jnp.all(position >= 0))
-    assert bool(jnp.all(state.cell_states.snapshots.env_state.depth[index, position] == 3))
+    assert bool(jnp.all(state.cell_states.snapshots.depth[index, position] == 3))
     assert not bool(jnp.any(state.cell_states.rho[index]))
     state, _, position, _, _ = held.add(state, Trail(jnp.full(NUM_ENVS, 7), jnp.arange(NUM_ENVS)), live, ~warm)
     assert bool(jnp.all(position >= 0))
-    assert bool(jnp.all(state.cell_states.snapshots.env_state.depth[index, position] == 7))
+    assert bool(jnp.all(state.cell_states.snapshots.depth[index, position] == 7))
     assert bool(jnp.all(state.cell_states.rho[index]))
 
 
@@ -205,7 +199,7 @@ def test_a_state_that_may_not_be_added_claims_no_slot():
     state, index, _, _, _ = held.add(state, batch(jnp.arange(NUM_ENVS)), jnp.zeros(NUM_ENVS, bool))
     assert bool(jnp.all(index == -1))
     assert int(state.mask.sum()) == 0
-    assert float(jnp.max(jnp.abs(state.cell_states.snapshots.env_state.tag))) == 0.0
+    assert float(jnp.max(jnp.abs(state.cell_states.snapshots.tag))) == 0.0
 
 
 def test_a_full_probe_window_refuses_the_cell_while_the_archive_has_room():
@@ -272,7 +266,7 @@ def test_the_archive_hands_back_the_state_at_a_slot():
     state = held.init(batch(jnp.zeros(NUM_ENVS)))
     state, index, position, _, _ = held.add(state, batch(jnp.arange(NUM_ENVS)), jnp.ones(NUM_ENVS, bool))
     got = held.take(state, index, position)
-    assert bool(jnp.all(got.env_state.tag == jnp.arange(NUM_ENVS)))
+    assert bool(jnp.all(got.tag == jnp.arange(NUM_ENVS)))
 
 
 def test_share_rounds_the_fraction_the_block_holds():
@@ -309,14 +303,14 @@ def test_the_archive_never_shrinks_as_it_fills():
 def test_every_slot_holds_the_state_its_cell_says_it_holds():
     state, _ = drive(build(), steps=30)
     archived = state.archive_state
-    stored = cell_of(jax.tree.map(lambda leaf: leaf[:, 0], archived.cell_states.snapshots.env_state))
+    stored = cell_of(jax.tree.map(lambda leaf: leaf[:, 0], archived.cell_states.snapshots))
     assert bool(jnp.all(jnp.where(archived.mask[:, None], stored == archived.keys, True)))
 
 
 def test_a_banked_state_carries_no_leftover_clock():
     env = build(inner=TimeLimit(Ladder(), 6), cell_fn=lambda s: cell_of(s.env_state))
     state, _ = drive(env, steps=24)
-    assert int(jnp.max(state.archive_state.cell_states.snapshots.env_state.time)) == 0
+    assert int(jnp.max(state.archive_state.cell_states.snapshots.time)) == 0
 
 
 def test_the_clock_would_be_inherited_without_the_reset():
@@ -411,113 +405,6 @@ def test_the_clock_restarts_with_the_episode():
         assert bool(jnp.all(state.age[timestep.done] == 0))
 
 
-def held_archive(**kwargs):
-    return Archive(
-        archive_size=ARCHIVE_SIZE,
-        cell_fn=cell_of,
-        carry_shape=jax.ShapeDtypeStruct((1, 3), jnp.float32),
-        **kwargs,
-    )
-
-
-def test_a_feedforward_archive_stores_no_carry():
-    state = archive().init(batch(jnp.zeros(NUM_ENVS)))
-    assert state.cell_states.snapshots.carry is None
-
-
-def test_a_recurrent_archive_sizes_the_carry_by_the_archive():
-    state = held_archive().init(batch(jnp.zeros(NUM_ENVS)))
-    assert state.cell_states.snapshots.carry.shape == (ARCHIVE_SIZE, 1, 3)
-
-
-def test_a_cold_reset_snapshot_holds_a_blank_carry():
-    env = recurrent()
-    key = jax.random.key(0)
-    state, _ = env.init(key)
-    state = env.stash(state, jnp.zeros((NUM_ENVS, 3)))
-    for step in range(1, LENGTH + 1):
-        key, sub = jax.random.split(key)
-        state, timestep = env.step(sub, state, jnp.zeros(NUM_ENVS, jnp.int32))
-        state = env.stash(state, jnp.full((NUM_ENVS, 3), float(step)))
-    slot = int(timestep.info["cell"][0])
-    snapshots = state.archive_state.cell_states.snapshots
-    assert bool(timestep.done[0])
-    assert int(snapshots.env_state.depth[slot, 0]) == 0
-    assert bool(jnp.all(snapshots.carry[slot, 0] == 0.0))
-
-
-def test_stowing_a_carry_lands_at_the_slot_that_was_banked():
-    held = held_archive()
-    state = held.init(batch(jnp.zeros(NUM_ENVS)))
-    state, index, position, _, _ = held.add(state, batch(jnp.arange(NUM_ENVS)), jnp.ones(NUM_ENVS, bool))
-    live = jnp.arange(NUM_ENVS * 3, dtype=jnp.float32).reshape(NUM_ENVS, 3)
-    state = held.stow(state, index, position, live)
-    assert bool(jnp.all(held.take(state, index, position).carry == live))
-
-
-def test_a_carry_banked_nowhere_is_dropped():
-    held = held_archive()
-    state = held.init(batch(jnp.zeros(NUM_ENVS)))
-    state = held.stow(
-        state,
-        jnp.full(NUM_ENVS, -1, jnp.int32),
-        jnp.full(NUM_ENVS, -1, jnp.int32),
-        jnp.ones((NUM_ENVS, 3)),
-    )
-    assert float(jnp.max(jnp.abs(state.cell_states.snapshots.carry))) == 0.0
-
-
-def test_stowing_a_carry_leaves_the_state_alone():
-    held = held_archive()
-    state = held.init(batch(jnp.zeros(NUM_ENVS)))
-    state, index, position, _, _ = held.add(state, batch(jnp.arange(NUM_ENVS)), jnp.ones(NUM_ENVS, bool))
-    state = held.stow(state, index, position, jnp.ones((NUM_ENVS, 3)))
-    assert bool(
-        jnp.all(state.cell_states.snapshots.env_state.tag[index, position] == jnp.arange(NUM_ENVS))
-    )
-
-
-def test_a_feedforward_run_publishes_no_carry():
-    env = build()
-    state, timestep = drive(env, steps=4)
-    assert "carry" not in timestep.info
-
-
-def test_a_recurrent_run_hands_the_stored_carry_back_on_reset():
-    env = recurrent()
-    key = jax.random.key(0)
-    state, _ = env.init(key)
-    for step in range(12):
-        key, sub = jax.random.split(key)
-        state = env.stash(state, jnp.full((NUM_ENVS, 3), float(step)))
-        state, timestep = env.step(sub, state, jnp.zeros(NUM_ENVS, jnp.int32))
-        assert timestep.info["carry"].shape == (NUM_ENVS, 3)
-        assert bool(jnp.all(timestep.info["slot"][~timestep.done] == -1))
-        assert bool(jnp.all(timestep.info["slot"][timestep.done] >= 0))
-
-
-def test_a_restart_recovers_the_carry_stored_with_the_state():
-    env = recurrent()
-    key = jax.random.key(0)
-    state, _ = env.init(key)
-    state = env.stash(state, jnp.full((NUM_ENVS, 3), 7.0))
-    state, timestep = env.step(key, state, jnp.zeros(NUM_ENVS, jnp.int32))
-    banked = state.archive_state.cell_states.snapshots.carry
-    assert float(jnp.max(banked)) == 7.0
-    assert bool(jnp.all(timestep.info["carry"][timestep.done] == 7.0))
-
-
-def test_a_done_env_banks_no_carry_over_its_new_slot():
-    env = recurrent()
-    key = jax.random.key(0)
-    state, _ = env.init(key)
-    for _ in range(LENGTH):
-        key, sub = jax.random.split(key)
-        state, timestep = env.step(sub, state, jnp.zeros(NUM_ENVS, jnp.int32))
-    assert bool(jnp.all(timestep.done))
-    assert bool(jnp.all(state.banked[timestep.done] == -1))
-
-
 def test_every_step_reports_the_cell_the_env_is_in():
     env = build()
     key = jax.random.key(0)
@@ -599,7 +486,7 @@ def ringed(cell_size=4, **kwargs):
 
 def test_a_cell_holds_as_many_states_as_it_is_sized_for():
     state = ringed(cell_size=4).init(batch(jnp.zeros(NUM_ENVS)))
-    assert state.cell_states.snapshots.env_state.tag.shape == (ARCHIVE_SIZE, 4)
+    assert state.cell_states.snapshots.tag.shape == (ARCHIVE_SIZE, 4)
     assert state.cell_states.head.shape == (ARCHIVE_SIZE,)
     assert state.cell_states.mask.shape == (ARCHIVE_SIZE, 4)
 
@@ -616,7 +503,7 @@ def test_revisiting_a_cell_fills_the_next_place_instead_of_overwriting():
     assert len(set(seen)) == 3
     assert int(state.cell_states.mask[index[0]].sum()) == 3
     assert sorted(
-        int(state.cell_states.snapshots.env_state.depth[index[0], p]) for p in seen
+        int(state.cell_states.snapshots.depth[index[0], p]) for p in seen
     ) == [0, 1, 2]
 
 
@@ -628,7 +515,7 @@ def test_a_full_cell_replaces_the_oldest_state():
             state, Trail(jnp.asarray([depth]), jnp.zeros(1, jnp.int32)), jnp.ones(1, bool)
         )
     kept = sorted(
-        int(state.cell_states.snapshots.env_state.depth[index[0], k]) for k in range(2)
+        int(state.cell_states.snapshots.depth[index[0], k]) for k in range(2)
     )
     assert kept == [1, 2]
     assert int(state.cell_states.mask[index[0]].sum()) == 2
@@ -653,23 +540,8 @@ def test_a_ringed_cell_spreads_its_draws_over_its_places():
             state, Trail(jnp.asarray([depth]), jnp.zeros(1, jnp.int32)), jnp.ones(1, bool)
         )
     drawn = held.locate(state, jnp.full(2048, index[0]), jax.random.key(0))
-    taken = held.take(state, jnp.full(2048, index[0]), drawn).env_state.depth
+    taken = held.take(state, jnp.full(2048, index[0]), drawn).depth
     assert len(set(int(d) for d in jnp.unique(taken))) == 4
-
-
-def test_a_carry_follows_the_place_its_state_was_banked_at():
-    held = ringed(cell_size=4, carry_shape=jax.ShapeDtypeStruct((1, 3), jnp.float32))
-    state = held.init(batch(jnp.zeros(1)))
-    positions = []
-    for depth in range(3):
-        state, index, position, _, _ = held.add(
-            state, Trail(jnp.asarray([depth]), jnp.zeros(1, jnp.int32)), jnp.ones(1, bool)
-        )
-        state = held.stow(state, index, position, jnp.full((1, 3), float(depth)))
-        positions.append(position)
-    for position in positions:
-        got = held.take(state, index, position)
-        assert float(got.env_state.depth[0]) == float(got.carry[0, 0])
 
 
 def test_a_sized_cell_never_leaks_into_its_neighbour():
@@ -684,7 +556,7 @@ def test_a_sized_cell_never_leaks_into_its_neighbour():
         )
     slot = jnp.repeat(jnp.arange(ARCHIVE_SIZE), 4)
     position = jnp.tile(jnp.arange(4), ARCHIVE_SIZE)
-    stored = cell_of(held.take(state, slot, position).env_state)
+    stored = cell_of(held.take(state, slot, position))
     home = jnp.repeat(state.keys, 4, axis=0)
     filled = jnp.repeat(state.mask, 4)
     assert bool(jnp.all(jnp.where(filled[:, None], stored == home, True)))
@@ -723,7 +595,7 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     assert bool(jnp.all(cut.truncated[block])) and not bool(jnp.any(cut.truncated[~block]))
     assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.slot[block] == cell))
     assert bool(jnp.all(after.age[block] == 0)) and not bool(jnp.any(after.due))
-    stored = after.archive_state.cell_states.snapshots.env_state.tag[
+    stored = after.archive_state.cell_states.snapshots.tag[
         after.slot[block], after.position[block]
     ]
     assert bool(jnp.all(after.env_state.tag[block] == stored))
