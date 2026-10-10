@@ -73,17 +73,17 @@ def selector(footprint, relevance, columns=None):
     )
 
 
-def train(selection, updates=3, steps=4):
+def train(selector, updates=3, steps=4):
     env = ArchiveAutoReset(
         Ladder(),
         num_envs=NUM_ENVS,
         cell_fn=lambda env: (lambda state: state.tag),
-        selection=selection,
+        selector=selector,
         capacity=32,
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
-    archive_auto_reset_state = env.place(archive_auto_reset_state, key, None)
+    archive_auto_reset_state = env.assign(archive_auto_reset_state, key, None)
     for _ in range(updates):
         firsts, seconds = [], []
         for _ in range(steps):
@@ -99,14 +99,14 @@ def train(selection, updates=3, steps=4):
             first=stack(firsts), second=stack(seconds), aux={"value": blank, "log_prob": blank}
         )
         key, sub = jax.random.split(key)
-        archive_auto_reset_state = env.place(archive_auto_reset_state, sub, transitions)
+        archive_auto_reset_state = env.assign(archive_auto_reset_state, sub, transitions)
     key, sub = jax.random.split(key)
     _, cut = env.step(sub, archive_auto_reset_state, jnp.ones(NUM_ENVS, jnp.int32))
     return env, archive_auto_reset_state, cut
 
 
 @pytest.mark.parametrize(
-    "selection",
+    "selector",
     [
         selector(SuccessorFootprint(), SuccessorRelevance()),
         selector(SuccessorFootprint(), SuccessorRelevance(), columns=4),
@@ -124,8 +124,8 @@ def train(selection, updates=3, steps=4):
         "erd",
     ],
 )
-def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
-    env, archive_auto_reset_state, cut = train(selection)
+def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
+    env, archive_auto_reset_state, cut = train(selector)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - share(2.0, NUM_ENVS)
     eligible = env.archive.eligible(archive_auto_reset_state.archive_state)
     assert bool(jnp.all(archive_auto_reset_state.due_mask == block))
@@ -136,7 +136,7 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
 def test_a_uniform_footprint_keeps_the_relevance_of_the_successor_representation():
     uniform = selector(UniformFootprint(), SuccessorRelevance())
     _, state, _ = train(uniform)
-    relevance = uniform.relevant(state.selection)
+    relevance = uniform.relevant(state.selector_state)
     assert float(jnp.std(relevance[state.archive_state.mask])) > 0.0
     np.testing.assert_allclose(jnp.sum(relevance), 1.0, rtol=1e-5)
 
@@ -177,21 +177,21 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 
 
 @pytest.mark.parametrize(
-    "curriculum, selection",
+    "curriculum, selector",
     [
         (prd.pit, selector(SuccessorFootprint(), SuccessorRelevance())),
         (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],
 )
-def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curriculum, selection):
+def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curriculum, selector):
     def archive(environment, num_envs):
         return RecordEpisodeStatistics(
             ArchiveAutoReset(
                 environment,
                 num_envs=num_envs,
                 cell_fn=lambda env: (lambda state: state.position),
-                selection=selection,
+                selector=selector,
                 capacity=32,
             )
         )

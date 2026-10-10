@@ -88,7 +88,7 @@ def build(inner=None, cell_fn=cell_of, **kwargs):
         Ladder() if inner is None else inner,
         num_envs=NUM_ENVS,
         cell_fn=factory(cell_fn),
-        selection=kwargs.pop("selection", Echo()),
+        selector=kwargs.pop("selector", Echo()),
         **kwargs,
     )
 
@@ -350,7 +350,7 @@ def test_occupied_counts_envs_outside_the_block_by_their_current_slot():
     state, _ = env.init(jax.random.key(0))
     current_slots = jnp.full(NUM_ENVS, -1, jnp.int32).at[1].set(3).at[2].set(3).at[3].set(5)
     state = state.replace(current_slots=current_slots)
-    counted = env.occupied(state, placed=4)
+    counted = env.occupied(state, num_placed=4)
     assert float(counted[3]) == 2.0
     assert float(counted[5]) == 1.0
     assert float(jnp.sum(counted)) == 3.0
@@ -402,7 +402,7 @@ def test_without_an_update_every_episode_is_reported_as_rho():
 def test_an_update_with_a_key_reports_the_archive():
     env = build()
     state, _ = drive(env, steps=4)
-    _, logs = lox.spool(lambda state: env.place(state, jax.random.key(3), None))(state)
+    _, logs = lox.spool(lambda state: env.assign(state, jax.random.key(3), None))(state)
     assert {"archive/placed", "archive/num_cells", "archive/num_eligible"} <= set(logs)
 
 
@@ -463,7 +463,7 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     env = build()
     state, _ = drive(env, steps=2, action=1)
     cell = int(state.current_slots[0])
-    state = env.place(state, jax.random.key(3), None)
+    state = env.assign(state, jax.random.key(3), None)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
     assert bool(jnp.all(state.due_mask == block))
     assert bool(jnp.all(state.assigned_slots[block] == cell))

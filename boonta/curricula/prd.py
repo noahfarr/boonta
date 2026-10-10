@@ -21,9 +21,11 @@ class Successor:
     weights: Array
 
 
-def wipe(evicted: Array, size: int) -> Array:
-    gone = jnp.reshape(evicted, (-1,))
-    return jnp.zeros(size + 1, bool).at[jnp.where(gone >= 0, gone, size)].set(True, mode="drop")[:size]
+def wipe(evicted_slots: Array, archive_size: int) -> Array:
+    evicted_slots = jnp.reshape(evicted_slots, (-1,))
+    scatter_rows = jnp.where(evicted_slots >= 0, evicted_slots, archive_size)
+    wiped_mask = jnp.zeros(archive_size + 1, bool).at[scatter_rows].set(True, mode="drop")
+    return wiped_mask[:archive_size]
 
 
 @dataclass
@@ -44,11 +46,11 @@ class SuccessorRepresentation:
     def pour(self, successor: Successor, term: Array) -> Array:
         return jnp.sum(successor.weights * jnp.append(term, 0.0)[successor.columns], axis=-1)
 
-    def expected_visits(self, successor: Successor, start: Array) -> Array:
+    def expected_visits(self, successor: Successor, start_slot: Array) -> Array:
         columns, weights = successor.columns, successor.weights
-        size, _ = jnp.shape(weights)
-        row = columns[0] if jnp.shape(columns)[0] == 1 else columns[start]
-        return jnp.zeros(size + 1).at[row].add(weights[start])[:size]
+        archive_size, _ = jnp.shape(weights)
+        start_columns = columns[0] if jnp.shape(columns)[0] == 1 else columns[start_slot]
+        return jnp.zeros(archive_size + 1).at[start_columns].add(weights[start_slot])[:archive_size]
 
     def spill(self, successor: Successor, weight: Array) -> Array:
         columns, weights = successor.columns, successor.weights
@@ -59,76 +61,105 @@ class SuccessorRepresentation:
         flow = weight[:, None] * weights
         return jnp.zeros(archive_size + 1).at[columns].add(flow)[:archive_size]
 
-    def forget(self, successor: Successor, wiped: Array) -> Successor:
+    def forget(self, successor: Successor, wiped_mask: Array) -> Successor:
         columns, weights = successor.columns, successor.weights
         archive_size, _ = jnp.shape(weights)
-        landed = wiped[jnp.clip(columns, 0, archive_size - 1)] & (columns < archive_size)
-        weights = jnp.where(landed, 0.0, weights)
+        landed_mask = wiped_mask[jnp.clip(columns, 0, archive_size - 1)] & (columns < archive_size)
+        weights = jnp.where(landed_mask, 0.0, weights)
         if jnp.shape(columns)[0] > 1:
-            columns = jnp.where(landed | wiped[:, None], archive_size, columns)
-        return Successor(columns=columns, weights=jnp.where(wiped[:, None], 0.0, weights))
+            columns = jnp.where(landed_mask | wiped_mask[:, None], archive_size, columns)
+        return Successor(columns=columns, weights=jnp.where(wiped_mask[:, None], 0.0, weights))
 
     def backup(
-        self, successor: Successor, leaving: Array, landing: Array, onward: Array, key: Key
+        self,
+        successor: Successor,
+        leaving_slots: Array,
+        landing_slots: Array,
+        onward_mask: Array,
+        key: Key,
     ) -> Successor:
         archive_size, _ = jnp.shape(successor.weights)
-        index = jnp.where(leaving >= 0, leaving, archive_size)
-        crowd = jnp.zeros(archive_size).at[index].add(1.0, mode="drop")
-        step = self.rate / jnp.maximum(crowd, 1.0)
+        scatter_rows = jnp.where(leaving_slots >= 0, leaving_slots, archive_size)
+        leaving_counts = jnp.zeros(archive_size).at[scatter_rows].add(1.0, mode="drop")
+        step_sizes = self.rate / jnp.maximum(leaving_counts, 1.0)
         if jnp.shape(successor.columns)[0] == 1:
-            return self.blend(successor, leaving, landing, onward, step)
-        return self.merge(successor, leaving, landing, onward, key)
+            return self.blend(successor, leaving_slots, landing_slots, onward_mask, step_sizes)
+        return self.merge(successor, leaving_slots, landing_slots, onward_mask, key)
 
     def blend(
-        self, successor: Successor, leaving: Array, landing: Array, onward: Array, step: Array
+        self,
+        successor: Successor,
+        leaving_slots: Array,
+        landing_slots: Array,
+        onward_mask: Array,
+        step_sizes: Array,
     ) -> Successor:
         columns, weights = successor.columns, successor.weights
         archive_size, _ = jnp.shape(weights)
-        target = jax.nn.one_hot(leaving, archive_size) + self.gamma * jnp.where(
-            onward[..., None], weights[jnp.clip(landing, 0)], 0.0
+        target = jax.nn.one_hot(leaving_slots, archive_size) + self.gamma * jnp.where(
+            onward_mask[..., None], weights[jnp.clip(landing_slots, 0)], 0.0
         )
-        here = jnp.clip(leaving, 0)
-        index = jnp.where(leaving >= 0, leaving, archive_size)
+        leaving_rows = jnp.clip(leaving_slots, 0)
+        scatter_rows = jnp.where(leaving_slots >= 0, leaving_slots, archive_size)
         return Successor(
             columns=columns,
-            weights=weights.at[index].add(
-                step[here][..., None] * (target - weights[here]), mode="drop"
+            weights=weights.at[scatter_rows].add(
+                step_sizes[leaving_rows][..., None] * (target - weights[leaving_rows]),
+                mode="drop",
             ),
         )
 
     def merge(
-        self, successor: Successor, leaving: Array, landing: Array, onward: Array, key: Key
+        self,
+        successor: Successor,
+        leaving_slots: Array,
+        landing_slots: Array,
+        onward_mask: Array,
+        key: Key,
     ) -> Successor:
         columns, weights = successor.columns, successor.weights
         archive_size, width = jnp.shape(weights)
-        here, there = jnp.clip(leaving, 0), jnp.clip(landing, 0)
-        index = jnp.where(leaving >= 0, leaving, archive_size)
-        priority = jax.random.uniform(key, jnp.shape(leaving))
-        writer = jnp.full(archive_size, -1.0).at[index].max(priority, mode="drop")
-        chosen = (leaving >= 0) & (priority == writer[here])
-        own = columns[here]
-        ahead = columns[there]
-        landed = ahead == here[..., None]
-        reach = jnp.concatenate([ahead, here[..., None]], axis=-1)
+        leaving_rows, landing_rows = jnp.clip(leaving_slots, 0), jnp.clip(landing_slots, 0)
+        scatter_rows = jnp.where(leaving_slots >= 0, leaving_slots, archive_size)
+        write_priorities = jax.random.uniform(key, jnp.shape(leaving_slots))
+        highest_priority = (
+            jnp.full(archive_size, -1.0).at[scatter_rows].max(write_priorities, mode="drop")
+        )
+        write_mask = (leaving_slots >= 0) & (write_priorities == highest_priority[leaving_rows])
+        own_columns = columns[leaving_rows]
+        landing_columns = columns[landing_rows]
+        landed_mask = landing_columns == leaving_rows[..., None]
+        reach_columns = jnp.concatenate([landing_columns, leaving_rows[..., None]], axis=-1)
         target = jnp.concatenate(
             [
-                self.gamma * jnp.where(onward[..., None], weights[there], 0.0) + landed,
-                jnp.where(jnp.any(landed, axis=-1), 0.0, 1.0)[..., None],
+                self.gamma * jnp.where(onward_mask[..., None], weights[landing_rows], 0.0)
+                + landed_mask,
+                jnp.where(jnp.any(landed_mask, axis=-1), 0.0, 1.0)[..., None],
             ],
             axis=-1,
         )
-        real = reach < archive_size
-        match = (reach[..., :, None] == own[..., None, :]) & real[..., None]
-        kept = (1.0 - self.rate) * weights[here] + self.rate * jnp.einsum(
-            "...jk,...j->...k", match.astype(target.dtype), target
+        real_mask = reach_columns < archive_size
+        match_mask = (reach_columns[..., :, None] == own_columns[..., None, :]) & real_mask[
+            ..., None
+        ]
+        kept_weights = (1.0 - self.rate) * weights[leaving_rows] + self.rate * jnp.einsum(
+            "...jk,...j->...k", match_mask.astype(target.dtype), target
         )
-        added = jnp.where(real & ~jnp.any(match, axis=-1), self.rate * target, 0.0)
-        top, at = jax.lax.top_k(jnp.concatenate([kept, added], axis=-1), width)
-        picked = jnp.take_along_axis(jnp.concatenate([own, reach], axis=-1), at, axis=-1)
-        row = jnp.where(chosen, leaving, archive_size)
+        added_weights = jnp.where(
+            real_mask & ~jnp.any(match_mask, axis=-1), self.rate * target, 0.0
+        )
+        top_weights, top_indices = jax.lax.top_k(
+            jnp.concatenate([kept_weights, added_weights], axis=-1), width
+        )
+        top_columns = jnp.take_along_axis(
+            jnp.concatenate([own_columns, reach_columns], axis=-1), top_indices, axis=-1
+        )
+        write_rows = jnp.where(write_mask, leaving_slots, archive_size)
         return Successor(
-            columns=columns.at[row].set(jnp.where(top > 0.0, picked, archive_size), mode="drop"),
-            weights=weights.at[row].set(jnp.maximum(top, 0.0), mode="drop"),
+            columns=columns.at[write_rows].set(
+                jnp.where(top_weights > 0.0, top_columns, archive_size), mode="drop"
+            ),
+            weights=weights.at[write_rows].set(jnp.maximum(top_weights, 0.0), mode="drop"),
         )
 
 
@@ -137,9 +168,9 @@ class SuccessorFootprint:
         return successor.pour(table, term)
 
     def expected_visits(
-        self, successor: SuccessorRepresentation, table: Successor, start: Array
+        self, successor: SuccessorRepresentation, table: Successor, start_slot: Array
     ) -> Array:
-        return successor.expected_visits(table, start)
+        return successor.expected_visits(table, start_slot)
 
     def spill(self, successor: SuccessorRepresentation, table: Successor, weight: Array) -> Array:
         return successor.spill(table, weight)
@@ -150,19 +181,19 @@ class UniformFootprint:
         return jnp.full_like(term, jnp.mean(term))
 
     def expected_visits(
-        self, successor: SuccessorRepresentation, table: Successor, start: Array
+        self, successor: SuccessorRepresentation, table: Successor, start_slot: Array
     ) -> Array:
-        size, _ = jnp.shape(table.weights)
-        return jnp.full(size, 1.0 / size)
+        archive_size, _ = jnp.shape(table.weights)
+        return jnp.full(archive_size, 1.0 / archive_size)
 
     def spill(self, successor: SuccessorRepresentation, table: Successor, weight: Array) -> Array:
         return jnp.full_like(weight, jnp.mean(weight))
 
 
-def piled(size: int, index: Array, value: Array, lanes: int = 256) -> Array:
-    lane = jnp.arange(jnp.shape(index)[0]) % lanes
+def piled(size: int, bins: Array, value: Array, lanes: int = 256) -> Array:
+    lane_ids = jnp.arange(jnp.shape(bins)[0]) % lanes
     blank = jnp.zeros((lanes, size), jnp.float32)
-    return jnp.sum(blank.at[lane, index].add(value, mode="drop"), axis=0)
+    return jnp.sum(blank.at[lane_ids, bins].add(value, mode="drop"), axis=0)
 
 
 @struct.dataclass
@@ -181,13 +212,16 @@ class Advantage:
     rate: float = 0.2
 
     def __call__(self, state: GainState) -> Array:
-        present = state.action_counts > 0.0
-        means = jnp.where(present, state.advantage_sums / jnp.maximum(state.action_counts, 1e-12), 0.0)
-        level = jnp.sum(state.advantage_sums, axis=-1) / jnp.maximum(
+        present_mask = state.action_counts > 0.0
+        action_means = jnp.where(
+            present_mask, state.advantage_sums / jnp.maximum(state.action_counts, 1e-12), 0.0
+        )
+        cell_means = jnp.sum(state.advantage_sums, axis=-1) / jnp.maximum(
             jnp.sum(state.action_counts, axis=-1), 1e-12
         )
-        taken = state.probability_sums / jnp.maximum(state.cell_visits, 1e-12)[:, None]
-        return jnp.sum(jnp.where(present, taken * (means - level[:, None]) ** 2, 0.0), axis=-1)
+        action_probs = state.probability_sums / jnp.maximum(state.cell_visits, 1e-12)[:, None]
+        spread = action_probs * (action_means - cell_means[:, None]) ** 2
+        return jnp.sum(jnp.where(present_mask, spread, 0.0), axis=-1)
 
     def init(self, archive_size: int, num_actions: int) -> GainState:
         table = jnp.zeros((archive_size, num_actions), jnp.float32)
@@ -199,11 +233,11 @@ class Advantage:
             scale=jnp.zeros((), jnp.float32),
         )
 
-    def forget(self, state: GainState, wiped: Array) -> GainState:
+    def forget(self, state: GainState, wiped_mask: Array) -> GainState:
         def wipe_cells(leaf):
             if leaf.ndim == 0:
                 return leaf
-            return jnp.where(wiped if leaf.ndim == 1 else wiped[:, None], 0.0, leaf)
+            return jnp.where(wiped_mask if leaf.ndim == 1 else wiped_mask[:, None], 0.0, leaf)
 
         return jax.tree.map(wipe_cells, state)
 
@@ -218,43 +252,59 @@ class Advantage:
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
         )
-        capacity, actions = jnp.shape(state.action_counts)
-        cell = first.info["cell"][:-1]
-        valid = (cell >= 0) & ~truncated
-        action = jnp.clip(second.action[:-1].astype(jnp.int32), 0, actions - 1)
-        taken = jnp.exp(transitions.aux["log_prob"][:-1].astype(jnp.float32))
-        pair = jnp.reshape(jnp.where(valid, cell * actions + action, capacity * actions), (-1,))
-        keep = 1.0 - self.rate
+        archive_size, num_actions = jnp.shape(state.action_counts)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~truncated
+        actions = jnp.clip(second.action[:-1].astype(jnp.int32), 0, num_actions - 1)
+        action_probs = jnp.exp(transitions.aux["log_prob"][:-1].astype(jnp.float32))
+        pair_bins = jnp.reshape(
+            jnp.where(valid_mask, cell_slots * num_actions + actions, archive_size * num_actions),
+            (-1,),
+        )
+        decay = 1.0 - self.rate
 
         def tally(value):
-            summed = piled(capacity * actions, pair, jnp.reshape(jnp.where(valid, value, 0.0), (-1,)))
-            return jnp.reshape(summed, (capacity, actions))
+            summed = piled(
+                archive_size * num_actions,
+                pair_bins,
+                jnp.reshape(jnp.where(valid_mask, value, 0.0), (-1,)),
+            )
+            return jnp.reshape(summed, (archive_size, num_actions))
 
-        seen = tally(1.0)
+        visit_counts = tally(1.0)
         state = state.replace(
-            action_counts=keep * state.action_counts + seen,
-            advantage_sums=keep * state.advantage_sums + tally(advantages),
-            probability_sums=keep * state.probability_sums + tally(taken),
-            cell_visits=keep * state.cell_visits + jnp.sum(seen, axis=-1),
+            action_counts=decay * state.action_counts + visit_counts,
+            advantage_sums=decay * state.advantage_sums + tally(advantages),
+            probability_sums=decay * state.probability_sums + tally(action_probs),
+            cell_visits=decay * state.cell_visits + jnp.sum(visit_counts, axis=-1),
         )
         logits = transitions.aux.get("logits")
         if logits is None:
-            spread = (1.0 - taken) ** 2
+            spread = (1.0 - action_probs) ** 2
         else:
-            probs = jax.nn.softmax(logits[:-1].astype(jnp.float32), axis=-1)
-            chosen = jnp.take_along_axis(probs, action[..., None], axis=-1)[..., 0]
-            spread = 1.0 - 2.0 * chosen + jnp.sum(probs**2, axis=-1)
-        fresh = self.noise_scale(self(state), cell, valid, advantages, spread)
-        scale = jnp.where(state.scale > 0.0, keep * state.scale + self.rate * fresh, fresh)
-        return state.replace(scale=jnp.where(fresh > 0.0, scale, state.scale))
+            policy_probs = jax.nn.softmax(logits[:-1].astype(jnp.float32), axis=-1)
+            chosen_probs = jnp.take_along_axis(policy_probs, actions[..., None], axis=-1)[..., 0]
+            spread = 1.0 - 2.0 * chosen_probs + jnp.sum(policy_probs**2, axis=-1)
+        measured = self.noise_scale(self(state), cell_slots, valid_mask, advantages, spread)
+        smoothed = jnp.where(
+            state.scale > 0.0, decay * state.scale + self.rate * measured, measured
+        )
+        return state.replace(scale=jnp.where(measured > 0.0, smoothed, state.scale))
 
     def noise_scale(
-        self, gain: Array, cell: Array, valid: Array, advantages: Array, spread: Array
+        self,
+        gain: Array,
+        cell_slots: Array,
+        valid_mask: Array,
+        advantages: Array,
+        spread: Array,
     ) -> Array:
-        sample = jnp.sum(jnp.where(valid, advantages**2 * spread, 0.0))
-        signal = jnp.sum(jnp.where(valid, gain[jnp.clip(cell, 0)], 0.0))
+        sample_power = jnp.sum(jnp.where(valid_mask, advantages**2 * spread, 0.0))
+        signal_power = jnp.sum(jnp.where(valid_mask, gain[jnp.clip(cell_slots, 0)], 0.0))
         return jnp.where(
-            signal > 0.0, jnp.maximum(sample - signal, 0.0) / jnp.maximum(signal, 1e-30), 0.0
+            signal_power > 0.0,
+            jnp.maximum(sample_power - signal_power, 0.0) / jnp.maximum(signal_power, 1e-30),
+            0.0,
         )
 
 
@@ -280,15 +330,15 @@ class UniformRelevance:
         return jnp.ones_like(roots)
 
 
-def moments(value: Array, over: Array) -> tuple[Array, Array]:
-    count = jnp.maximum(jnp.sum(over, dtype=value.dtype), 1.0)
-    centre = jnp.sum(jnp.where(over, value, 0.0)) / count
-    return centre, jnp.sqrt(jnp.sum(jnp.where(over, (value - centre) ** 2, 0.0)) / count)
+def moments(value: Array, over_mask: Array) -> tuple[Array, Array]:
+    count = jnp.maximum(jnp.sum(over_mask, dtype=value.dtype), 1.0)
+    centre = jnp.sum(jnp.where(over_mask, value, 0.0)) / count
+    return centre, jnp.sqrt(jnp.sum(jnp.where(over_mask, (value - centre) ** 2, 0.0)) / count)
 
 
 def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
-    top = jnp.max(jnp.where(mask, value, -jnp.inf))
-    return pick(key, jnp.where(mask & (value >= top), 0.0, -jnp.inf), shape)
+    highest = jnp.max(jnp.where(mask, value, -jnp.inf))
+    return pick(key, jnp.where(mask & (value >= highest), 0.0, -jnp.inf), shape)
 
 
 @dataclass
@@ -308,65 +358,73 @@ class Selector(archive_auto_reset.Selector):
 
     def update(self, state: SelectorState, key: Key, transitions: Transition) -> SelectorState:
         first, second = transitions.first, transitions.second
-        leaving, landing = first.info["cell"], second.info["cell"]
-        steps, envs = jnp.shape(leaving)
+        leaving_slots, landing_slots = first.info["cell"], second.info["cell"]
+        steps, envs = jnp.shape(leaving_slots)
         done = jnp.reshape(second.done, (steps, envs, -1)).all(axis=-1)
-        size, *_ = jnp.shape(state.roots)
+        archive_size, *_ = jnp.shape(state.roots)
 
-        def tread(held, rung):
-            table, roots = held
-            leaving, landing, done, evicted, start, key = rung
-            roots = roots.at[jnp.where(start & (leaving >= 0), leaving, size)].add(1.0, mode="drop")
-            wiped = wipe(evicted, size)
-            table = self.successor.forget(table, wiped)
-            table = self.successor.backup(table, leaving, landing, ~done & (landing >= 0), key)
-            return (table, jnp.where(wiped, 0.0, roots)), wiped
+        def tread(carry, step):
+            table, roots = carry
+            leaving_slots, landing_slots, done, evicted_slots, start_mask, key = step
+            root_rows = jnp.where(start_mask & (leaving_slots >= 0), leaving_slots, archive_size)
+            roots = roots.at[root_rows].add(1.0, mode="drop")
+            wiped_mask = wipe(evicted_slots, archive_size)
+            table = self.successor.forget(table, wiped_mask)
+            table = self.successor.backup(
+                table, leaving_slots, landing_slots, ~done & (landing_slots >= 0), key
+            )
+            return (table, jnp.where(wiped_mask, 0.0, roots)), wiped_mask
 
-        (table, roots), wiped = jax.lax.scan(
+        (table, roots), wiped_mask = jax.lax.scan(
             tread,
             (state.successor, state.roots),
             (
-                leaving,
-                landing,
+                leaving_slots,
+                landing_slots,
                 done,
                 second.info["evicted"],
                 first.info["start"],
                 jax.random.split(key, steps),
             ),
         )
-        wiped = jnp.any(wiped, axis=0)
+        wiped_mask = jnp.any(wiped_mask, axis=0)
         return state.replace(
             successor=table,
             roots=roots,
-            gain=self.gain.update(self.gain.forget(state.gain, wiped), transitions),
+            gain=self.gain.update(self.gain.forget(state.gain, wiped_mask), transitions),
         )
 
     def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key):
         archive_state = archive_auto_reset_state.archive_state
-        mask = wrapper.archive.eligible(archive_state)
-        placed = share(self.k, wrapper.num_envs)
-        occupied = wrapper.occupied(archive_auto_reset_state, placed)
-        index = self.allot(state, mask, occupied, key, placed)
-        self.watch(state, archive_state.mask, index)
-        self.saturation(state, mask, occupied, index)
-        return state, index
+        eligible_mask = wrapper.archive.eligible(archive_state)
+        num_placed = share(self.k, wrapper.num_envs)
+        occupied_counts = wrapper.occupied(archive_auto_reset_state, num_placed)
+        selected_slots = self.allot(state, eligible_mask, occupied_counts, key, num_placed)
+        self.watch(state, archive_state.mask, selected_slots)
+        self.saturation(state, eligible_mask, occupied_counts, selected_slots)
+        return state, selected_slots
 
     def allot(
-        self, state: SelectorState, mask: Array, occupied: Array | float, key: Key, count: int
+        self,
+        state: SelectorState,
+        eligible_mask: Array,
+        occupied_counts: Array | float,
+        key: Key,
+        count: int,
     ) -> Array:
         worth = self.relevant(state) * self.gain(state.gain)
 
-        def assign(visits, key):
+        def choose(visits, key):
             factor = self.diminishing_factor(state, visits)
             marginal = self.footprint.pour(self.successor, state.successor, worth * factor)
-            cell = random_argmax(marginal, mask, key, ())
-            spread = self.footprint.expected_visits(self.successor, state.successor, cell)
-            return visits + spread, cell
+            chosen_slot = random_argmax(marginal, eligible_mask, key, ())
+            spread = self.footprint.expected_visits(self.successor, state.successor, chosen_slot)
+            return visits + spread, chosen_slot
 
-        _, index = jax.lax.scan(
-            assign, self.committed_visits(state, occupied), jax.random.split(key, count)
+        _, selected_slots = jax.lax.scan(
+            choose, self.committed_visits(state, occupied_counts), jax.random.split(key, count)
         )
-        return index
+        return selected_slots
 
     def relevant(self, state: SelectorState) -> Array:
         return self.relevance(self.successor, state.successor, state.roots)
@@ -375,9 +433,9 @@ class Selector(archive_auto_reset.Selector):
         scale = state.gain.scale
         return jnp.where(scale > 0.0, 1.0 / (1.0 + visits / jnp.maximum(scale, 1e-30)) ** 2, 1.0)
 
-    def committed_visits(self, state: SelectorState, occupied: Array | float) -> Array:
+    def committed_visits(self, state: SelectorState, occupied_counts: Array | float) -> Array:
         return self.footprint.spill(
-            self.successor, state.successor, jnp.zeros_like(state.roots) + occupied
+            self.successor, state.successor, jnp.zeros_like(state.roots) + occupied_counts
         )
 
     def value(self, state: SelectorState, visits: Array | float = 0.0) -> Array:
@@ -385,31 +443,37 @@ class Selector(archive_auto_reset.Selector):
         return self.footprint.pour(self.successor, state.successor, term)
 
     def saturation(
-        self, state: SelectorState, mask: Array, occupied: Array | float, index: Array
+        self,
+        state: SelectorState,
+        eligible_mask: Array,
+        occupied_counts: Array | float,
+        selected_slots: Array,
     ) -> None:
-        size, *_ = jnp.shape(mask)
-        committed = self.committed_visits(state, occupied)
-        restarts = jnp.zeros(size).at[index].add(1.0)
-        visits = committed + self.footprint.spill(self.successor, state.successor, restarts)
+        archive_size, *_ = jnp.shape(eligible_mask)
+        committed = self.committed_visits(state, occupied_counts)
+        restart_counts = jnp.zeros(archive_size).at[selected_slots].add(1.0)
+        visits = committed + self.footprint.spill(self.successor, state.successor, restart_counts)
         scale = jnp.maximum(state.gain.scale, 1e-30)
-        before = jnp.where(mask, self.value(state, committed), -jnp.inf)
+        before = jnp.where(eligible_mask, self.value(state, committed), -jnp.inf)
         best, runner_up = jax.lax.top_k(before, 2)[0]
-        chosen = jnp.argmax(restarts)
-        after = self.value(state, visits)[chosen]
-        peak = jnp.max(visits)
+        chosen_slot = jnp.argmax(restart_counts)
+        after = self.value(state, visits)[chosen_slot]
+        peak_visits = jnp.max(visits)
         lox.log(
             {
-                "mu/peak_load": peak / scale,
-                "mu/peak_factor": self.diminishing_factor(state, peak),
+                "mu/peak_load": peak_visits / scale,
+                "mu/peak_factor": self.diminishing_factor(state, peak_visits),
                 "archive/top_ratio": best / jnp.maximum(runner_up, 1e-30),
-                "mu/chosen_discount": after / jnp.maximum(before[chosen], 1e-30),
+                "mu/chosen_discount": after / jnp.maximum(before[chosen_slot], 1e-30),
             }
         )
 
-    def watch(self, state: SelectorState, mask: Array, index: Array) -> None:
-        size, *_ = jnp.shape(mask)
-        count = jnp.maximum(jnp.sum(mask, dtype=jnp.float32), 1.0)
-        weights = jnp.zeros(size).at[index].add(1.0 / max(jnp.shape(index)[0], 1))
+    def watch(self, state: SelectorState, archive_mask: Array, selected_slots: Array) -> None:
+        archive_size, *_ = jnp.shape(archive_mask)
+        num_cells = jnp.maximum(jnp.sum(archive_mask, dtype=jnp.float32), 1.0)
+        weights = jnp.zeros(archive_size).at[selected_slots].add(
+            1.0 / max(jnp.shape(selected_slots)[0], 1)
+        )
         entropy = -jnp.sum(jnp.where(weights > 0.0, weights * jnp.log(weights), 0.0))
         value = self.value(state)
         gain = self.gain(state.gain)
@@ -419,13 +483,15 @@ class Selector(archive_auto_reset.Selector):
             {
                 "archive/span": jnp.sum(reach) / jnp.maximum(jnp.sum(state.roots), 1.0),
                 "archive/noise_scale": state.gain.scale,
-                "archive/gain": jnp.sum(jnp.where(mask, gain, 0.0)) / count,
-                "archive/value": jnp.sum(jnp.where(mask, value, 0.0)) / count,
-                "archive/spread": moments(value, mask)[1],
-                "archive/argmax": jnp.max(jnp.where(mask, value, 0.0)),
+                "archive/gain": jnp.sum(jnp.where(archive_mask, gain, 0.0)) / num_cells,
+                "archive/value": jnp.sum(jnp.where(archive_mask, value, 0.0)) / num_cells,
+                "archive/spread": moments(value, archive_mask)[1],
+                "archive/argmax": jnp.max(jnp.where(archive_mask, value, 0.0)),
                 "mu/gain": jnp.sum(weights * gain),
-                "mu/coverage": jnp.sum(mask & (weights > 0.0), dtype=jnp.float32) / count,
-                "rho/coverage": jnp.sum(mask & (relevance > 0.0), dtype=jnp.float32) / count,
+                "mu/coverage": jnp.sum(archive_mask & (weights > 0.0), dtype=jnp.float32)
+                / num_cells,
+                "rho/coverage": jnp.sum(archive_mask & (relevance > 0.0), dtype=jnp.float32)
+                / num_cells,
                 "mu/entropy": entropy,
                 "mu/support": jnp.exp(entropy),
                 "mu/concentration": jnp.max(weights),
@@ -439,11 +505,15 @@ def pit(
 ) -> tuple[Algorithm, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
 
-    def place(state, transitions):
+    def assign(state, transitions):
         key = jax.random.fold_in(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
-        placed = wrapper.place(locate(state.environment_state), key, transitions)
-        return state.replace(environment_state=plant(state.environment_state, placed))
+        archive_auto_reset_state = wrapper.assign(
+            locate(state.environment_state), key, transitions
+        )
+        return state.replace(
+            environment_state=plant(state.environment_state, archive_auto_reset_state)
+        )
 
-    return algorithm, environment, place, lambda state: state
+    return algorithm, environment, assign, lambda state: state

@@ -16,9 +16,9 @@ class Selector(archive_auto_reset.Selector):
     k: float = 4.0
 
     def select(self, state, wrapper, archive_auto_reset_state, key):
-        mask = wrapper.archive.eligible(archive_auto_reset_state.archive_state)
-        placed = share(self.k, wrapper.num_envs)
-        return state, pick(key, jnp.where(mask, 0.0, -jnp.inf), (placed,))
+        eligible_mask = wrapper.archive.eligible(archive_auto_reset_state.archive_state)
+        num_placed = share(self.k, wrapper.num_envs)
+        return state, pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (num_placed,))
 
 
 def pit(
@@ -26,11 +26,15 @@ def pit(
 ) -> tuple[Algorithm, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
 
-    def place(state, transitions):
+    def assign(state, transitions):
         key = jax.random.fold_in(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
-        placed = wrapper.place(locate(state.environment_state), key, transitions)
-        return state.replace(environment_state=plant(state.environment_state, placed))
+        archive_auto_reset_state = wrapper.assign(
+            locate(state.environment_state), key, transitions
+        )
+        return state.replace(
+            environment_state=plant(state.environment_state, archive_auto_reset_state)
+        )
 
-    return algorithm, environment, place, lambda state: state
+    return algorithm, environment, assign, lambda state: state
