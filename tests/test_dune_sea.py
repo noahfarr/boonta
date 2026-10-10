@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from boonta.environments.dune_sea import Forks
+from boonta.environments.dune_sea import ChainOfForks
 
 
 def optimum(env, survival):
@@ -24,13 +24,13 @@ def optimum(env, survival):
 )
 @pytest.mark.parametrize("seed", [0, 1])
 def test_the_chain_of_forks_has_the_size_and_best_return_of_the_paper(depth, num_cells, best, seed):
-    env = Forks(depth=depth, seed=seed)
+    env = ChainOfForks(depth=depth, seed=seed)
     assert env.num_cells == num_cells
     assert round(float(optimum(env, 1.0 - env.hazard)[env.start]), 2) == best
 
 
 def test_the_best_policy_without_hazard_collects_one_per_fork_and_the_goal():
-    env = Forks(depth=6, hazard=0.0)
+    env = ChainOfForks(depth=6, hazard=0.0)
     value = optimum(env, 1.0)
     successor, reward = np.asarray(env.successor), np.asarray(env.reward)
     best = (reward[successor] + value[successor]).argmax(axis=-1)
@@ -44,7 +44,7 @@ def test_the_best_policy_without_hazard_collects_one_per_fork_and_the_goal():
 
 
 def test_only_forks_and_dead_ends_offer_a_choice():
-    env = Forks(depth=6)
+    env = ChainOfForks(depth=6)
     successor = np.asarray(env.successor)
     choices = np.sum(successor[:, 0] != successor[:, 1])
     assert choices == 2 * 6

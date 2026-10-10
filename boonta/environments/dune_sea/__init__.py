@@ -1,10 +1,10 @@
-from .forks import Forks, ForksState
+from .chain_of_forks import ChainOfForks, ChainOfForksState
 
-registry = {"forks": Forks}
+registry = {"chain_of_forks": ChainOfForks}
 
 
 def make(env_id: str, **kwargs):
     return registry[env_id](**kwargs)
 
 
-__all__ = ["Forks", "ForksState", "make"]
+__all__ = ["ChainOfForks", "ChainOfForksState", "make"]

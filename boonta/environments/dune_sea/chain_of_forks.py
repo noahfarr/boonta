@@ -9,7 +9,7 @@ from boonta.utils import Array, Key, Timestep
 
 
 @struct.dataclass
-class ForksState:
+class ChainOfForksState:
     cell: Array
 
 
@@ -63,7 +63,7 @@ def layout(depth: int, length: int, lure: float, seed: int):
     return index[start], successor, reward, terminal, rows, columns
 
 
-class Forks(Environment):
+class ChainOfForks(Environment):
     def __init__(
         self,
         depth: int = 6,
@@ -91,7 +91,7 @@ class Forks(Environment):
     def action_space(self) -> Space:
         return Space((), jnp.int32, 0, 1)
 
-    def observe(self, state: ForksState) -> Array:
+    def observe(self, state: ChainOfForksState) -> Array:
         return jnp.concatenate(
             [
                 jax.nn.one_hot(self.rows[state.cell], self.height),
@@ -99,8 +99,8 @@ class Forks(Environment):
             ]
         )
 
-    def init(self, key: Key) -> tuple[ForksState, Timestep]:
-        state = ForksState(cell=jnp.int32(self.start))
+    def init(self, key: Key) -> tuple[ChainOfForksState, Timestep]:
+        state = ChainOfForksState(cell=jnp.int32(self.start))
         return state, Timestep(
             obs=self.observe(state),
             action=jnp.int32(0),
@@ -109,10 +109,10 @@ class Forks(Environment):
             truncated=jnp.bool_(False),
         )
 
-    def step(self, key: Key, state: ForksState, action: Array) -> tuple[ForksState, Timestep]:
+    def step(self, key: Key, state: ChainOfForksState, action: Array) -> tuple[ChainOfForksState, Timestep]:
         cell = self.successor[state.cell, action]
         perished = jax.random.bernoulli(key, self.hazard)
-        state = ForksState(cell=cell)
+        state = ChainOfForksState(cell=cell)
         return state, Timestep(
             obs=self.observe(state),
             action=action,
