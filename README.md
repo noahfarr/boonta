@@ -19,15 +19,15 @@
 
 🔧 **Sebulba** splits the devices: actor threads collect rollouts while learners train and send back fresh parameters. For slow or non-JAX environments.
 
-📼 **Quadinaros** learns from a Minari dataset and only touches the environment to evaluate. For offline RL and behavior cloning.
+📼 **Quadinaros** learns from a Minari dataset and only touches the environment to evaluate. For offline RL and BC.
 
 ## In the hangar
 
 **Algorithms**
 - On-policy: [PPO](https://arxiv.org/abs/1707.06347) · [REPPO](https://arxiv.org/abs/2507.11019) · [PQN](https://arxiv.org/abs/2407.04811) · [GRPO](https://arxiv.org/abs/2402.03300)
 - Off-policy: [DQN](https://arxiv.org/abs/1312.5602) · [SAC](https://arxiv.org/abs/1801.01290)
-- Offline: behavior cloning · [IQL](https://arxiv.org/abs/2110.06169)
-- Recurrent: PPO · [PuPO](https://github.com/PufferAI/PufferLib) · PQN · GRPO · DQN · SAC · behavior cloning
+- Offline: BC · [IQL](https://arxiv.org/abs/2110.06169)
+- Recurrent: PPO · [PuPO](https://github.com/PufferAI/PufferLib) · PQN · GRPO · DQN · SAC · BC
 - Multi-agent: [IPPO](https://arxiv.org/abs/2011.09533) · [MAPPO](https://arxiv.org/abs/2103.01955) · [MMD](https://arxiv.org/abs/2206.05825) · [PSRO](https://arxiv.org/abs/1711.00832)
 
 **Environments**
