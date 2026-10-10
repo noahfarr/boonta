@@ -7,8 +7,8 @@ import numpy as np
 
 import zoo
 from boonta.curricula import erd, prd
-from boonta.curricula.prd import (Advantage, Current, Occupancy,
-                                  SuccessorRepresentation)
+from boonta.curricula.prd import (Advantage, Reach, SuccessorRepresentation,
+                                  Uniform)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -106,12 +106,12 @@ def train(selection, updates=3, steps=4):
 @pytest.mark.parametrize(
     "selection",
     [
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Current(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75, columns=4), relevance=Current(), gain=Advantage(), k=2.0),
-        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Occupancy(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Reach(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75, columns=4), relevance=Reach(), gain=Advantage(), k=2.0),
+        prd.Selector(footprint=SuccessorRepresentation(gamma=0.75), relevance=Uniform(), gain=Advantage(), k=2.0),
         erd.Selector(k=2.0),
     ],
-    ids=["prd-current", "prd-sparse-current", "prd-occupancy", "erd"],
+    ids=["prd-reach", "prd-sparse-reach", "prd-uniform", "erd"],
 )
 def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
     env, archive_auto_reset_state, cut = train(selection)
@@ -120,16 +120,6 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selection):
     assert bool(jnp.all(archive_auto_reset_state.due == block))
     assert bool(jnp.all(eligible[archive_auto_reset_state.assigned[block]]))
     assert bool(jnp.all(cut.done[block]))
-
-
-def test_occupancy_counts_only_the_start_block():
-    cell = jnp.array([[0, 1, 2, 2], [0, -1, 3, 3]])
-    occupancy = Occupancy(rate=0.5)
-    transitions = Transition(first=Timestep(obs=None, info={"cell": cell}), second=None)
-    charted = occupancy.tally(occupancy.init(4), transitions, start_block=2)
-    assert jnp.array_equal(charted.visits, jnp.array([2.0, 1.0, 0.0, 0.0]))
-    charted = occupancy.tally(charted, transitions, start_block=2)
-    assert jnp.array_equal(charted.visits, jnp.array([3.0, 1.5, 0.0, 0.0]))
 
 
 def window(cell, action, reward, truncated):
@@ -170,7 +160,7 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, selection",
     [
-        (prd.pit, prd.Selector(footprint=SuccessorRepresentation(), relevance=Current(), gain=Advantage())),
+        (prd.pit, prd.Selector(footprint=SuccessorRepresentation(), relevance=Reach(), gain=Advantage())),
         (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],
