@@ -2,6 +2,7 @@ import dataclasses
 import re
 from functools import partial
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -11,7 +12,9 @@ from jax.sharding import PartitionSpec as P
 
 import zoo
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.cispo import CISPO, CISPOConfig
 from boonta.algorithms.wrappers.population import Population
+from boonta.networks import Categorical, Network
 from boonta.utils import Timestep, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
@@ -21,6 +24,7 @@ LEARNERS = [
     pytest.param(zoo.ppo, reach, 100, id="ppo-reach"),
     pytest.param(zoo.mmd, corridor, 100, id="mmd-corridor"),
     pytest.param(zoo.grpo, corridor, 100, id="grpo-corridor"),
+    pytest.param(zoo.cispo, corridor, 100, id="cispo-corridor"),
     pytest.param(zoo.pqn, corridor, 100, id="pqn-corridor"),
     pytest.param(zoo.dqn, corridor, 400, id="dqn-corridor"),
     pytest.param(zoo.sac, reach, 1000, id="sac-reach"),
@@ -28,6 +32,7 @@ LEARNERS = [
     pytest.param(zoo.recurrent_ppo, recall, 100, id="recurrent_ppo-recall"),
     pytest.param(zoo.recurrent_pupo, recall, 100, id="recurrent_pupo-recall"),
     pytest.param(zoo.recurrent_grpo, recall, 100, id="recurrent_grpo-recall"),
+    pytest.param(zoo.recurrent_cispo, recall, 100, id="recurrent_cispo-recall"),
     pytest.param(zoo.recurrent_pqn, recall, 100, id="recurrent_pqn-recall"),
     pytest.param(zoo.recurrent_dqn, recall, 400, id="recurrent_dqn-recall"),
     pytest.param(zoo.recurrent_sac, recall_continuous, 1000, id="recurrent_sac-recall"),
@@ -82,6 +87,7 @@ RECURRENT = [
     pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
     pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_cispo, recall, id="recurrent_cispo"),
     pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
     pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),
@@ -271,9 +277,11 @@ BOUNDED = [
     pytest.param(zoo.ppo, corridor, "advantages", id="ppo"),
     pytest.param(zoo.mmd, corridor, "advantages", id="mmd"),
     pytest.param(zoo.grpo, corridor, "advantages", id="grpo"),
+    pytest.param(zoo.cispo, corridor, "advantages", id="cispo"),
     pytest.param(zoo.reppo, reach, "target_values", id="reppo"),
     pytest.param(zoo.recurrent_ppo, corridor, "advantages", id="recurrent_ppo"),
     pytest.param(zoo.recurrent_grpo, corridor, "advantages", id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_cispo, corridor, "advantages", id="recurrent_cispo"),
 ]
 
 
@@ -284,6 +292,45 @@ def test_targets_never_look_past_an_episode_boundary(build, environment, key, bo
     shifted = targets(build, environment(), key, boundary, perturbed=True)
     assert np.abs(calm).max() > 0
     np.testing.assert_allclose(calm, shifted, rtol=1e-6)
+
+
+def test_cispo_clips_the_weight_and_keeps_the_gradient_of_every_token():
+    algorithm = CISPO(
+        cfg=CISPOConfig(
+            group_size=2,
+            num_minibatches=1,
+            update_epochs=1,
+            epsilon_low=1.0,
+            epsilon_high=0.2,
+            kl_coefficient=0.0,
+            gamma=1.0,
+        ),
+        network=Network(head=Categorical(nn.Dense(2, use_bias=False))),
+        optimizer=optax.sgd(1.0),
+    )
+    first = Timestep(
+        obs=jnp.ones((1, 2, 1)),
+        action=jnp.zeros((1, 2), jnp.int32),
+        reward=jnp.zeros((1, 2)),
+        terminated=jnp.zeros((1, 2), bool),
+        truncated=jnp.zeros((1, 2), bool),
+    )
+    second = first.replace(
+        reward=jnp.array([[1.0, 0.0]]), terminated=jnp.ones((1, 2), bool)
+    )
+    stale = jnp.log(jnp.array([[0.25, 0.5]]))
+    transitions = Transition(first=first, second=second, aux={"log_prob": stale})
+    state = algorithm.init(jax.random.key(0), jax.tree.map(lambda leaf: leaf[0], first))
+    state = state.replace(params=jax.tree.map(jnp.zeros_like, state.params))
+
+    updated = algorithm.update(state, jax.random.key(1), transitions)
+
+    (kernel,) = jax.tree.leaves(updated.params["params"])
+    weights = jnp.array([1.2, 1.0])
+    advantages = jnp.array([1.0, -1.0])
+    score = jnp.array([0.5, -0.5])
+    expected = (weights * advantages).mean() * score
+    np.testing.assert_allclose(kernel, expected[None], rtol=1e-6)
 
 
 @pytest.mark.parametrize("weight, moves", [(0.0, False), (1.0, True)], ids=["zero", "one"])
@@ -336,10 +383,12 @@ REPLAYERS = [
     pytest.param(zoo.ppo, corridor, log_prob_gap, id="ppo"),
     pytest.param(zoo.mmd, corridor, log_prob_gap, id="mmd"),
     pytest.param(zoo.grpo, corridor, log_prob_gap, id="grpo"),
+    pytest.param(zoo.cispo, corridor, log_prob_gap, id="cispo"),
     pytest.param(zoo.pqn, corridor, q_value_gap, id="pqn"),
     pytest.param(zoo.recurrent_ppo, recall, log_prob_gap, id="recurrent_ppo"),
     pytest.param(zoo.recurrent_pupo, recall, log_prob_gap, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, log_prob_gap, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_cispo, recall, log_prob_gap, id="recurrent_cispo"),
     pytest.param(zoo.recurrent_pqn, recall, q_value_gap, id="recurrent_pqn"),
 ]
 
@@ -391,6 +440,7 @@ STATEFUL = [
     pytest.param(zoo.ppo, corridor, id="ppo"),
     pytest.param(zoo.mmd, corridor, id="mmd"),
     pytest.param(zoo.grpo, corridor, id="grpo"),
+    pytest.param(zoo.cispo, corridor, id="cispo"),
     pytest.param(zoo.pqn, corridor, id="pqn"),
     pytest.param(zoo.dqn, corridor, id="dqn"),
     pytest.param(zoo.sac, reach, id="sac"),
@@ -398,6 +448,7 @@ STATEFUL = [
     pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
     pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_cispo, recall, id="recurrent_cispo"),
     pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
     pytest.param(zoo.recurrent_sac, recall_continuous, id="recurrent_sac"),

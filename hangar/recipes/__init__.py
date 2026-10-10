@@ -4,6 +4,7 @@ from hydra.utils import instantiate
 from .. import resolvers  # noqa: F401 -- registers OmegaConf resolvers on import
 from . import (
     bc_mujoco,
+    cispo_minatar,
     dqn_minatar,
     grpo_minatar,
     ippo_connectx,
@@ -25,6 +26,7 @@ from . import (
     ppo_xland_minigrid,
     pqn_minatar,
     recurrent_bc_kinetix,
+    recurrent_cispo_wordle,
     recurrent_dqn_minatar,
     recurrent_grpo_wordle,
     recurrent_ppo_classic_control,
@@ -44,6 +46,7 @@ from . import (
 
 register = {
     ("bc", "brax", "mujoco"): bc_mujoco.make,
+    ("cispo", "gymnax", "minatar"): cispo_minatar.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
     ("ippo", "connectx", "connectx"): ippo_connectx.make,
@@ -72,6 +75,7 @@ register = {
     ("ppo", "xland_minigrid", "xland"): ppo_xland_minigrid.make,
     ("pqn", "gymnax", "minatar"): pqn_minatar.make,
     ("recurrent_bc", "kinetix", "kinetix"): recurrent_bc_kinetix.make,
+    ("recurrent_cispo", "wordle", "wordle"): recurrent_cispo_wordle.make,
     ("recurrent_dqn", "gymnax", "minatar"): recurrent_dqn_minatar.make,
     ("recurrent_grpo", "wordle", "wordle"): recurrent_grpo_wordle.make,
     ("recurrent_ppo", "gymnax", "minatar"): recurrent_ppo_minatar.make,
