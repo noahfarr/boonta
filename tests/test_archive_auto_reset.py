@@ -69,7 +69,7 @@ def factory(fn):
 
 
 class Echo(Selector):
-    def select(self, state, wrapper, archive_auto_reset_state, key, policy):
+    def select(self, state, wrapper, archive_auto_reset_state, key):
         return state, jnp.full(4, archive_auto_reset_state.slot[0], jnp.int32)
 
 
@@ -544,7 +544,7 @@ def test_without_an_update_every_episode_is_reported_as_rho():
 def test_an_update_with_a_key_reports_the_archive():
     env = build()
     state, _ = drive(env, steps=4)
-    _, logs = lox.spool(lambda state: env.place(state, jax.random.key(3), None, None))(state)
+    _, logs = lox.spool(lambda state: env.place(state, jax.random.key(3), None))(state)
     assert {"archive/placed", "archive/num_cells", "archive/num_eligible"} <= set(logs)
 
 
@@ -715,7 +715,7 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     env = build()
     state, _ = drive(env, steps=2, action=1)
     cell = int(state.slot[0])
-    state = env.place(state, jax.random.key(3), None, None)
+    state = env.place(state, jax.random.key(3), None)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
     assert bool(jnp.all(state.due == block))
     assert bool(jnp.all(state.assigned[block] == cell)) and bool(jnp.all(state.assigned[~block] == -1))
@@ -735,7 +735,7 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
 def test_an_update_waits_until_the_archive_holds_enough_cells():
     env = build(warmup=ARCHIVE_SIZE)
     state, _ = drive(env, steps=2, action=1)
-    state = env.place(state, jax.random.key(3), None, None)
+    state = env.place(state, jax.random.key(3), None)
     assert not bool(jnp.any(state.due)) and bool(jnp.all(state.assigned == -1))
     after, cut = env.step(jax.random.key(4), state, jnp.ones(NUM_ENVS, jnp.int32))
     assert not bool(jnp.any(cut.truncated))

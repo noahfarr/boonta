@@ -14,8 +14,6 @@ from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, Transition
 from boonta.utils.typing import Environment
 
-from .pilot import Pilot
-
 
 @struct.dataclass
 class Successor:
@@ -343,7 +341,7 @@ class Selector(archive_auto_reset.Selector):
             gain=self.gain.update(self.gain.forget(state.gain, wiped), transitions),
         )
 
-    def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key, policy):
+    def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key):
         archive_state = archive_auto_reset_state.archive_state
         mask = wrapper.archive.eligible(archive_state)
         placed = share(self.k, wrapper.num_envs)
@@ -445,8 +443,7 @@ def pit(
         key = jax.random.fold_in(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
-        policy = Pilot(algorithm, state.algorithm_state)
-        placed = wrapper.place(locate(state.environment_state), key, transitions, policy)
+        placed = wrapper.place(locate(state.environment_state), key, transitions)
         return state.replace(environment_state=plant(state.environment_state, placed))
 
     return algorithm, environment, place, lambda state: state
