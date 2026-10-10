@@ -4,7 +4,7 @@
 
 ## Run
 
-`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra (`pip install "boonta[hangar]"`). In a checkout, `uv sync --extra hangar` installs them.
+`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra: `uv sync --extra hangar` installs them.
 
 ```bash
 uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
