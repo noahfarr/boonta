@@ -13,6 +13,13 @@
 
 </div>
 
+## Why boonta
+
+- **One command per run.** `boonta algorithm=ppo environment=brax/mujoco/ant` trains and logs. Swap either side with an override.
+- **One GPU to a cluster.** The same run spreads over several machines with `num_processes`.
+- **Sweeps and curricula built in.** CARBS, population-based training, PLR and league play are config options, not extra code.
+- **Plain JAX underneath.** Hydra stays in `hangar`, so the library drops into your own code.
+
 ## Podracers
 
 🏎️ **Anakin** is for JAX environments. Acting, stepping and learning compile into one program that runs on every device.
