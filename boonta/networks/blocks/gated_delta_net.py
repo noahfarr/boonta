@@ -105,15 +105,12 @@ class GatedDeltaNet(LinearAttentionCellBase):
     param_dtype: Dtype = jnp.float32
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
 
-    @nn.nowrap
-    def widths(self) -> tuple[int, int]:
-        return self.num_key_heads * self.key_dim, self.num_value_heads * self.value_dim
-
     def setup(self):
         assert (
             self.num_value_heads % self.num_key_heads == 0
         ), f"num_value_heads must be divisible by num_key_heads, but was num_value_heads: {self.num_value_heads}, num_key_heads: {self.num_key_heads}"
-        key_width, value_width = self.widths()
+        key_width = self.num_key_heads * self.key_dim
+        value_width = self.num_value_heads * self.value_dim
         dense = partial(
             nn.Dense,
             use_bias=False,
@@ -182,19 +179,19 @@ class GatedDeltaNet(LinearAttentionCellBase):
 
     def output(self, outputs: Array, x: Array) -> Array:
         batch_size, sequence_length, _ = x.shape
-        _, value_width = self.widths()
         gate = self.gate(x)
         outputs = self.norm(outputs).astype(jnp.float32) * nn.silu(
             gate.reshape(outputs.shape).astype(jnp.float32)
         )
         return self.output_projection(
-            outputs.reshape(batch_size, sequence_length, value_width).astype(gate.dtype)
+            outputs.reshape(batch_size, sequence_length, -1).astype(gate.dtype)
         )
 
     @nn.nowrap
     def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> LinearAttentionCarry:
         batch_size, *_ = input_shape
-        key_width, value_width = self.widths()
+        key_width = self.num_key_heads * self.key_dim
+        value_width = self.num_value_heads * self.value_dim
         window = partial(jnp.zeros, dtype=self.dtype)
         history = self.kernel_size - 1
         return LinearAttentionCarry(
