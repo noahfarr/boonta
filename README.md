@@ -15,11 +15,11 @@
 
 ## Podracers
 
-🏎️ **Anakin** compiles acting, stepping and learning into one program across every device. For JAX environments, end to end on the GPU.
+🏎️ **Anakin** is for JAX environments. Acting, stepping and learning compile into one program that runs on every device.
 
-🔧 **Sebulba** splits the devices: actor threads collect rollouts while learners train and send back fresh parameters. For slow or non-JAX environments.
+🔧 **Sebulba** is for slow or non-JAX environments. Actors collect rollouts on some devices while learners train on the rest.
 
-📼 **Quadinaros** learns from a Minari dataset and only touches the environment to evaluate. For offline RL and BC.
+📼 **Quadinaros** is for offline RL and BC. It trains on a fixed dataset and only steps the environment to evaluate.
 
 ## In the hangar
 
