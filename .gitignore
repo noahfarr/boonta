@@ -243,3 +243,11 @@ multirun/
 wandb/
 /sweeps/
 figures/
+
+# Cluster launch scripts for ARC runs, local only
+hangar/arc/cmd.yaml
+hangar/arc/run.sh
+hangar/arc/setup.sh
+hangar/arc/launch.sh
+hangar/arc/pack.sh
+hangar/arc/stage.sh

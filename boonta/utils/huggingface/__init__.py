@@ -2,6 +2,7 @@ from .load_config import load_config
 from .load_gemma import load_gemma
 from .load_pi0 import load_pi0
 from .load_qwen3 import load_qwen3
+from .load_qwen3_5 import load_qwen3_5
 from .load_siglip import load_siglip
 from .load_template import load_template
 from .load_tokenizer import load_tokenizer

@@ -125,6 +125,7 @@ CASES = [
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
     ("grpo", MINATAR, None, False),
+    ("cispo", MINATAR, None, False),
     ("recurrent_ppo", MINATAR, None, False),
     ("recurrent_dqn", MINATAR, None, False),
     ("recurrent_pqn", MINATAR, None, False),
@@ -169,6 +170,7 @@ CASES = [
     ),
     ("recurrent_ppo", "wordle/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
     ("recurrent_grpo", "wordle/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_cispo", "wordle/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
 ]
 
 
@@ -272,7 +274,7 @@ def test_every_recipe_builds_and_runs_one_update(
     podracer.close(state)
 
 
-@pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo"])
+@pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo", "recurrent_cispo"])
 def test_a_wordle_recipe_loads_the_model_its_config_names(algorithm, monkeypatch):
     cfg = configure(algorithm, "wordle/wordle", "network.repo_id=someone/else")
     recipe = importlib.import_module(f"hangar.recipes.{algorithm}_wordle")
