@@ -10,7 +10,7 @@ import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
                              FeatureExtractor, Gaussian, Highway,
                              GatedDeltaNet, LinearAttention,
-                             LinearAttentionInputs, Network, RTUCell,
+                             LinearAttentionInputs, LoRA, Network, RTUCell,
                              SquashedGaussian, Tower, distributions, llama,
                              repeat)
 from boonta.networks.blocks.linear_attention import chunkwise, recurrent
@@ -571,3 +571,42 @@ def test_qwen3_5_matches_transformers_over_a_sequence_and_token_by_token():
     decoded = jnp.concatenate(pieces, axis=1)
     np.testing.assert_allclose(decoded, stepped, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(decoded, logits, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("name", ["attention-one-rollout", "gated_delta_net", "qwen3_5"])
+def test_lora_adapts_every_linear_layer_like_a_merged_low_rank_update(name):
+    block, base = build(name)
+    lora = LoRA(block=block, params=base["params"], rank=2, alpha=4.0)
+    x, done = sequence()[:, :CHUNK], starts()[:, :CHUNK]
+    carry = lora.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    variables = lora.init(jax.random.key(3), carry, x, done)
+    _, untouched = lora.apply(variables, carry, x, done)
+    _, original = block.apply(base, carry, x, done)
+    np.testing.assert_allclose(untouched, original, rtol=1e-5, atol=1e-6)
+
+    adapters = jax.tree.map(
+        lambda leaf: jax.random.normal(jax.random.key(4), leaf.shape) * 0.3,
+        variables["params"],
+    )
+    _, adapted = lora.apply({**variables, "params": adapters}, carry, x, done)
+
+    linear = {
+        path[:-1]
+        for path, _ in jax.tree_util.tree_flatten_with_path(base["params"])[0]
+        if path[-1].key == "kernel" and not path[-2].key.endswith("convolution")
+    }
+    linear = {"_".join(entry.key for entry in path) for path in linear}
+    assert {name.removesuffix("_a") for name in adapters if name.endswith("_a")} == linear
+
+    def merge(path, kernel):
+        keys = [entry.key for entry in path]
+        name = "_".join(keys[:-1])
+        if keys[-1] != "kernel" or name not in linear:
+            return kernel
+        down, up = adapters[f"{name}_a"], adapters[f"{name}_b"]
+        return kernel + 2.0 * jnp.tensordot(down, up, axes=1)
+
+    merged = jax.tree_util.tree_map_with_path(merge, base["params"])
+    _, expected = block.apply({"params": merged}, carry, x, done)
+    np.testing.assert_allclose(adapted, expected, rtol=1e-4, atol=1e-4)
+    assert not np.allclose(adapted, original, atol=1e-3)
