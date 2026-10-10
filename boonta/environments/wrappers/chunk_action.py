@@ -24,14 +24,14 @@ class ChunkAction(Wrapper):
         def act(carry, inputs):
             state, timestep, reward = carry
             key, action = inputs
-            finished = timestep.terminated | timestep.truncated
+            done = timestep.terminated | timestep.truncated
             next_state, next_timestep = self._env.step(key, state, action)
             state, timestep = jax.tree.map(
-                lambda current, following: jnp.where(finished, current, following),
+                lambda current, following: jnp.where(done, current, following),
                 (state, timestep),
                 (next_state, next_timestep),
             )
-            reward = reward + jnp.where(finished, 0.0, next_timestep.reward)
+            reward = reward + jnp.where(done, 0.0, next_timestep.reward)
             return (state, timestep, reward), None
 
         (state, timestep, reward), _ = jax.lax.scan(
