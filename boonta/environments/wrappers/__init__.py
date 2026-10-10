@@ -1,4 +1,5 @@
 from .batched import Batched
+from .chunk_action import ChunkAction
 from .clip_action import ClipAction
 from .clip_reward import ClipReward
 from .domain_randomization import DomainRandomization
@@ -44,6 +45,7 @@ __all__ = [
     "PBRS",
     "PBRSState",
     "Batched",
+    "ChunkAction",
     "ClipAction",
     "ClipReward",
     "DomainRandomization",

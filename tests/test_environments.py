@@ -12,7 +12,7 @@ import zoo
 from boonta.environments.gymnasium import Gymnasium, convert, make
 from boonta.environments import wrappers
 from boonta.environments.spaces import Space
-from boonta.environments.wrappers import (MCP, PBRS, Batched, ClipAction,
+from boonta.environments.wrappers import (MCP, PBRS, Batched, ChunkAction, ClipAction,
                                           ClipReward, DomainRandomization,
                                           FlattenObservation, GroupedAutoReset,
                                           LogAction, LogEnvState, LogInfo,
@@ -60,6 +60,7 @@ STACKS = [
     pytest.param(lambda: Vectorize(TimeLimit(Dial(), 100), NUM_ENVS), id="time_limit"),
     pytest.param(lambda: Vectorize(Stagger(SameStepAutoReset(Dial()), spread=4), NUM_ENVS), id="stagger"),
     pytest.param(lambda: Vectorize(StickyAction(Dial()), NUM_ENVS), id="sticky_action"),
+    pytest.param(lambda: Vectorize(ChunkAction(Dial(), 3), NUM_ENVS), id="chunk_action"),
     pytest.param(lambda: Vectorize(TimeAwareObservation(Dial(), 100), NUM_ENVS), id="time_aware_observation"),
     pytest.param(lambda: Vectorize(PBRS(Dial(), jnp.sum, gamma=0.9), NUM_ENVS), id="pbrs"),
     pytest.param(lambda: Vectorize(Reasoning(Dial(), num_tokens=2), NUM_ENVS), id="reasoning"),
@@ -436,6 +437,23 @@ def test_a_certain_sticky_action_repeats_the_first_one():
     assert int(state.action) == 0
     np.testing.assert_array_equal([int(t.action) for t in timesteps], [0, 1, 0])
     assert int(state.env_state.position) == 1
+
+
+def test_a_chunk_of_actions_plays_in_order_and_stops_at_the_episode_end():
+    environment = ChunkAction(Corridor(length=4), size=3)
+    assert environment.action_space().shape == (3,)
+    state, _ = environment.init(jax.random.key(0))
+    state, timestep = environment.step(jax.random.key(1), state, jnp.array([0, 1, 1]))
+    assert int(state.position) == 1
+    assert int(state.clock) == 3
+    assert float(timestep.reward) == 0.0
+    assert not bool(timestep.terminated)
+    state, timestep = environment.step(jax.random.key(2), state, jnp.array([1, 0, 1]))
+    assert int(state.position) == 3
+    assert int(state.clock) == 5
+    assert float(timestep.reward) == 1.0
+    assert bool(timestep.terminated)
+    np.testing.assert_array_equal(timestep.action, [1, 0, 1])
 
 
 def test_time_aware_observations_count_up_and_restart_with_the_episode():
