@@ -53,11 +53,11 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 `hydra/sweeper=carbs` turns a multirun into a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. A grid multirun is unaffected:
 
 ```bash
-uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx
-uv run boonta -m algorithm=ippo environment=connectx/connectx seed=0,1,2
+uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx
+uv run boonta -m algorithm=ippo environment=dune_sea/connectx seed=0,1,2
 ```
 
-The search space is `config/search_space/<algorithm>/<environment>.yaml`, looked up like the hyperparameters above, so `search_space/ippo/connectx.yaml` holds the ConnectX space. Each file starts with `# @package search_space` and holds only the parameters. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. An algorithm-wide space goes in `search_space/<algorithm>.yaml`, and an environment's space builds on it by listing `/search_space/<algorithm>` before `_self_` in its defaults. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
+The search space is `config/search_space/<algorithm>/<environment>.yaml`, looked up like the hyperparameters above, so `search_space/ippo/dune_sea/connectx.yaml` holds the ConnectX space. Each file starts with `# @package search_space` and holds only the parameters. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. An algorithm-wide space goes in `search_space/<algorithm>.yaml`, and an environment's space builds on it by listing `/search_space/<algorithm>` before `_self_` in its defaults. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
 
 The sweeper is the `hydra_carbs_sweeper` plugin in `hydra_plugins/` at the repository root. It needs `carbs`, which, with the `submitit` launcher, comes from the `sweep` dependency group; the `slurmpilot` launcher comes from the `slurm` extra (`uv sync --extra hangar --extra slurm`). Its settings live under `hydra.sweeper`: `n_trials` (default 100), `n_jobs` (trials in flight at once, 1), `num_random_samples` (4), `resample_frequency` (5), `max_failure_rate` (1.0), `max_suggestion_cost`, `seed` (0), and `warm_start_from`, an earlier sweep directory or CARBS checkpoint to start from. It runs trials in worker threads. The default `dashboard` logger works there, but with `n_jobs` above 1 several dashboards draw over one terminal, so pick `logger=file` then.
 
@@ -65,7 +65,7 @@ Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/
 
 ```bash
 uv sync --extra hangar --group sweep
-uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connectx \
+uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx \
     hydra.sweeper.n_trials=1024 hydra.sweeper.num_random_samples=16 hydra.sweeper.resample_frequency=16 \
     hydra.sweeper.max_failure_rate=0.5 hydra.sweeper.max_suggestion_cost=900 \
     logger=[file,orbax] loggers.orbax.max_to_keep=1 ++loggers.orbax.best=false \
