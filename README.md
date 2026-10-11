@@ -44,6 +44,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 **Curricula**
 - [PLR](https://arxiv.org/abs/2110.02439) replays the levels the agent learns most from
+- [Domain randomization](https://arxiv.org/abs/1703.06907) draws a fresh level for every episode
 - League trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers
 
 ## Install

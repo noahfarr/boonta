@@ -1,23 +1,15 @@
 import flax.linen as nn
-import jax
 import optax
 from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.ppo import PPO
-from boonta.environments.wrappers import (DomainRandomization,
-                                          RecordEpisodeStatistics)
+from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
-
-
-def randomize_gravity(key, params):
-    gravity = jax.random.uniform(key, minval=5.0, maxval=20.0)
-    return params.replace(gravity=gravity)
 
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    env = DomainRandomization(env, randomize_gravity)
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 

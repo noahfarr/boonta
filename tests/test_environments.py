@@ -13,7 +13,7 @@ from boonta.environments.gymnasium import Gymnasium, convert, make
 from boonta.environments import wrappers
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAction, ClipAction,
-                                          ClipReward, DomainRandomization,
+                                          ClipReward,
                                           FlattenObservation, Group,
                                           LogAction, LogEnvState, LogInfo,
                                           MaskObservation, NextStepAutoReset,
@@ -82,10 +82,6 @@ STACKS = [
     ),
     pytest.param(lambda: Vectorize(TransformReward(Dial(), identity), NUM_ENVS), id="transform_reward"),
     pytest.param(lambda: Batched(Vectorize(Dial(), NUM_ENVS), NUM_ENVS), id="batched"),
-    pytest.param(
-        lambda: Vectorize(DomainRandomization(Dial(), lambda key, params: params + 1.0), NUM_ENVS),
-        id="domain_randomization",
-    ),
     pytest.param(lambda: Vectorize(tool(Dial()), NUM_ENVS), id="mcp"),
     pytest.param(lambda: Vectorize(Prompt(Dial(), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
     pytest.param(lambda: Opponent(Vectorize(Team(Dial(), 2), NUM_ENVS), rival, blank), id="opponent"),

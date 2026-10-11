@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/gymnax/classic_control
+  - _self_
+
+curriculum:
+  sample:
+    _target_: boonta.environments.gymnax.params_sampler
+    env_id: ${environment.env_id}
+    ranges:
+      gravity: [5.0, 20.0]

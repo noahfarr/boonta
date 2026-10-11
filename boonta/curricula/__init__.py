@@ -4,6 +4,7 @@ from boonta.utils.typing import Environment
 from boonta.podracers.podracer import Lap, Pit
 
 from .curriculum import Curriculum
+from .domain_randomization import domain_randomization
 from .league import league
 from .plr import maximum_monte_carlo, plr, positive_value_loss
 
@@ -17,6 +18,7 @@ def default(
 __all__ = [
     "Curriculum",
     "default",
+    "domain_randomization",
     "league",
     "maximum_monte_carlo",
     "plr",

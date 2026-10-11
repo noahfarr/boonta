@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/mujoco_playground/locomotion
+  - _self_
+
+curriculum:
+  sample:
+    _target_: boonta.environments.mujoco_playground.model_sampler
+    env_id: ${environment.env_id}
+    config_overrides: ${environment.kwargs.config_overrides}
