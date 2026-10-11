@@ -124,6 +124,10 @@ def prioritized_restarts(directory):
     return ["curriculum=prd", "environment.auto_reset.capacity=64"]
 
 
+def aligned_restarts(directory):
+    return ["curriculum=prd", "curriculum/prd/score=kernel", "environment.auto_reset.capacity=64"]
+
+
 def exploring_restarts(directory):
     return ["curriculum=erd", "environment.auto_reset.capacity=64"]
 
@@ -139,6 +143,7 @@ CASES = [
     ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("ppo", MINATAR, None, prioritized_restarts),
+    ("ppo", MINATAR, None, aligned_restarts),
     ("ppo", MINATAR, None, exploring_restarts),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),

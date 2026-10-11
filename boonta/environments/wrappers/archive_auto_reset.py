@@ -177,7 +177,7 @@ class Selector:
         return state
 
     def select(
-        self, state: PyTree, wrapper, archive_auto_reset_state, key: Key
+        self, state: PyTree, wrapper, archive_auto_reset_state, key: Key, **context
     ) -> tuple[PyTree, Array]:
         raise NotImplementedError
 
@@ -410,14 +410,14 @@ class ArchiveAutoReset(AutoReset):
             }
         )
 
-    def assign(self, state, key: Key, transitions: PyTree):
+    def assign(self, state, key: Key, transitions: PyTree, **context):
         update_key, select_key = jax.random.split(key)
         if transitions is not None:
             state = state.replace(
                 selector_state=self.selector.update(state.selector_state, update_key, transitions)
             )
         selector_state, selected_slots = self.selector.select(
-            state.selector_state, self, state, select_key
+            state.selector_state, self, state, select_key, transitions=transitions, **context
         )
         num_placed, *_ = jnp.shape(selected_slots)
         block_mask = self.block(num_placed)
@@ -449,3 +449,6 @@ class ArchiveAutoReset(AutoReset):
 
     def observe(self, state) -> PyTree:
         return super().observe(state.env_state)
+
+    def observe_cells(self, archive_state: ArchiveState) -> PyTree:
+        return super().observe(archive_state.cell_states.snapshot)
