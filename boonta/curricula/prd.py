@@ -212,6 +212,15 @@ class Advantage:
     rate: float = 0.2
 
     def __call__(self, state: GainState) -> Array:
+        return self.power(state)
+
+    def power(self, state: GainState) -> Array:
+        present_mask = state.action_counts > 0.0
+        action_probs = state.probability_sums / jnp.maximum(state.cell_visits, 1e-12)[:, None]
+        spread = action_probs * self.centre(state) ** 2
+        return jnp.sum(jnp.where(present_mask, spread, 0.0), axis=-1)
+
+    def centre(self, state: GainState) -> Array:
         present_mask = state.action_counts > 0.0
         action_means = jnp.where(
             present_mask, state.advantage_sums / jnp.maximum(state.action_counts, 1e-12), 0.0
@@ -219,9 +228,7 @@ class Advantage:
         cell_means = jnp.sum(state.advantage_sums, axis=-1) / jnp.maximum(
             jnp.sum(state.action_counts, axis=-1), 1e-12
         )
-        action_probs = state.probability_sums / jnp.maximum(state.cell_visits, 1e-12)[:, None]
-        spread = action_probs * (action_means - cell_means[:, None]) ** 2
-        return jnp.sum(jnp.where(present_mask, spread, 0.0), axis=-1)
+        return action_means - cell_means[:, None]
 
     def init(self, archive_size: int, num_actions: int) -> GainState:
         table = jnp.zeros((archive_size, num_actions), jnp.float32)
@@ -285,7 +292,7 @@ class Advantage:
             policy_probs = jax.nn.softmax(logits[:-1].astype(jnp.float32), axis=-1)
             chosen_probs = jnp.take_along_axis(policy_probs, actions[..., None], axis=-1)[..., 0]
             spread = 1.0 - 2.0 * chosen_probs + jnp.sum(policy_probs**2, axis=-1)
-        measured = self.noise_scale(self(state), cell_slots, valid_mask, advantages, spread)
+        measured = self.noise_scale(self.power(state), cell_slots, valid_mask, advantages, spread)
         smoothed = jnp.where(
             state.scale > 0.0, decay * state.scale + self.rate * measured, measured
         )
@@ -306,6 +313,16 @@ class Advantage:
             jnp.maximum(sample_power - signal_power, 0.0) / jnp.maximum(signal_power, 1e-30),
             0.0,
         )
+
+
+@dataclass
+class GreedyAdvantage(Advantage):
+    shrinkage: float = 4.0
+
+    def __call__(self, state: GainState) -> Array:
+        present_mask = state.action_counts > 0.0
+        trust = state.action_counts / (state.action_counts + self.shrinkage)
+        return jnp.max(jnp.where(present_mask, trust * self.centre(state), 0.0), axis=-1)
 
 
 @struct.dataclass
@@ -345,7 +362,7 @@ class Selector(archive_auto_reset.Selector):
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance
-    gain: Advantage
+    gain: Advantage | GreedyAdvantage
     k: float = 4.0
     rate: float = 0.2
 

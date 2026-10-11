@@ -7,8 +7,8 @@ import numpy as np
 
 import zoo
 from boonta.curricula import erd, prd
-from boonta.curricula.prd import (Advantage, SuccessorFootprint,
-                                  CountedRelevance, SuccessorRepresentation,
+from boonta.curricula.prd import (Advantage, CountedRelevance, GreedyAdvantage,
+                                  SuccessorFootprint, SuccessorRepresentation,
                                   UniformFootprint, UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
@@ -63,12 +63,12 @@ def stack(timesteps):
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *timesteps)
 
 
-def selector(footprint, relevance, columns=None):
+def selector(footprint, relevance, columns=None, gain=Advantage()):
     return prd.Selector(
         successor=SuccessorRepresentation(gamma=0.75, columns=columns),
         footprint=footprint,
         relevance=relevance,
-        gain=Advantage(),
+        gain=gain,
         k=2.0,
     )
 
@@ -113,6 +113,7 @@ def train(selector, updates=3, steps=4):
         selector(SuccessorFootprint(), UniformRelevance()),
         selector(UniformFootprint(), CountedRelevance()),
         selector(UniformFootprint(), UniformRelevance()),
+        selector(SuccessorFootprint(), CountedRelevance(), gain=GreedyAdvantage()),
         erd.Selector(k=2.0),
     ],
     ids=[
@@ -121,6 +122,7 @@ def train(selector, updates=3, steps=4):
         "prd-uniform-relevance",
         "prd-uniform-footprint",
         "prd-uniform",
+        "prd-greedy-advantage",
         "erd",
     ],
 )

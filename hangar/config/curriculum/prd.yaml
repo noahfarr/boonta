@@ -3,6 +3,7 @@
 defaults:
   - /curriculum/prd/footprint: successor_representation
   - /curriculum/prd/relevance: counted
+  - /curriculum/prd/gain: advantage
   - override /environment/auto_reset@_global_.environment.auto_reset: archive
   - _self_
 
@@ -20,8 +21,3 @@ environment:
         gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
         rate: 0.1
         columns: 256
-      gain:
-        _target_: boonta.curricula.prd.Advantage
-        gamma: ${algorithm.gamma}
-        gae_lambda: ${algorithm.gae_lambda}
-        rate: 0.2
