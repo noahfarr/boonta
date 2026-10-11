@@ -6,11 +6,10 @@ import numpy as np
 from flax import serialization
 
 
-def empty(leaf) -> bool:
-    return np.size(leaf) == 0
+def prune(tree):
+    def cond_fn(leaf):
+        return np.size(leaf) == 0
 
-
-def prune(tree, cond_fn=empty):
     return jax.tree.map(lambda leaf: None if cond_fn(leaf) else leaf, tree)
 
 
