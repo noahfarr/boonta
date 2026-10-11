@@ -82,19 +82,14 @@ class MuJoCoPlayground(Environment):
             return state
         return self.start(key, theta)
 
-    def observe(self, state: MuJoCoPlaygroundState) -> Array:
-        obs = state.env_state.obs
-        return obs["state"] if isinstance(obs, Mapping) else obs
+    def observe(self, state: MuJoCoPlaygroundState) -> PyTree:
+        return state.env_state.obs
 
-    def observation_space(self) -> Space:
+    def observation_space(self) -> Space | dict[str, Space]:
         size = self._env.observation_size
-        shape = size["state"] if isinstance(size, Mapping) else (size,)
-        return Space(
-            shape=shape,
-            dtype=jnp.float32,
-            low=-jnp.inf,
-            high=jnp.inf,
-        )
+        if isinstance(size, Mapping):
+            return {name: unbounded(shape) for name, shape in size.items()}
+        return unbounded((size,))
 
     def action_space(self) -> Space:
         low, high = self._env.mjx_model.actuator_ctrlrange.T
@@ -116,6 +111,10 @@ class MuJoCoPlayground(Environment):
             [state.env_state], height=height, width=width, camera=camera
         )
         return frames[0]
+
+
+def unbounded(shape: tuple[int, ...]) -> Space:
+    return Space(shape=shape, dtype=jnp.float32, low=-jnp.inf, high=jnp.inf)
 
 
 def randomized(models, in_axes) -> dict[str, Array]:

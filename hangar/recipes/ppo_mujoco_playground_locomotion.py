@@ -7,7 +7,6 @@ from boonta.algorithms.ppo import PPO
 from boonta.environments.wrappers import (ClipAction, NormalizeObservation,
                                           RecordEpisodeStatistics)
 from boonta.networks import ActorCritic, FeatureExtractor, Gaussian, Network
-from boonta.networks.layers import Identity
 
 
 def make(cfg):
@@ -15,35 +14,41 @@ def make(cfg):
     action_dim, *_ = env.action_space().shape
     env = instantiate(cfg.environment.auto_reset, env)
 
-    network = Network(
-        feature_extractor=FeatureExtractor(observation_extractor=Identity()),
-        head=ActorCritic(
-            actor=Gaussian(
-                nn.Sequential(
-                    [
-                        nn.Dense(512),
-                        nn.swish,
-                        nn.Dense(256),
-                        nn.swish,
-                        nn.Dense(128),
-                        nn.swish,
-                        nn.Dense(2 * action_dim),
-                    ]
-                )
-            ),
-            critic=nn.Sequential(
-                [
-                    nn.Dense(512),
-                    nn.swish,
-                    nn.Dense(256),
-                    nn.swish,
-                    nn.Dense(128),
-                    nn.swish,
-                    nn.Dense(1),
-                ]
-            ),
+    actor = Network(
+        feature_extractor=FeatureExtractor(
+            observation_extractor=lambda obs: obs["state"]
+        ),
+        head=nn.Sequential(
+            [
+                nn.Dense(512),
+                nn.swish,
+                nn.Dense(256),
+                nn.swish,
+                nn.Dense(128),
+                nn.swish,
+                nn.Dense(2 * action_dim),
+            ]
         ),
     )
+
+    critic = Network(
+        feature_extractor=FeatureExtractor(
+            observation_extractor=lambda obs: obs["privileged_state"]
+        ),
+        head=nn.Sequential(
+            [
+                nn.Dense(512),
+                nn.swish,
+                nn.Dense(256),
+                nn.swish,
+                nn.Dense(128),
+                nn.swish,
+                nn.Dense(1),
+            ]
+        ),
+    )
+
+    network = ActorCritic(actor=Gaussian(actor), critic=critic)
 
     algorithm = PPO(
         cfg=instantiate(cfg.algorithm),
