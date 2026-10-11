@@ -20,4 +20,14 @@ environment:
 
 optimizer:
   lr: 3.0e-4
+  b1: 0.9
+  b2: 0.999
   max_grad_norm: 1.0
+
+network:
+  actor:
+    features: 512
+    layers: 3
+  critic:
+    features: 512
+    layers: 3

@@ -73,6 +73,19 @@ uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=connectx/connect
     hydra/launcher=submitit_local hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=30
 ```
 
+The G1 sweep searches every numeric setting of its recipe, including the budget and the network sizes, and keeps 16 trials running on Determined. It needs a local `hydra/launcher/determined/<cluster>.yaml`, which git ignores.
+
+```bash
+uv sync --extra hangar --extra mujoco-playground --group sweep
+uv run boonta -m hydra/sweeper=carbs hydra/launcher=determined/42 \
+    algorithm=ppo environment=mujoco_playground/locomotion/g1_joystick_flat_terrain \
+    hydra.sweeper.n_jobs=16 hydra.sweeper.n_trials=512 \
+    hydra.sweeper.num_random_samples=32 hydra.sweeper.resample_frequency=16 \
+    hydra.sweeper.max_failure_rate=0.5 \
+    hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=720 \
+    scoring=final logger=file
+```
+
 Results go to `sweeps/<algorithm>/<environment>/<time>/`.
 
 Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.

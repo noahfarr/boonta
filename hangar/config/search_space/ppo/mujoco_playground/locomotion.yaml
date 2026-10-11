@@ -1,0 +1,99 @@
+# @package search_space
+total_timesteps:
+  distribution: log_normal
+  min: 5e7
+  max: 5e8
+  center: 2e8
+environment.num_envs:
+  distribution: uniform_pow2
+  min: 2048
+  max: 16384
+  center: 8192
+rollout.num_steps:
+  distribution: int_uniform
+  min: 8
+  max: 64
+  center: 20
+algorithm.num_minibatches:
+  distribution: uniform_pow2
+  min: 4
+  max: 64
+  center: 32
+algorithm.update_epochs:
+  distribution: int_uniform
+  min: 2
+  max: 8
+  center: 4
+  scale: 3.0
+optimizer.lr:
+  distribution: log_normal
+  min: 3e-5
+  max: 3e-3
+  center: 3e-4
+optimizer.max_grad_norm:
+  distribution: log_normal
+  min: 0.25
+  max: 4.0
+  center: 1.0
+algorithm.entropy_coefficient:
+  distribution: log_normal
+  min: 1e-4
+  max: 5e-2
+  center: 5e-3
+algorithm.clip_coefficient:
+  distribution: uniform
+  min: 0.1
+  max: 0.3
+  center: 0.2
+algorithm.value_coefficient:
+  distribution: log_normal
+  min: 0.25
+  max: 4.0
+  center: 0.5
+algorithm.gamma:
+  distribution: logit_normal
+  min: 0.95
+  max: 0.995
+  center: 0.97
+algorithm.gae_lambda:
+  distribution: logit_normal
+  min: 0.9
+  max: 0.99
+  center: 0.95
+optimizer.b1:
+  distribution: logit_normal
+  min: 0.8
+  max: 0.95
+  center: 0.9
+optimizer.b2:
+  distribution: logit_normal
+  min: 0.95
+  max: 0.9999
+  center: 0.999
+network.actor.features:
+  distribution: uniform_pow2
+  min: 64
+  max: 1024
+  center: 512
+network.actor.layers:
+  distribution: int_uniform
+  min: 1
+  max: 4
+  center: 3
+  scale: 3.0
+network.critic.features:
+  distribution: uniform_pow2
+  min: 64
+  max: 1024
+  center: 512
+network.critic.layers:
+  distribution: int_uniform
+  min: 1
+  max: 4
+  center: 3
+  scale: 3.0
+environment.kwargs.config_overrides.action_scale:
+  distribution: uniform
+  min: 0.25
+  max: 1.0
+  center: 0.5
