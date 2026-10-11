@@ -15,7 +15,7 @@ class DomainRandomization(Wrapper):
         super().__init__(env)
         self._randomize = sample
 
-    def redraw(self, key: Key, env_state, obs, chosen: Array):
+    def randomize(self, key: Key, env_state, obs, chosen: Array):
         def start(state, key):
             sample_key, update_key = jax.random.split(key)
             return self._env.update(state, update_key, theta=self._randomize(sample_key))
@@ -29,10 +29,10 @@ class DomainRandomization(Wrapper):
         return env_state, jax.tree.map(select, self._env.observe(started), obs)
 
     def init(self, key: Key) -> tuple[PyTree, Timestep]:
-        init_key, redraw_key = jax.random.split(key)
+        init_key, randomize_key = jax.random.split(key)
         env_state, timestep = self._env.init(init_key)
-        env_state, obs = self.redraw(
-            redraw_key, env_state, timestep.obs, jnp.ones(self.num_envs, bool)
+        env_state, obs = self.randomize(
+            randomize_key, env_state, timestep.obs, jnp.ones(self.num_envs, bool)
         )
         return env_state, timestep.replace(obs=obs)
 
@@ -41,7 +41,7 @@ class DomainRandomization(Wrapper):
         done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
         env_state, obs = jax.lax.cond(
             done.any(),
-            lambda: self.redraw(
+            lambda: self.randomize(
                 jax.random.fold_in(key, 1), env_state, timestep.obs, done
             ),
             lambda: (env_state, timestep.obs),
