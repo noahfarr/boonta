@@ -8,7 +8,7 @@ import numpy as np
 import zoo
 from boonta.curricula import erd, prd
 from boonta.curricula.prd import (Advantage, SuccessorFootprint,
-                                  SuccessorRelevance, SuccessorRepresentation,
+                                  CountedRelevance, SuccessorRepresentation,
                                   UniformFootprint, UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
@@ -108,10 +108,10 @@ def train(selector, updates=3, steps=4):
 @pytest.mark.parametrize(
     "selector",
     [
-        selector(SuccessorFootprint(), SuccessorRelevance()),
-        selector(SuccessorFootprint(), SuccessorRelevance(), columns=4),
+        selector(SuccessorFootprint(), CountedRelevance()),
+        selector(SuccessorFootprint(), CountedRelevance(), columns=4),
         selector(SuccessorFootprint(), UniformRelevance()),
-        selector(UniformFootprint(), SuccessorRelevance()),
+        selector(UniformFootprint(), CountedRelevance()),
         selector(UniformFootprint(), UniformRelevance()),
         erd.Selector(k=2.0),
     ],
@@ -133,8 +133,8 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
     assert bool(jnp.all(cut.done[block]))
 
 
-def test_a_uniform_footprint_keeps_the_relevance_of_the_successor_representation():
-    uniform = selector(UniformFootprint(), SuccessorRelevance())
+def test_a_uniform_footprint_keeps_the_counted_relevance():
+    uniform = selector(UniformFootprint(), CountedRelevance())
     _, state, _ = train(uniform)
     relevance = uniform.relevant(state.selector_state)
     assert float(jnp.std(relevance[state.archive_state.mask])) > 0.0
@@ -179,7 +179,7 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, selector",
     [
-        (prd.pit, selector(SuccessorFootprint(), SuccessorRelevance())),
+        (prd.pit, selector(SuccessorFootprint(), CountedRelevance())),
         (erd.pit, erd.Selector()),
     ],
     ids=["prd", "erd"],

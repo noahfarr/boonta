@@ -2,7 +2,7 @@
 
 defaults:
   - /curriculum/prd/footprint: successor_representation
-  - /curriculum/prd/relevance: successor_representation
+  - /curriculum/prd/relevance: counted
   - override /environment/auto_reset@_global_.environment.auto_reset: archive
   - _self_
 
