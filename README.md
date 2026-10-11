@@ -8,58 +8,55 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/structure-dark.webp">
-  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
+  <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more), the environment (vectorize around auto-reset around the game) and, for offline training, the dataset. Beside the track a grandstand watches the race: artisans along its wall craft checkpoints, metrics and videos, and loggers broadcast them from the tower on its roof.">
 </picture>
 
 </div>
 
+## Why boonta
+
+boonta is built to scale reinforcement learning up, in compute and in models. Training plays thousands of environments at once, keeps every device busy and grows from one GPU to a cluster without touching the algorithm. Models scale the same way, from a small network learning CartPole from scratch to LLMs and VLAs fine-tuned as agents, all trained by the same algorithms. And because the algorithm, the environment and the training loop stay out of each other's way, offline data, multi-agent self-play and curricula slot in without rewriting anything.
+
 ## Podracers
 
-| Podracer | How it works | Use it for |
-| --- | --- | --- |
-| Anakin | Acting, environment steps and learning compile into one program, split across every device | JAX environments, end to end on the GPU |
-| Sebulba | Actor threads collect rollouts on some devices while learners train on the rest and send back fresh parameters | Slow or non-JAX environments, acting and learning asynchronously |
-| Quadinaros | Trains on batches sampled from a Minari dataset and only touches the environment to evaluate | Fixed datasets, for offline RL and behavior cloning |
+🏎️ **Anakin** is for JAX environments. Acting, stepping and learning compile into one program that runs on every device.
 
-## Algorithms
+🔧 **Sebulba** is for slow or non-JAX environments. Actors collect rollouts on some devices while learners train on the rest.
 
-| Kind | Algorithms |
-| --- | --- |
-| On-policy | [PPO](https://arxiv.org/abs/1707.06347), [REPPO](https://arxiv.org/abs/2507.11019), [PQN](https://arxiv.org/abs/2407.04811), [GRPO](https://arxiv.org/abs/2402.03300) |
-| Off-policy | [DQN](https://arxiv.org/abs/1312.5602), [SAC](https://arxiv.org/abs/1801.01290) |
-| Offline | Behavior cloning, [IQL](https://arxiv.org/abs/2110.06169) |
-| Recurrent | [PPO](https://arxiv.org/abs/1707.06347), [PuPO](https://github.com/PufferAI/PufferLib), [PQN](https://arxiv.org/abs/2407.04811), [GRPO](https://arxiv.org/abs/2402.03300), [DQN](https://arxiv.org/abs/1312.5602), [SAC](https://arxiv.org/abs/1801.01290), behavior cloning |
-| Multi-agent | [IPPO](https://arxiv.org/abs/2011.09533), [MAPPO](https://arxiv.org/abs/2103.01955), [MMD](https://arxiv.org/abs/2206.05825), [PSRO](https://arxiv.org/abs/1711.00832) |
+📼 **Quadinaros** is for offline RL and BC. It trains on a fixed dataset and only steps the environment to evaluate.
 
-## Environments
+## In the hangar
 
-| Kind | Environments |
-| --- | --- |
-| Classic control and MinAtar | [Gymnax](https://github.com/RobertTLange/gymnax) |
-| Continuous control | [Brax](https://github.com/google/brax), [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground), [Isaac Lab](https://github.com/isaac-sim/IsaacLab) |
-| Grid worlds and puzzles | [Jumanji](https://github.com/instadeepai/jumanji), [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) |
-| Open-ended | [Craftax](https://github.com/MichaelTMatthews/Craftax) |
-| Levels for curricula | [Kinetix](https://github.com/FLAIROx/Kinetix), [JaxUED](https://github.com/DramaCow/jaxued) mazes and control tasks |
-| Atari | [ALE](https://github.com/Farama-Foundation/Arcade-Learning-Environment) |
-| Multi-agent | [JaxMARL](https://github.com/FLAIROx/JaxMARL), [Mapox](https://github.com/gabe00122/mapox), [ConnectX](https://www.kaggle.com/competitions/connectx) |
-| Games | Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB), Wordle |
-| Anything in Python | [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments |
+**Algorithms**
+- On-policy: [PPO](https://arxiv.org/abs/1707.06347) · [REPPO](https://arxiv.org/abs/2507.11019) · [PQN](https://arxiv.org/abs/2407.04811) · [GRPO](https://arxiv.org/abs/2402.03300)
+- Off-policy: [DQN](https://arxiv.org/abs/1312.5602) · [SAC](https://arxiv.org/abs/1801.01290)
+- Offline: BC · [IQL](https://arxiv.org/abs/2110.06169)
+- Recurrent: PPO · [PuPO](https://github.com/PufferAI/PufferLib) · PQN · GRPO · DQN · SAC · BC
+- Multi-agent: [IPPO](https://arxiv.org/abs/2011.09533) · [MAPPO](https://arxiv.org/abs/2103.01955) · [MMD](https://arxiv.org/abs/2206.05825) · [PSRO](https://arxiv.org/abs/1711.00832)
 
-## Curricula
+**Environments**
+- Control: [Gymnax](https://github.com/RobertTLange/gymnax) · [Brax](https://github.com/google/brax) · [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) · [Isaac Lab](https://github.com/isaac-sim/IsaacLab)
+- Grid worlds and open-ended: [Jumanji](https://github.com/instadeepai/jumanji) · [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) · [Craftax](https://github.com/MichaelTMatthews/Craftax)
+- Levels: [Kinetix](https://github.com/FLAIROx/Kinetix) · [JaxUED](https://github.com/DramaCow/jaxued)
+- Multi-agent: [JaxMARL](https://github.com/FLAIROx/JaxMARL) · [Mapox](https://github.com/gabe00122/mapox) · [BluffJAX](https://github.com/AryamanReddi99/bluffjax) · [ConnectX](https://www.kaggle.com/competitions/connectx)
+- Games: [Atari](https://github.com/Farama-Foundation/Arcade-Learning-Environment) · Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) · Super Mario Bros. · Wordle
+- Anything else: [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments
 
-| Curriculum | What it does |
-| --- | --- |
-| PLR | Replays the levels the agent learns most from, with [robust prioritized level replay](https://arxiv.org/abs/2110.02439), on environments with levels such as Kinetix and JaxUED's maze |
-| League | Trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers |
+**Curricula**
+- [PLR](https://arxiv.org/abs/2110.02439) replays the levels the agent learns most from
+- League trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers
 
 ## Install
 
+boonta is not on PyPI. Install it from a checkout with [uv](https://docs.astral.sh/uv/):
+
 ```bash
-pip install boonta            # the library
-pip install "boonta[hangar]"  # the library, plus Hydra to run the configs in hangar
+git clone https://github.com/noahfarr/boonta && cd boonta
+uv sync                  # the library
+uv sync --extra hangar   # the library, plus Hydra to run the configs in hangar
 ```
 
-The library never imports `hangar`, Hydra or OmegaConf. In a checkout, `uv sync --extra hangar` installs it. Environment suites that need their own packages come as extras too, such as `boonta[craftax]`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
+The library never imports `hangar`, Hydra or OmegaConf. Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
 
 ## Guides
 

@@ -30,28 +30,28 @@ artisans:
     _target_: boonta.artisans.Gauntlet
     opponents:
       random:
-        _target_: boonta.environments.connectx.uniform
+        _target_: boonta.environments.dune_sea.connectx.uniform
         _partial_: true
       negamax_1:
-        _target_: boonta.environments.connectx.Negamax
+        _target_: boonta.environments.dune_sea.connectx.Negamax
         depth: 1
         rows: ${environment.kwargs.rows}
         columns: ${environment.kwargs.columns}
         inarow: ${environment.kwargs.inarow}
       negamax_2:
-        _target_: boonta.environments.connectx.Negamax
+        _target_: boonta.environments.dune_sea.connectx.Negamax
         depth: 2
         rows: ${environment.kwargs.rows}
         columns: ${environment.kwargs.columns}
         inarow: ${environment.kwargs.inarow}
       negamax_4:
-        _target_: boonta.environments.connectx.Negamax
+        _target_: boonta.environments.dune_sea.connectx.Negamax
         depth: 4
         rows: ${environment.kwargs.rows}
         columns: ${environment.kwargs.columns}
         inarow: ${environment.kwargs.inarow}
       negamax_6:
-        _target_: boonta.environments.connectx.Negamax
+        _target_: boonta.environments.dune_sea.connectx.Negamax
         depth: 6
         rows: ${environment.kwargs.rows}
         columns: ${environment.kwargs.columns}
