@@ -1,4 +1,4 @@
-# @package _global_.environment.auto_reset.selector.gain
+# @package _global_.curriculum.selector.gain
 _target_: boonta.curricula.prd.GreedyAdvantage
 gamma: ${algorithm.gamma}
 gae_lambda: ${algorithm.gae_lambda}

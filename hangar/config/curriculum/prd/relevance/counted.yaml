@@ -1,2 +1,2 @@
-# @package _global_.environment.auto_reset.selector.relevance
+# @package _global_.curriculum.selector.relevance
 _target_: boonta.curricula.prd.CountedRelevance

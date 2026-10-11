@@ -1,3 +1,3 @@
-# @package _global_.environment.auto_reset.selector.score
+# @package _global_.curriculum.selector.score
 _target_: boonta.curricula.prd.Kernel
 preconditioned: true

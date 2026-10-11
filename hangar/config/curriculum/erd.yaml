@@ -7,9 +7,6 @@ defaults:
 curriculum:
   _target_: boonta.curricula.erd.pit
   _partial_: true
-
-environment:
-  auto_reset:
-    selector:
-      _target_: boonta.curricula.erd.Selector
-      k: 4.0
+  selector:
+    _target_: boonta.curricula.erd.Selector
+    k: 4.0

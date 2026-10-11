@@ -9,7 +9,6 @@ from boonta.environments.wrappers import TimeLimit
 from boonta.environments.wrappers.archive_auto_reset import (
     Archive,
     ArchiveAutoReset,
-    Selector,
     lru,
     share,
 )
@@ -68,9 +67,8 @@ def factory(fn):
     return lambda env: fn
 
 
-class Echo(Selector):
-    def select(self, state, wrapper, archive_auto_reset_state, key, **context):
-        return state, jnp.full(4, archive_auto_reset_state.current_slots[0], jnp.int32)
+def echo(state):
+    return jnp.full(4, state.current_slots[0], jnp.int32)
 
 
 def archive(archive_size=ARCHIVE_SIZE, cell_fn=cell_of, **kwargs):
@@ -88,7 +86,6 @@ def build(inner=None, cell_fn=cell_of, **kwargs):
         Ladder() if inner is None else inner,
         num_envs=NUM_ENVS,
         cell_fn=factory(cell_fn),
-        selector=kwargs.pop("selector", Echo()),
         **kwargs,
     )
 
@@ -402,7 +399,7 @@ def test_without_an_update_every_episode_is_reported_as_rho():
 def test_an_update_with_a_key_reports_the_archive():
     env = build()
     state, _ = drive(env, steps=4)
-    _, logs = lox.spool(lambda state: env.assign(state, jax.random.key(3), None))(state)
+    _, logs = lox.spool(lambda state: env.update(state, jax.random.key(3), slots=echo(state)))(state)
     assert {"archive/placed", "archive/num_cells", "archive/num_eligible"} <= set(logs)
 
 
@@ -463,7 +460,7 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     env = build()
     state, _ = drive(env, steps=2, action=1)
     cell = int(state.current_slots[0])
-    state = env.assign(state, jax.random.key(3), None)
+    state = env.update(state, jax.random.key(3), slots=echo(state))
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
     assert bool(jnp.all(state.due_mask == block))
     assert bool(jnp.all(state.assigned_slots[block] == cell))

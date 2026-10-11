@@ -8,7 +8,6 @@ from flax import struct
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
-from boonta.environments.wrappers import archive_auto_reset
 from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
                                                              plant, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
@@ -439,7 +438,7 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 
 
 @dataclass
-class Selector(archive_auto_reset.Selector):
+class Selector:
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance
@@ -506,7 +505,7 @@ class Selector(archive_auto_reset.Selector):
         selected_slots = self.allot(state, worth, eligible_mask, occupied_counts, key, num_placed)
         self.watch(state, worth, archive_state.mask, selected_slots)
         self.saturation(state, worth, eligible_mask, occupied_counts, selected_slots)
-        return state, selected_slots
+        return selected_slots
 
     def allot(
         self,
@@ -605,7 +604,7 @@ class Selector(archive_auto_reset.Selector):
 
 
 def pit(
-    algorithm: Algorithm, environment: Environment, seed: int = 0, **kwargs
+    algorithm: Algorithm, environment: Environment, selector: Selector, seed: int = 0, **kwargs
 ) -> tuple[Algorithm, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
 
@@ -613,15 +612,23 @@ def pit(
         key = jax.random.fold_in(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
-        archive_auto_reset_state = wrapper.assign(
-            locate(state.environment_state),
-            key,
-            transitions,
+        update_key, select_key, assign_key = jax.random.split(key, 3)
+        archived = locate(state.environment_state)
+        ledger = archived.ledger
+        if not jax.tree.leaves(ledger):
+            ledger = selector.init(wrapper.archive.archive_size, wrapper.num_actions)
+        if transitions is not None:
+            ledger = selector.update(ledger, update_key, transitions)
+        slots = selector.select(
+            ledger,
+            wrapper,
+            archived,
+            select_key,
+            transitions=transitions,
             algorithm=algorithm,
             algorithm_state=state.algorithm_state,
         )
-        return state.replace(
-            environment_state=plant(state.environment_state, archive_auto_reset_state)
-        )
+        archived = wrapper.update(archived, assign_key, slots=slots, ledger=ledger)
+        return state.replace(environment_state=plant(state.environment_state, archived))
 
     return algorithm, environment, assign, lambda state: state
