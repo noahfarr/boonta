@@ -1,0 +1,6 @@
+namespace: mujoco_playground
+suite: locomotion
+env_id: G1JoystickRoughTerrain
+kwargs:
+  config_overrides:
+    impl: jax

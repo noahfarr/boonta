@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 
 import jax
@@ -21,7 +22,7 @@ class MuJoCoPlayground(Environment):
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
         timestep = Timestep(
-            obs=state.obs,
+            obs=observe(state.obs),
             action=action,
             reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
             terminated=jnp.ones(shapes.terminated.shape, shapes.terminated.dtype),
@@ -42,7 +43,7 @@ class MuJoCoPlayground(Environment):
         truncated = (steps >= horizon) & ~terminated
         state = state.replace(info={**state.info, "steps": steps})
         timestep = Timestep(
-            obs=state.obs,
+            obs=observe(state.obs),
             action=action,
             reward=state.reward,
             terminated=terminated,
@@ -52,8 +53,10 @@ class MuJoCoPlayground(Environment):
         return state, timestep
 
     def observation_space(self) -> Space:
+        size = self._env.observation_size
+        shape = size["state"] if isinstance(size, Mapping) else (size,)
         return Space(
-            shape=(self._env.observation_size,),
+            shape=shape,
             dtype=jnp.float32,
             low=-jnp.inf,
             high=jnp.inf,
@@ -77,6 +80,10 @@ class MuJoCoPlayground(Environment):
     ) -> Array:
         frames = self._env.render([state], height=height, width=width, camera=camera)
         return frames[0]
+
+
+def observe(obs):
+    return obs["state"] if isinstance(obs, Mapping) else obs
 
 
 def make(env_id, config_overrides=None, **kwargs):
