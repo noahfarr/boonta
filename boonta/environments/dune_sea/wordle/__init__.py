@@ -5,10 +5,9 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from boonta.environments.environment import Environment
+from boonta.environments.spaces import Space
 from boonta.utils import Array, Key, Timestep
-
-from ..environment import Environment
-from ..spaces import Space
 
 WORD_LENGTH = 5
 NUM_LETTERS = 26
@@ -197,7 +196,6 @@ def encode_words(words: list[str]) -> np.ndarray:
 
 
 def make(
-    env_id,
     answer_pool_path=None,
     guess_pool_path=None,
     num_guesses=6,

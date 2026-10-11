@@ -45,6 +45,9 @@ ale = [
 benchmark = [
     "performax",
 ]
+bluffjax = [
+    "bluffjax; python_full_version >= '3.12'",
+]
 brax = [
     "brax",
 ]
@@ -87,6 +90,9 @@ mujoco-playground = [
     "ml-collections",
     "playground",
 ]
+pynes = [
+    "pynes",
+]
 slurm = [
     "slurmpilot; python_full_version >= '3.12'",
     "hydra-slurmpilot-launcher; python_full_version >= '3.12'",
@@ -110,6 +116,8 @@ conflicts = [
 override-dependencies = [
     "jax[cpu]>=0.10.2,<0.11; sys_platform == 'darwin'",
     "jax[cuda12]>=0.10.2,<0.11; sys_platform == 'linux'",
+    "flax>=0.12.7",
+    "jaxtyping>=0.3.5",
     "scipy>=1.14",
     "brax>=0.13",
     "mujoco>=3.3",
@@ -134,6 +142,7 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
+bluffjax = { git = "https://github.com/AryamanReddi99/bluffjax" }
 carbs = { git = "https://github.com/imbue-ai/carbs.git" }
 hydra-slurmpilot-launcher = { git = "ssh://git@github.com/noahfarr/hydra-slurmpilot-launcher.git" }
 isaaclab-arena = { git = "https://github.com/isaac-sim/IsaacLab-Arena" }
@@ -142,12 +151,17 @@ libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
 lox = { git = "https://github.com/huterguier/lox" }
 mapox = { git = "https://github.com/gabe00122/mapox" }
 performax = { git = "https://github.com/noahfarr/performax", rev = "f22adf27970a4bfff51d364e757e47be6b0a62ee" }
+pynes = { git = "ssh://git@github.com/noahfarr/pynes.git", rev = "150735eb55be0b0e46da226ff308cfde8fc875ac" }
 slurmpilot = { git = "https://github.com/noahfarr/slurmpilot.git", branch = "feat/spignore" }
 torch = [
     { index = "pytorch-cu128", marker = "python_full_version < '3.12'" },
     { index = "pytorch-cpu", marker = "python_full_version >= '3.12'" },
 ]
 torchvision = [{ index = "pytorch-cu128", marker = "python_full_version < '3.12'" }]
+
+[project.entry-points.submitit]
+executor = "hydra_plugins.hydra_determined_launcher.launcher:DeterminedExecutor"
+job_environment = "hydra_plugins.hydra_determined_launcher.launcher:DeterminedJobEnvironment"
 
 [build-system]
 requires = ["hatchling"]

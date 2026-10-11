@@ -86,22 +86,15 @@ class ChainOfForks(Environment):
         self.rows = jnp.asarray(rows)
         self.columns = jnp.asarray(columns)
         self.num_cells = len(reward)
-        self.height = int(rows.max()) + 1
-        self.width = int(columns.max()) + 1
 
     def observation_space(self) -> Space:
-        return Space((self.height + self.width,), jnp.float32, 0.0, 1.0)
+        return Space((self.num_cells,), jnp.float32, 0.0, 1.0)
 
     def action_space(self) -> Space:
         return Space((), jnp.int32, 0, 1)
 
     def observe(self, state: ChainOfForksState) -> Array:
-        return jnp.concatenate(
-            [
-                jax.nn.one_hot(self.rows[state.cell], self.height),
-                jax.nn.one_hot(self.columns[state.cell], self.width),
-            ]
-        )
+        return jax.nn.one_hot(state.cell, self.num_cells)
 
     def init(self, key: Key) -> tuple[ChainOfForksState, Timestep]:
         state = ChainOfForksState(cell=jnp.int32(self.start))
