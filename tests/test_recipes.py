@@ -122,6 +122,7 @@ CASES = [
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
+    ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
@@ -149,10 +150,10 @@ CASES = [
     ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
-    ("ippo", "connectx/connectx", None, False),
+    ("ippo", "dune_sea/connectx", None, False),
     ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
     ("ippo", "bluffjax/goofspiel", installed("bluffjax"), False),
-    ("mmd", "connectx/connectx", None, False),
+    ("mmd", "dune_sea/connectx", None, False),
     ("ippo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("mappo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("ippo", "mapox/find_return", installed("mapox"), False),
@@ -170,8 +171,8 @@ CASES = [
         rom("boonta/environments/peanut_gb/roms/pokemon_red.gb"),
         False,
     ),
-    ("recurrent_ppo", "wordle/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
-    ("recurrent_grpo", "wordle/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
 ]
 
 
@@ -238,14 +239,14 @@ def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
 
 def test_only_carbs_sweeps_the_search_space():
     assert "search_space" not in configure("dqn", MINATAR)
-    plain = configure("ippo", "connectx/connectx", "hydra.mode=MULTIRUN")
+    plain = configure("ippo", "dune_sea/connectx", "hydra.mode=MULTIRUN")
     assert len(plain.search_space) == 13
     assert plain.hydra.sweeper.params is None
 
 
 @pytest.mark.skipif(bool(installed("carbs")), reason="needs carbs")
 def test_carbs_reads_the_search_space():
-    swept = configure("ippo", "connectx/connectx", "hydra/sweeper=carbs")
+    swept = configure("ippo", "dune_sea/connectx", "hydra/sweeper=carbs")
     params = instantiate(swept.hydra.sweeper).search.params
     assert len(params) == 13
     assert params["optimizer.lr"].center == 1.46e-3
@@ -277,7 +278,7 @@ def test_every_recipe_builds_and_runs_one_update(
 
 @pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo"])
 def test_a_wordle_recipe_loads_the_model_its_config_names(algorithm, monkeypatch):
-    cfg = configure(algorithm, "wordle/wordle", "network.repo_id=someone/else")
+    cfg = configure(algorithm, "dune_sea/wordle", "network.repo_id=someone/else")
     recipe = importlib.import_module(f"hangar.recipes.{algorithm}_wordle")
     loaded = []
 

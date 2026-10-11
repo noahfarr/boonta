@@ -1,0 +1,5 @@
+namespace: dune_sea
+suite: t_maze
+env_id: t_maze
+kwargs:
+  length: 10
