@@ -1,5 +1,6 @@
 defaults:
   - archive/cell_fn@cell_fn: ${environment}
+  - optional archive/eligibility_fn@eligibility_fn: ${environment}
   - _self_
 
 _target_: boonta.environments.wrappers.archive_auto_reset.ArchiveAutoReset
