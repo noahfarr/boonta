@@ -7,9 +7,10 @@ import numpy as np
 
 import zoo
 from boonta.curricula import erd, prd
-from boonta.curricula.prd import (Advantage, CountedRelevance, GreedyAdvantage,
-                                  SuccessorFootprint, SuccessorRepresentation,
-                                  UniformFootprint, UniformRelevance)
+from boonta.curricula.prd import (Advantage, CountedRelevance, Diagonal,
+                                  GreedyAdvantage, Kernel, SuccessorFootprint,
+                                  SuccessorRepresentation, UniformFootprint,
+                                  UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -63,14 +64,28 @@ def stack(timesteps):
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *timesteps)
 
 
-def selector(footprint, relevance, columns=None, gain=Advantage()):
+def selector(footprint, relevance, columns=None, gain=Advantage(), score=Diagonal()):
     return prd.Selector(
         successor=SuccessorRepresentation(gamma=0.75, columns=columns),
         footprint=footprint,
         relevance=relevance,
         gain=gain,
+        score=score,
         k=2.0,
     )
+
+
+def place(selector, env, state, key, transitions):
+    update_key, select_key, assign_key = jax.random.split(key, 3)
+    if isinstance(selector, erd.Selector):
+        return env.update(state, assign_key, slots=selector.select(env, state, select_key))
+    ledger = state.ledger
+    if not jax.tree.leaves(ledger):
+        ledger = selector.init(env.archive.archive_size, env.num_actions)
+    if transitions is not None:
+        ledger = selector.update(ledger, update_key, transitions)
+    slots = selector.select(ledger, env, state, select_key, transitions=transitions)
+    return env.update(state, assign_key, slots=slots, ledger=ledger)
 
 
 def train(selector, updates=3, steps=4):
@@ -78,12 +93,11 @@ def train(selector, updates=3, steps=4):
         Ladder(),
         num_envs=NUM_ENVS,
         cell_fn=lambda env: (lambda state: state.tag),
-        selector=selector,
         capacity=32,
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
-    archive_auto_reset_state = env.assign(archive_auto_reset_state, key, None)
+    archive_auto_reset_state = place(selector, env, archive_auto_reset_state, key, None)
     for _ in range(updates):
         firsts, seconds = [], []
         for _ in range(steps):
@@ -99,7 +113,7 @@ def train(selector, updates=3, steps=4):
             first=stack(firsts), second=stack(seconds), aux={"value": blank, "log_prob": blank}
         )
         key, sub = jax.random.split(key)
-        archive_auto_reset_state = env.assign(archive_auto_reset_state, sub, transitions)
+        archive_auto_reset_state = place(selector, env, archive_auto_reset_state, sub, transitions)
     key, sub = jax.random.split(key)
     _, cut = env.step(sub, archive_auto_reset_state, jnp.ones(NUM_ENVS, jnp.int32))
     return env, archive_auto_reset_state, cut
@@ -138,7 +152,7 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
 def test_a_uniform_footprint_keeps_the_counted_relevance():
     uniform = selector(UniformFootprint(), CountedRelevance())
     _, state, _ = train(uniform)
-    relevance = uniform.relevant(state.selector_state)
+    relevance = uniform.relevant(state.ledger)
     assert float(jnp.std(relevance[state.archive_state.mask])) > 0.0
     np.testing.assert_allclose(jnp.sum(relevance), 1.0, rtol=1e-5)
 
@@ -182,9 +196,10 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
     "curriculum, selector",
     [
         (prd.pit, selector(SuccessorFootprint(), CountedRelevance())),
+        (prd.pit, selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())),
         (erd.pit, erd.Selector()),
     ],
-    ids=["prd", "erd"],
+    ids=["prd", "prd-kernel", "erd"],
 )
 def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curriculum, selector):
     def archive(environment, num_envs):
@@ -193,13 +208,12 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curri
                 environment,
                 num_envs=num_envs,
                 cell_fn=lambda env: (lambda state: state.position),
-                selector=selector,
                 capacity=32,
             )
         )
 
     def race(algorithm, environment, num_envs, num_steps):
-        algorithm, environment, pit, lap = curriculum(algorithm, environment)
+        algorithm, environment, pit, lap = curriculum(algorithm, environment, selector)
         config = anakin.AnakinConfig(num_envs=num_envs, num_steps=num_steps, mesh=mesh(1))
         return anakin.make(config, algorithm, environment, pit=pit, lap=lap)
 

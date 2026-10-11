@@ -1,2 +1,2 @@
-# @package _global_.environment.auto_reset.selector.footprint
+# @package _global_.curriculum.selector.footprint
 _target_: boonta.curricula.prd.SuccessorFootprint

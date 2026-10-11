@@ -169,23 +169,10 @@ def widen(cell_fn: Callable[[PyTree], Array]) -> Callable[[PyTree], Array]:
     return widened
 
 
-class Selector:
-    def init(self, archive_size: int, num_actions: int) -> PyTree:
-        return ()
-
-    def update(self, state: PyTree, key: Key, transitions: PyTree) -> PyTree:
-        return state
-
-    def select(
-        self, state: PyTree, wrapper, archive_auto_reset_state, key: Key, **context
-    ) -> tuple[PyTree, Array]:
-        raise NotImplementedError
-
-
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
-    selector_state: PyTree = struct.field(metadata={"axis": None})
+    ledger: PyTree = struct.field(metadata={"axis": None})
     assigned_slots: Array
     due_mask: Array
     current_slots: Array
@@ -232,7 +219,6 @@ class ArchiveAutoReset(AutoReset):
         env,
         num_envs: int,
         cell_fn: Callable,
-        selector: Selector,
         capacity: int = 16384,
         num_probes: int = 8,
         eviction_fn: Callable[[ArchiveState], Array] = noeviction,
@@ -241,7 +227,6 @@ class ArchiveAutoReset(AutoReset):
         refresh_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
     ):
         super().__init__(env, num_envs=num_envs)
-        self.selector = selector
         self.num_actions = int(getattr(env.action_space(), "num_actions", 1))
         self.archive = Archive(
             archive_size=capacity,
@@ -282,7 +267,7 @@ class ArchiveAutoReset(AutoReset):
         state = ArchiveAutoResetState(
             env_state=env_state,
             archive_state=archive_state,
-            selector_state=self.selector.init(self.archive.archive_size, self.num_actions),
+            ledger=(),
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
             due_mask=jnp.zeros(self.num_envs, bool),
             current_slots=claimed_slots,
@@ -410,15 +395,7 @@ class ArchiveAutoReset(AutoReset):
             }
         )
 
-    def assign(self, state, key: Key, transitions: PyTree, **context):
-        update_key, select_key = jax.random.split(key)
-        if transitions is not None:
-            state = state.replace(
-                selector_state=self.selector.update(state.selector_state, update_key, transitions)
-            )
-        selector_state, selected_slots = self.selector.select(
-            state.selector_state, self, state, select_key, transitions=transitions, **context
-        )
+    def assign(self, state, selected_slots: Array):
         num_placed, *_ = jnp.shape(selected_slots)
         block_mask = self.block(num_placed)
         assigned_slots = (
@@ -436,12 +413,15 @@ class ArchiveAutoReset(AutoReset):
             }
         )
         return state.replace(
-            selector_state=selector_state,
             assigned_slots=jnp.where(block_mask, assigned_slots, -1),
             due_mask=block_mask,
         )
 
-    def update(self, state, key: Key, **kwargs):
+    def update(self, state, key: Key, slots: Array | None = None, ledger: PyTree = None, **kwargs):
+        if ledger is not None:
+            state = state.replace(ledger=ledger)
+        if slots is not None:
+            state = self.assign(state, slots)
         return state.replace(env_state=super().update(state.env_state, key, **kwargs))
 
     def action_mask(self, state) -> Array | None:

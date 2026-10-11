@@ -5,7 +5,6 @@ defaults:
 
 _target_: boonta.environments.wrappers.archive_auto_reset.ArchiveAutoReset
 num_envs: ${environment.num_envs}
-selector: ???
 capacity: 16384
 num_probes: 8
 gamma: ${algorithm.gamma}
