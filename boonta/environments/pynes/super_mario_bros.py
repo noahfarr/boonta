@@ -31,7 +31,6 @@ class SuperMarioBros(Environment):
         snapshot,
         movement,
         episode: str = "game",
-        reward: str = "progress",
         pixels: bool = True,
         stack: int = 4,
         time_limit: int = 6000,
@@ -40,12 +39,9 @@ class SuperMarioBros(Environment):
 
         if episode not in ("game", "stage"):
             raise ValueError(f"episode must be game or stage, got {episode}")
-        if reward not in ("progress", "score"):
-            raise ValueError(f"reward must be progress or score, got {reward}")
         self.pool = pool
         self.movement = jnp.asarray(movement, jnp.uint8)
         self.episode = episode
-        self.reward = reward
         self.pixels = pixels
         self.stack = stack
         self._time_limit = time_limit
@@ -78,10 +74,7 @@ class SuperMarioBros(Environment):
         from pynes import smb
 
         emulator, frame, ram = self._advance(state.emulator, self.movement[action])
-        if self.reward == "score":
-            reward = (smb.score(ram) - smb.score(state.ram)).astype(jnp.float32)
-        else:
-            reward = smb.reward(state.ram, ram)
+        reward = (smb.score(ram) - smb.score(state.ram)).astype(jnp.float32)
         advanced = smb.level(ram) != smb.level(state.ram)
         if self.episode == "game":
             done = smb.game_over(ram)

@@ -7,7 +7,6 @@ kwargs:
   rom: ${oc.env:BOONTA_SMB_ROM,null}
   movement: complex
   episode: game
-  reward: score
   frame_skip: 4
   num_threads: 16
   pixels: true
