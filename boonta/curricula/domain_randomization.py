@@ -4,49 +4,41 @@ import jax
 import jax.numpy as jnp
 
 from boonta.algorithms import Algorithm
-from boonta.environments.wrappers import Wrapper
+from boonta.environments.wrappers import UED, Wrapper
+from boonta.environments.wrappers.ued import UEDState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Timestep, broadcast
 from boonta.utils.typing import Environment
 
 
-class DomainRandomization(Wrapper):
+class Resample(Wrapper):
     def __init__(self, env, sample: Callable[[Key], PyTree]):
         super().__init__(env)
-        self._randomize = sample
+        self._sample = sample
 
-    def randomize(self, key: Key, env_state, obs, chosen: Array):
-        def start(state, key):
-            sample_key, update_key = jax.random.split(key)
-            return self._env.update(state, update_key, theta=self._randomize(sample_key))
+    def draw(self, key: Key) -> PyTree:
+        return jax.vmap(self._sample)(jax.random.split(key, self.num_envs))
 
-        started = jax.vmap(start)(env_state, jax.random.split(key, self.num_envs))
-
-        def select(fresh, leaf):
-            return jnp.where(broadcast(chosen, leaf), fresh, leaf)
-
-        env_state = jax.tree.map(select, started, env_state)
-        return env_state, jax.tree.map(select, self._env.observe(started), obs)
-
-    def init(self, key: Key) -> tuple[PyTree, Timestep]:
-        init_key, randomize_key = jax.random.split(key)
-        env_state, timestep = self._env.init(init_key)
-        env_state, obs = self.randomize(
-            randomize_key, env_state, timestep.obs, jnp.ones(self.num_envs, bool)
+    def init(self, key: Key) -> tuple[UEDState, Timestep]:
+        init_key, draw_key, update_key = jax.random.split(key, 3)
+        state, timestep = self._env.init(init_key)
+        state = self._env.update(
+            state,
+            update_key,
+            theta=self.draw(draw_key),
+            assign=jnp.arange(self.num_envs, dtype=jnp.int32),
         )
-        return env_state, timestep.replace(obs=obs)
+        return state, timestep
 
-    def step(self, key: Key, state: PyTree, action: Array) -> tuple[PyTree, Timestep]:
-        env_state, timestep = self._env.step(key, state, action)
+    def step(self, key: Key, state: UEDState, action: Array) -> tuple[UEDState, Timestep]:
+        state, timestep = self._env.step(key, state, action)
         done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
-        env_state, obs = jax.lax.cond(
-            done.any(),
-            lambda: self.randomize(
-                jax.random.fold_in(key, 1), env_state, timestep.obs, done
-            ),
-            lambda: (env_state, timestep.obs),
+        theta = jax.tree.map(
+            lambda fresh, leaf: jnp.where(broadcast(done, leaf), fresh, leaf),
+            self.draw(jax.random.fold_in(key, 3)),
+            state.theta,
         )
-        return env_state, timestep.replace(obs=obs)
+        return self._env.update(state, key, theta=theta), timestep
 
     def update(self, state, key, **kwargs):
         return self._env.update(state, key, **kwargs)
@@ -63,6 +55,6 @@ def domain_randomization(
     environment: Environment,
     sample: Callable[[Key], PyTree],
     **kwargs,
-) -> tuple[Algorithm, DomainRandomization, Pit, Lap]:
-    environment = DomainRandomization(environment, sample)
+) -> tuple[Algorithm, Resample, Pit, Lap]:
+    environment = Resample(UED(environment), sample)
     return algorithm, environment, lambda state: state, lambda state: state

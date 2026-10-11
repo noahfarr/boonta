@@ -24,32 +24,30 @@ def randomized(num_envs=8):
 
 
 def params(state):
-    (dial,) = [
-        leaf
-        for leaf in jax.tree.leaves(state, is_leaf=lambda leaf: hasattr(leaf, "params"))
-        if hasattr(leaf, "params")
-    ]
-    return np.asarray(dial.params)
+    return np.asarray(state.unwrapped.params)
 
 
 def test_every_environment_starts_on_its_own_draw():
     environment = randomized()
     state, _ = environment.init(jax.random.key(0))
+    state, timestep = environment.step(jax.random.key(1), state, jnp.zeros(8, jnp.int32))
     drawn = params(state)
     assert np.all((drawn >= 1.0) & (drawn < 2.0))
     assert len(np.unique(drawn)) == len(drawn)
+    assert np.asarray(timestep.truncated).all()
 
 
 def test_a_draw_lasts_its_episode_and_the_next_episode_draws_again():
     environment = randomized()
     action = jnp.zeros(8, jnp.int32)
     state, _ = environment.init(jax.random.key(0))
+    state, _ = environment.step(jax.random.key(1), state, action)
     first = params(state)
-    state, timestep = environment.step(jax.random.key(1), state, action)
+    state, timestep = environment.step(jax.random.key(2), state, action)
     assert not np.asarray(timestep.done).any()
     np.testing.assert_array_equal(params(state), first)
-    state, timestep = environment.step(jax.random.key(2), state, action)
-    assert np.asarray(timestep.done).all()
+    state, timestep = environment.step(jax.random.key(3), state, action)
+    assert np.asarray(timestep.terminated).all()
     second = params(state)
     assert np.all((second >= 1.0) & (second < 2.0))
     assert not np.any(second == first)
