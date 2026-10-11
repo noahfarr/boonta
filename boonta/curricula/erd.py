@@ -15,7 +15,7 @@ from boonta.utils.typing import Environment
 class Selector(archive_auto_reset.Selector):
     k: float = 4.0
 
-    def select(self, state, wrapper, archive_auto_reset_state, key):
+    def select(self, state, wrapper, archive_auto_reset_state, key, **context):
         eligible_mask = wrapper.archive.eligible(archive_auto_reset_state.archive_state)
         num_placed = share(self.k, wrapper.num_envs)
         return state, pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (num_placed,))

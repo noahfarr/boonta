@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 import lox
+import optax
 from flax import struct
 
 from boonta.algorithms import Algorithm
@@ -11,7 +12,7 @@ from boonta.environments.wrappers import archive_auto_reset
 from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
                                                              plant, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, Transition
+from boonta.utils import Array, Key, PyTree, Transition
 from boonta.utils.typing import Environment
 
 
@@ -346,6 +347,86 @@ class UniformRelevance:
         return jnp.ones_like(reach)
 
 
+class Diagonal:
+    def __call__(self, selector, state, wrapper, archive_auto_reset_state, **context) -> Array:
+        return selector.relevant(state) * selector.gain(state.gain)
+
+
+@dataclass
+class Kernel:
+    preconditioned: bool = True
+
+    def __call__(
+        self,
+        selector,
+        state,
+        wrapper,
+        archive_auto_reset_state,
+        transitions: Transition | None = None,
+        algorithm: Algorithm | None = None,
+        algorithm_state=None,
+        **context,
+    ) -> Array:
+        if transitions is None or algorithm is None:
+            return jnp.zeros_like(state.reach)
+        params = algorithm_state.params
+        inner = params["params"]
+
+        def policy(inner, obs):
+            dist, _ = algorithm.network.apply({**params, "params": inner}, obs, temperature=1.0)
+            return dist
+
+        direction = jax.grad(lambda inner: self.climb(selector, policy, inner, transitions))(inner)
+        if self.preconditioned:
+            direction = precondition(direction, algorithm_state.optimizer_state)
+        obs = wrapper.observe_cells(archive_auto_reset_state.archive_state)
+        present_mask = state.gain.action_counts > 0.0
+        advantages = jnp.where(present_mask, selector.gain.centre(state.gain), 0.0)
+        weight = jax.lax.stop_gradient(jnp.exp(policy(inner, obs).logits) * advantages)
+        _, aligned = jax.jvp(
+            lambda inner: jnp.sum(weight * policy(inner, obs).logits, axis=-1),
+            (inner,),
+            (direction,),
+        )
+        return jnp.where(archive_auto_reset_state.archive_state.mask, aligned, 0.0)
+
+    def climb(self, selector, policy, inner, transitions: Transition) -> Array:
+        first, second = transitions.first, transitions.second
+        values = transitions.aux["value"]
+        advantages, _ = generalized_advantage_estimation(
+            jax.tree.map(lambda leaf: leaf[:-1], transitions),
+            values[:-1],
+            values[-1],
+            gamma=selector.gain.gamma,
+            gae_lambda=selector.gain.gae_lambda,
+        )
+        rho_mask = first.info["rho"][:-1] & ~second.truncated[:-1].astype(bool)
+        log_probs = policy(inner, jax.tree.map(lambda leaf: leaf[:-1], first.obs)).log_prob(
+            second.action[:-1]
+        )
+        total = jnp.sum(jnp.where(rho_mask, jax.lax.stop_gradient(advantages) * log_probs, 0.0))
+        return total / jnp.maximum(jnp.sum(rho_mask, dtype=jnp.float32), 1.0)
+
+
+def precondition(direction: PyTree, optimizer_state: PyTree) -> PyTree:
+    adams = [
+        leaf
+        for leaf in jax.tree.leaves(
+            optimizer_state, is_leaf=lambda node: isinstance(node, optax.ScaleByAdamState)
+        )
+        if isinstance(leaf, optax.ScaleByAdamState)
+    ]
+    if not adams:
+        return direction
+    adam, *_ = adams
+    correction = 1.0 - 0.999 ** jnp.maximum(adam.count, 1)
+    return jax.tree.map(
+        lambda gradient, second: gradient / (jnp.sqrt(second / correction) + 1e-8),
+        direction,
+        adam.nu,
+    )
+
+
 def moments(value: Array, over_mask: Array) -> tuple[Array, Array]:
     count = jnp.maximum(jnp.sum(over_mask, dtype=value.dtype), 1.0)
     centre = jnp.sum(jnp.where(over_mask, value, 0.0)) / count
@@ -363,6 +444,7 @@ class Selector(archive_auto_reset.Selector):
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance
     gain: Advantage | GreedyAdvantage
+    score: Diagonal | Kernel = Diagonal()
     k: float = 4.0
     rate: float = 0.2
 
@@ -413,26 +495,28 @@ class Selector(archive_auto_reset.Selector):
             gain=self.gain.update(self.gain.forget(state.gain, wiped_mask), transitions),
         )
 
-    def select(self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key):
+    def select(
+        self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key, **context
+    ):
         archive_state = archive_auto_reset_state.archive_state
         eligible_mask = wrapper.archive.eligible(archive_state)
         num_placed = share(self.k, wrapper.num_envs)
         occupied_counts = wrapper.occupied(archive_auto_reset_state, num_placed)
-        selected_slots = self.allot(state, eligible_mask, occupied_counts, key, num_placed)
-        self.watch(state, archive_state.mask, selected_slots)
-        self.saturation(state, eligible_mask, occupied_counts, selected_slots)
+        worth = self.score(self, state, wrapper, archive_auto_reset_state, **context)
+        selected_slots = self.allot(state, worth, eligible_mask, occupied_counts, key, num_placed)
+        self.watch(state, worth, archive_state.mask, selected_slots)
+        self.saturation(state, worth, eligible_mask, occupied_counts, selected_slots)
         return state, selected_slots
 
     def allot(
         self,
         state: SelectorState,
+        worth: Array,
         eligible_mask: Array,
         occupied_counts: Array | float,
         key: Key,
         count: int,
     ) -> Array:
-        worth = self.relevant(state) * self.gain(state.gain)
-
         def choose(visits, key):
             factor = self.diminishing_factor(state, visits)
             marginal = self.footprint.pour(self.successor, state.successor, worth * factor)
@@ -457,13 +541,14 @@ class Selector(archive_auto_reset.Selector):
             self.successor, state.successor, jnp.zeros_like(state.reach) + occupied_counts
         )
 
-    def value(self, state: SelectorState, visits: Array | float = 0.0) -> Array:
-        term = self.relevant(state) * self.gain(state.gain) * self.diminishing_factor(state, visits)
+    def value(self, state: SelectorState, worth: Array, visits: Array | float = 0.0) -> Array:
+        term = worth * self.diminishing_factor(state, visits)
         return self.footprint.pour(self.successor, state.successor, term)
 
     def saturation(
         self,
         state: SelectorState,
+        worth: Array,
         eligible_mask: Array,
         occupied_counts: Array | float,
         selected_slots: Array,
@@ -473,10 +558,10 @@ class Selector(archive_auto_reset.Selector):
         restart_counts = jnp.zeros(archive_size).at[selected_slots].add(1.0)
         visits = committed + self.footprint.spill(self.successor, state.successor, restart_counts)
         scale = jnp.maximum(state.gain.scale, 1e-30)
-        before = jnp.where(eligible_mask, self.value(state, committed), -jnp.inf)
+        before = jnp.where(eligible_mask, self.value(state, worth, committed), -jnp.inf)
         best, runner_up = jax.lax.top_k(before, 2)[0]
         chosen_slot = jnp.argmax(restart_counts)
-        after = self.value(state, visits)[chosen_slot]
+        after = self.value(state, worth, visits)[chosen_slot]
         peak_visits = jnp.max(visits)
         lox.log(
             {
@@ -487,14 +572,16 @@ class Selector(archive_auto_reset.Selector):
             }
         )
 
-    def watch(self, state: SelectorState, archive_mask: Array, selected_slots: Array) -> None:
+    def watch(
+        self, state: SelectorState, worth: Array, archive_mask: Array, selected_slots: Array
+    ) -> None:
         archive_size, *_ = jnp.shape(archive_mask)
         num_cells = jnp.maximum(jnp.sum(archive_mask, dtype=jnp.float32), 1.0)
         weights = jnp.zeros(archive_size).at[selected_slots].add(
             1.0 / max(jnp.shape(selected_slots)[0], 1)
         )
         entropy = -jnp.sum(jnp.where(weights > 0.0, weights * jnp.log(weights), 0.0))
-        value = self.value(state)
+        value = self.value(state, worth)
         gain = self.gain(state.gain)
         relevance = self.relevant(state)
         lox.log(
@@ -527,7 +614,11 @@ def pit(
             jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
         )
         archive_auto_reset_state = wrapper.assign(
-            locate(state.environment_state), key, transitions
+            locate(state.environment_state),
+            key,
+            transitions,
+            algorithm=algorithm,
+            algorithm_state=state.algorithm_state,
         )
         return state.replace(
             environment_state=plant(state.environment_state, archive_auto_reset_state)

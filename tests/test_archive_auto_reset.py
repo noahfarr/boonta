@@ -69,7 +69,7 @@ def factory(fn):
 
 
 class Echo(Selector):
-    def select(self, state, wrapper, archive_auto_reset_state, key):
+    def select(self, state, wrapper, archive_auto_reset_state, key, **context):
         return state, jnp.full(4, archive_auto_reset_state.current_slots[0], jnp.int32)
 
 
