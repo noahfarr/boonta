@@ -433,3 +433,16 @@ def test_kinetix_evaluates_on_the_levels_the_dataset_reserved(tmp_path):
 
     state, _ = podracer.evaluate(state, jax.random.key(2), 4)
     podracer.close(state)
+
+
+
+@pytest.mark.parametrize("terrain", ["flat", "rough"])
+def test_the_g1_search_space_is_centered_on_its_hyperparameters(terrain):
+    from omegaconf import OmegaConf
+
+    cfg = configure("ppo", f"mujoco_playground/locomotion/g1_joystick_{terrain}_terrain")
+    assert cfg.hydra.runtime.choices.search_space == "ppo/mujoco_playground/locomotion"
+    for key, entry in cfg.search_space.items():
+        value = OmegaConf.select(cfg, key)
+        assert entry.min <= value <= entry.max, key
+        assert value == pytest.approx(entry.center), key

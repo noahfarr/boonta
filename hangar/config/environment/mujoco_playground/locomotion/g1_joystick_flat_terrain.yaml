@@ -4,3 +4,4 @@ env_id: G1JoystickFlatTerrain
 kwargs:
   config_overrides:
     impl: jax
+    action_scale: 0.5

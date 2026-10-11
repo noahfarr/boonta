@@ -9,6 +9,13 @@ from boonta.environments.wrappers import (ClipAction, NormalizeObservation,
 from boonta.networks import ActorCritic, FeatureExtractor, Gaussian, Network
 
 
+def tapered(cfg, outputs):
+    layers = []
+    for layer in range(cfg.layers):
+        layers += [nn.Dense(cfg.features // 2**layer), nn.swish]
+    return nn.Sequential([*layers, nn.Dense(outputs)])
+
+
 def make(cfg):
     env = environments.make(**cfg.environment)
     action_dim, *_ = env.action_space().shape
@@ -18,34 +25,14 @@ def make(cfg):
         feature_extractor=FeatureExtractor(
             observation_extractor=lambda obs: obs["state"]
         ),
-        head=nn.Sequential(
-            [
-                nn.Dense(512),
-                nn.swish,
-                nn.Dense(256),
-                nn.swish,
-                nn.Dense(128),
-                nn.swish,
-                nn.Dense(2 * action_dim),
-            ]
-        ),
+        head=tapered(cfg.network.actor, 2 * action_dim),
     )
 
     critic = Network(
         feature_extractor=FeatureExtractor(
             observation_extractor=lambda obs: obs["privileged_state"]
         ),
-        head=nn.Sequential(
-            [
-                nn.Dense(512),
-                nn.swish,
-                nn.Dense(256),
-                nn.swish,
-                nn.Dense(128),
-                nn.swish,
-                nn.Dense(1),
-            ]
-        ),
+        head=tapered(cfg.network.critic, 1),
     )
 
     network = ActorCritic(actor=Gaussian(actor), critic=critic)
@@ -55,7 +42,7 @@ def make(cfg):
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-            optax.adam(cfg.optimizer.lr),
+            optax.adam(cfg.optimizer.lr, b1=cfg.optimizer.b1, b2=cfg.optimizer.b2),
         ),
     )
 
