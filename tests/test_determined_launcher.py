@@ -5,8 +5,8 @@ import yaml
 
 pytest.importorskip("hydra_plugins.hydra_submitit_launcher")
 
-from hydra_plugins.hydra_determined_launcher._launcher import (  # noqa: E402
-    DeterminedExecutor, DeterminedInfoWatcher)
+from hydra_plugins.hydra_determined_launcher.launcher import (  # noqa: E402
+    DeterminedExecutor, DeterminedInfoWatcher, DeterminedSubmititLauncher)
 
 
 def test_the_watcher_describes_only_unfinished_experiments():
@@ -38,3 +38,11 @@ def test_the_submission_never_restarts_by_default(tmp_path):
     assert config["workspace"] == "space"
     assert config["resources"] == {"slots_per_trial": 1, "resource_pool": "pool"}
     assert config["entrypoint"] == "timeout -k 60 600 python run.py"
+
+
+def test_hydra_discovers_the_launcher():
+    from hydra.core.plugins import Plugins
+    from hydra.plugins.launcher import Launcher
+
+    names = [launcher.__qualname__ for launcher in Plugins.instance().discover(Launcher)]
+    assert DeterminedSubmititLauncher.__qualname__ in names
