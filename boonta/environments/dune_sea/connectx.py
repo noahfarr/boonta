@@ -2,10 +2,9 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from boonta.environments.environment import Environment
+from boonta.environments.spaces import Space
 from boonta.utils import Array, Key, Timestep
-
-from .environment import Environment
-from .spaces import Space
 
 DIRECTIONS = ((0, 1), (1, 0), (1, 1), (1, -1))
 
@@ -149,6 +148,3 @@ class Negamax:
             key, jnp.where(values == values.max(), 0.0, -jnp.inf)
         )
 
-
-def make(env_id: str = "connectx", **kwargs) -> ConnectX:
-    return ConnectX(**kwargs)

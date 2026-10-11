@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from boonta.artisans import Gauntlet
-from boonta.environments.connectx import ConnectX, ConnectXState, Negamax, uniform
+from boonta.environments.dune_sea.connectx import ConnectX, ConnectXState, Negamax, uniform
 from boonta.environments.wrappers import Opponent, Vectorize
 
 
