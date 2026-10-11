@@ -88,6 +88,21 @@ def test_resume_restores_the_whole_algorithm_state(tmp_path, build):
     assert int(resumed.algorithm_state.step) == steps + podracer.batch_size
 
 
+def test_resume_restores_states_holding_empty_arrays(tmp_path):
+    podracer = build_podracer(zoo.ppo)
+    empty = lambda state: state.replace(
+        environment_state=(state.environment_state, jnp.zeros((NUM_ENVS, 0)))
+    )
+    trained = empty(train(podracer))
+    fresh = empty(podracer.init(jax.random.key(0)))
+    save(tmp_path, trained, fields=("algorithm_state", "environment_state"))
+
+    restored = load_checkpoint(newest(tmp_path), fresh)
+
+    assert_restored(trained.environment_state, restored.environment_state)
+    assert_restored(trained.algorithm_state, restored.algorithm_state)
+
+
 @pytest.mark.parametrize(
     "fields",
     [("algorithm_state",), ("algorithm_state", "environment_state")],

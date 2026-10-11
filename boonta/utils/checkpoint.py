@@ -1,7 +1,20 @@
 import os
 from pathlib import Path
 
+import jax
 from flax import serialization
+
+
+def hollow(tree):
+    return jax.tree.map(lambda leaf: None if getattr(leaf, "size", 1) == 0 else leaf, tree)
+
+
+def refill(template, restored):
+    kept = iter(jax.tree.leaves(restored))
+    return jax.tree.unflatten(
+        jax.tree.structure(template),
+        [leaf if getattr(leaf, "size", 1) == 0 else next(kept) for leaf in jax.tree.leaves(template)],
+    )
 
 
 def newest(path, which="latest"):
@@ -42,8 +55,11 @@ def load_checkpoint(path, target=None):
         raise FileNotFoundError(f"no checkpoint items under {path}")
     return target.replace(
         **{
-            item.name: ocp.StandardCheckpointer().restore(
-                os.path.abspath(str(item)), target=getattr(target, item.name)
+            item.name: refill(
+                getattr(target, item.name),
+                ocp.StandardCheckpointer().restore(
+                    os.path.abspath(str(item)), target=hollow(getattr(target, item.name))
+                ),
             )
             for item in items
         }

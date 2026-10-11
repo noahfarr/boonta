@@ -5,6 +5,7 @@ import orbax.checkpoint as ocp
 
 from boonta.artisans import Checkpoint
 from boonta.utils import PyTree
+from boonta.utils.checkpoint import hollow
 
 
 def barriers(name: str) -> ocp.options.MultiprocessingOptions:
@@ -52,7 +53,7 @@ class OrbaxLogger:
     def bundle(self, artifact: Checkpoint):
         return ocp.args.Composite(
             **{
-                name: ocp.args.StandardSave(tree)
+                name: ocp.args.StandardSave(hollow(tree))
                 for name, tree in artifact.data.items()
             }
         )
