@@ -90,6 +90,9 @@ mujoco-playground = [
     "ml-collections",
     "playground",
 ]
+pynes = [
+    "pynes",
+]
 slurm = [
     "slurmpilot; python_full_version >= '3.12'",
     "hydra-slurmpilot-launcher; python_full_version >= '3.12'",
@@ -148,6 +151,7 @@ libero = { git = "https://github.com/Lifelong-Robot-Learning/LIBERO" }
 lox = { git = "https://github.com/huterguier/lox" }
 mapox = { git = "https://github.com/gabe00122/mapox" }
 performax = { git = "https://github.com/noahfarr/performax", rev = "f22adf27970a4bfff51d364e757e47be6b0a62ee" }
+pynes = { git = "ssh://git@github.com/noahfarr/pynes.git", rev = "150735eb55be0b0e46da226ff308cfde8fc875ac" }
 slurmpilot = { git = "https://github.com/noahfarr/slurmpilot.git", branch = "feat/spignore" }
 torch = [
     { index = "pytorch-cu128", marker = "python_full_version < '3.12'" },

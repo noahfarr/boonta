@@ -1,0 +1,13 @@
+namespace: pynes
+suite: super_mario_bros
+env_id: super_mario_bros
+num_envs: 1024
+kwargs:
+  num_envs: ${environment.num_envs}
+  rom: ${oc.env:BOONTA_SMB_ROM,null}
+  movement: complex
+  episode: game
+  frame_skip: 4
+  num_threads: 16
+  pixels: true
+  stack: 4

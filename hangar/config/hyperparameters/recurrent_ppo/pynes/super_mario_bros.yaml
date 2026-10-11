@@ -1,0 +1,43 @@
+# @package _global_
+
+total_timesteps: 50_000_000
+reward_scale: 1000.0
+
+environment:
+  num_envs: 4096
+
+podracer:
+  config:
+    mesh:
+      count: 1
+
+rollout:
+  num_steps: 64
+
+num_layers: 1
+
+cell:
+  features: 256
+  dtype: bfloat16
+
+network:
+  dtype: bfloat16
+
+algorithm:
+  num_minibatches: 8
+  update_epochs: 1
+  clip_coefficient: 0.2
+  clip_value_loss: true
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.99
+  gae_lambda: 0.95
+  normalize_advantage: true
+
+optimizer:
+  lr: 1e-3
+  anneal: true
+  alpha: 0.0
+  beta: 0.95
+  weight_decay: 0.0
+  max_grad_norm: 0.5

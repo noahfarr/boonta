@@ -1,4 +1,5 @@
 import ast
+import os
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,11 @@ def installed(*modules):
 
 def rom(path):
     return None if (ROOT / path).exists() else f"needs {path}, which is not committed"
+
+
+def supplied(variable):
+    path = os.environ.get(variable)
+    return None if path and Path(path).exists() else f"needs a ROM at ${variable}, which is not committed"
 
 
 def cached(repo_id):
@@ -169,6 +175,12 @@ CASES = [
         "recurrent_ppo",
         "peanut_gb/pokemon_red",
         rom("boonta/environments/peanut_gb/roms/pokemon_red.gb"),
+        False,
+    ),
+    (
+        "recurrent_ppo",
+        "pynes/super_mario_bros",
+        installed("pynes") or supplied("BOONTA_SMB_ROM"),
         False,
     ),
     ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
