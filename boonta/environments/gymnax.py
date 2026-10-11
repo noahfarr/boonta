@@ -30,12 +30,15 @@ class Gymnax(Environment):
         self._env = env
         self._params = params
 
-    def init(self, key: Key) -> tuple[GymnaxState, Timestep]:
-        obs, env_state = self._env.reset_env(key, self._params)
+    def reset(self, key: Key, params) -> tuple[Array, GymnaxState]:
+        obs, env_state = self._env.reset_env(key, params)
         env_state = jax.tree.map(
             lambda leaf: jnp.asarray(leaf, jnp.result_type(leaf)), env_state
         )
-        state = GymnaxState(env_state=env_state, params=self._params)
+        return obs, GymnaxState(env_state=env_state, params=params)
+
+    def init(self, key: Key) -> tuple[GymnaxState, Timestep]:
+        obs, state = self.reset(key, self._params)
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
@@ -67,6 +70,15 @@ class Gymnax(Environment):
         )
         return GymnaxState(env_state=env_state, params=state.params), timestep
 
+    def update(self, state: GymnaxState, key: Key, theta: Any = None, **kwargs) -> GymnaxState:
+        if theta is None:
+            return state
+        _, state = self.reset(key, theta)
+        return state
+
+    def observe(self, state: GymnaxState) -> Array:
+        return self._env.get_obs(state.env_state, state.params)
+
     def observation_space(self) -> Space:
         space = self._env.observation_space(self._params)
         return Space(
@@ -84,6 +96,21 @@ class Gymnax(Environment):
 
     def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
+
+
+def params_sampler(env_id, ranges, params=None, **kwargs):
+    base = make(env_id, params, **kwargs)._params
+
+    def sample(key):
+        keys = jax.random.split(key, len(ranges))
+        return base.replace(
+            **{
+                name: jax.random.uniform(key, minval=low, maxval=high)
+                for key, (name, (low, high)) in zip(keys, ranges.items())
+            }
+        )
+
+    return sample
 
 
 def make(env_id, params=None, **kwargs):

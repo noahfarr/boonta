@@ -35,7 +35,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `artisan` | `checkpointer`, `render` (needs the environment wrapped in `LogEnvState`, which no recipe on main does yet), `transcript` | none |
 | `torso`, `stack`, `cell` | recurrent network parts | set by the recurrent algorithms |
 | `buffer` | `transition`, `trajectory`, `episode`, `prioritised_episode` (the last two need `buffer.sample_sequence_length`) | set by the replay algorithms |
-| `curriculum` | `default` | `default` |
+| `curriculum` | `default`, `plr`, `domain_randomization` | `default` |
 | `dataset` | offline datasets (`minari/mujoco/expert`, `kinetix/offline_m`, `kinetix/offline_s`); a Minari dataset with `dataset.kwargs.pool_size` above 0 streams random whole episodes in pools of that many transitions | none |
 | `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
 | `search_space` | the sweepers' search spaces, `<algorithm>/<environment>` | picked like `hyperparameters` |

@@ -114,12 +114,17 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def randomized(directory):
+    return ["curriculum=domain_randomization"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
 CASES = [
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
+    ("ppo", "gymnax/classic_control/cartpole", None, randomized),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
     ("ppo", MINATAR, None, False),
@@ -147,6 +152,7 @@ CASES = [
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
     ("ppo", "mujoco_playground/locomotion/g1_joystick_flat_terrain", installed("mujoco_playground"), False),
+    ("ppo", "mujoco_playground/locomotion/g1_joystick_flat_terrain", installed("mujoco_playground"), randomized),
     ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
@@ -228,6 +234,13 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert maze.environment.num_envs == configure("recurrent_ppo", "jaxued/maze").environment.num_envs
     cartpole = configure("recurrent_ppo", "jaxued/cartpole", "curriculum=plr")
     assert cartpole.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/cartpole/plr"
+    gravity = configure("ppo", "gymnax/classic_control/cartpole", "curriculum=domain_randomization")
+    assert gravity.hydra.runtime.choices.hyperparameters == "ppo/gymnax/classic_control/cartpole/domain_randomization"
+    assert gravity.total_timesteps == configure("ppo", "gymnax/classic_control/cartpole").total_timesteps
+    g1 = configure("ppo", "mujoco_playground/locomotion/g1_joystick_rough_terrain", "curriculum=domain_randomization")
+    assert g1.hydra.runtime.choices.hyperparameters == "ppo/mujoco_playground/locomotion/domain_randomization"
+    assert g1.curriculum.sample.env_id == "G1JoystickRoughTerrain"
+    assert g1.environment.num_envs == 8192
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])

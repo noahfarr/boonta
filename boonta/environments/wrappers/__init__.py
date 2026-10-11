@@ -3,7 +3,6 @@ from .batched import Batched
 from .chunk_action import ChunkAction
 from .clip_action import ClipAction
 from .clip_reward import ClipReward
-from .domain_randomization import DomainRandomization
 from .flatten_observation import FlattenObservation
 from .group import Group, GroupState
 from .log_action import LogAction
@@ -50,7 +49,6 @@ __all__ = [
     "ChunkAction",
     "ClipAction",
     "ClipReward",
-    "DomainRandomization",
     "FlattenObservation",
     "Group",
     "GroupState",
