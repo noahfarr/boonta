@@ -11,6 +11,8 @@
   <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
 </picture>
 
+<img src="docs/agents.webp" width="100%" alt="Four agents trained with boonta's PPO play side by side: Breakout on MinAtar, Ant and HalfCheetah on Brax, and Craftax-Classic.">
+
 </div>
 
 ## Podracers

@@ -227,6 +227,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 outputs/
+runs/
 *.npz
 
 # macOS
