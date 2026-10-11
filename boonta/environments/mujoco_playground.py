@@ -1,10 +1,11 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from operator import attrgetter
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 from flax import struct
+from jax.tree_util import GetAttrKey
 
 from boonta.utils import Array, Key, PyTree, Timestep
 
@@ -18,10 +19,44 @@ class MuJoCoPlaygroundState(WrapperState):
     model: PyTree
 
 
+def shared(env) -> Callable[[tuple], bool]:
+    if env._config.get("impl") != "warp":
+        return lambda path: False
+    from mujoco.mjx._src.types import tree_path_to_attr_str
+    from mujoco.mjx.warp import types
+
+    table = types._BATCH_DIM["Data"]
+    return lambda path: path[0] == GetAttrKey("data") and not table.get(
+        tree_path_to_attr_str(path[1:]), True
+    )
+
+
 class MuJoCoPlayground(Environment):
     def __init__(self, env, fields: tuple[str, ...] = ()):
         self._env = env
         self.fields = fields
+        model = {name: attrgetter(name)(env.mjx_model) for name in fields}
+        shapes = jax.eval_shape(self.begin, jax.random.key(0), model)
+        flat, self.structure = jax.tree_util.tree_flatten_with_path(shapes)
+        scratch = shared(env)
+        self.scratch = tuple(leaf if scratch(path) else None for path, leaf in flat)
+
+    def strip(self, env_state: Any) -> Any:
+        leaves = jax.tree.leaves(env_state)
+        return jax.tree.unflatten(
+            self.structure,
+            [leaf if spare is None else None for leaf, spare in zip(leaves, self.scratch)],
+        )
+
+    def fill(self, env_state: Any) -> Any:
+        kept = iter(jax.tree.leaves(env_state))
+        return jax.tree.unflatten(
+            self.structure,
+            [
+                next(kept) if spare is None else jnp.zeros(spare.shape, spare.dtype)
+                for spare in self.scratch
+            ],
+        )
 
     def under(self, model: PyTree, fn, *args):
         base = self._env._mjx_model
@@ -31,11 +66,13 @@ class MuJoCoPlayground(Environment):
         finally:
             self._env._mjx_model = base
 
-    def start(self, key: Key, model: PyTree) -> MuJoCoPlaygroundState:
+    def begin(self, key: Key, model: PyTree) -> Any:
         env_state = self.under(model, self._env.reset, key)
         steps = jnp.zeros(key.shape[:-1], dtype=jnp.int32)
-        env_state = env_state.replace(info={**env_state.info, "steps": steps})
-        return MuJoCoPlaygroundState(env_state=env_state, model=model)
+        return env_state.replace(info={**env_state.info, "steps": steps})
+
+    def start(self, key: Key, model: PyTree) -> MuJoCoPlaygroundState:
+        return MuJoCoPlaygroundState(env_state=self.strip(self.begin(key, model)), model=model)
 
     def init(self, key: Key) -> tuple[MuJoCoPlaygroundState, Timestep]:
         model = {name: attrgetter(name)(self._env.mjx_model) for name in self.fields}
@@ -58,12 +95,12 @@ class MuJoCoPlayground(Environment):
     def step(
         self, key: Key, state: MuJoCoPlaygroundState, action: Array
     ) -> tuple[MuJoCoPlaygroundState, Timestep]:
-        env_state = self.under(state.model, self._env.step, state.env_state, action)
+        env_state = self.under(state.model, self._env.step, self.fill(state.env_state), action)
         steps = env_state.info["steps"] + 1
         terminated = env_state.done.astype(jnp.bool)
         horizon = jnp.array(self._env._config.episode_length, dtype=jnp.int32)
         truncated = (steps >= horizon) & ~terminated
-        env_state = env_state.replace(info={**env_state.info, "steps": steps})
+        env_state = self.strip(env_state.replace(info={**env_state.info, "steps": steps}))
         state = state.replace(env_state=env_state)
         timestep = Timestep(
             obs=self.observe(state),
@@ -108,7 +145,7 @@ class MuJoCoPlayground(Environment):
         camera: str | None = None,
     ) -> Array:
         frames = self._env.render(
-            [state.env_state], height=height, width=width, camera=camera
+            [self.fill(state.env_state)], height=height, width=width, camera=camera
         )
         return frames[0]
 
@@ -140,6 +177,11 @@ def make(env_id, config_overrides=None, **kwargs):
     from mujoco_playground import registry
 
     env = registry.load(env_id, config_overrides=config_overrides, **kwargs)
+    if env._config.get("impl") == "warp":
+        model = env._mjx_model
+        env._mjx_model = model.replace(
+            opt=model.opt.replace(_impl=model.opt._impl.replace(warn_overflow=0))
+        )
     randomize = registry.get_domain_randomizer(env_id)
     fields = ()
     if randomize is not None:
