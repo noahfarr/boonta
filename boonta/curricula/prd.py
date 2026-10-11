@@ -311,23 +311,22 @@ class Advantage:
 @struct.dataclass
 class SelectorState:
     successor: Successor
-    roots: Array
+    reach: Array
     gain: GainState
 
 
-class SuccessorRelevance:
+class CountedRelevance:
     def __call__(
-        self, successor: SuccessorRepresentation, table: Successor, roots: Array
+        self, successor: SuccessorRepresentation, table: Successor, reach: Array
     ) -> Array:
-        mass = successor.spill(table, roots)
-        return mass / jnp.maximum(jnp.sum(mass), 1e-12)
+        return reach / jnp.maximum(jnp.sum(reach), 1e-12)
 
 
 class UniformRelevance:
     def __call__(
-        self, successor: SuccessorRepresentation, table: Successor, roots: Array
+        self, successor: SuccessorRepresentation, table: Successor, reach: Array
     ) -> Array:
-        return jnp.ones_like(roots)
+        return jnp.ones_like(reach)
 
 
 def moments(value: Array, over_mask: Array) -> tuple[Array, Array]:
@@ -345,14 +344,15 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 class Selector(archive_auto_reset.Selector):
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
-    relevance: SuccessorRelevance | UniformRelevance
+    relevance: CountedRelevance | UniformRelevance
     gain: Advantage
     k: float = 4.0
+    rate: float = 0.2
 
     def init(self, archive_size: int, num_actions: int) -> SelectorState:
         return SelectorState(
             successor=self.successor.init(archive_size),
-            roots=jnp.zeros(archive_size),
+            reach=jnp.zeros(archive_size),
             gain=self.gain.init(archive_size, num_actions),
         )
 
@@ -361,36 +361,38 @@ class Selector(archive_auto_reset.Selector):
         leaving_slots, landing_slots = first.info["cell"], second.info["cell"]
         steps, envs = jnp.shape(leaving_slots)
         done = jnp.reshape(second.done, (steps, envs, -1)).all(axis=-1)
-        archive_size, *_ = jnp.shape(state.roots)
+        archive_size, *_ = jnp.shape(state.reach)
 
         def tread(carry, step):
-            table, roots = carry
-            leaving_slots, landing_slots, done, evicted_slots, start_mask, key = step
-            root_rows = jnp.where(start_mask & (leaving_slots >= 0), leaving_slots, archive_size)
-            roots = roots.at[root_rows].add(1.0, mode="drop")
+            table, visit_counts = carry
+            leaving_slots, landing_slots, done, evicted_slots, rho_mask, key = step
+            visit_rows = jnp.where(rho_mask & (leaving_slots >= 0), leaving_slots, archive_size)
+            visit_counts = visit_counts.at[visit_rows].add(1.0, mode="drop")
             wiped_mask = wipe(evicted_slots, archive_size)
             table = self.successor.forget(table, wiped_mask)
             table = self.successor.backup(
                 table, leaving_slots, landing_slots, ~done & (landing_slots >= 0), key
             )
-            return (table, jnp.where(wiped_mask, 0.0, roots)), wiped_mask
+            return (table, jnp.where(wiped_mask, 0.0, visit_counts)), wiped_mask
 
-        (table, roots), wiped_mask = jax.lax.scan(
+        (table, visit_counts), wiped_mask = jax.lax.scan(
             tread,
-            (state.successor, state.roots),
+            (state.successor, jnp.zeros_like(state.reach)),
             (
                 leaving_slots,
                 landing_slots,
                 done,
                 second.info["evicted"],
-                first.info["start"],
+                first.info["rho"],
                 jax.random.split(key, steps),
             ),
         )
         wiped_mask = jnp.any(wiped_mask, axis=0)
+        reach = jnp.where(wiped_mask, 0.0, (1.0 - self.rate) * state.reach)
+        reach = reach + self.rate * visit_counts
         return state.replace(
             successor=table,
-            roots=roots,
+            reach=reach,
             gain=self.gain.update(self.gain.forget(state.gain, wiped_mask), transitions),
         )
 
@@ -427,7 +429,7 @@ class Selector(archive_auto_reset.Selector):
         return selected_slots
 
     def relevant(self, state: SelectorState) -> Array:
-        return self.relevance(self.successor, state.successor, state.roots)
+        return self.relevance(self.successor, state.successor, state.reach)
 
     def diminishing_factor(self, state: SelectorState, visits: Array | float) -> Array:
         scale = state.gain.scale
@@ -435,7 +437,7 @@ class Selector(archive_auto_reset.Selector):
 
     def committed_visits(self, state: SelectorState, occupied_counts: Array | float) -> Array:
         return self.footprint.spill(
-            self.successor, state.successor, jnp.zeros_like(state.roots) + occupied_counts
+            self.successor, state.successor, jnp.zeros_like(state.reach) + occupied_counts
         )
 
     def value(self, state: SelectorState, visits: Array | float = 0.0) -> Array:
@@ -478,10 +480,8 @@ class Selector(archive_auto_reset.Selector):
         value = self.value(state)
         gain = self.gain(state.gain)
         relevance = self.relevant(state)
-        reach = self.successor.spill(state.successor, state.roots)
         lox.log(
             {
-                "archive/span": jnp.sum(reach) / jnp.maximum(jnp.sum(state.roots), 1.0),
                 "archive/noise_scale": state.gain.scale,
                 "archive/gain": jnp.sum(jnp.where(archive_mask, gain, 0.0)) / num_cells,
                 "archive/value": jnp.sum(jnp.where(archive_mask, value, 0.0)) / num_cells,
@@ -495,7 +495,7 @@ class Selector(archive_auto_reset.Selector):
                 "mu/entropy": entropy,
                 "mu/support": jnp.exp(entropy),
                 "mu/concentration": jnp.max(weights),
-                "mu/rho": jnp.sum(jnp.where(state.roots > 0.0, weights, 0.0)),
+                "mu/rho": jnp.sum(jnp.where(state.reach > 0.0, weights, 0.0)),
             }
         )
 
