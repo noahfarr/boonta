@@ -39,23 +39,23 @@ class Render:
             env_state = jax.tree.map(lambda leaf: leaf[0], env_states)
             return (algorithm_state, environment_state, timestep), env_state
 
-        (_, environment_state, _), replay = jax.lax.scan(
+        (_, environment_state, _), trajectory = jax.lax.scan(
             step,
             (algorithm_state, environment_state, timestep),
             jax.random.split(key, self.max_frames),
         )
         environment.close(environment_state)
-        return replay
+        return trajectory
 
     def craft(self, algorithm, environment, state, logs) -> Video:
         key = jax.random.fold_in(self.key, self.epoch)
         self.epoch += 1
         rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        replay = rollout(state.algorithm_state, key)
+        trajectory = rollout(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(
-                    jax.tree.map(lambda leaf: leaf[step], replay), **self.kwargs
+                    jax.tree.map(lambda leaf: leaf[step], trajectory), **self.kwargs
                 ),
                 dtype=np.uint8,
             )
