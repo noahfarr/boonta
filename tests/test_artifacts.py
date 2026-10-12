@@ -53,7 +53,7 @@ def train(podracer):
 def save(directory, state, **options):
     logger = OrbaxLogger(str(directory / "checkpoints"))
     logs = {"episode_statistics/episode_return": np.ones(4)}
-    logger.log_artifact(Checkpointer(**options).craft(None, None, state, logs), step=96)
+    logger.log_artifact(Checkpointer(**options).craft(None, None, None, state, logs), step=96)
     logger.finish()
 
 
@@ -130,9 +130,9 @@ def test_newest_resolves_a_run_directory_to_its_latest_or_best_checkpoint(tmp_pa
 def test_the_checkpointer_saves_exactly_the_fields_it_names():
     state = SimpleNamespace(algorithm_state="learned", environment_state="played")
 
-    default = Checkpointer().craft(None, None, state, {})
+    default = Checkpointer().craft(None, None, None, state, {})
     both = Checkpointer(fields=["algorithm_state", "environment_state"]).craft(
-        None, None, state, {}
+        None, None, None, state, {}
     )
 
     assert default.data == {"algorithm_state": "learned"}
@@ -143,9 +143,9 @@ def test_the_checkpointer_scores_by_mean_episode_return_unless_told_otherwise():
     state = SimpleNamespace(algorithm_state="learned")
     logs = {"episode_statistics/episode_return": np.array([1.0, np.nan, 5.0]), "bonus": [7.0]}
 
-    assert Checkpointer().craft(None, None, state, logs).score == 3.0
-    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, state, logs).score == 7.0
-    assert Checkpointer().craft(None, None, state, {}).score == float("-inf")
+    assert Checkpointer().craft(None, None, None, state, logs).score == 3.0
+    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, None, state, logs).score == 7.0
+    assert Checkpointer().craft(None, None, None, state, {}).score == float("-inf")
 
 
 def log_scores(directory, scores, **options):
@@ -220,7 +220,7 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
 
     algorithm = SimpleNamespace(step=step)
     state = SimpleNamespace(algorithm_state=None)
-    video = Render(max_frames=16).craft(algorithm, environment, state, {})
+    video = Render(max_frames=16).craft(jax.random.key(0), algorithm, environment, state, {})
 
     assert video.data.shape == (16, 160, 160, 3)
     assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1

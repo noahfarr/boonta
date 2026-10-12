@@ -10,13 +10,11 @@ class Render:
     def __init__(
         self,
         name: str = "render",
-        seed: int = 0,
         max_frames: int = 256,
         fps: int = 16,
         kwargs: dict | None = None,
     ):
         self.name = name
-        self.seed = seed
         self.max_frames = max_frames
         self.fps = fps
         self.kwargs = kwargs or {}
@@ -45,9 +43,9 @@ class Render:
         environment.close(environment_state)
         return trajectory
 
-    def craft(self, algorithm, environment, state, logs) -> Video:
+    def craft(self, key, algorithm, environment, state, logs) -> Video:
         rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        trajectory = rollout(state.algorithm_state, jax.random.key(self.seed))
+        trajectory = rollout(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(

@@ -62,7 +62,7 @@ def main(cfg):
     if jax.process_index() == 0:
         brief(cfg, state)
 
-    baseline_key, evaluate_key = jax.random.split(evaluate_key)
+    baseline_key, evaluate_key, craft_key = jax.random.split(evaluate_key, 3)
     train_keys = jax.random.split(train_key, cfg.training.num_epochs)
     evaluate_keys = jax.random.split(evaluate_key, cfg.training.num_epochs)
 
@@ -80,8 +80,9 @@ def main(cfg):
 
     def craft(state, logs, step):
         metrics = {}
-        for artisan in artisans:
-            artifact = artisan.craft(algorithm, environment, state, logs)
+        keys = jax.random.split(jax.random.fold_in(craft_key, step), max(len(artisans), 1))
+        for key, artisan in zip(keys, artisans):
+            artifact = artisan.craft(key, algorithm, environment, state, logs)
             logger.log_artifact(artifact, step)
             if isinstance(artifact, Metrics):
                 metrics |= {k: np.asarray(v).reshape(1, 1) for k, v in artifact.data.items()}
