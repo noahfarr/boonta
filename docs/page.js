@@ -50,7 +50,9 @@ function painter(context) {
   return { rect, pod };
 }
 
-const sprites = Array.from(document.querySelectorAll("canvas[data-pod]")).map((canvas) => ({ canvas, paint: painter(canvas.getContext("2d")), index: Number(canvas.dataset.pod) }));
+let sprites = [];
+const collect = () => { sprites = Array.from(document.querySelectorAll("canvas[data-pod]")).map((canvas) => ({ canvas, paint: painter(canvas.getContext("2d")), index: Number(canvas.dataset.pod) })); };
+collect();
 function draw(frame) {
   sprites.forEach(({ canvas, paint, index }) => {
     canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
@@ -59,14 +61,19 @@ function draw(frame) {
 }
 draw(0);
 const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-let visible = false, tick = 0, timer = 0;
-const racers = document.querySelector(".racers");
+const shown = new Set();
+let tick = 0, timer = 0;
 const run = () => {
   clearInterval(timer);
   timer = 0;
-  if (visible && !document.hidden && !still) timer = setInterval(() => draw(++tick), 66);
+  if (shown.size && !document.hidden && !still) timer = setInterval(() => draw(++tick), 66);
 };
-if (racers) new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; run(); }).observe(racers);
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => { if (entry.isIntersecting) shown.add(entry.target); else shown.delete(entry.target); });
+  run();
+});
+document.querySelectorAll(".racers, .pods").forEach((node) => observer.observe(node));
+window.addEventListener("figure-ready", () => { collect(); draw(tick); });
 document.addEventListener("visibilitychange", run);
 
 const copy = document.getElementById("copy");

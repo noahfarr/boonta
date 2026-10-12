@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="Distributed reinforcement learning in JAX, built on the Podracer architectures. Pick a pilot, a pod and a track and train in your browser.">
+<meta name="description" content="Distributed reinforcement learning in JAX, built on the Podracer architectures. Pick a podracer, an algorithm and a game and train in your browser.">
 <title>boonta</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="garage.css">
+<link rel="stylesheet" href="site.css">
 <script>
 (function () {
   var chosen = null;
@@ -24,7 +24,7 @@
 </head>
 <body>
 
-<header class="garage" id="garage" data-mode="garage" data-layout="scene" aria-labelledby="title">
+<header class="hero" id="hero" data-mode="idle" aria-labelledby="title">
   <div class="topbar">
     <h1 class="brandplate" id="title"><span aria-hidden="true">BOONTA</span><span class="hidden-text">boonta</span></h1>
     <div class="links">
@@ -33,67 +33,92 @@
     </div>
   </div>
 
-  <div class="view">
-    <div class="viewport" id="viewport" tabindex="0" role="group" aria-roledescription="3D garage" aria-label="Garage. Left and right arrows cycle, Enter confirms, Escape goes back a step." aria-describedby="announce">
-      <canvas id="world" aria-hidden="true"></canvas>
-      <button type="button" class="item-step" id="item-prev" aria-label="Previous in this row"></button>
-      <button type="button" class="item-step" id="item-next" aria-label="Next in this row"></button>
-    </div>
-    <p class="hidden-text" id="announce" aria-live="polite"></p>
-
-    <nav class="stepbar" aria-label="Race setup steps">
-      <button type="button" class="chip" id="step-back" aria-label="Back to the previous step">&#9664; BACK</button>
-      <ol class="steps"><li>PILOT</li><li>POD</li><li>TRACK</li></ol>
-    </nav>
-    <div class="picks" id="picks" aria-label="Build your race"></div>
-
-    <div class="card" id="card" aria-live="polite">
-      <span class="kind" id="card-kind">PILOT</span>
-      <h2 id="card-name">ANAKIN</h2>
-      <p id="card-blurb"></p>
-      <p class="warn" id="card-warn"></p>
-      <div class="summary">
-        <div><b id="pick-line">ANAKIN · PPO · CARTPOLE</b><span id="pick-detail"></span></div>
-        <button class="button" type="button" id="start">START RACE</button>
+  <div class="figure" id="figure">
+    <section class="hangar part" data-explain="The hangar holds the config and the recipe. Hydra composes the config, and the recipe builds the podracer from it." aria-label="Hangar">
+      <span class="roof">HANGAR</span>
+      <div class="box config part" data-explain="The config names the podracer, the algorithm and the environment, one line each.">
+        <span class="name">CONFIG</span>
+        <code id="config"></code>
       </div>
-      <p class="keys" aria-hidden="true"><kbd>&#8592;</kbd><kbd>&#8594;</kbd> browse <kbd>&#9166;</kbd> choose <kbd>Esc</kbd> back</p>
-    </div>
+      <span class="hydra" aria-hidden="true">Hydra <i>&#8594;</i></span>
+      <div class="box recipe part" data-explain="The recipe builds the podracer from the config. Here it compiles boonta's training step to WebAssembly and trains in your browser.">
+        <span class="name">RECIPE</span>
+        <button class="button" type="button" id="run">&#9654; RUN</button>
+        <span class="status" id="status" role="status" aria-live="polite" data-phase="idle">Ready</span>
+      </div>
+    </section>
 
-    <div class="hud" id="hud">
-      <div class="head">
-        <span class="run" id="run-name"></span>
-        <span class="status" id="status" role="status" aria-live="polite" data-phase="loading">Loading</span>
-        <p class="explain hidden-text" id="explain"></p>
-        <div class="controls">
-          <button class="button" type="button" id="stop">STOP</button>
-          <button class="button quiet" type="button" id="back">GARAGE</button>
-          <button class="button quiet" type="button" id="camera" aria-label="Change camera">CAM: CHASE</button>
+    <div class="boonta">
+      <span class="title">BOONTA</span>
+      <section class="podracer part" data-explain="The podracer owns the training loop and every device. Switching podracers is one config line." aria-labelledby="podracer-title">
+        <span class="title" id="podracer-title">PODRACER</span>
+        <div class="pods" id="pods" role="radiogroup" aria-labelledby="podracer-title"></div>
+        <div class="curriculum part" data-explain="The curriculum wraps the algorithm and the environment, and can pick the levels or opponents each update trains on.">
+          <span class="title">CURRICULUM</span>
+          <div class="inside">
+            <section class="algorithm part" data-explain="The algorithm holds the network and the optimizer. It acts on timesteps and updates on transitions, and never sees the podracer." aria-labelledby="algorithm-title">
+              <span class="title" id="algorithm-title">ALGORITHM</span>
+              <div class="slots" id="pilots" role="radiogroup" aria-labelledby="algorithm-title"></div>
+            </section>
+            <span class="exchange" aria-hidden="true">&#8644;</span>
+            <section class="environment part" data-explain="The environment is the game wrapped in auto-reset, which restarts finished episodes, and vectorize, which steps many copies at once." aria-labelledby="environment-title">
+              <span class="title" id="environment-title">ENVIRONMENT</span>
+              <div class="wrap part" data-explain="Vectorize steps many copies of the game at once."><span>Vectorize</span>
+                <div class="wrap part" data-explain="Auto-reset restarts each finished episode inside the compiled loop."><span>Auto-reset</span>
+                  <div class="wrap game part" data-explain="The game itself, a JAX environment."><span>Game</span>
+                    <canvas id="game" width="192" height="120" aria-hidden="true"></canvas>
+                  </div>
+                </div>
+              </div>
+              <div class="slots" id="tracks" role="radiogroup" aria-labelledby="environment-title"></div>
+            </section>
+            <section class="dataset part" data-explain="Offline podracers train on a dataset of recorded transitions and only touch the environment to evaluate." aria-label="Dataset">
+              <span class="title">DATASET</span>
+              <div class="tiles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </section>
+          </div>
         </div>
-      </div>
-      <div class="meter" id="meter">
-        <div class="speed"><strong id="sps">0</strong><span id="unit">STEPS / S</span></div>
-        <div class="gauge" aria-hidden="true"><i id="gauge"></i></div>
-        <dl class="readout">
-          <div><dt>UPDATE</dt><dd id="updates">0</dd></div>
-          <div><dt id="steps-label">STEPS</dt><dd id="steps">0</dd></div>
-          <div><dt>RETURN</dt><dd id="return">–</dd></div>
-          <div><dt id="extra-label">LAP</dt><dd id="extra">0</dd></div>
-        </dl>
-      </div>
-      <div class="lapboard">
-        <header><span>EPISODE RETURN</span><b id="solved-flag"></b></header>
-        <canvas id="board" role="img" aria-label="Episode return by update, with the solved line"></canvas>
-      </div>
-      <div class="monitor" id="monitor">
-        <canvas id="screen" width="192" height="120" role="img" aria-label="The greedy policy playing the track"></canvas>
-      </div>
+      </section>
+
+      <div class="finish" aria-hidden="true"></div>
+
+      <section class="stand" id="stand" aria-label="Loggers and artisans">
+        <div class="loggers part" data-explain="Loggers broadcast metrics and artifacts to files, Orbax checkpoints or Weights &amp; Biases.">
+          <span class="title">LOGGERS</span>
+          <div class="speed"><strong id="sps">0</strong><span id="unit">STEPS / S</span></div>
+          <dl class="readout">
+            <div><dt>UPDATE</dt><dd id="updates">0</dd></div>
+            <div><dt id="steps-label">STEPS</dt><dd id="steps">0</dd></div>
+            <div><dt>RETURN</dt><dd id="return">&#8211;</dd></div>
+            <div id="lag-cell" hidden><dt>LAG</dt><dd id="lag">0</dd></div>
+          </dl>
+        </div>
+        <div class="artisans part" data-explain="Artisans craft artifacts after each epoch: checkpoints, metrics and videos of the greedy policy.">
+          <span class="title">ARTISANS</span>
+          <div class="crafts">
+            <figure class="craft metrics">
+              <canvas id="board" role="img" aria-label="Episode return by update, with the solved line"></canvas>
+              <figcaption>Metrics <b id="solved-flag"></b></figcaption>
+            </figure>
+            <figure class="craft video">
+              <canvas id="screen" width="192" height="120" role="img" aria-label="The greedy policy playing the game"></canvas>
+              <figcaption>Video</figcaption>
+            </figure>
+            <figure class="craft checkpoint off" title="Checkpoints are not saved in the browser">
+              <span class="disk" aria-hidden="true"></span>
+              <figcaption>Checkpoint</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
+  <p class="caption" id="caption" aria-live="polite"></p>
 </header>
 
 <main class="page">
   <section class="intro" aria-label="About boonta">
-    <p class="lede">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>. Pick a pilot, a pod and a track above, and boonta's real training code runs in your browser.</p>
+    <p class="lede">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>. Pick a podracer, an algorithm and a game in the figure above, and boonta's real training code runs in your browser.</p>
   </section>
   <section id="podracers" aria-labelledby="podracers-title">
     <header>
@@ -127,7 +152,7 @@
     <header>
       <span class="label">SPEED</span>
       <h2 id="speed-title">Most simulators train at millions of steps per second</h2>
-      <p>The garage above runs on your CPU in WebAssembly. On a GPU the same code runs a hundred times faster.</p>
+      <p>The figure above trains on your CPU in WebAssembly. On a GPU the same code runs a hundred times faster.</p>
     </header>
     <div class="stats">
       <div class="stat" style="--tint: var(--red)"><strong>10M+</strong><span>SIMPLE GAMES</span></div>
@@ -190,8 +215,7 @@
   </footer>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script type="module" src="garage.js"></script>
+<script type="module" src="figure.js"></script>
 <script type="module" src="page.js"></script>
 </body>
 </html>
