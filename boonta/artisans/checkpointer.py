@@ -18,7 +18,7 @@ class Checkpointer:
         self.score = score or operator.itemgetter("episode_statistics/episode_return")
         self.fields = tuple(fields)
 
-    def craft(self, algorithm, environment, state, logs) -> Checkpoint:
+    def craft(self, key, algorithm, environment, state, logs) -> Checkpoint:
         parts = {field: getattr(state, field) for field in self.fields}
         if not logs:
             return Checkpoint(self.name, parts)
