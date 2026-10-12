@@ -106,6 +106,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .box { display: grid; align-content: start; justify-items: center; gap: 10px; padding: 12px 14px; border: 2px solid var(--grey); background: var(--sky); }
 .box code { font-size: 13px; line-height: 1.6; color: var(--dim); white-space: pre; text-align: left; }
 .recipe .name { color: var(--gold); }
+.recipe { grid-template-columns: auto minmax(0, auto); justify-content: center; align-items: center; column-gap: 14px; }
+.recipe .name { grid-column: 1 / -1; }
 .hydra { align-self: center; justify-self: center; font-family: var(--mono); font-size: 13px; color: var(--dim); }
 .hydra i { display: inline-block; font-style: normal; }
 .status { font-family: var(--mono); font-size: 12px; line-height: 16px; color: var(--dim); display: flex; align-items: center; gap: 8px; text-align: left; }

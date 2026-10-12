@@ -159,9 +159,8 @@ async function race() {
     const started = await start({ ...choice, seed: 0 }, {
       onStatus(update) {
         if (current !== token) return;
-        const seconds = update.compileMs ? `, compiled in ${(update.compileMs / 1000).toFixed(1)}s` : "";
         const said = update.message ? update.message.charAt(0).toUpperCase() + update.message.slice(1) : words[update.phase] || update.phase;
-        status(update.phase, update.phase === "training" ? `Training${seconds}` : said);
+        status(update.phase, update.phase === "training" ? "Training" : said);
         if (update.phase === "loading" || update.phase === "compiling") building(current, update.phase.toUpperCase());
         else stopBuilding();
         if (update.phase === "stopped" || update.phase === "error") finish();
