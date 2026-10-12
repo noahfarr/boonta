@@ -11,8 +11,6 @@
   <img src="docs/structure-light.webp" width="100%" alt="The hangar, holding the config and the recipe, stands on boonta. The recipe builds a podracer, one of Anakin, Sebulba or Quadinaros, which holds a curriculum wrapping the algorithm (network, optimizer and more) and the environment (vectorize around auto-reset around the game), plus a dataset for offline training. Past the finish line, artisans craft checkpoints and metrics and loggers record them.">
 </picture>
 
-<img src="docs/agents.webp" width="100%" alt="Four agents trained with boonta play side by side: Breakout on MinAtar, a Kinetix car, Pokémon Red and Craftax-Classic.">
-
 </div>
 
 ## Podracers
@@ -34,6 +32,8 @@
 | Multi-agent | [IPPO](https://arxiv.org/abs/2011.09533), [MAPPO](https://arxiv.org/abs/2103.01955), [MMD](https://arxiv.org/abs/2206.05825), [PSRO](https://arxiv.org/abs/1711.00832) |
 
 ## Environments
+
+<img src="docs/agents.webp" width="100%" alt="Four agents trained with boonta play side by side: Breakout on MinAtar, a Kinetix car, Pokémon Red and Craftax-Classic.">
 
 | Kind | Environments |
 | --- | --- |
