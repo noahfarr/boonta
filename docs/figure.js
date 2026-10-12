@@ -123,8 +123,11 @@ function format(value) {
 function status(phase, word, detail = "") {
   const node = $("status");
   node.dataset.phase = phase;
-  node.textContent = word;
-  node.title = detail;
+  node.textContent = detail ? `${word} ${detail}` : word;
+  if (phase !== "error") return;
+  stopBuilding();
+  drawIdle(screen, ["ERROR", "SEE BELOW"]);
+  explain("Error", detail || "The run stopped.");
 }
 
 function building(current, label) {
