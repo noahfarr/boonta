@@ -33,15 +33,19 @@
     </div>
   </div>
 
+  <section class="intro" aria-label="About boonta">
+    <p class="lede">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>. Pick a podracer, an algorithm and a game in the figure below, and boonta's real training code runs in your browser.</p>
+  </section>
+
   <div class="figure" id="figure">
-    <section class="hangar part" data-explain="The hangar holds the config and the recipe. Hydra composes the config, and the recipe builds the podracer from it." aria-label="Hangar">
+    <section class="hangar part" data-title="Hangar" data-explain="The hangar holds the config and the recipe. Hydra composes the config, and the recipe builds the podracer from it." aria-label="Hangar">
       <span class="roof">HANGAR</span>
-      <div class="box config part" data-explain="The config names the podracer, the algorithm and the environment, one line each.">
+      <div class="box config part" data-title="Config" data-explain="The config names the podracer, the algorithm and the environment, one line each.">
         <span class="name">CONFIG</span>
         <code id="config"></code>
       </div>
       <span class="hydra" aria-hidden="true">Hydra <i>&#8594;</i></span>
-      <div class="box recipe part" data-explain="The recipe builds the podracer from the config. Here it compiles boonta's training step to WebAssembly and trains in your browser.">
+      <div class="box recipe part" data-title="Recipe" data-explain="The recipe builds the podracer from the config. Here it compiles boonta's training step to WebAssembly and trains in your browser.">
         <span class="name">RECIPE</span>
         <button class="button" type="button" id="run">&#9654; RUN</button>
         <span class="status" id="status" role="status" aria-live="polite" data-phase="idle">Ready</span>
@@ -50,29 +54,29 @@
 
     <div class="boonta">
       <span class="title">BOONTA</span>
-      <section class="podracer part" data-explain="The podracer owns the training loop and every device. Switching podracers is one config line." aria-labelledby="podracer-title">
+      <section class="podracer part" data-title="Podracer" data-explain="The podracer owns the training loop and every device. Switching podracers is one config line." aria-labelledby="podracer-title">
         <span class="title" id="podracer-title">PODRACER</span>
         <div class="pods" id="pods" role="radiogroup" aria-labelledby="podracer-title"></div>
-        <div class="curriculum part" data-explain="The curriculum wraps the algorithm and the environment, and can pick the levels or opponents each update trains on.">
+        <div class="curriculum part" data-title="Curriculum" data-explain="The curriculum wraps the algorithm and the environment, and can pick the levels or opponents each update trains on.">
           <span class="title">CURRICULUM</span>
           <div class="inside">
-            <section class="algorithm part" data-explain="The algorithm holds the network and the optimizer. It acts on timesteps and updates on transitions, and never sees the podracer." aria-labelledby="algorithm-title">
+            <section class="algorithm part" data-title="Algorithm" data-explain="The algorithm holds the network and the optimizer. It acts on timesteps and updates on transitions, and never sees the podracer." aria-labelledby="algorithm-title">
               <span class="title" id="algorithm-title">ALGORITHM</span>
               <div class="slots" id="pilots" role="radiogroup" aria-labelledby="algorithm-title"></div>
             </section>
             <span class="exchange" aria-hidden="true">&#8644;</span>
-            <section class="environment part" data-explain="The environment is the game wrapped in auto-reset, which restarts finished episodes, and vectorize, which steps many copies at once." aria-labelledby="environment-title">
+            <section class="environment part" data-title="Environment" data-explain="The environment is the game wrapped in auto-reset, which restarts finished episodes, and vectorize, which steps many copies at once." aria-labelledby="environment-title">
               <span class="title" id="environment-title">ENVIRONMENT</span>
-              <div class="wrap part" data-explain="Vectorize steps many copies of the game at once."><span>Vectorize</span>
-                <div class="wrap part" data-explain="Auto-reset restarts each finished episode inside the compiled loop."><span>Auto-reset</span>
-                  <div class="wrap game part" data-explain="The game itself, a JAX environment."><span>Game</span>
+              <div class="wrap part" data-title="Vectorize" data-explain="Vectorize steps many copies of the game at once."><span>Vectorize</span>
+                <div class="wrap part" data-title="Auto-reset" data-explain="Auto-reset restarts each finished episode inside the compiled loop."><span>Auto-reset</span>
+                  <div class="wrap game part" data-title="Game" data-explain="The game itself, a JAX environment."><span>Game</span>
                     <canvas id="game" width="192" height="120" aria-hidden="true"></canvas>
                   </div>
                 </div>
               </div>
               <div class="slots" id="tracks" role="radiogroup" aria-labelledby="environment-title"></div>
             </section>
-            <section class="dataset part" data-explain="Offline podracers train on a dataset of recorded transitions and only touch the environment to evaluate." aria-label="Dataset">
+            <section class="dataset part" data-title="Dataset" data-explain="Offline podracers train on a dataset of recorded transitions and only touch the environment to evaluate." aria-label="Dataset">
               <span class="title">DATASET</span>
               <div class="tiles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
             </section>
@@ -83,9 +87,8 @@
       <div class="finish" aria-hidden="true"></div>
 
       <section class="stand" id="stand" aria-label="Loggers and artisans">
-        <div class="loggers part" data-explain="Loggers broadcast metrics and artifacts to files, Orbax checkpoints or Weights &amp; Biases.">
+        <div class="loggers part" data-title="Loggers" data-explain="Loggers broadcast metrics and artifacts to files, Orbax checkpoints or Weights &amp; Biases.">
           <span class="title">LOGGERS</span>
-          <div class="speed"><strong id="sps">0</strong><span id="unit">STEPS / S</span></div>
           <dl class="readout">
             <div><dt>UPDATE</dt><dd id="updates">0</dd></div>
             <div><dt id="steps-label">STEPS</dt><dd id="steps">0</dd></div>
@@ -93,38 +96,31 @@
             <div id="lag-cell" hidden><dt>LAG</dt><dd id="lag">0</dd></div>
           </dl>
         </div>
-        <div class="artisans part" data-explain="Artisans craft artifacts after each epoch: checkpoints, metrics and videos of the greedy policy.">
+        <div class="artisans part" data-title="Artisans" data-explain="Artisans craft checkpoints, metrics and videos of the greedy policy after each epoch.">
           <span class="title">ARTISANS</span>
           <div class="crafts">
             <figure class="craft metrics">
-              <canvas id="board" role="img" aria-label="Episode return by update, with the solved line"></canvas>
-              <figcaption>Metrics <b id="solved-flag"></b></figcaption>
+              <canvas id="board" role="img" aria-label="Episode return by update"></canvas>
+              <figcaption>Metrics</figcaption>
             </figure>
             <figure class="craft video">
               <canvas id="screen" width="192" height="120" role="img" aria-label="The greedy policy playing the game"></canvas>
               <figcaption>Video</figcaption>
-            </figure>
-            <figure class="craft checkpoint off" title="Checkpoints are not saved in the browser">
-              <span class="disk" aria-hidden="true"></span>
-              <figcaption>Checkpoint</figcaption>
             </figure>
           </div>
         </div>
       </section>
     </div>
   </div>
-  <p class="caption" id="caption" aria-live="polite"></p>
+  <p class="caption" id="caption" aria-live="polite"><b id="caption-title"></b><span id="caption-text"></span></p>
 </header>
 
 <main class="page">
-  <section class="intro" aria-label="About boonta">
-    <p class="lede">Distributed reinforcement learning in JAX, built on the <a href="https://arxiv.org/abs/2104.06272">Podracer architectures</a>. Pick a podracer, an algorithm and a game in the figure above, and boonta's real training code runs in your browser.</p>
-  </section>
   <section id="podracers" aria-labelledby="podracers-title">
     <header>
-      <span class="label">PILOTS · PODRACERS</span>
+      <span class="label">PODRACERS</span>
       <h2 id="podracers-title">Pick the pilot that fits your environment</h2>
-      <p>Each pilot is a podracer: it owns the training loop and every device. Pods (the algorithms) never see it, so switching pilots is one config line.</p>
+      <p>Each pilot is a podracer that owns the training loop and every device. The algorithms never see it, so switching pilots is one config line.</p>
     </header>
     <div class="racers">
       <article class="racer" style="--tint: var(--red)">
@@ -210,7 +206,7 @@
   </section>
 
   <footer>
-    <p><b>boonta [ˈbuːn.tə]</b>: the Boonta Eve Classic, the podrace Anakin Skywalker wins on Tatooine in <i>The Phantom Menace</i>.</p>
+    <p><b>boonta [ˈbuːn.tə]</b> is named after the Boonta Eve Classic, the podrace Anakin Skywalker wins on Tatooine in <i>The Phantom Menace</i>.</p>
     <p>Apache 2.0 licensed. Built and supported by Noah Farr, <a href="mailto:boonta@noahfarr.com">boonta@noahfarr.com</a>.</p>
   </footer>
 </main>

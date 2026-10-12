@@ -18,6 +18,10 @@ const FRAMES = {
     theta1: Math.atan2(obs[1], obs[0]),
     theta2: Math.atan2(obs[3], obs[2]),
   }),
+  pixels: (track, obs, shape) => {
+    const [height, width] = shape;
+    return { track, pixels: Uint8ClampedArray.from(obs), height, width };
+  },
   grid: (track, obs, shape) => {
     const [height, width, channels = 1] = shape;
     const grid = new Uint8Array(obs.length);

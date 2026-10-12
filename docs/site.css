@@ -1,7 +1,7 @@
 :root {
-  --sky: #000000;
-  --panel: rgb(17, 15, 14);
-  --rule: rgb(52, 48, 45);
+  --sky: rgb(24, 22, 21);
+  --panel: rgb(33, 30, 28);
+  --rule: rgb(64, 59, 55);
   --dim: rgb(150, 143, 136);
   --text: rgb(236, 236, 236);
   --red: rgb(200, 72, 72);
@@ -21,10 +21,10 @@
   --gold: var(--yellow-light);
   --accent: var(--yellow-light);
   --on-accent: rgb(0, 0, 0);
-  --plate: rgb(30, 27, 25);
-  --plate-edge: rgb(12, 10, 9);
+  --plate: rgb(40, 36, 33);
+  --plate-edge: rgb(15, 13, 12);
   --plate-text: rgb(240, 236, 228);
-  --key: rgb(58, 54, 50);
+  --key: rgb(66, 61, 57);
   --pixel: "Press Start 2P", "Courier New", monospace;
   --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -188,28 +188,21 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .stand { display: grid; gap: 18px; align-content: start; }
 .loggers { display: grid; gap: 10px; padding: 12px 14px; border: 3px solid var(--slate); background: color-mix(in srgb, var(--slate) 30%, var(--panel)); }
 .loggers > .title { color: var(--text); }
-.speed { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.speed strong { font-family: var(--pixel); font-weight: 400; font-size: 26px; line-height: 32px; color: var(--tint, var(--accent)); font-variant-numeric: tabular-nums; }
-.speed span, .readout dt, figcaption { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; line-height: 16px; color: var(--dim); }
+.readout dt, figcaption { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; line-height: 16px; color: var(--dim); }
 .readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 4px 12px; margin: 0; }
 .readout div { display: grid; gap: 2px; min-width: 0; }
 .readout div[hidden] { display: none; }
-.readout dd { margin: 0; font-family: var(--mono); font-size: 15px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.readout dd { margin: 0; font-family: var(--pixel); font-size: 15px; line-height: 22px; color: var(--tint, var(--accent)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .artisans { display: grid; gap: 10px; padding: 12px 14px; border: 3px solid var(--grey); background: color-mix(in srgb, var(--grey) 22%, var(--panel)); }
 .artisans > .title { color: var(--text); }
-.crafts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.crafts { display: grid; gap: 12px; }
 .craft { margin: 0; display: grid; gap: 6px; align-content: start; }
-.metrics { grid-column: 1 / -1; }
 .metrics canvas { display: block; width: 100%; height: 130px; background: var(--sky); }
-figcaption b { font-weight: 500; color: var(--green); margin-left: 6px; }
-.checkpoint { justify-items: center; align-content: center; }
-.checkpoint.off { opacity: 0.4; }
-.disk { width: 40px; height: 44px; background: var(--dim); clip-path: polygon(0 0, 82% 0, 100% 16%, 100% 100%, 0 100%); position: relative; }
-.disk::before { content: ""; position: absolute; left: 9px; right: 9px; top: 0; height: 14px; background: var(--sky); }
-.disk::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 5px; height: 15px; background: var(--panel); }
 
-.caption { min-height: 3.2em; max-width: 72ch; margin: 0 auto; text-align: center; font-size: 15px; line-height: 1.6; color: var(--dim); }
+.caption { min-height: 4.6em; max-width: 64ch; margin: 0 auto; display: grid; justify-items: center; gap: 6px; text-align: center; }
+#caption-title { font-family: var(--pixel); font-weight: 400; font-size: 12px; line-height: 16px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tint, var(--accent)); }
+#caption-text { font-size: 16px; line-height: 1.55; color: var(--text); text-wrap: pretty; }
 
 @media (max-width: 960px) {
   .boonta { grid-template-columns: minmax(0, 1fr); }
@@ -240,8 +233,8 @@ section { display: grid; gap: 28px; }
 .page section > header p { color: var(--dim); }
 .label { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
 .page section h2 { font-weight: 600; font-size: clamp(26px, 3.2vw, 36px); line-height: 1.2; }
-.intro { padding-top: 8px; }
-.lede { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.45; max-width: 46ch; }
+.hero .intro { display: block; text-align: center; margin: 8px 0 6px; }
+.lede { font-size: clamp(18px, 2vw, 22px); line-height: 1.5; }
 
 .racer, .stat, .terminal {
   position: relative; background: var(--plate); color: var(--plate-text); border-radius: 3px;

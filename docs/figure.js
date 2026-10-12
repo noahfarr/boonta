@@ -37,6 +37,7 @@ function slot(kind, item, parent, content) {
   button.className = kind === "podracer" ? "pod" : "slot";
   button.setAttribute("role", "radio");
   button.dataset.explain = item.blurb;
+  button.dataset.title = item.name;
   button.append(...content);
   button.addEventListener("click", () => choose(kind, item.id));
   buttons[kind][item.id] = button;
@@ -72,7 +73,7 @@ function choose(kind, id) {
   if (kind === "podracer" && !allowed("pilot", selection.pilot)) {
     selection.pilot = menu.runs.find((run) => run.podracer === id).pilot;
   }
-  explain(entry(kind, id).blurb);
+  describeItem(kind, id);
   render();
 }
 
@@ -90,21 +91,21 @@ function render() {
   hero.dataset.offline = String(offline);
   hero.style.setProperty("--tint", `var(${TINTS[selection.podracer] || "--accent"})`);
   $("config").textContent = `podracer=${selection.podracer}\nalgorithm=${selection.pilot}\nenvironment=${selection.track}`;
-  $("unit").textContent = offline ? "SAMPLES / S" : "STEPS / S";
   $("steps-label").textContent = offline ? "SAMPLES" : "STEPS";
   $("lag-cell").hidden = selection.podracer !== "sebulba";
   if (!handle) drawBanner(game, entry("track", selection.track));
   paintBoard();
 }
 
-function explain(text) {
-  $("caption").textContent = text || "";
+function explain(title, text) {
+  $("caption-title").textContent = title || "";
+  $("caption-text").textContent = text || "";
 }
+const describeItem = (kind, id) => explain(entry(kind, id).name, entry(kind, id).blurb);
 
 function paintBoard() {
   if (document.hidden) return;
-  const run = fits(selection);
-  drawBoard(board, points, run ? run.solved : 1, { rule: css("--rule"), dim: css("--dim"), green: css("--green"), line: css("--accent"), dot: css("--orange") });
+  drawBoard(board, points, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
 }
 
 function format(value) {
@@ -135,9 +136,8 @@ function stopBuilding() { clearInterval(buildTimer); buildTimer = 0; }
 
 function reset() {
   points = [];
-  ["sps", "updates", "steps", "lag"].forEach((id) => { $(id).textContent = "0"; });
+  ["updates", "steps", "lag"].forEach((id) => { $(id).textContent = "0"; });
   $("return").textContent = "–";
-  $("solved-flag").textContent = "";
 }
 
 async function race() {
@@ -159,8 +159,9 @@ async function race() {
     const started = await start({ ...choice, seed: 0 }, {
       onStatus(update) {
         if (current !== token) return;
-        const seconds = update.compileMs ? ` · compiled in ${(update.compileMs / 1000).toFixed(1)}s` : "";
-        status(update.phase, `${words[update.phase] || update.phase}${update.phase === "training" ? seconds : update.message ? `: ${update.message}` : ""}`);
+        const seconds = update.compileMs ? `, compiled in ${(update.compileMs / 1000).toFixed(1)}s` : "";
+        const said = update.message ? update.message.charAt(0).toUpperCase() + update.message.slice(1) : words[update.phase] || update.phase;
+        status(update.phase, update.phase === "training" ? `Training${seconds}` : said);
         if (update.phase === "loading" || update.phase === "compiling") building(current, update.phase.toUpperCase());
         else stopBuilding();
         if (update.phase === "stopped" || update.phase === "error") finish();
@@ -169,14 +170,10 @@ async function race() {
         if (current !== token) return;
         if (Number.isFinite(update.episodeReturn)) points.push({ update: update.update, value: update.episodeReturn });
         if (points.length > 2000) points.splice(0, points.length - 2000);
-        $("sps").textContent = format(update.sps);
         $("updates").textContent = String(update.update);
         $("steps").textContent = format(update.steps);
         if (Number.isFinite(update.episodeReturn)) $("return").textContent = format(update.episodeReturn);
         if (update.lag !== undefined) $("lag").textContent = String(update.lag);
-        const recent = points.slice(-8).map((point) => point.value);
-        const mean = recent.reduce((sum, value) => sum + value, 0) / Math.max(1, recent.length);
-        if (recent.length >= 4 && mean >= run.solved) $("solved-flag").textContent = "SOLVED";
         paintBoard();
       },
       onFrame(frame) {
@@ -188,7 +185,7 @@ async function race() {
     handle = started;
   } catch (error) {
     if (current !== token) return;
-    status("error", `Error: ${error.message || error}`);
+    status("error", `Error ${error.message || error}`);
     finish();
   }
 }
@@ -216,12 +213,12 @@ function theme() {
   const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
   root.dataset.resolved = next === "auto" ? (prefersLight ? "light" : "dark") : next;
   try { if (next === "auto") localStorage.removeItem("boonta-theme"); else localStorage.setItem("boonta-theme", next); } catch (error) {}
-  $("theme").textContent = `THEME: ${next.toUpperCase()}`;
+  $("theme").textContent = `THEME ${next.toUpperCase()}`;
   paintBoard();
 }
 
 function boot() {
-  $("theme").textContent = `THEME: ${(document.documentElement.dataset.theme || "auto").toUpperCase()}`;
+  $("theme").textContent = `THEME ${(document.documentElement.dataset.theme || "auto").toUpperCase()}`;
   $("theme").addEventListener("click", theme);
   if (demo) {
     const badge = document.createElement("span");
@@ -237,11 +234,11 @@ function boot() {
   const figure = $("figure");
   const describe = (event) => {
     const part = event.target.closest("[data-explain]");
-    if (part && figure.contains(part)) explain(part.dataset.explain);
+    if (part && figure.contains(part)) explain(part.dataset.title, part.dataset.explain);
   };
   figure.addEventListener("pointerover", describe);
   figure.addEventListener("focusin", describe);
-  explain(entry("podracer", selection.podracer).blurb);
+  describeItem("podracer", selection.podracer);
   window.matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
     if (document.documentElement.dataset.theme !== "auto") return;
     document.documentElement.dataset.resolved = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";

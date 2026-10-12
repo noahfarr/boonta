@@ -103,6 +103,35 @@ function unknown(draw, frame, box) {
   entries.forEach(([key, value], index) => draw.text(`${key} ${value.toFixed(2)}`, box.x + 6, box.y + 6 + index * 12, INK.text));
 }
 
+function pixels(context, frame, box) {
+  const { width, height } = frame;
+  const image = new ImageData(width, height);
+  for (let i = 0, j = 0; i < width * height; i++, j += 3) {
+    image.data[i * 4] = frame.pixels[j];
+    image.data[i * 4 + 1] = frame.pixels[j + 1];
+    image.data[i * 4 + 2] = frame.pixels[j + 2];
+    image.data[i * 4 + 3] = 255;
+  }
+  const scale = Math.min(box.w / width, box.h / height);
+  const w = Math.floor(width * scale), h = Math.floor(height * scale);
+  const sprite = new OffscreenCanvas(width, height);
+  sprite.getContext("2d").putImageData(image, 0, 0);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(sprite, box.x + (box.w - w) / 2, box.y + (box.h - h) / 2, w, h);
+}
+
+function kinetix(draw, box) {
+  const floor = box.y + box.h - 12;
+  draw.rect(box.x, box.y, box.w, box.h, "rgb(240, 240, 236)");
+  draw.rect(box.x, floor, box.w, 12, "rgb(80, 80, 80)");
+  const cx = box.x + box.w * 0.34;
+  draw.rect(cx - 16, floor - 12, 32, 7, INK.green);
+  draw.rect(cx - 18, floor - 8, 8, 8, "rgb(150, 150, 150)");
+  draw.rect(cx + 10, floor - 8, 8, 8, "rgb(150, 150, 150)");
+  draw.rect(box.x + box.w * 0.55, floor - 10, 9, 10, "rgb(232, 100, 100)");
+  draw.rect(box.x + box.w * 0.78, floor - 12, 12, 12, INK.blue);
+}
+
 export function drawFrame(canvas, frame, label) {
   const context = canvas.getContext("2d");
   const draw = pen(context);
@@ -115,7 +144,8 @@ export function drawFrame(canvas, frame, label) {
     draw.text("NO SIGNAL", width / 2, height / 2 - 4, INK.dim, "center");
     return;
   }
-  if (frame.grid) grid(draw, frame, box);
+  if (frame.pixels) pixels(context, frame, box);
+  else if (frame.grid) grid(draw, frame, box);
   else if (typeof frame.theta1 === "number") acrobot(draw, frame, box);
   else if (typeof frame.theta === "number") cartpole(draw, frame, box);
   else unknown(draw, frame, box);
@@ -150,6 +180,15 @@ const ICONS = {
 };
 
 export function drawBanner(canvas, track) {
+  if (track.frame === "pixels") {
+    const context = canvas.getContext("2d");
+    const draw = pen(context);
+    draw.rect(0, 0, canvas.width, canvas.height, INK.back);
+    draw.rect(0, 0, canvas.width, 13, INK.frame);
+    draw.text(track.name.toUpperCase(), 4, 3, INK.text);
+    kinetix(draw, { x: 4, y: 16, w: canvas.width - 8, h: canvas.height - 20 });
+    return;
+  }
   const icon = ICONS[track.id];
   if (icon) {
     drawFrame(canvas, icon, track.name);
@@ -163,7 +202,7 @@ export function drawBanner(canvas, track) {
   draw.text(track.name.slice(0, 1).toUpperCase(), canvas.width / 2, canvas.height / 2 - 8, INK.yellow, "center", 24);
 }
 
-export function drawBoard(canvas, points, solved, colors) {
+export function drawBoard(canvas, points, colors, range) {
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = canvas.clientWidth || 300, height = canvas.clientHeight || 140;
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -177,8 +216,16 @@ export function drawBoard(canvas, points, solved, colors) {
   const plot = { x: pad.left, y: pad.top, w: width - pad.left - pad.right, h: height - pad.top - pad.bottom };
   const finite = points.filter((point) => Number.isFinite(point.value));
   const values = finite.map((point) => point.value);
-  let low = Math.min(0, ...values), high = Math.max(solved * 1.08, ...values);
-  if (high - low < 1e-6) high = low + 1;
+  let low = Math.min(0, ...values), high = Math.max(0, ...values);
+  if (range) {
+    low = Math.min(range[0], low);
+    high = Math.max(range[1], high);
+  } else {
+    if (high - low < 1e-6) high = low + 1;
+    const step = 10 ** Math.floor(Math.log10(high - low));
+    low = Math.floor(low / step) * step;
+    high = Math.ceil(high / step) * step;
+  }
   const last = points.length ? points[points.length - 1].update : 1;
   const first = points.length ? points[0].update : 0;
   const span = Math.max(20, last - first);
@@ -200,17 +247,6 @@ export function drawBoard(canvas, points, solved, colors) {
   context.fillText(format(high), plot.x - 6, sy(high) + 4);
   context.textAlign = "left";
   context.fillText(`update ${last}`, plot.x, plot.y + plot.h + 11);
-  const solvedY = Math.round(sy(solved)) + 0.5;
-  context.strokeStyle = colors.green;
-  context.setLineDash([4, 3]);
-  context.beginPath();
-  context.moveTo(plot.x, solvedY);
-  context.lineTo(plot.x + plot.w, solvedY);
-  context.stroke();
-  context.setLineDash([]);
-  context.fillStyle = colors.green;
-  context.textAlign = "right";
-  context.fillText(`solved ${format(solved)}`, plot.x + plot.w, solvedY - 8);
   context.fillStyle = colors.dot;
   finite.forEach((point) => context.fillRect(Math.round(sx(point.update)) - 1, Math.round(sy(point.value)) - 1, 2, 2));
   if (finite.length > 1) {
