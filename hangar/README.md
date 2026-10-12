@@ -32,7 +32,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `environment` | paths under `config/environment/`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
 | `podracer` | `anakin` (on-policy), `sebulba` (actor/learner split), `quadinaros` (offline) | `anakin` |
 | `logger` | `dashboard`, `file`, `wandb`, `orbax` | `dashboard` |
-| `artisan` | `checkpointer`, `render` (draws the first environment through each evaluation as a GIF; needs `evaluation.num_steps` and an environment with `render`), `transcript` | none |
+| `artisan` | `checkpointer`, `render` (plays the first environment greedily each epoch and draws it as a GIF; needs an environment with `render`), `transcript` | none |
 | `torso`, `stack`, `cell` | recurrent network parts | set by the recurrent algorithms |
 | `buffer` | `transition`, `trajectory`, `episode`, `prioritised_episode` (the last two need `buffer.sample_sequence_length`) | set by the replay algorithms |
 | `curriculum` | `default` | `default` |
@@ -46,7 +46,7 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 
 ## Recipes
 
-`recipes.make(cfg)` picks the recipe registered for `(algorithm, environment namespace, suite)` in `recipes/__init__.py`. The algorithm name is the group choice (`algorithm=...`), not a field of the config. A recipe returns the algorithm, the environment and any extra podracer arguments, and `make` hands them to the podracer. With the `render` artisan, `make` first wraps the environment in `LogEnvState`, which logs the first environment's game state through each evaluation. [`recipes/README.md`](recipes/README.md) shows how to write one.
+`recipes.make(cfg)` picks the recipe registered for `(algorithm, environment namespace, suite)` in `recipes/__init__.py`. The algorithm name is the group choice (`algorithm=...`), not a field of the config. A recipe returns the algorithm, the environment and any extra podracer arguments, and `make` hands them to the podracer. [`recipes/README.md`](recipes/README.md) shows how to write one.
 
 ## Sweeps
 

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
-import lox
 import numpy as np
 import pytest
 from flax import struct
@@ -19,7 +18,6 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Video
-from boonta.environments.wrappers import LogEnvState
 from boonta.utils import load_checkpoint, newest, sharded
 from dummies import corridor
 from hangar.brief import brief
@@ -209,25 +207,20 @@ def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
     assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
 
 
-def test_the_render_artisan_draws_one_environment_of_a_rollout():
+def test_the_render_artisan_plays_and_draws_the_first_environment():
     from boonta.environments import gymnax
 
-    environment = LogEnvState(zoo.wrap(gymnax.make("Breakout-MinAtar"), NUM_ENVS))
+    environment = zoo.wrap(gymnax.make("Breakout-MinAtar"), NUM_ENVS)
     space = environment.action_space()
     num_actions = space.num_actions
 
-    @lox.spool
-    def rollout(key):
-        def step(state, key):
-            action = jax.random.randint(key, (NUM_ENVS,), 0, num_actions, space.dtype)
-            state, _ = environment.step(key, state, action)
-            return state, None
+    def step(state, key, timestep, temperature=1.0):
+        action = jax.random.randint(key, (NUM_ENVS,), 0, num_actions, space.dtype)
+        return state, action, {}
 
-        state, _ = environment.init(key)
-        return jax.lax.scan(step, state, jax.random.split(key, 20))
-
-    _, logs = rollout(jax.random.key(0))
-    video = Render(max_frames=16).craft(None, environment, None, logs)
+    algorithm = SimpleNamespace(step=step)
+    state = SimpleNamespace(algorithm_state=None)
+    video = Render(max_frames=16).craft(algorithm, environment, state, {})
 
     assert video.data.shape == (16, 160, 160, 3)
     assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1
