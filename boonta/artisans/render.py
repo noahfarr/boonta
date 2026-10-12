@@ -16,11 +16,10 @@ class Render:
         kwargs: dict | None = None,
     ):
         self.name = name
-        self.key = jax.random.key(seed)
+        self.seed = seed
         self.max_frames = max_frames
         self.fps = fps
         self.kwargs = kwargs or {}
-        self.epoch = 0
 
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
@@ -35,8 +34,7 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            env_states = getattr(environment_state, "unwrapped", environment_state)
-            env_state = jax.tree.map(lambda leaf: leaf[0], env_states)
+            env_state = jax.tree.map(lambda leaf: leaf[0], environment_state)
             return (algorithm_state, environment_state, timestep), env_state
 
         (_, environment_state, _), trajectory = jax.lax.scan(
@@ -48,10 +46,8 @@ class Render:
         return trajectory
 
     def craft(self, algorithm, environment, state, logs) -> Video:
-        key = jax.random.fold_in(self.key, self.epoch)
-        self.epoch += 1
         rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        trajectory = rollout(state.algorithm_state, key)
+        trajectory = rollout(state.algorithm_state, jax.random.key(self.seed))
         frames = [
             np.asarray(
                 environment.render(
