@@ -11,11 +11,13 @@ class Render:
         seed: int = 0,
         max_frames: int = 256,
         fps: int = 16,
+        kwargs: dict | None = None,
     ):
         self.name = name
         self.seed = seed
         self.max_frames = max_frames
         self.fps = fps
+        self.kwargs = kwargs or {}
 
     def craft(self, algorithm, environment, state, logs) -> Video:
         states = logs["env_state"]
@@ -23,7 +25,9 @@ class Render:
         steps = min(len(example), self.max_frames)
         frames = [
             np.asarray(
-                environment.render(jax.tree.map(lambda leaf: leaf[step], states)),
+                environment.render(
+                    jax.tree.map(lambda leaf: leaf[step], states), **self.kwargs
+                ),
                 dtype=np.uint8,
             )
             for step in range(steps)

@@ -136,6 +136,7 @@ overrides = [
     { name = "huggingface-hub", specifier = ">=1.24.0" },
     { name = "jax", extras = ["cpu"], marker = "sys_platform == 'darwin'", specifier = ">=0.10.2,<0.11" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux'", specifier = ">=0.10.2,<0.11" },
+    { name = "jax2d", specifier = ">=1.0.2" },
     { name = "jaxtyping", specifier = ">=0.3.5" },
     { name = "mujoco", specifier = ">=3.3" },
     { name = "numpy", specifier = ">=2.0" },
@@ -5756,7 +5757,7 @@ wheels = [
 
 [[package]]
 name = "jax2d"
-version = "1.0.1"
+version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "flax" },
@@ -5764,9 +5765,9 @@ dependencies = [
     { name = "jax", marker = "sys_platform == 'darwin' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
     { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/5d/d4bd74535d15501dc7a2fcb4c9ead70ed9ac7fab5941c1c667d8826459c9/jax2d-1.0.1.tar.gz", hash = "sha256:ea07e0b3d44a2327af181295151bca0a27d52f8f7c82e96b71557b1135593635", size = 24601, upload-time = "2025-01-27T11:32:23.555Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/5b/1046bdf4773207ba3ee4ba31c3077427bc6fb10389172bdbdba6771b428c/jax2d-1.0.2.tar.gz", hash = "sha256:cf3b9dce5845f177e31c0830e6afcbda4eb18f686a86f9e3dfec15f682c78133", size = 24530, upload-time = "2026-04-20T08:59:50.753Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/6a/0c3c02436165f5a37fb4ab8ca1cbae759802b78b9ab1cab89b0fde3640ef/jax2d-1.0.1-py3-none-any.whl", hash = "sha256:ee96cad444304f61199b9b5fbca64b19a6e10f9b8c6bac7d7b6a7edec4d34245", size = 23804, upload-time = "2025-01-27T11:32:21.675Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/1e/621adb89a29cea85c479fefa5fa0110251dec11d046ac1905eb0d972ca9e/jax2d-1.0.2-py3-none-any.whl", hash = "sha256:7eec20669461e6da4b3e5673a93376d48fa2806422361d07462fbbe36d0b27cb", size = 23836, upload-time = "2026-04-20T08:59:49.388Z" },
 ]
 
 [[package]]
