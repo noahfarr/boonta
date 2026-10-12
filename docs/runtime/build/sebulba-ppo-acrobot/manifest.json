@@ -851,7 +851,7 @@
    ],
    [
     [
-     2
+     2048
     ],
     "float32"
    ]
@@ -1348,6 +1348,7 @@
   "learning_rate": 0.001,
   "anneal": 600000,
   "width": 64,
-  "entropy": 0.01
+  "entropy": 0.01,
+  "activation": "tanh"
  }
 }

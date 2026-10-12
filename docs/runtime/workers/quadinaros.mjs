@@ -34,7 +34,9 @@ onmessage = guard(async ({ base, seed }) => {
   let lastEvaluation = performance.now();
   for (let counter = 1; ; counter++) {
     const started = performance.now();
-    state = call(fit, [...state, ...dataset, key(seed, counter)]);
+    const out = call(fit, [...state, ...dataset, key(seed, counter)]);
+    state = out.slice(0, manifest.num_state);
+    const losses = manifest.loss ? out[manifest.num_state] : null;
     const ms = performance.now() - started;
     postMessage({ type: "params", leaves: pick(state, manifest.params) });
     let summary = null;
@@ -42,7 +44,7 @@ onmessage = guard(async ({ base, seed }) => {
       summary = call(evaluate, [...state, key(seed ^ 0x2545f491, counter)])[0];
       lastEvaluation = performance.now();
     }
-    postMessage({ type: "updates", updates, batchSize: manifest.batch_size, summary, ms });
+    postMessage({ type: "updates", updates, batchSize: manifest.batch_size, summary, losses, ms });
     await tick();
   }
 });
