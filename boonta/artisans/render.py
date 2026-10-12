@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax
 import numpy as np
 
@@ -19,42 +21,37 @@ class Render:
         self.fps = fps
         self.kwargs = kwargs or {}
         self.epoch = 0
-        self.play = None
 
-    def rollout(self, algorithm, environment):
-        def play(algorithm_state, key):
-            init_key, key = jax.random.split(key)
-            environment_state, timestep = environment.init(init_key)
+    def play(self, algorithm, environment, algorithm_state, key):
+        init_key, key = jax.random.split(key)
+        environment_state, timestep = environment.init(init_key)
 
-            def step(carry, key):
-                algorithm_state, environment_state, timestep = carry
-                algorithm_key, environment_key = jax.random.split(key)
-                algorithm_state, action, _ = algorithm.step(
-                    algorithm_state, algorithm_key, timestep, temperature=0.0
-                )
-                environment_state, timestep = environment.step(
-                    environment_key, environment_state, action
-                )
-                game = getattr(environment_state, "unwrapped", environment_state)
-                first = jax.tree.map(lambda leaf: leaf[0], game)
-                return (algorithm_state, environment_state, timestep), first
-
-            (_, environment_state, _), games = jax.lax.scan(
-                step,
-                (algorithm_state, environment_state, timestep),
-                jax.random.split(key, self.max_frames),
+        def step(carry, key):
+            algorithm_state, environment_state, timestep = carry
+            algorithm_key, environment_key = jax.random.split(key)
+            algorithm_state, action, _ = algorithm.step(
+                algorithm_state, algorithm_key, timestep, temperature=0.0
             )
-            environment.close(environment_state)
-            return games
+            environment_state, timestep = environment.step(
+                environment_key, environment_state, action
+            )
+            game = getattr(environment_state, "unwrapped", environment_state)
+            first = jax.tree.map(lambda leaf: leaf[0], game)
+            return (algorithm_state, environment_state, timestep), first
 
-        return jax.jit(play)
+        (_, environment_state, _), games = jax.lax.scan(
+            step,
+            (algorithm_state, environment_state, timestep),
+            jax.random.split(key, self.max_frames),
+        )
+        environment.close(environment_state)
+        return games
 
     def craft(self, algorithm, environment, state, logs) -> Video:
-        if self.play is None:
-            self.play = self.rollout(algorithm, environment)
         key = jax.random.fold_in(self.key, self.epoch)
         self.epoch += 1
-        games = self.play(state.algorithm_state, key)
+        play = jax.jit(partial(self.play, algorithm, environment))
+        games = play(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(
