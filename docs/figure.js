@@ -150,7 +150,8 @@ async function race() {
   const label = entry("track", choice.track).name;
   reset();
   hero.dataset.mode = "race";
-  $("run").textContent = "■ STOP";
+  $("run").textContent = "STOP";
+  $("run").dataset.state = "race";
   handle = { stop() {} };
   render();
   building(current, "LOADING");
@@ -196,7 +197,8 @@ function finish() {
   handle = null;
   stopBuilding();
   hero.dataset.mode = "idle";
-  $("run").textContent = "▶ RUN";
+  $("run").textContent = "RUN";
+  $("run").dataset.state = "idle";
   render();
 }
 
