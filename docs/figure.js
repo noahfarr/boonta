@@ -25,7 +25,7 @@ const menu = await catalog();
 const first = menu.runs[0];
 const selection = { podracer: first.podracer, pilot: first.pilot, track: first.track };
 const buttons = { podracer: {}, pilot: {}, track: {} };
-let handle = null, token = 0, points = [], dots = [], buildTimer = 0;
+let handle = null, token = 0, episodes = [], ended = 0, buildTimer = 0;
 
 const entry = (kind, id) => menu[KINDS[kind]].find((item) => item.id === id);
 const fits = (choice) => menu.runs.find((run) => run.podracer === choice.podracer && run.pilot === choice.pilot && run.track === choice.track);
@@ -105,7 +105,7 @@ const describeItem = (kind, id) => explain(entry(kind, id).name, entry(kind, id)
 
 function paintBoard() {
   if (document.hidden) return;
-  drawBoard(board, points, dots, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
+  drawBoard(board, episodes, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
 }
 
 function format(value) {
@@ -136,8 +136,8 @@ function building(current, label) {
 function stopBuilding() { clearInterval(buildTimer); buildTimer = 0; }
 
 function reset() {
-  points = [];
-  dots = [];
+  episodes = [];
+  ended = 0;
   ["updates", "steps", "lag"].forEach((id) => { $(id).textContent = "0"; });
   $("return").textContent = "–";
 }
@@ -169,10 +169,8 @@ async function race() {
       },
       onUpdate(update) {
         if (current !== token) return;
-        if (Number.isFinite(update.episodeReturn)) points.push({ update: update.update, value: update.episodeReturn });
-        (update.episodes || []).forEach((value) => dots.push({ update: update.update, value }));
-        if (points.length > 20000) points.splice(0, points.length - 20000);
-        if (dots.length > 20000) dots.splice(0, dots.length - 20000);
+        (update.episodes || []).forEach((value) => episodes.push({ episode: ++ended, value }));
+        if (episodes.length > 20000) episodes.splice(0, episodes.length - 20000);
         $("updates").textContent = String(update.update);
         $("steps").textContent = format(update.steps);
         if (Number.isFinite(update.episodeReturn)) $("return").textContent = format(update.episodeReturn);

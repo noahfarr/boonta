@@ -202,7 +202,7 @@ export function drawBanner(canvas, track) {
   draw.text(track.name.slice(0, 1).toUpperCase(), canvas.width / 2, canvas.height / 2 - 8, INK.yellow, "center", 24);
 }
 
-export function drawBoard(canvas, points, dots, colors, range) {
+export function drawBoard(canvas, episodes, colors, range) {
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = canvas.clientWidth || 300, height = canvas.clientHeight || 140;
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -214,9 +214,11 @@ export function drawBoard(canvas, points, dots, colors, range) {
   context.clearRect(0, 0, width, height);
   const pad = { left: 38, right: 8, top: 10, bottom: 18 };
   const plot = { x: pad.left, y: pad.top, w: width - pad.left - pad.right, h: height - pad.top - pad.bottom };
-  const finite = points.filter((point) => Number.isFinite(point.value));
-  const values = [...finite, ...dots].map((point) => point.value);
-  let low = Math.min(0, ...values), high = Math.max(0, ...values);
+  let low = 0, high = 0;
+  for (const point of episodes) {
+    low = Math.min(low, point.value);
+    high = Math.max(high, point.value);
+  }
   if (range) {
     low = Math.min(range[0], low);
     high = Math.max(range[1], high);
@@ -226,11 +228,10 @@ export function drawBoard(canvas, points, dots, colors, range) {
     low = Math.floor(low / step) * step;
     high = Math.ceil(high / step) * step;
   }
-  const updates = [...points, ...dots].map((point) => point.update);
-  const first = updates.length ? Math.min(...updates) : 0;
-  const last = updates.length ? Math.max(...updates) : 1;
+  const first = episodes.length ? episodes[0].episode : 0;
+  const last = episodes.length ? episodes[episodes.length - 1].episode : 0;
   const span = Math.max(20, last - first);
-  const sx = (update) => plot.x + ((update - first) / span) * plot.w;
+  const sx = (episode) => plot.x + ((episode - first) / span) * plot.w;
   const sy = (value) => plot.y + plot.h - ((value - low) / (high - low)) * plot.h;
   context.font = '11px "IBM Plex Mono", ui-monospace, monospace';
   context.textBaseline = "middle";
@@ -242,28 +243,28 @@ export function drawBoard(canvas, points, dots, colors, range) {
   context.lineTo(plot.x + 0.5, plot.y + plot.h + 0.5);
   context.lineTo(plot.x + plot.w, plot.y + plot.h + 0.5);
   context.stroke();
-  const format = (value) => Math.abs(value) >= 100 ? value.toFixed(0) : Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1);
+  const format = (value) => Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1);
   context.fillStyle = colors.dim;
   context.fillText(format(low), plot.x - 6, sy(low));
   context.fillText(format(high), plot.x - 6, sy(high) + 4);
   context.textAlign = "left";
-  context.fillText(`update ${last}`, plot.x, plot.y + plot.h + 11);
+  context.fillText(`episode ${last}`, plot.x, plot.y + plot.h + 11);
   context.fillStyle = colors.dot;
   context.globalAlpha = 0.45;
-  dots.forEach((point) => context.fillRect(Math.round(sx(point.update)) - 1, Math.round(sy(point.value)) - 1, 2, 2));
+  episodes.forEach((point) => context.fillRect(Math.round(sx(point.episode)) - 1, Math.round(sy(point.value)) - 1, 2, 2));
   context.globalAlpha = 1;
-  if (finite.length > 1) {
+  if (episodes.length > 1) {
     context.strokeStyle = colors.line;
     context.lineWidth = 2;
     context.beginPath();
-    const window = Math.max(8, Math.round(finite.length / 60));
+    const window = Math.max(8, Math.round(episodes.length / 40));
     let sum = 0;
     const recent = [];
-    finite.forEach((point, index) => {
+    episodes.forEach((point, index) => {
       recent.push(point.value);
       sum += point.value;
       if (recent.length > window) sum -= recent.shift();
-      const x = sx(point.update), y = sy(sum / recent.length);
+      const x = sx(point.episode), y = sy(sum / recent.length);
       if (index === 0) context.moveTo(x, y);
       else context.lineTo(x, y);
     });
