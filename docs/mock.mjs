@@ -8,13 +8,13 @@ const CATALOG = {
     { id: "ppo", name: "PPO", blurb: "Clipped policy gradients with a learned value baseline. The dependable default." },
     { id: "pqn", name: "PQN", blurb: "Q-learning over many parallel environments, with no replay buffer and no target network." },
     { id: "dqn", name: "DQN", blurb: "Q-learning from a replay buffer with a slowly updated target network." },
-    { id: "bc", name: "BC", blurb: "Behavior cloning: copies the actions in the recorded data." },
-    { id: "iql", name: "IQL", blurb: "Implicit Q-learning: offline RL that never asks about actions outside the data." },
+    { id: "bc", name: "BC", blurb: "Behavior cloning copies the actions in the recorded data." },
+    { id: "iql", name: "IQL", blurb: "Implicit Q-learning is offline RL that never asks about actions outside the data." },
   ],
   tracks: [
-    { id: "cartpole", name: "CartPole", blurb: "Push a cart left or right to keep a pole upright. Solved at a return of 475 out of 500." },
-    { id: "breakout", name: "Breakout", blurb: "MinAtar Breakout on a 10 by 10 grid: bounce the ball and clear the bricks." },
-    { id: "acrobot", name: "Acrobot", blurb: "Swing a two-link arm until its tip clears the bar. Every step costs -1, so faster is better." },
+    { id: "cartpole", name: "CartPole", blurb: "Push a cart left or right to keep a pole upright. Solved at a return of 475 out of 500.", range: [0, 500] },
+    { id: "breakout", name: "Breakout", blurb: "MinAtar Breakout on a 10×10 grid, where the paddle bounces the ball to clear the bricks." },
+    { id: "acrobot", name: "Acrobot", blurb: "Swing a two-link arm until its tip clears the bar. Every step costs −1, so faster is better.", range: [-500, 0] },
   ],
   runs: [
     { podracer: "anakin", pilot: "ppo", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475 },
