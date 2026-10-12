@@ -65,7 +65,8 @@ def painter(track):
 
     environment = game(track)
     static = environment._env.static_env_params.replace(downscale=PICTURES[track])
-    return make_render_pixels(environment._params, static)
+    with jax.ensure_compile_time_eval():
+        return make_render_pixels(environment._params, static)
 
 
 def picture(track, state):

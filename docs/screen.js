@@ -202,7 +202,7 @@ export function drawBanner(canvas, track) {
   draw.text(track.name.slice(0, 1).toUpperCase(), canvas.width / 2, canvas.height / 2 - 8, INK.yellow, "center", 24);
 }
 
-export function drawBoard(canvas, points, colors, range) {
+export function drawBoard(canvas, points, dots, colors, range) {
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = canvas.clientWidth || 300, height = canvas.clientHeight || 140;
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -215,7 +215,7 @@ export function drawBoard(canvas, points, colors, range) {
   const pad = { left: 38, right: 8, top: 10, bottom: 18 };
   const plot = { x: pad.left, y: pad.top, w: width - pad.left - pad.right, h: height - pad.top - pad.bottom };
   const finite = points.filter((point) => Number.isFinite(point.value));
-  const values = finite.map((point) => point.value);
+  const values = [...finite, ...dots].map((point) => point.value);
   let low = Math.min(0, ...values), high = Math.max(0, ...values);
   if (range) {
     low = Math.min(range[0], low);
@@ -226,8 +226,9 @@ export function drawBoard(canvas, points, colors, range) {
     low = Math.floor(low / step) * step;
     high = Math.ceil(high / step) * step;
   }
-  const last = points.length ? points[points.length - 1].update : 1;
-  const first = points.length ? points[0].update : 0;
+  const updates = [...points, ...dots].map((point) => point.update);
+  const first = updates.length ? Math.min(...updates) : 0;
+  const last = updates.length ? Math.max(...updates) : 1;
   const span = Math.max(20, last - first);
   const sx = (update) => plot.x + ((update - first) / span) * plot.w;
   const sy = (value) => plot.y + plot.h - ((value - low) / (high - low)) * plot.h;
@@ -248,17 +249,20 @@ export function drawBoard(canvas, points, colors, range) {
   context.textAlign = "left";
   context.fillText(`update ${last}`, plot.x, plot.y + plot.h + 11);
   context.fillStyle = colors.dot;
-  finite.forEach((point) => context.fillRect(Math.round(sx(point.update)) - 1, Math.round(sy(point.value)) - 1, 2, 2));
+  context.globalAlpha = 0.45;
+  dots.forEach((point) => context.fillRect(Math.round(sx(point.update)) - 1, Math.round(sy(point.value)) - 1, 2, 2));
+  context.globalAlpha = 1;
   if (finite.length > 1) {
     context.strokeStyle = colors.line;
     context.lineWidth = 2;
     context.beginPath();
+    const window = Math.max(8, Math.round(finite.length / 60));
     let sum = 0;
     const recent = [];
     finite.forEach((point, index) => {
       recent.push(point.value);
       sum += point.value;
-      if (recent.length > 8) sum -= recent.shift();
+      if (recent.length > window) sum -= recent.shift();
       const x = sx(point.update), y = sy(sum / recent.length);
       if (index === 0) context.moveTo(x, y);
       else context.lineTo(x, y);

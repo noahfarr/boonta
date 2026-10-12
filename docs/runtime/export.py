@@ -80,20 +80,12 @@ def positions(treedef, select):
 
 def episodes(logs, num_updates):
     returns = jnp.asarray(logs.get(EPISODE_RETURN, jnp.full((num_updates,), jnp.nan)))
-    returns = returns.reshape(num_updates, -1).astype(jnp.float32)
-    ended = ~jnp.isnan(returns)
-    count = jnp.sum(ended, axis=1).astype(jnp.float32)
-    total = jnp.sum(jnp.where(ended, returns, 0.0), axis=1)
-    return jnp.stack([total, count], axis=1)
+    return returns.reshape(num_updates, -1).astype(jnp.float32)
 
 
 def summary(logs):
     returns = jnp.asarray(logs.get(EPISODE_RETURN, jnp.full((1,), jnp.nan)))
-    returns = returns.reshape(-1).astype(jnp.float32)
-    ended = ~jnp.isnan(returns)
-    return jnp.stack(
-        [jnp.sum(jnp.where(ended, returns, 0.0)), jnp.sum(ended).astype(jnp.float32)]
-    )
+    return returns.reshape(-1).astype(jnp.float32)
 
 
 def watch(directory, combo, algorithm):

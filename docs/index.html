@@ -65,13 +65,11 @@
               <div class="slots" id="pilots" role="radiogroup" aria-labelledby="algorithm-title"></div>
             </section>
             <span class="exchange" aria-hidden="true">&#8644;</span>
-            <section class="environment part" data-title="Environment" data-explain="The environment is the game wrapped in auto-reset, which restarts finished episodes, and vectorize, which steps many copies at once." aria-labelledby="environment-title">
+            <section class="environment part" data-title="Environment" data-explain="The environment is the game wrapped in auto-reset, which steps many copies at once and restarts finished episodes." aria-labelledby="environment-title">
               <span class="title" id="environment-title">ENVIRONMENT</span>
-              <div class="wrap part" data-title="Vectorize" data-explain="Vectorize steps many copies of the game at once."><span>Vectorize</span>
-                <div class="wrap part" data-title="Auto-reset" data-explain="Auto-reset restarts each finished episode inside the compiled loop."><span>Auto-reset</span>
-                  <div class="wrap game part" data-title="Game" data-explain="The game itself, a JAX environment."><span>Game</span>
-                    <canvas id="game" width="192" height="120" aria-hidden="true"></canvas>
-                  </div>
+              <div class="wrap part" data-title="Auto-reset" data-explain="Auto-reset steps many copies of the game at once and restarts each finished episode inside the compiled loop."><span>Auto-reset</span>
+                <div class="wrap game part" data-title="Game" data-explain="The game itself, a JAX environment."><span>Game</span>
+                  <canvas id="game" width="192" height="120" aria-hidden="true"></canvas>
                 </div>
               </div>
               <div class="slots" id="tracks" role="radiogroup" aria-labelledby="environment-title"></div>

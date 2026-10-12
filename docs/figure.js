@@ -25,7 +25,7 @@ const menu = await catalog();
 const first = menu.runs[0];
 const selection = { podracer: first.podracer, pilot: first.pilot, track: first.track };
 const buttons = { podracer: {}, pilot: {}, track: {} };
-let handle = null, token = 0, points = [], buildTimer = 0;
+let handle = null, token = 0, points = [], dots = [], buildTimer = 0;
 
 const entry = (kind, id) => menu[KINDS[kind]].find((item) => item.id === id);
 const fits = (choice) => menu.runs.find((run) => run.podracer === choice.podracer && run.pilot === choice.pilot && run.track === choice.track);
@@ -105,7 +105,7 @@ const describeItem = (kind, id) => explain(entry(kind, id).name, entry(kind, id)
 
 function paintBoard() {
   if (document.hidden) return;
-  drawBoard(board, points, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
+  drawBoard(board, points, dots, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
 }
 
 function format(value) {
@@ -116,10 +116,11 @@ function format(value) {
   return value.toFixed(2).replace(/\.?0+$/, "") || "0";
 }
 
-function status(phase, message) {
+function status(phase, word, detail = "") {
   const node = $("status");
   node.dataset.phase = phase;
-  node.textContent = message;
+  node.textContent = word;
+  node.title = detail;
 }
 
 function building(current, label) {
@@ -136,6 +137,7 @@ function stopBuilding() { clearInterval(buildTimer); buildTimer = 0; }
 
 function reset() {
   points = [];
+  dots = [];
   ["updates", "steps", "lag"].forEach((id) => { $(id).textContent = "0"; });
   $("return").textContent = "–";
 }
@@ -159,8 +161,7 @@ async function race() {
     const started = await start({ ...choice, seed: 0 }, {
       onStatus(update) {
         if (current !== token) return;
-        const said = update.message ? update.message.charAt(0).toUpperCase() + update.message.slice(1) : words[update.phase] || update.phase;
-        status(update.phase, update.phase === "training" ? "Training" : said);
+        status(update.phase, words[update.phase] || update.phase, update.phase === "error" ? update.message : "");
         if (update.phase === "loading" || update.phase === "compiling") building(current, update.phase.toUpperCase());
         else stopBuilding();
         if (update.phase === "stopped" || update.phase === "error") finish();
@@ -168,7 +169,9 @@ async function race() {
       onUpdate(update) {
         if (current !== token) return;
         if (Number.isFinite(update.episodeReturn)) points.push({ update: update.update, value: update.episodeReturn });
-        if (points.length > 2000) points.splice(0, points.length - 2000);
+        (update.episodes || []).forEach((value) => dots.push({ update: update.update, value }));
+        if (points.length > 20000) points.splice(0, points.length - 20000);
+        if (dots.length > 20000) dots.splice(0, dots.length - 20000);
         $("updates").textContent = String(update.update);
         $("steps").textContent = format(update.steps);
         if (Number.isFinite(update.episodeReturn)) $("return").textContent = format(update.episodeReturn);
@@ -184,7 +187,7 @@ async function race() {
     handle = started;
   } catch (error) {
     if (current !== token) return;
-    status("error", `Error ${error.message || error}`);
+    status("error", "Error", String(error.message || error));
     finish();
   }
 }
