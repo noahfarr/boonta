@@ -202,7 +202,7 @@ export function drawBanner(canvas, track) {
   draw.text(track.name.slice(0, 1).toUpperCase(), canvas.width / 2, canvas.height / 2 - 8, INK.yellow, "center", 24);
 }
 
-export function drawBoard(canvas, episodes, colors, range) {
+export function drawBoard(canvas, episodes, colors, range, unit = "episode") {
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = canvas.clientWidth || 300, height = canvas.clientHeight || 140;
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -248,7 +248,7 @@ export function drawBoard(canvas, episodes, colors, range) {
   context.fillText(format(low), plot.x - 6, sy(low));
   context.fillText(format(high), plot.x - 6, sy(high) + 4);
   context.textAlign = "left";
-  context.fillText(`episode ${last}`, plot.x, plot.y + plot.h + 11);
+  context.fillText(`${unit} ${last}`, plot.x, plot.y + plot.h + 11);
   context.fillStyle = colors.dot;
   context.globalAlpha = 0.45;
   episodes.forEach((point) => context.fillRect(Math.round(sx(point.episode)) - 1, Math.round(sy(point.value)) - 1, 2, 2));

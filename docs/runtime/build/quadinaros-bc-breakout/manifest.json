@@ -914,6 +914,12 @@
      3
     ],
     "float32"
+   ],
+   [
+    [
+     25
+    ],
+    "float32"
    ]
   ]
  },
@@ -940,6 +946,7 @@
  },
  "batch_size": 64,
  "evaluation_every": 1500,
+ "loss": true,
  "watch": {
   "init": {
    "file": "watch_init.mlir",

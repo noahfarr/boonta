@@ -91,7 +91,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/anakin-ppo-cartpole/"
+   "path": "build/anakin-ppo-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -102,7 +103,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/anakin-ppo-breakout/"
+   "path": "build/anakin-ppo-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -113,7 +115,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/anakin-ppo-acrobot/"
+   "path": "build/anakin-ppo-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -124,7 +127,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/anakin-pqn-cartpole/"
+   "path": "build/anakin-pqn-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -135,7 +139,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/anakin-pqn-breakout/"
+   "path": "build/anakin-pqn-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -146,7 +151,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/anakin-pqn-acrobot/"
+   "path": "build/anakin-pqn-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -157,7 +163,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/anakin-dqn-cartpole/"
+   "path": "build/anakin-dqn-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -168,7 +175,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/anakin-dqn-breakout/"
+   "path": "build/anakin-dqn-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "anakin",
@@ -179,7 +187,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/anakin-dqn-acrobot/"
+   "path": "build/anakin-dqn-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -190,7 +199,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/sebulba-ppo-cartpole/"
+   "path": "build/sebulba-ppo-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -201,7 +211,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/sebulba-ppo-breakout/"
+   "path": "build/sebulba-ppo-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -212,7 +223,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/sebulba-ppo-acrobot/"
+   "path": "build/sebulba-ppo-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -223,7 +235,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/sebulba-pqn-cartpole/"
+   "path": "build/sebulba-pqn-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -234,7 +247,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/sebulba-pqn-breakout/"
+   "path": "build/sebulba-pqn-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -245,7 +259,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/sebulba-pqn-acrobot/"
+   "path": "build/sebulba-pqn-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -256,7 +271,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/sebulba-dqn-cartpole/"
+   "path": "build/sebulba-dqn-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -267,7 +283,8 @@
    "solved": 5,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/sebulba-dqn-breakout/"
+   "path": "build/sebulba-dqn-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "sebulba",
@@ -278,7 +295,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/sebulba-dqn-acrobot/"
+   "path": "build/sebulba-dqn-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "quadinaros",
@@ -289,7 +307,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/quadinaros-bc-cartpole/"
+   "path": "build/quadinaros-bc-cartpole/",
+   "metric": "loss"
   },
   {
    "podracer": "quadinaros",
@@ -300,7 +319,8 @@
    "solved": 15,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/quadinaros-bc-breakout/"
+   "path": "build/quadinaros-bc-breakout/",
+   "metric": "loss"
   },
   {
    "podracer": "quadinaros",
@@ -311,7 +331,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/quadinaros-bc-acrobot/"
+   "path": "build/quadinaros-bc-acrobot/",
+   "metric": "loss"
   },
   {
    "podracer": "quadinaros",
@@ -322,7 +343,8 @@
    "solved": 0.8,
    "baseline": 0.0,
    "learned": 0.5,
-   "path": "build/quadinaros-bc-kinetix/"
+   "path": "build/quadinaros-bc-kinetix/",
+   "metric": "loss"
   },
   {
    "podracer": "quadinaros",
@@ -333,7 +355,8 @@
    "solved": 475,
    "baseline": 22,
    "learned": 150,
-   "path": "build/quadinaros-iql-cartpole/"
+   "path": "build/quadinaros-iql-cartpole/",
+   "metric": "return"
   },
   {
    "podracer": "quadinaros",
@@ -344,7 +367,8 @@
    "solved": 15,
    "baseline": 0.5,
    "learned": 3,
-   "path": "build/quadinaros-iql-breakout/"
+   "path": "build/quadinaros-iql-breakout/",
+   "metric": "return"
   },
   {
    "podracer": "quadinaros",
@@ -355,7 +379,8 @@
    "solved": -100,
    "baseline": -480,
    "learned": -200,
-   "path": "build/quadinaros-iql-acrobot/"
+   "path": "build/quadinaros-iql-acrobot/",
+   "metric": "return"
   },
   {
    "podracer": "quadinaros",
@@ -366,7 +391,8 @@
    "solved": 0.8,
    "baseline": 0.0,
    "learned": 0.5,
-   "path": "build/quadinaros-iql-kinetix/"
+   "path": "build/quadinaros-iql-kinetix/",
+   "metric": "return"
   }
  ]
 }

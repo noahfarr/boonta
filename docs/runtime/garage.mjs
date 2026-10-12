@@ -143,7 +143,7 @@ export async function start(selection, handlers = {}) {
       if (!data.episodes) {
         update += data.updates;
         steps += data.updates * data.batchSize;
-        report(data.summary);
+        report(data.summary, data.losses ? { losses: Array.from(data.losses) } : {});
         return;
       }
       const width = data.episodes.length / data.updates;

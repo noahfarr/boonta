@@ -106,6 +106,7 @@ def offline(pilot, track):
         "h": {**OFFLINE[pilot], **OFFLINE_OVERRIDES.get((pilot, track), {})},
         "updates_per_call": 25, "evaluation_steps": EVALUATION_STEPS[track],
         "evaluation_every": 1500, **THRESHOLDS[track], **OFFLINE_SOLVED.get(track, {}),
+        **({"loss": "actor/loss"} if pilot == "bc" else {}),
     }
 
 

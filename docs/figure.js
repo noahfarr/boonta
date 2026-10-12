@@ -27,6 +27,7 @@ const selection = { podracer: first.podracer, pilot: first.pilot, track: first.t
 const buttons = { podracer: {}, pilot: {}, track: {} };
 let handle = null, token = 0, episodes = [], ended = 0, buildTimer = 0;
 
+const metric = () => (fits(selection) || {}).metric || "return";
 const entry = (kind, id) => menu[KINDS[kind]].find((item) => item.id === id);
 const fits = (choice) => menu.runs.find((run) => run.podracer === choice.podracer && run.pilot === choice.pilot && run.track === choice.track);
 const allowed = (kind, id) => menu.runs.some((run) => run[kind] === id && (kind === "podracer" || run.podracer === selection.podracer));
@@ -93,6 +94,7 @@ function render() {
   $("config").textContent = `podracer=${selection.podracer}\nalgorithm=${selection.pilot}\nenvironment=${selection.track}`;
   $("steps-label").textContent = offline ? "SAMPLES" : "STEPS";
   $("lag-cell").hidden = selection.podracer !== "sebulba";
+  $("return-label").textContent = metric() === "loss" ? "LOSS" : "RETURN";
   if (!handle) drawBanner(game, entry("track", selection.track));
   paintBoard();
 }
@@ -105,7 +107,9 @@ const describeItem = (kind, id) => explain(entry(kind, id).name, entry(kind, id)
 
 function paintBoard() {
   if (document.hidden) return;
-  drawBoard(board, episodes, { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") }, entry("track", selection.track).range);
+  const loss = metric() === "loss";
+  const colors = { rule: css("--rule"), dim: css("--dim"), line: css("--accent"), dot: css("--orange") };
+  drawBoard(board, episodes, colors, loss ? null : entry("track", selection.track).range, loss ? "update" : "episode");
 }
 
 function format(value) {
@@ -169,11 +173,13 @@ async function race() {
       },
       onUpdate(update) {
         if (current !== token) return;
-        (update.episodes || []).forEach((value) => episodes.push({ episode: ++ended, value }));
-        if (episodes.length > 20000) episodes.splice(0, episodes.length - 20000);
+        const values = metric() === "loss" ? update.losses || [] : update.episodes || [];
+        values.forEach((value) => episodes.push({ episode: ++ended, value }));
+        if (episodes.length > 20000) episodes = episodes.filter((_, index) => index % 2 === 0);
         $("updates").textContent = String(update.update);
         $("steps").textContent = format(update.steps);
-        if (Number.isFinite(update.episodeReturn)) $("return").textContent = format(update.episodeReturn);
+        const shown = metric() === "loss" ? values[values.length - 1] : update.episodeReturn;
+        if (Number.isFinite(shown)) $("return").textContent = format(shown);
         if (update.lag !== undefined) $("lag").textContent = String(update.lag);
         paintBoard();
       },

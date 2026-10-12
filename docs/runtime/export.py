@@ -363,7 +363,10 @@ def build_quadinaros(directory, combo):
         state, logs = lox.spool(lox.strip(racer.fit, tags=["evaluation"]))(
             state, wrap(args[-1]), updates
         )
-        return tuple(jax.tree.leaves(state.replace(dataset_state=None)))
+        fitted = tuple(jax.tree.leaves(state.replace(dataset_state=None)))
+        if "loss" not in combo:
+            return fitted
+        return (*fitted, jnp.asarray(logs[combo["loss"]], jnp.float32).reshape(updates))
 
     evaluate = lox.spool(lox.strip(template.evaluate, tags=["training"]))
 
@@ -385,6 +388,7 @@ def build_quadinaros(directory, combo):
         "evaluate": emit(directory, "evaluate", evaluate_call, [*map(spec, leaves), KEY]),
         "batch_size": template.batch_size,
         "evaluation_every": combo["evaluation_every"],
+        "loss": "loss" in combo,
     }
     return manifest, template.algorithm
 
@@ -425,6 +429,7 @@ def entry(combo, manifest):
         "baseline": combo["baseline"],
         "learned": combo["learned"],
         "path": f"build/{identity(combo)}/",
+        "metric": "loss" if "loss" in combo else "return",
         **({"measured": combo["measured"]} if "measured" in combo else {}),
     }
 
