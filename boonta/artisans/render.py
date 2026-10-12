@@ -35,9 +35,9 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            games = getattr(environment_state, "unwrapped", environment_state)
-            game = jax.tree.map(lambda leaf: leaf[0], games)
-            return (algorithm_state, environment_state, timestep), game
+            env_states = getattr(environment_state, "unwrapped", environment_state)
+            env_state = jax.tree.map(lambda leaf: leaf[0], env_states)
+            return (algorithm_state, environment_state, timestep), env_state
 
         (_, environment_state, _), replay = jax.lax.scan(
             step,
