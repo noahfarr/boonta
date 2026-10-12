@@ -41,7 +41,7 @@ class Environment(ABC, Generic[State]):
     def time_limit(self) -> int:
         raise NotImplementedError
 
-    def render(self, state: State):
+    def render(self, state: State, **kwargs):
         raise NotImplementedError
 
     def close(self, state: State) -> None:

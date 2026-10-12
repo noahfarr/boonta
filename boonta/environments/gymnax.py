@@ -85,6 +85,32 @@ class Gymnax(Environment):
     def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
 
+    def render(self, state: Any, block: int = 16) -> Array:
+        grid = self._env.get_obs(getattr(state, "unwrapped", state), self._params)
+        assert grid.ndim == 3, "only MinAtar's grid observations can be rendered"
+        *_, num_channels = grid.shape
+        palette = jnp.concatenate(
+            [jnp.zeros((1, 3)), cubehelix(jnp.linspace(0, 1, num_channels + 2)[1:-1])]
+        )
+        channel = jnp.max(grid * jnp.arange(1, num_channels + 1), axis=-1)
+        image = (palette[channel.astype(jnp.int32)] * 255).astype(jnp.uint8)
+        return jnp.repeat(jnp.repeat(image, block, axis=0), block, axis=1)
+
+
+def cubehelix(x: Array, start: float = 0.5, rotations: float = -1.5, hue: float = 1.0) -> Array:
+    angle = 2 * jnp.pi * (start / 3 + rotations * x)
+    amplitude = hue * x * (1 - x) / 2
+    cos, sin = jnp.cos(angle), jnp.sin(angle)
+    rgb = x[:, None] + amplitude[:, None] * jnp.stack(
+        [
+            -0.14861 * cos + 1.78277 * sin,
+            -0.29227 * cos - 0.90649 * sin,
+            1.97294 * cos,
+        ],
+        axis=-1,
+    )
+    return jnp.clip(rgb, 0, 1)
+
 
 def make(env_id, params=None, **kwargs):
     import gymnax

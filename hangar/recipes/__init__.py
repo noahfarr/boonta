@@ -1,6 +1,8 @@
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
+from boonta.environments.wrappers import LogEnvState
+
 from .. import resolvers  # noqa: F401 -- registers OmegaConf resolvers on import
 from . import (
     bc_mujoco,
@@ -104,4 +106,6 @@ def make(cfg):
     suite = cfg.environment.get("suite", namespace)
     name = HydraConfig.get().runtime.choices["algorithm"]
     components = register[(name, namespace, suite)](cfg)
+    if "render" in (cfg.get("artisans") or {}):
+        components["environment"] = LogEnvState(components["environment"])
     return instantiate(cfg.podracer)(**components)

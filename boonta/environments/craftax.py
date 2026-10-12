@@ -69,8 +69,10 @@ class Craftax(Environment):
             module = type(self._env).__module__
             package = "craftax_classic" if "classic" in module else "craftax"
             renderer = importlib.import_module(f"craftax.{package}.renderer")
-            self._renderer = renderer.make_craftax_pixel_renderer(block)
-        return jnp.clip(self._renderer(state), 0, 255).astype(jnp.uint8)
+            self._renderer = jax.jit(
+                renderer.render_craftax_pixels, static_argnames="block_pixel_size"
+            )
+        return jnp.clip(self._renderer(state, block_pixel_size=block), 0, 255).astype(jnp.uint8)
 
 
 def make(env_id, **kwargs):
