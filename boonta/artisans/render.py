@@ -35,27 +35,27 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            game = getattr(environment_state, "unwrapped", environment_state)
-            first = jax.tree.map(lambda leaf: leaf[0], game)
-            return (algorithm_state, environment_state, timestep), first
+            games = getattr(environment_state, "unwrapped", environment_state)
+            game = jax.tree.map(lambda leaf: leaf[0], games)
+            return (algorithm_state, environment_state, timestep), game
 
-        (_, environment_state, _), games = jax.lax.scan(
+        (_, environment_state, _), replay = jax.lax.scan(
             step,
             (algorithm_state, environment_state, timestep),
             jax.random.split(key, self.max_frames),
         )
         environment.close(environment_state)
-        return games
+        return replay
 
     def craft(self, algorithm, environment, state, logs) -> Video:
         key = jax.random.fold_in(self.key, self.epoch)
         self.epoch += 1
         rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        games = rollout(state.algorithm_state, key)
+        replay = rollout(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(
-                    jax.tree.map(lambda leaf: leaf[step], games), **self.kwargs
+                    jax.tree.map(lambda leaf: leaf[step], replay), **self.kwargs
                 ),
                 dtype=np.uint8,
             )
