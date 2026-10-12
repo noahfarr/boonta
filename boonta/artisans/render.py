@@ -22,7 +22,7 @@ class Render:
         self.kwargs = kwargs or {}
         self.epoch = 0
 
-    def play(self, algorithm, environment, algorithm_state, key):
+    def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
 
@@ -50,8 +50,8 @@ class Render:
     def craft(self, algorithm, environment, state, logs) -> Video:
         key = jax.random.fold_in(self.key, self.epoch)
         self.epoch += 1
-        play = jax.jit(partial(self.play, algorithm, environment))
-        games = play(state.algorithm_state, key)
+        rollout = jax.jit(partial(self.rollout, algorithm, environment))
+        games = rollout(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(
