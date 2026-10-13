@@ -44,7 +44,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 **Curricula**
 - [PLR](https://arxiv.org/abs/2110.02439) replays the levels the agent learns most from
-- League trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers
+- League trains against a pool of earlier policies: self-play, fictitious self-play, prioritised fictitious self-play and [PSRO](https://arxiv.org/abs/1711.00832)
 
 ## Compared with other libraries
 
@@ -56,7 +56,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 | Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Off-policy | ✓ | ✓ | DQN | ✗ | ✓ | ✗ | ✓ |
 | Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | shared policy | one script |
-| Self-play leagues | PSRO | ✗ | ✗ | ✗ | ✗ | checkpoint pool | ✗ |
+| Self-play and leagues | SP, FSP, PFSP, PSRO | ✗ | ✗ | ✗ | ✗ | checkpoint pool | ✗ |
 | Curricula (PLR) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, Transformer-XL |
 | LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
