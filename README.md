@@ -77,6 +77,7 @@ The library never imports `hangar`, Hydra or OmegaConf. Environment suites that 
 
 ## Guides
 
+- [QuickStart](notebooks/quickstart.ipynb): train PPO on Breakout in plain Python, one part at a time, and watch it play
 - [hangar](hangar/README.md): run training from the command line, config groups, several machines, sweeps
 - [Podracers](boonta/podracers/README.md): the training loops, and which one to pick
 - [Algorithms](boonta/algorithms/README.md): the algorithm interface, and how to add an algorithm
