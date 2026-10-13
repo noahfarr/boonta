@@ -231,7 +231,7 @@ class ArchiveAutoReset(AutoReset):
         env,
         num_envs: int,
         cell_fn: Callable,
-        capacity: int = 16384,
+        archive_size: int = 16384,
         num_probes: int = 8,
         eviction_fn: Callable[[ArchiveState], Array] = noeviction,
         eligibility_fn: Callable = anywhere,
@@ -241,7 +241,7 @@ class ArchiveAutoReset(AutoReset):
         super().__init__(env, num_envs=num_envs)
         self.num_actions = int(getattr(env.action_space(), "num_actions", 1))
         self.archive = Archive(
-            archive_size=capacity,
+            archive_size=archive_size,
             cell_fn=widen(cell_fn(env=env)),
             eviction_fn=eviction_fn,
             num_probes=num_probes,
@@ -250,19 +250,18 @@ class ArchiveAutoReset(AutoReset):
         self.gamma = gamma
         self.refresh_fn = refresh_fn
 
-    def block(self, num_placed: int) -> Array:
-        return jnp.arange(self.num_envs) >= self.num_envs - num_placed
-
-    def occupied(self, state, num_placed: int) -> Array:
+    def count_residents(self, state, num_placed: int) -> Array:
         archive_size = self.archive.archive_size
-        held_mask = ~self.block(num_placed) & (state.current_slots >= 0)
+        held_mask = ~jnp.arange(self.num_envs) >= self.num_envs - num_placed & (
+            state.current_slots >= 0
+        )
         return (
             jnp.zeros(archive_size)
             .at[jnp.where(held_mask, state.current_slots, archive_size)]
             .add(1.0, mode="drop")
         )
 
-    def eligible(self, env_state: PyTree) -> Array:
+    def check_eligibility(self, env_state: PyTree) -> Array:
         eligible = jnp.asarray(self.eligibility_fn(env_state))
         if jnp.ndim(eligible) == 0:
             return jnp.broadcast_to(eligible, (self.num_envs,))
@@ -353,7 +352,7 @@ class ArchiveAutoReset(AutoReset):
             reset_time_limit(state.env_state),
             ~restart_mask,
             state.rho,
-            done | self.eligible(state.env_state),
+            done | self.check_eligibility(state.env_state),
         )
         current_slots = jnp.where(restart_mask, state.assigned_slots, claimed_slots)
         decay = self.gamma ** (age - 1).astype(jnp.float32)
@@ -363,14 +362,14 @@ class ArchiveAutoReset(AutoReset):
 
         lox.log(
             {
-                "archive/miss": jnp.mean((current_slots < 0).astype(jnp.float32)),
+                "archive/miss_rate": jnp.mean((current_slots < 0).astype(jnp.float32)),
                 "archive/discovery_rate": jnp.sum(opened_mask, dtype=jnp.float32),
                 "archive/rho": jnp.sum(archive_state.cell_states.rho, dtype=jnp.float32)
                 / jnp.maximum(jnp.sum(archive_state.mask, dtype=jnp.float32), 1.0),
                 "archive/num_evictions": jnp.sum(evicted_slots >= 0, dtype=jnp.float32),
             }
         )
-        self.recount(earned, graded, age, rho, episode_mask)
+        self.record_episode_statistics(earned, graded, age, rho, episode_mask)
 
         return (
             state.replace(
@@ -400,7 +399,7 @@ class ArchiveAutoReset(AutoReset):
             "evicted": evicted_slots,
         }
 
-    def recount(self, earned, graded, age, rho, done) -> None:
+    def record_episode_statistics(self, earned, graded, age, rho, done) -> None:
         length = age.astype(jnp.float32)
         lox.log(
             {
@@ -415,7 +414,7 @@ class ArchiveAutoReset(AutoReset):
 
     def assign(self, state, selected_slots: Array):
         num_placed, *_ = jnp.shape(selected_slots)
-        block_mask = self.block(num_placed)
+        block_mask = jnp.arange(self.num_envs) >= self.num_envs - num_placed
         assigned_slots = (
             jnp.full(self.num_envs, -1, jnp.int32)
             .at[self.num_envs - num_placed :]

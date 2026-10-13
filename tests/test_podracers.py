@@ -54,7 +54,7 @@ def environment_states(state):
     return [state.environment_state]
 
 
-def turn(state, transitions):
+def turn(key, state, transitions):
     setting = state.algorithm_state.version + 100.0
     return state.replace(
         environment_state=Vectorize(Dial(), NUM_ENVS).update(
@@ -63,7 +63,7 @@ def turn(state, transitions):
     )
 
 
-def tick(state):
+def tick(key, state):
     return state.replace(
         algorithm_state=state.algorithm_state.replace(
             step=state.algorithm_state.step + 1000

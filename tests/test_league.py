@@ -780,7 +780,7 @@ def test_league_composes_psro_learners_and_an_opponent_environment():
     assert dealt["learners"] == algorithm.learners
     assert dealt["lineages"] == algorithm.names
     assert dict(dealt["assignments"]) == {"exploiter": "alakazam"}
-    assert lap("state") == "state"
+    assert lap(None, "state") == "state"
 
 
 def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
@@ -799,8 +799,8 @@ def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
 
     assert wrapped is algorithm
     assert placed is environment
-    assert pit(state, None) is state
-    assert lap(state) is state
+    assert pit(None, state, None) is state
+    assert lap(None, state) is state
 
 
 @pytest.fixture(scope="module")
