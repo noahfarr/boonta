@@ -48,20 +48,20 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 ## Compared with other libraries
 
-| | boonta | [Stoix](https://github.com/EdanToledo/Stoix) | [PureJaxRL](https://github.com/luchris429/purejaxrl) | [Cleanba](https://github.com/vwxyzjn/cleanba) | [Mava](https://github.com/instadeepai/Mava) | [PufferLib](https://github.com/PufferAI/PufferLib) | [CleanRL](https://github.com/vwxyzjn/cleanrl) |
+| | boonta | [Stoix](https://github.com/EdanToledo/Stoix) | [PureJaxRL](https://github.com/luchris429/purejaxrl) | [Cleanba](https://github.com/vwxyzjn/cleanba) | [Mava](https://github.com/instadeepai/Mava) | [PufferLib](https://github.com/PufferAI/PufferLib) | [TorchRL](https://github.com/pytorch/rl) |
 |---|---|---|---|---|---|---|---|
 | Framework | JAX | JAX | JAX | JAX | JAX | C/CUDA | PyTorch |
-| Anakin | ✓ | ✓ | One device | ✗ | ✓ | GPU environments | One script |
-| Sebulba | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
-| Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Anakin | ✓ | ✓ | One device | ✗ | ✓ | GPU environments | GPU environments |
+| Sebulba | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Off-policy | ✓ | ✓ | DQN | ✗ | ✓ | ✗ | ✓ |
-| Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | Shared policy | One script |
+| Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | Shared policy | ✓ |
 | Curricula | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, Transformer-XL |
-| LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Code | Importable components | Single file | Single file | Single file | Single file | One C/CUDA core | Single file |
+| Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, GRU, transformer |
+| LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Code | Importable components | Single file | Single file | Single file | Single file | One C/CUDA core | Importable components |
 
-Each of these does something better than boonta. Pick PureJaxRL or CleanRL for one file you can read top to bottom and fork. Pick Mava for cooperative multi-agent benchmarks and its range of MARL algorithms. Pick PufferLib for the fastest training on its own native environments. Stoix has more single-agent algorithms, from MPO to MuZero. Cleanba is the reference for reproducible actor-learner training, and boonta's Sebulba follows it.
+Each of these does something better than boonta. Pick PureJaxRL for one file you can read top to bottom and fork. Pick TorchRL if you work in PyTorch: it covers as much ground, from offline RL to LLM fine-tuning, without compiling the loop into one program. Pick Mava for cooperative multi-agent benchmarks and its range of MARL algorithms. Pick PufferLib for the fastest training on its own native environments. Stoix has more single-agent algorithms, from MPO to MuZero. Cleanba is the reference for reproducible actor-learner training, and boonta's Sebulba follows it.
 
 The table was checked against each repository in October 2026. Corrections are welcome.
 
