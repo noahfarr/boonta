@@ -11,7 +11,7 @@ from boonta.curricula.plr import (Graded, LevelBufferState, admit_levels,
                                   draw_levels, maximum_monte_carlo,
                                   positive_value_loss, rank_weights,
                                   replay_weights, staleness_weights,
-                                  tally_episodes, update_scores)
+                                  tally_episodes, tally_rollout, update_scores)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -95,7 +95,6 @@ def buffer(scores, timestamps, size, episodes):
         size=jnp.int32(size),
         episodes=jnp.int32(episodes),
         exploring=jnp.bool_(False),
-        key=jax.random.key(0),
     )
 
 
@@ -185,7 +184,7 @@ def graded(robust):
         ),
         optimizer=zoo.adam(),
     )
-    return Graded(algorithm, slots=3, capacity=1, gamma=0.99, gae_lambda=0.95, robust=robust)
+    return Graded(algorithm, capacity=1, robust=robust)
 
 
 def played(theta, cut=1):
@@ -227,8 +226,8 @@ def test_exploratory_plr_trains_after_a_fresh_rollout_too():
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    updated, _ = moved(robust=True, theta=2)
-    np.testing.assert_array_equal(updated.tally.episodes, [0, 0, 4])
+    counted = tally_rollout(played(2), slots=3, gamma=0.99, gae_lambda=0.95)
+    np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
 
 
 class Blink(Dial):
@@ -257,7 +256,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     config = anakin.AnakinConfig(num_envs=8, num_steps=8, mesh=mesh(1))
     podracer = anakin.make(config, algorithm, environment, pit, lap)
     state = podracer.init(jax.random.key(0))
-    state, logs = podracer.train(state, jax.random.key(1), 6)
+    state, logs = podracer.train(state, jax.random.key(1), 12)
     sizes = np.asarray(logs["plr/levels/size"])
     assert sizes.ravel()[-1] == 4
     assert np.asarray(logs["plr/levels/replaying"]).any()

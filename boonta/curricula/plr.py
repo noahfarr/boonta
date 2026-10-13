@@ -73,6 +73,21 @@ def tally_episodes(
     )
 
 
+def tally_rollout(
+    transitions: Transition, slots: int, gamma: float, gae_lambda: float
+) -> Tally:
+    values = transitions.aux["value"]
+    advantages, _ = generalized_advantage_estimation(
+        transitions, values, values[-1], gamma, gae_lambda
+    )
+    return tally_episodes(
+        jax.tree.map(lambda leaf: leaf[1:], transitions),
+        values[1:],
+        advantages[1:],
+        slots,
+    )
+
+
 def positive_value_loss(tally: Tally, returns: Array) -> Array:
     return tally.regret / jnp.maximum(tally.episodes, 1.0)
 
@@ -125,7 +140,6 @@ class LevelBufferState(WrapperState):
     size: Array = struct.field(metadata={"axis": None})
     episodes: Array = struct.field(metadata={"axis": None})
     exploring: Array = struct.field(metadata={"axis": None})
-    key: Key = struct.field(metadata={"axis": None})
 
 
 class LevelBuffer(Wrapper):
@@ -157,7 +171,6 @@ class LevelBuffer(Wrapper):
             size=jnp.int32(0),
             episodes=jnp.int32(0),
             exploring=jnp.bool_(False),
-            key=buffer_key,
         )
         return state, timestep
 
@@ -171,22 +184,16 @@ class LevelBuffer(Wrapper):
 @struct.dataclass
 class GradedState(AlgorithmWrapperState):
     step: Array
-    tally: Tally
 
 
 @dataclass
 class Graded(AlgorithmWrapper):
-    slots: int
     capacity: int
-    gamma: float
-    gae_lambda: float
     robust: bool
 
     def init(self, key: Key, timestep: Timestep) -> GradedState:
         algorithm_state = self.algorithm.init(key, timestep)
-        return GradedState(
-            algorithm_state, step=algorithm_state.step, tally=empty_tally(self.slots)
-        )
+        return GradedState(algorithm_state, step=algorithm_state.step)
 
     def step(self, state: GradedState, key: Key, timestep: Timestep, temperature=1.0):
         algorithm_state, action, aux = self.algorithm.step(
@@ -197,20 +204,10 @@ class Graded(AlgorithmWrapper):
     def update(
         self, state: GradedState, key: Key, transitions: Transition
     ) -> GradedState:
-        values = transitions.aux["value"]
-        advantages, _ = generalized_advantage_estimation(
-            transitions, values, values[-1], self.gamma, self.gae_lambda
-        )
-        counted = tally_episodes(
-            jax.tree.map(lambda leaf: leaf[1:], transitions),
-            values[1:],
-            advantages[1:],
-            self.slots,
-        )
         algorithm_state = state.algorithm_state.replace(step=state.step)
         updated = self.algorithm.update(algorithm_state, key, transitions)
         if not self.robust:
-            return state.replace(algorithm_state=updated, tally=counted)
+            return state.replace(algorithm_state=updated)
 
         theta = transitions.second.info["theta"][-1]
         trained = jnp.all((theta >= 0) & (theta < self.capacity))
@@ -226,7 +223,7 @@ class Graded(AlgorithmWrapper):
                 algorithm_state.optimizer_state,
             ),
         )
-        return state.replace(algorithm_state=updated, tally=counted)
+        return state.replace(algorithm_state=updated)
 
 
 def update_scores(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBufferState:
@@ -328,39 +325,34 @@ def admit_levels(
     return buffer, levels, admitted
 
 
-def plr(
-    algorithm: Algorithm,
-    environment: Environment,
-    capacity: int,
-    replay_probability: float,
-    staleness: float,
-    temperature: float,
-    minimum_fill: float,
-    robust: bool,
-    gamma: float,
-    gae_lambda: float,
-    sample: Callable[[Key], PyTree],
-    score: Callable[[Tally, Array], Array] = positive_value_loss,
-    **kwargs,
-) -> tuple[Graded, LevelBuffer, Pit, Lap]:
-    staging = environment.num_envs
-    slots = capacity + staging
-    environment = LevelBuffer(UED(environment), capacity, staging, sample)
-    algorithm = Graded(
-        algorithm,
-        slots=slots,
-        capacity=capacity,
-        gamma=gamma,
-        gae_lambda=gae_lambda,
-        robust=robust,
-    )
+@dataclass
+class Curator(Pit):
+    environment: LevelBuffer
+    replay_probability: float
+    staleness: float
+    temperature: float
+    minimum_fill: float
+    gamma: float
+    gae_lambda: float
+    sample: Callable[[Key], PyTree]
+    score: Callable[[Tally, Array], Array]
 
-    def pit(state):
-        tally = state.algorithm_state.tally
+    @property
+    def slots(self) -> int:
+        return self.environment.capacity + self.environment.staging
 
+    def init(self, key: Key) -> Tally:
+        return empty_tally(self.slots)
+
+    def update(
+        self, state: Tally, key: Key, transitions: Transition, algorithm_state: PyTree
+    ) -> Tally:
+        return tally_rollout(transitions, self.slots, self.gamma, self.gae_lambda)
+
+    def __call__(self, key: Key, state):
         def curate(node):
             if isinstance(node, LevelBufferState):
-                return curate_levels(node, tally)
+                return self.curate(node, state.pit_state, key)
             return node
 
         environment_state = jax.tree.map(
@@ -370,11 +362,13 @@ def plr(
         )
         return state.replace(environment_state=environment_state)
 
-    def curate_levels(buffer, tally):
+    def curate(self, buffer: LevelBufferState, tally: Tally, key: Key):
+        capacity, staging = self.environment.capacity, self.environment.staging
+        temperature, staleness = self.temperature, self.staleness
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
-        scored = jnp.where(tally.episodes > 0, score(tally, returns), -jnp.inf)
+        scored = jnp.where(tally.episodes > 0, self.score(tally, returns), -jnp.inf)
 
         buffer = update_scores(buffer, tally, scored)
         buffer, levels, admitted = admit_levels(
@@ -387,9 +381,9 @@ def plr(
             staleness,
         )
 
-        key, decide_key, draw_key, sample_key = jax.random.split(buffer.key, 4)
-        replaying = (buffer.size / capacity >= minimum_fill) & (
-            jax.random.uniform(decide_key) < replay_probability
+        update_key, decide_key, draw_key, sample_key = jax.random.split(key, 4)
+        replaying = (buffer.size / capacity >= self.minimum_fill) & (
+            jax.random.uniform(decide_key) < self.replay_probability
         )
 
         def replay(buffer, levels):
@@ -397,7 +391,7 @@ def plr(
             return buffer, levels, assignment
 
         def explore(buffer, levels):
-            fresh = jax.vmap(sample)(
+            fresh = jax.vmap(self.sample)(
                 jax.random.split(sample_key, staging)
             )
             levels = jax.tree.map(
@@ -442,12 +436,40 @@ def plr(
                 / jnp.maximum((tally.episodes[capacity:] > 0).sum(), 1),
             }
         )
-        buffer = environment.update(
-            buffer.replace(key=key, exploring=~replaying),
-            jax.random.fold_in(key, 1),
+        return self.environment.update(
+            buffer.replace(exploring=~replaying),
+            update_key,
             theta=levels,
             assign=assignment,
         )
-        return buffer
 
-    return algorithm, environment, pit, lambda state: state
+
+def plr(
+    algorithm: Algorithm,
+    environment: Environment,
+    capacity: int,
+    replay_probability: float,
+    staleness: float,
+    temperature: float,
+    minimum_fill: float,
+    robust: bool,
+    gamma: float,
+    gae_lambda: float,
+    sample: Callable[[Key], PyTree],
+    score: Callable[[Tally, Array], Array] = positive_value_loss,
+    **kwargs,
+) -> tuple[Graded, LevelBuffer, Curator, Lap]:
+    environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
+    algorithm = Graded(algorithm, capacity=capacity, robust=robust)
+    curator = Curator(
+        environment,
+        replay_probability=replay_probability,
+        staleness=staleness,
+        temperature=temperature,
+        minimum_fill=minimum_fill,
+        gamma=gamma,
+        gae_lambda=gae_lambda,
+        sample=sample,
+        score=score,
+    )
+    return algorithm, environment, curator, lambda state: state

@@ -196,7 +196,7 @@ def build_sebulba(directory, combo):
     update = lox.spool(racer.update)
 
     def initialize(key):
-        environment_key, algorithm_key = jax.random.split(key)
+        environment_key, algorithm_key, call_key = jax.random.split(key, 3)
         environment_state, timestep = racer.environment.init(
             jax.random.fold_in(environment_key, 0)
         )
@@ -207,7 +207,9 @@ def build_sebulba(directory, combo):
             environment_state=environment_state,
             carry=take(carry, 0, 1),
         )
-        rollout_state = racer.pit(racer.lap(actor_state.board(algorithm_state)))
+        rollout_state = racer.pit(
+            call_key, racer.lap(actor_state.board(algorithm_state))
+        )
         num_laps = rollout_state.algorithm_state.step - algorithm_state.step
         actor_state = ActorState(
             timestep=rollout_state.timestep,

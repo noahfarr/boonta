@@ -15,6 +15,7 @@ from hydra.utils import instantiate
 
 from boonta.algorithms.wrappers import Wrapper as AlgorithmWrapper
 from boonta.environments.wrappers import Wrapper as EnvironmentWrapper
+from boonta.podracers.podracer import Pit
 from boonta.utils import Transition
 from hangar import recipes
 
@@ -68,6 +69,22 @@ class TrackedEnvironment(EnvironmentWrapper):
         return self._env.close(state)
 
 
+class TrackedPit(Pit):
+    def __init__(self, pit):
+        self.pit = pit
+
+    def init(self, key):
+        return self.pit.init(key)
+
+    def update(self, state, key, transitions, algorithm_state):
+        return px.track(name="pit/update")(self.pit.update)(
+            state, key, transitions, algorithm_state
+        )
+
+    def __call__(self, key, state):
+        return px.track(name="pit")(self.pit)(key, state)
+
+
 def identity(state):
     return state
 
@@ -81,7 +98,7 @@ def benchmark(overrides, num_updates, seed):
     components["algorithm"] = TrackedAlgorithm(components["algorithm"])
     if components.get("environment") is not None:
         components["environment"] = TrackedEnvironment(components["environment"])
-    components["pit"] = px.track(name="pit")(components.get("pit", identity))
+    components["pit"] = TrackedPit(components.get("pit", Pit()))
     components["lap"] = px.track(name="lap")(components.get("lap", identity))
     podracer = instantiate(cfg.podracer)(**components)
     algorithm, environment = podracer.algorithm, podracer.environment
