@@ -26,6 +26,7 @@ const first = menu.runs[0];
 const selection = { podracer: first.podracer, pilot: first.pilot, track: first.track };
 const buttons = { podracer: {}, pilot: {}, track: {} };
 let handle = null, token = 0, episodes = [], ended = 0, buildTimer = 0;
+let arriving = [], arrived = 0, spacing = 1000, feeding = 0, fed = 0;
 
 const metric = () => (fits(selection) || {}).metric || "return";
 const entry = (kind, id) => menu[KINDS[kind]].find((item) => item.id === id);
@@ -143,9 +144,35 @@ function building(current, label) {
 }
 function stopBuilding() { clearInterval(buildTimer); buildTimer = 0; }
 
+function feed(now) {
+  const elapsed = Math.min(now - fed, 100);
+  fed = now;
+  const count = Math.min(arriving.length, Math.ceil((arriving.length * elapsed) / Math.max(spacing - (now - arrived), 250)));
+  arriving.splice(0, count).forEach((value) => episodes.push({ episode: ++ended, value }));
+  if (episodes.length > 20000) episodes = episodes.filter((_, index) => index % 2 === 0);
+  if (count) paintBoard();
+  feeding = arriving.length ? requestAnimationFrame(feed) : 0;
+}
+
+function queue(values) {
+  const now = performance.now();
+  if (arrived) spacing = 0.7 * spacing + 0.3 * (now - arrived);
+  arrived = now;
+  arriving.push(...values);
+  if (!feeding) {
+    fed = now;
+    feeding = requestAnimationFrame(feed);
+  }
+}
+
 function reset() {
   episodes = [];
   ended = 0;
+  arriving = [];
+  arrived = 0;
+  spacing = 1000;
+  cancelAnimationFrame(feeding);
+  feeding = 0;
   ["updates", "steps", "lag"].forEach((id) => { $(id).textContent = "0"; });
   $("return").textContent = "–";
 }
@@ -178,14 +205,12 @@ async function race() {
       onUpdate(update) {
         if (current !== token) return;
         const values = metric() === "loss" ? update.losses || [] : update.episodes || [];
-        values.forEach((value) => episodes.push({ episode: ++ended, value }));
-        if (episodes.length > 20000) episodes = episodes.filter((_, index) => index % 2 === 0);
+        queue(values);
         $("updates").textContent = String(update.update);
         $("steps").textContent = format(update.steps);
         const shown = metric() === "loss" ? values[values.length - 1] : update.episodeReturn;
         if (Number.isFinite(shown)) $("return").textContent = format(shown);
         if (update.lag !== undefined) $("lag").textContent = String(update.lag);
-        paintBoard();
       },
       onFrame(frame) {
         if (current !== token || document.hidden) return;

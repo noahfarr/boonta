@@ -1,3 +1,4 @@
+import dataclasses
 from functools import cache
 
 import flashbax as fbx
@@ -13,6 +14,7 @@ from boonta.algorithms.dqn import DQN, DQNConfig
 from boonta.algorithms.iql import IQL, IQLConfig
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.algorithms.pqn import PQN, PQNConfig
+from boonta.environments.jumanji import Jumanji
 from boonta.environments.wrappers import RecordEpisodeStatistics, SameStepAutoReset
 from boonta.networks import (ActorCritic, Categorical, EpsilonGreedy,
                              FeatureExtractor, Network)
@@ -45,11 +47,27 @@ class Bundled:
         pass
 
 
+class Snake(Jumanji):
+    def observe(self, timestep):
+        return timestep.replace(obs=timestep.obs[..., :4])
+
+    def init(self, key):
+        state, timestep = super().init(jax.random.key_data(key))
+        return state, self.observe(timestep)
+
+    def step(self, key, state, action):
+        state, timestep = super().step(key, state, action)
+        return state, self.observe(timestep)
+
+    def observation_space(self):
+        space = super().observation_space()
+        return dataclasses.replace(space, shape=space.shape[:-1] + (4,))
+
+
 TRACKS = {
     "cartpole": "CartPole-v1",
     "breakout": "Breakout-MinAtar",
     "catch": "Catch-bsuite",
-    "acrobot": "Acrobot-v1",
 }
 
 
@@ -83,6 +101,8 @@ def game(track):
         return environments.make(
             "kinetix", KINETIX_LEVELS, kwargs={"static_env_params": static_env_params}
         )
+    if track == "snake":
+        return Snake(environments.make("jumanji", "Snake-v1")._env)
     return environments.make("gymnax", TRACKS[track])
 
 
