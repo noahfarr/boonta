@@ -14,7 +14,7 @@ const CATALOG = {
   tracks: [
     { id: "cartpole", name: "CartPole", blurb: "Push a cart left or right to keep a pole upright. Solved at a return of 475 out of 500.", range: [0, 500] },
     { id: "breakout", name: "Breakout", blurb: "MinAtar Breakout on a 10×10 grid, where the paddle bounces the ball to clear the bricks." },
-    { id: "acrobot", name: "Acrobot", blurb: "Swing a two-link arm until its tip clears the bar. Every step costs −1, so faster is better.", range: [-500, 0] },
+    { id: "snake", name: "Snake", blurb: "Jumanji Snake on a 12×12 grid. Every fruit scores one and grows the snake, and hitting itself or a wall ends the game." },
   ],
   runs: [
     { podracer: "anakin", pilot: "ppo", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475, recipe: "ppo_cartpole.py" },
@@ -22,28 +22,28 @@ const CATALOG = {
     { podracer: "anakin", pilot: "dqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
     { podracer: "anakin", pilot: "ppo", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30, recipe: "ppo_minatar.py" },
     { podracer: "anakin", pilot: "pqn", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30, recipe: "pqn_minatar.py" },
-    { podracer: "anakin", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
-    { podracer: "anakin", pilot: "pqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
-    { podracer: "anakin", pilot: "dqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "anakin", pilot: "ppo", track: "snake", num_envs: 64, steps_per_update: 2048, solved: 20, recipe: null },
+    { podracer: "anakin", pilot: "pqn", track: "snake", num_envs: 64, steps_per_update: 2048, solved: 20, recipe: null },
+    { podracer: "anakin", pilot: "dqn", track: "snake", num_envs: 64, steps_per_update: 2048, solved: 20, recipe: null },
     { podracer: "sebulba", pilot: "ppo", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: "ppo_cartpole.py" },
     { podracer: "sebulba", pilot: "pqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
     { podracer: "sebulba", pilot: "ppo", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30, recipe: "ppo_minatar.py" },
-    { podracer: "sebulba", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "sebulba", pilot: "ppo", track: "snake", num_envs: 64, steps_per_update: 2048, solved: 20, recipe: null },
     { podracer: "quadinaros", pilot: "bc", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
     { podracer: "quadinaros", pilot: "iql", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
-    { podracer: "quadinaros", pilot: "bc", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "quadinaros", pilot: "bc", track: "snake", num_envs: 64, steps_per_update: 2048, solved: 20, recipe: null },
     { podracer: "quadinaros", pilot: "bc", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30, recipe: null },
   ],
 };
 
 const SPEED = { anakin: 42000, sebulba: 13000, quadinaros: 61000 };
-const TRACK_SPEED = { cartpole: 1, breakout: 0.32, acrobot: 0.8 };
+const TRACK_SPEED = { cartpole: 1, breakout: 0.32, snake: 0.1 };
 const PILOT_SPEED = { ppo: 1, pqn: 1.2, dqn: 0.55, bc: 1.3, iql: 0.8 };
 const PILOT_PACE = { ppo: 1, pqn: 0.8, dqn: 1.5, bc: 0.45, iql: 0.7 };
 const CURVE = {
   cartpole: { floor: 18, top: 500, midpoint: 45, width: 9 },
   breakout: { floor: 0.6, top: 38, midpoint: 150, width: 40 },
-  acrobot: { floor: -500, top: -75, midpoint: 40, width: 9 },
+  snake: { floor: 0.05, top: 12, midpoint: 120, width: 30 },
 };
 
 export async function catalog() {
@@ -149,18 +149,34 @@ function catcher(random) {
   };
 }
 
-function acrobot(random) {
-  let clock = 0;
+function snake(random) {
+  const size = 12, channels = 4, moves = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+  let body, fruit;
+  const place = () => { fruit = [Math.floor(random() * size), Math.floor(random() * size)]; };
+  const restart = () => { body = [[6, 6]]; place(); };
+  restart();
   return (skill) => {
-    clock += 1 / 30;
-    const reach = 0.4 + 2.6 * skill;
-    const theta1 = Math.sin(clock * 2.2) * reach + (random() - 0.5) * 0.05;
-    const theta2 = Math.sin(clock * 2.2 + 0.9) * reach * 0.8;
-    return { track: "acrobot", theta1, theta2 };
+    const [r, c] = body[0];
+    const toward = [Math.sign(fruit[0] - r), Math.sign(fruit[1] - c)];
+    const greedy = toward[0] ? [toward[0], 0] : [0, toward[1]];
+    const [dr, dc] = random() < 0.4 + 0.6 * skill ? greedy : moves[Math.floor(random() * 4)];
+    const head = [r + dr, c + dc];
+    const hit = head[0] < 0 || head[0] >= size || head[1] < 0 || head[1] >= size || body.some(([br, bc]) => br === head[0] && bc === head[1]);
+    if (hit) restart();
+    else {
+      body.unshift(head);
+      if (head[0] === fruit[0] && head[1] === fruit[1]) place();
+      else body.pop();
+    }
+    const grid = new Uint8Array(size * size * channels);
+    body.forEach(([br, bc]) => { grid[(br * size + bc) * channels] = 1; });
+    grid[(body[0][0] * size + body[0][1]) * channels + 1] = 1;
+    grid[(fruit[0] * size + fruit[1]) * channels + 3] = 1;
+    return { track: "snake", grid, height: size, width: size, channels };
   };
 }
 
-const PLAYERS = { cartpole, breakout, acrobot, catch: catcher };
+const PLAYERS = { cartpole, breakout, snake, catch: catcher };
 
 export async function start(config, handlers = {}) {
   const { podracer, pilot, track, seed = 0 } = config;

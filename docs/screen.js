@@ -15,6 +15,7 @@ const INK = {
 const CHANNELS = {
   breakout: [INK.yellow, INK.text, INK.dim, INK.red],
   catch: [INK.yellow, INK.text],
+  snake: [INK.green, INK.yellow, INK.green, INK.red],
 };
 const FALLBACK_CHANNELS = [INK.yellow, INK.text, INK.red, INK.orange, INK.blue, INK.green];
 
@@ -86,18 +87,6 @@ function grid(draw, frame, box) {
   }
 }
 
-function acrobot(draw, frame, box) {
-  const cx = box.x + box.w / 2, cy = box.y + box.h / 2 - 4;
-  const link = Math.min(box.h, box.w) / 4.4;
-  const x1 = cx + Math.sin(frame.theta1) * link, y1 = cy + Math.cos(frame.theta1) * link;
-  const angle = frame.theta1 + frame.theta2;
-  const x2 = x1 + Math.sin(angle) * link, y2 = y1 + Math.cos(angle) * link;
-  draw.rect(box.x + 8, cy - link, box.w - 16, 1, INK.green);
-  draw.line(cx, cy, x1, y1, INK.yellow, 3);
-  draw.line(x1, y1, x2, y2, INK.orange, 3);
-  draw.rect(cx - 1, cy - 1, 3, 3, INK.text);
-}
-
 function unknown(draw, frame, box) {
   const entries = Object.entries(frame).filter(([key, value]) => key !== "track" && typeof value === "number").slice(0, 6);
   entries.forEach(([key, value], index) => draw.text(`${key} ${value.toFixed(2)}`, box.x + 6, box.y + 6 + index * 12, INK.text));
@@ -146,7 +135,6 @@ export function drawFrame(canvas, frame, label) {
   }
   if (frame.pixels) pixels(context, frame, box);
   else if (frame.grid) grid(draw, frame, box);
-  else if (typeof frame.theta1 === "number") acrobot(draw, frame, box);
   else if (typeof frame.theta === "number") cartpole(draw, frame, box);
   else unknown(draw, frame, box);
 }
@@ -170,13 +158,19 @@ const ICONS = {
     grid[(7 * 10 + 5) * 4 + 2] = 1;
     return { track: "breakout", grid, height: 10, width: 10, channels: 4 };
   })(),
+  snake: (() => {
+    const grid = new Uint8Array(12 * 12 * 4);
+    [[6, 3], [6, 4], [6, 5], [5, 5], [4, 5], [4, 6], [4, 7]].forEach(([r, c]) => { grid[(r * 12 + c) * 4] = 1; });
+    grid[(4 * 12 + 7) * 4 + 1] = 1;
+    grid[(8 * 12 + 9) * 4 + 3] = 1;
+    return { track: "snake", grid, height: 12, width: 12, channels: 4 };
+  })(),
   catch: (() => {
     const grid = new Uint8Array(10 * 5 * 2);
     grid[(9 * 5 + 2) * 2] = 1;
     grid[(4 * 5 + 1) * 2 + 1] = 1;
     return { track: "catch", grid, height: 10, width: 5, channels: 2 };
   })(),
-  acrobot: { track: "acrobot", theta1: 2.4, theta2: 0.8 },
 };
 
 export function drawBanner(canvas, track) {
