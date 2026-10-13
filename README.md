@@ -51,15 +51,15 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 | | boonta | [Stoix](https://github.com/EdanToledo/Stoix) | [PureJaxRL](https://github.com/luchris429/purejaxrl) | [Cleanba](https://github.com/vwxyzjn/cleanba) | [Mava](https://github.com/instadeepai/Mava) | [PufferLib](https://github.com/PufferAI/PufferLib) | [CleanRL](https://github.com/vwxyzjn/cleanrl) |
 |---|---|---|---|---|---|---|---|
 | Framework | JAX | JAX | JAX | JAX | JAX | C/CUDA | PyTorch |
-| Anakin | ✓ | ✓ | one device | ✗ | ✓ | GPU environments | one script |
+| Anakin | ✓ | ✓ | One device | ✗ | ✓ | GPU environments | One script |
 | Sebulba | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
 | Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Off-policy | ✓ | ✓ | DQN | ✗ | ✓ | ✗ | ✓ |
-| Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | shared policy | one script |
+| Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | Shared policy | One script |
 | Curricula | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, Transformer-XL |
 | LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Code | importable components | single file | single file | single file | single file | one C/CUDA core | single file |
+| Code | Importable components | Single file | Single file | Single file | Single file | One C/CUDA core | Single file |
 
 Each of these does something better than boonta. Pick PureJaxRL or CleanRL for one file you can read top to bottom and fork. Pick Mava for cooperative multi-agent benchmarks and its range of MARL algorithms. Pick PufferLib for the fastest training on its own native environments. Stoix has more single-agent algorithms, from MPO to MuZero. Cleanba is the reference for reproducible actor-learner training, and boonta's Sebulba follows it.
 
