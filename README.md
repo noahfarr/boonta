@@ -44,7 +44,24 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 **Curricula**
 - [PLR](https://arxiv.org/abs/2110.02439) replays the levels the agent learns most from
-- League trains against a pool of earlier policies, picked by [PSRO](https://arxiv.org/abs/1711.00832) meta-solvers
+- League trains against a pool of earlier policies: self-play, fictitious self-play, prioritised fictitious self-play and [PSRO](https://arxiv.org/abs/1711.00832)
+
+## Compared with other libraries
+
+| | boonta | [Stoix](https://github.com/EdanToledo/Stoix) | [PureJaxRL](https://github.com/luchris429/purejaxrl) | [Cleanba](https://github.com/vwxyzjn/cleanba) | [Mava](https://github.com/instadeepai/Mava) | [PufferLib](https://github.com/PufferAI/PufferLib) | [TorchRL](https://github.com/pytorch/rl) |
+|---|---|---|---|---|---|---|---|
+| Framework | JAX | JAX | JAX | JAX | JAX | C/CUDA | PyTorch |
+| Anakin | ✓ | ✓ | One device | ✗ | ✓ | GPU environments | GPU environments |
+| Sebulba | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Off-policy | ✓ | ✓ | DQN | ✗ | ✓ | ✗ | ✓ |
+| Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | Shared policy | ✓ |
+| Curricula | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, GRU, transformer |
+| LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Code | Importable components | Single file | Single file | Single file | Single file | One C/CUDA core | Importable components |
+
+Among these, boonta is the only library that trains online, offline and through curricula with one algorithm interface, and the only one in JAX that trains LLMs and VLAs as agents. The others shine at what they focus on: PureJaxRL as one file to read and fork, Stoix for its breadth of single-agent algorithms, Mava for cooperative multi-agent benchmarks, PufferLib for its fast native environments, TorchRL for PyTorch, and Cleanba, whose reproducible actor-learner design boonta's Sebulba follows.
 
 ## Install
 
