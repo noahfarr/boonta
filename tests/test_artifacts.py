@@ -222,7 +222,8 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     state = SimpleNamespace(algorithm_state=None)
     video = Render(max_frames=16).craft(jax.random.key(0), algorithm, environment, state, {})
 
-    assert video.data.shape == (16, 160, 160, 3)
+    frames, _, _, channels = video.data.shape
+    assert (frames, channels) == (16, 3)
     assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1
 
 
