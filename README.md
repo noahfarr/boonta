@@ -61,9 +61,9 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 | LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Code | Importable components | Single file | Single file | Single file | Single file | One C/CUDA core | Importable components |
 
-Each of these does something better than boonta. Pick PureJaxRL for one file you can read top to bottom and fork. Pick TorchRL if you work in PyTorch: it covers as much ground, from offline RL to LLM fine-tuning, without compiling the loop into one program. Pick Mava for cooperative multi-agent benchmarks and its range of MARL algorithms. Pick PufferLib for the fastest training on its own native environments. Stoix has more single-agent algorithms, from MPO to MuZero. Cleanba is the reference for reproducible actor-learner training, and boonta's Sebulba follows it.
+Among these, boonta is the only library that trains online, offline and through curricula with one algorithm interface, and the only one in JAX that trains LLMs and VLAs as agents. The others shine at what they focus on: PureJaxRL as one file to read and fork, Stoix for its breadth of single-agent algorithms, Mava for cooperative multi-agent benchmarks, PufferLib for its fast native environments, TorchRL for PyTorch, and Cleanba, whose reproducible actor-learner design boonta's Sebulba follows.
 
-The table was checked against each repository in October 2026. Corrections are welcome.
+Checked against each repository in October 2026.
 
 ## Install
 
