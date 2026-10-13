@@ -51,13 +51,12 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 | | boonta | [Stoix](https://github.com/EdanToledo/Stoix) | [PureJaxRL](https://github.com/luchris429/purejaxrl) | [Cleanba](https://github.com/vwxyzjn/cleanba) | [Mava](https://github.com/instadeepai/Mava) | [PufferLib](https://github.com/PufferAI/PufferLib) | [CleanRL](https://github.com/vwxyzjn/cleanrl) |
 |---|---|---|---|---|---|---|---|
 | Framework | JAX | JAX | JAX | JAX | JAX | C/CUDA | PyTorch |
-| Anakin (JAX environments) | ✓ | ✓ | one device | ✗ | ✓ | GPU environments | one script |
-| Sebulba (other environments) | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
+| Anakin | ✓ | ✓ | one device | ✗ | ✓ | GPU environments | one script |
+| Sebulba | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
 | Offline RL and BC | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Off-policy | ✓ | ✓ | DQN | ✗ | ✓ | ✗ | ✓ |
 | Multi-agent | ✓ | ✗ | ✗ | ✗ | ✓ | shared policy | one script |
-| Self-play and leagues | SP, FSP, PFSP, PSRO | ✗ | ✗ | ✗ | ✗ | checkpoint pool | ✗ |
-| Curricula (PLR) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Curricula | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Memory | GRU, SSM, attention, … | GRU | GRU, S5 | ✗ | GRU, retention | MinGRU | LSTM, Transformer-XL |
 | LLM and VLA policies | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Code | importable components | single file | single file | single file | single file | one C/CUDA core | single file |
