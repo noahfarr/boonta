@@ -13,11 +13,6 @@ export async function catalog() {
 
 const FRAMES = {
   cartpole: (track, obs) => ({ track, x: obs[0], theta: obs[2] }),
-  acrobot: (track, obs) => ({
-    track,
-    theta1: Math.atan2(obs[1], obs[0]),
-    theta2: Math.atan2(obs[3], obs[2]),
-  }),
   pixels: (track, obs, shape) => {
     const [height, width] = shape;
     return { track, pixels: Uint8ClampedArray.from(obs), height, width };
