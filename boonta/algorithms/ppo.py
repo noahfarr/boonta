@@ -61,7 +61,11 @@ class PPO:
         return (
             state,
             action,
-            {"log_prob": log_prob, "value": remove_feature_axis(value)},
+            {
+                "log_prob": log_prob,
+                "value": remove_feature_axis(value),
+                "logits": getattr(dist, "logits", None),
+            },
         )
 
     def update(self, state: PPOState, key: Key, transitions: Transition) -> PPOState:
