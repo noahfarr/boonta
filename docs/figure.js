@@ -91,7 +91,8 @@ function render() {
   const offline = selection.podracer === "quadinaros";
   hero.dataset.offline = String(offline);
   hero.style.setProperty("--tint", `var(${TINTS[selection.podracer] || "--accent"})`);
-  $("config").textContent = `podracer=${selection.podracer}\nalgorithm=${selection.pilot}\nenvironment=${selection.track}`;
+  $("config").textContent = `podracer=${selection.podracer} algorithm=${selection.pilot} environment=${selection.track}`;
+  $("recipe").textContent = (fits(selection) || {}).recipe || "no recipe yet";
   $("steps-label").textContent = offline ? "SAMPLES" : "STEPS";
   $("lag-cell").hidden = selection.podracer !== "sebulba";
   $("return-label").textContent = metric() === "loss" ? "LOSS" : "RETURN";
@@ -135,10 +136,10 @@ function building(current, label) {
   let frame = 0;
   const draw = () => {
     if (current !== token) return stopBuilding();
-    if (!document.hidden) drawBuilding(screen, frame++, label);
+    if (!document.hidden) drawBuilding(screen, frame++, label, menu.podracers.findIndex((item) => item.id === selection.podracer));
   };
   draw();
-  buildTimer = setInterval(draw, 160);
+  buildTimer = setInterval(draw, 220);
 }
 function stopBuilding() { clearInterval(buildTimer); buildTimer = 0; }
 

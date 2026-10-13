@@ -44,11 +44,10 @@
         <span class="name">CONFIG</span>
         <code id="config"></code>
       </div>
-      <span class="hydra" aria-hidden="true">Hydra <i>&#8594;</i></span>
+      <span class="hydra" aria-hidden="true">Hydra<i></i></span>
       <div class="box recipe part" data-title="Recipe" data-explain="The recipe builds the podracer from the config. Here it compiles boonta's training step to WebAssembly and trains in your browser.">
         <span class="name">RECIPE</span>
-        <button class="button" type="button" id="run" data-state="idle">RUN</button>
-        <span class="hidden-text" id="status" role="status" aria-live="polite" data-phase="idle">Ready</span>
+        <code id="recipe"></code>
       </div>
     </section>
 
@@ -108,6 +107,11 @@
           </div>
         </div>
       </section>
+
+      <div class="launch">
+        <button class="button" type="button" id="run" data-state="idle">RUN</button>
+        <span id="status" role="status" aria-live="polite" data-phase="idle">Ready</span>
+      </div>
     </div>
   </div>
   <p class="caption" id="caption" aria-live="polite"><b id="caption-title"></b><span id="caption-text"></span></p>

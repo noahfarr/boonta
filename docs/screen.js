@@ -272,22 +272,55 @@ export function drawBoard(canvas, episodes, colors, range, unit = "episode") {
   }
 }
 
-export function drawBuilding(canvas, frame, label) {
+const LIVERY = [
+  [INK.red, "rgb(232, 120, 120)"],
+  [INK.orange, "rgb(230, 150, 100)"],
+  [INK.yellow, "rgb(236, 236, 150)"],
+];
+
+function pod(draw, x, y, index, frame) {
+  const [tint, light] = LIVERY[index] || LIVERY[0];
+  const flames = [INK.text, INK.yellow, INK.orange, INK.red];
+  const engine = (ex, ey, length) => {
+    draw.rect(ex - 2, ey + 1, 2, 3, INK.dim);
+    draw.rect(ex, ey + 1, 20, 3, tint);
+    draw.rect(ex + 2, ey, 16, 1, light);
+    draw.rect(ex + 20, ey + 1, 4, 2, tint);
+    for (let i = 0; i < length; i++) draw.rect(ex - 3 - i, ey + 2, 1, i < length / 2 ? 2 : 1, flames[Math.min(3, Math.floor((i / length) * 4))]);
+  };
+  draw.line(x - 2, y + 2, x - 16, y + 5, INK.dim);
+  draw.line(x + 1, y + 11, x - 16, y + 7, INK.dim);
+  engine(x, y, 2 + ((frame * 5) % 4));
+  engine(x + 3, y + 9, 2 + ((frame * 3 + 1) % 4));
+  draw.rect(x - 26, y + 4, 10, 5, tint);
+  draw.rect(x - 25, y + 3, 7, 1, light);
+  draw.rect(x - 20, y + 2, 3, 2, INK.blue);
+  for (let row = y + 4; row < y + 9; row++) draw.rect(x + 9 + ((row + frame) % 3) - 1, row, 1, 1, frame % 2 ? INK.text : INK.yellow);
+}
+
+export function drawBuilding(canvas, frame, label, index = 0) {
   const context = canvas.getContext("2d");
   const draw = pen(context);
   const { width, height } = canvas;
   draw.rect(0, 0, width, height, INK.back);
   draw.rect(0, 0, width, 13, INK.frame);
   draw.text(label, 4, 3, INK.text);
-  const colors = [INK.red, INK.orange, INK.yellow, INK.blue, INK.green];
-  const placed = frame % 9;
-  const bx = width / 2 - 24, by = height / 2 + 14;
-  for (let i = 0; i < Math.min(placed, 8); i++) {
-    const row = Math.floor(i / 3), column = i % 3;
-    const x = bx + column * 16 + (row % 2) * 8, y = by - row * 9;
-    draw.rect(x, y, 15, 8, colors[i % colors.length]);
-    draw.rect(x + 3, y - 2, 3, 2, colors[i % colors.length]);
-    draw.rect(x + 9, y - 2, 3, 2, colors[i % colors.length]);
+  const lit = frame % 7;
+  const left = width / 2 - 48;
+  draw.rect(left - 6, 24, 108, 3, INK.frame);
+  for (let i = 0; i < 5; i++) {
+    const x = left + i * 20;
+    draw.rect(x + 7, 20, 2, 4, INK.frame);
+    draw.rect(x, 27, 16, 22, INK.frame);
+    for (let j = 0; j < 2; j++) draw.rect(x + 3, 30 + j * 9, 10, 7, i < lit && lit < 6 ? INK.red : "rgb(56, 30, 30)");
   }
-  draw.text(".".repeat(1 + (frame % 3)), width / 2, by + 16, INK.dim, "center");
+  const ground = height - 22;
+  for (let x = 0; x < width; x += 4) {
+    draw.rect(x, ground, 4, 4, (x / 4) % 2 ? INK.text : INK.back);
+    draw.rect(x, ground + 4, 4, 4, (x / 4) % 2 ? INK.back : INK.text);
+  }
+  const sprite = new OffscreenCanvas(64, 18);
+  pod(pen(sprite.getContext("2d")), 36, 2, index, frame);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(sprite, width / 2 - 64, ground - 38, 128, 36);
 }
