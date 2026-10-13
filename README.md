@@ -63,8 +63,6 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 Among these, boonta is the only library that trains online, offline and through curricula with one algorithm interface, and the only one in JAX that trains LLMs and VLAs as agents. The others shine at what they focus on: PureJaxRL as one file to read and fork, Stoix for its breadth of single-agent algorithms, Mava for cooperative multi-agent benchmarks, PufferLib for its fast native environments, TorchRL for PyTorch, and Cleanba, whose reproducible actor-learner design boonta's Sebulba follows.
 
-Checked against each repository in October 2026.
-
 ## Install
 
 boonta is not on PyPI. Install it from a checkout with [uv](https://docs.astral.sh/uv/):
