@@ -67,6 +67,13 @@ THRESHOLDS = {
 
 SEBULBA_STEPS = {"dqn": 8}
 
+RECIPES = {
+    ("ppo", "cartpole"): "ppo_cartpole.py",
+    ("ppo", "breakout"): "ppo_minatar.py",
+    ("pqn", "breakout"): "pqn_minatar.py",
+    ("dqn", "breakout"): "dqn_minatar.py",
+}
+
 
 def online(podracer, pilot, track):
     h = dict(HYPERPARAMETERS[pilot, track])
@@ -76,7 +83,7 @@ def online(podracer, pilot, track):
     calls = 1 if podracer == "sebulba" else 100 // h["num_steps"] if pilot == "dqn" else 2
     return {
         "podracer": podracer, "pilot": pilot, "track": track, "h": h,
-        "updates_per_call": calls, **THRESHOLDS[track],
+        "updates_per_call": calls, "recipe": RECIPES.get((pilot, track)), **THRESHOLDS[track],
     }
 
 
@@ -102,7 +109,7 @@ OFFLINE_OVERRIDES = {("iql", "breakout"): {"learning_rate": 1e-3}}
 
 def offline(pilot, track):
     return {
-        "podracer": "quadinaros", "pilot": pilot, "track": track,
+        "podracer": "quadinaros", "pilot": pilot, "track": track, "recipe": RECIPES.get((pilot, track)),
         "h": {**OFFLINE[pilot], **OFFLINE_OVERRIDES.get((pilot, track), {})},
         "updates_per_call": 25, "evaluation_steps": EVALUATION_STEPS[track],
         "evaluation_every": 1500, **THRESHOLDS[track], **OFFLINE_SOLVED.get(track, {}),

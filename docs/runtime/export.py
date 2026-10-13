@@ -430,6 +430,7 @@ def entry(combo, manifest):
         "learned": combo["learned"],
         "path": f"build/{identity(combo)}/",
         "metric": "loss" if "loss" in combo else "return",
+        "recipe": combo["recipe"],
         **({"measured": combo["measured"]} if "measured" in combo else {}),
     }
 

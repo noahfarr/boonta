@@ -17,22 +17,22 @@ const CATALOG = {
     { id: "acrobot", name: "Acrobot", blurb: "Swing a two-link arm until its tip clears the bar. Every step costs −1, so faster is better.", range: [-500, 0] },
   ],
   runs: [
-    { podracer: "anakin", pilot: "ppo", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475 },
-    { podracer: "anakin", pilot: "pqn", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475 },
-    { podracer: "anakin", pilot: "dqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475 },
-    { podracer: "anakin", pilot: "ppo", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30 },
-    { podracer: "anakin", pilot: "pqn", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30 },
-    { podracer: "anakin", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100 },
-    { podracer: "anakin", pilot: "pqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100 },
-    { podracer: "anakin", pilot: "dqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100 },
-    { podracer: "sebulba", pilot: "ppo", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475 },
-    { podracer: "sebulba", pilot: "pqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475 },
-    { podracer: "sebulba", pilot: "ppo", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30 },
-    { podracer: "sebulba", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100 },
-    { podracer: "quadinaros", pilot: "bc", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475 },
-    { podracer: "quadinaros", pilot: "iql", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475 },
-    { podracer: "quadinaros", pilot: "bc", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100 },
-    { podracer: "quadinaros", pilot: "bc", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30 },
+    { podracer: "anakin", pilot: "ppo", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475, recipe: "ppo_cartpole.py" },
+    { podracer: "anakin", pilot: "pqn", track: "cartpole", num_envs: 128, steps_per_update: 4096, solved: 475, recipe: null },
+    { podracer: "anakin", pilot: "dqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
+    { podracer: "anakin", pilot: "ppo", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30, recipe: "ppo_minatar.py" },
+    { podracer: "anakin", pilot: "pqn", track: "breakout", num_envs: 128, steps_per_update: 4096, solved: 30, recipe: "pqn_minatar.py" },
+    { podracer: "anakin", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "anakin", pilot: "pqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "anakin", pilot: "dqn", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "sebulba", pilot: "ppo", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: "ppo_cartpole.py" },
+    { podracer: "sebulba", pilot: "pqn", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
+    { podracer: "sebulba", pilot: "ppo", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30, recipe: "ppo_minatar.py" },
+    { podracer: "sebulba", pilot: "ppo", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "quadinaros", pilot: "bc", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
+    { podracer: "quadinaros", pilot: "iql", track: "cartpole", num_envs: 64, steps_per_update: 2048, solved: 475, recipe: null },
+    { podracer: "quadinaros", pilot: "bc", track: "acrobot", num_envs: 64, steps_per_update: 2048, solved: -100, recipe: null },
+    { podracer: "quadinaros", pilot: "bc", track: "breakout", num_envs: 64, steps_per_update: 2048, solved: 30, recipe: null },
   ],
 };
 
@@ -192,7 +192,7 @@ export async function start(config, handlers = {}) {
     const noise = (random() - 0.5) * 0.18 * (curve.top - curve.floor) * (1 - skill * 0.7);
     const value = curve.floor + (curve.top - curve.floor) * skill + noise;
     const episodeReturn = update < 3 ? NaN : Math.max(Math.min(curve.floor, -1), Math.min(curve.top, value));
-    const report = { update, steps, sps: measured, episodeReturn };
+    const report = { update, steps, sps: measured, episodeReturn, episodes: Number.isFinite(episodeReturn) ? [episodeReturn] : [] };
     if (podracer === "sebulba") report.lag = 1;
     onUpdate(report);
     later(interval, tick);
