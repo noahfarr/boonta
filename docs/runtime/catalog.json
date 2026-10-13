@@ -92,7 +92,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/anakin-ppo-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "ppo_cartpole.py"
   },
   {
    "podracer": "anakin",
@@ -104,7 +105,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/anakin-ppo-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "ppo_minatar.py"
   },
   {
    "podracer": "anakin",
@@ -116,7 +118,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/anakin-ppo-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "anakin",
@@ -128,7 +131,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/anakin-pqn-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "anakin",
@@ -140,7 +144,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/anakin-pqn-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "pqn_minatar.py"
   },
   {
    "podracer": "anakin",
@@ -152,7 +157,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/anakin-pqn-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "anakin",
@@ -164,7 +170,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/anakin-dqn-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "anakin",
@@ -176,7 +183,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/anakin-dqn-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "dqn_minatar.py"
   },
   {
    "podracer": "anakin",
@@ -188,7 +196,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/anakin-dqn-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "sebulba",
@@ -200,7 +209,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/sebulba-ppo-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "ppo_cartpole.py"
   },
   {
    "podracer": "sebulba",
@@ -212,7 +222,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/sebulba-ppo-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "ppo_minatar.py"
   },
   {
    "podracer": "sebulba",
@@ -224,7 +235,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/sebulba-ppo-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "sebulba",
@@ -236,7 +248,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/sebulba-pqn-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "sebulba",
@@ -248,7 +261,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/sebulba-pqn-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "pqn_minatar.py"
   },
   {
    "podracer": "sebulba",
@@ -260,7 +274,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/sebulba-pqn-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "sebulba",
@@ -272,7 +287,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/sebulba-dqn-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "sebulba",
@@ -284,7 +300,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/sebulba-dqn-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": "dqn_minatar.py"
   },
   {
    "podracer": "sebulba",
@@ -296,7 +313,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/sebulba-dqn-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -308,7 +326,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/quadinaros-bc-cartpole/",
-   "metric": "loss"
+   "metric": "loss",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -320,7 +339,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/quadinaros-bc-breakout/",
-   "metric": "loss"
+   "metric": "loss",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -332,7 +352,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/quadinaros-bc-acrobot/",
-   "metric": "loss"
+   "metric": "loss",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -344,7 +365,8 @@
    "baseline": 0.0,
    "learned": 0.5,
    "path": "build/quadinaros-bc-kinetix/",
-   "metric": "loss"
+   "metric": "loss",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -356,7 +378,8 @@
    "baseline": 22,
    "learned": 150,
    "path": "build/quadinaros-iql-cartpole/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -368,7 +391,8 @@
    "baseline": 0.5,
    "learned": 3,
    "path": "build/quadinaros-iql-breakout/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -380,7 +404,8 @@
    "baseline": -480,
    "learned": -200,
    "path": "build/quadinaros-iql-acrobot/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   },
   {
    "podracer": "quadinaros",
@@ -392,7 +417,8 @@
    "baseline": 0.0,
    "learned": 0.5,
    "path": "build/quadinaros-iql-kinetix/",
-   "metric": "return"
+   "metric": "return",
+   "recipe": null
   }
  ]
 }
