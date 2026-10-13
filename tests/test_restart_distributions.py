@@ -8,8 +8,9 @@ import numpy as np
 import zoo
 from boonta.curricula import erd, prd
 from boonta.curricula.prd import (Advantage, CountedRelevance, Diagonal,
-                                  GreedyAdvantage, Kernel, SuccessorFootprint,
-                                  SuccessorRepresentation, UniformFootprint,
+                                  GreedyAdvantage, Kernel, ModelAdvantage,
+                                  SuccessorFootprint, SuccessorRepresentation,
+                                  Softmax, TopK, UniformFootprint,
                                   UniformRelevance)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
@@ -64,28 +65,31 @@ def stack(timesteps):
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *timesteps)
 
 
-def selector(footprint, relevance, columns=None, gain=Advantage(), score=Diagonal()):
+def selector(
+    footprint, relevance, columns=None, gain=Advantage(), score=Diagonal(), allocation=prd.Marginal()
+):
     return prd.Selector(
         successor=SuccessorRepresentation(gamma=0.75, columns=columns),
         footprint=footprint,
         relevance=relevance,
         gain=gain,
         score=score,
+        allocation=allocation,
         k=2.0,
     )
 
 
-def place(selector, env, state, key, transitions):
+def place(selector, env, state, ledger, key, transitions):
     update_key, select_key, assign_key = jax.random.split(key, 3)
     if isinstance(selector, erd.Selector):
-        return env.update(state, assign_key, slots=selector.select(env, state, select_key))
-    ledger = state.ledger
-    if not jax.tree.leaves(ledger):
+        slots = selector.select(env, state, select_key)
+        return env.update(state, assign_key, slots=slots), ledger
+    if ledger is None:
         ledger = selector.init(env.archive.archive_size, env.num_actions)
     if transitions is not None:
         ledger = selector.update(ledger, update_key, transitions)
     slots = selector.select(ledger, env, state, select_key, transitions=transitions)
-    return env.update(state, assign_key, slots=slots, ledger=ledger)
+    return env.update(state, assign_key, slots=slots), ledger
 
 
 def train(selector, updates=3, steps=4):
@@ -97,7 +101,9 @@ def train(selector, updates=3, steps=4):
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
-    archive_auto_reset_state = place(selector, env, archive_auto_reset_state, key, None)
+    archive_auto_reset_state, ledger = place(
+        selector, env, archive_auto_reset_state, None, key, None
+    )
     for _ in range(updates):
         firsts, seconds = [], []
         for _ in range(steps):
@@ -110,13 +116,17 @@ def train(selector, updates=3, steps=4):
             timestep = after
         blank = jnp.zeros((steps, NUM_ENVS))
         transitions = Transition(
-            first=stack(firsts), second=stack(seconds), aux={"value": blank, "log_prob": blank}
+            first=stack(firsts),
+            second=stack(seconds),
+            aux={"value": blank, "log_prob": blank, "logits": jnp.zeros((steps, NUM_ENVS, 2))},
         )
         key, sub = jax.random.split(key)
-        archive_auto_reset_state = place(selector, env, archive_auto_reset_state, sub, transitions)
+        archive_auto_reset_state, ledger = place(
+            selector, env, archive_auto_reset_state, ledger, sub, transitions
+        )
     key, sub = jax.random.split(key)
     _, cut = env.step(sub, archive_auto_reset_state, jnp.ones(NUM_ENVS, jnp.int32))
-    return env, archive_auto_reset_state, cut
+    return env, archive_auto_reset_state, cut, ledger
 
 
 @pytest.mark.parametrize(
@@ -128,6 +138,9 @@ def train(selector, updates=3, steps=4):
         selector(UniformFootprint(), CountedRelevance()),
         selector(UniformFootprint(), UniformRelevance()),
         selector(SuccessorFootprint(), CountedRelevance(), gain=GreedyAdvantage()),
+        selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage()),
+        selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage(), allocation=TopK(width=4)),
+        selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage(), allocation=Softmax()),
         erd.Selector(k=2.0),
     ],
     ids=[
@@ -137,11 +150,14 @@ def train(selector, updates=3, steps=4):
         "prd-uniform-footprint",
         "prd-uniform",
         "prd-greedy-advantage",
+        "prd-model-advantage",
+        "prd-top-k",
+        "prd-softmax",
         "erd",
     ],
 )
 def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
-    env, archive_auto_reset_state, cut = train(selector)
+    env, archive_auto_reset_state, cut, _ = train(selector)
     block = jnp.arange(NUM_ENVS) >= NUM_ENVS - share(2.0, NUM_ENVS)
     eligible = env.archive.eligible(archive_auto_reset_state.archive_state)
     assert bool(jnp.all(archive_auto_reset_state.due_mask == block))
@@ -151,8 +167,8 @@ def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
 
 def test_a_uniform_footprint_keeps_the_counted_relevance():
     uniform = selector(UniformFootprint(), CountedRelevance())
-    _, state, _ = train(uniform)
-    relevance = uniform.relevant(state.ledger)
+    _, state, _, ledger = train(uniform)
+    relevance = uniform.relevant(ledger)
     assert float(jnp.std(relevance[state.archive_state.mask])) > 0.0
     np.testing.assert_allclose(jnp.sum(relevance), 1.0, rtol=1e-5)
 
@@ -225,3 +241,5 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curri
     assert bool(jnp.any(archived.due_mask))
     assert np.isfinite(np.asarray(logs["archive/placed"])).all()
     assert all(np.isfinite(leaf).all() for leaf in jax.tree.leaves(state.algorithm_state.params))
+    if curriculum is prd.pit:
+        assert float(jnp.sum(state.algorithm_state.ledger.reach)) > 0.0

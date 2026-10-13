@@ -8,10 +8,13 @@ from flax import struct
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.wrappers.wrapper import Wrapper as AlgorithmWrapper
+from boonta.algorithms.wrappers.wrapper import \
+    WrapperState as AlgorithmWrapperState
 from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
                                                              plant, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, PyTree, Timestep, Transition
 from boonta.utils.typing import Environment
 
 
@@ -44,7 +47,11 @@ class SuccessorRepresentation:
         )
 
     def pour(self, successor: Successor, term: Array) -> Array:
-        return jnp.sum(successor.weights * jnp.append(term, 0.0)[successor.columns], axis=-1)
+        size, *_ = jnp.shape(term)
+        gathered = jnp.where(
+            successor.columns < size, term[jnp.clip(successor.columns, 0, size - 1)], 0.0
+        )
+        return jnp.sum(successor.weights * gathered, axis=-1)
 
     def expected_visits(self, successor: Successor, start_slot: Array) -> Array:
         columns, weights = successor.columns, successor.weights
@@ -326,6 +333,136 @@ class GreedyAdvantage(Advantage):
 
 
 @struct.dataclass
+class ModelState(GainState):
+    tries: Array
+    payoff_sums: Array
+    discount_sums: Array
+    successor_slots: Array
+    value_sums: Array
+    value_counts: Array
+    policy_sums: Array
+
+
+@dataclass
+class ModelAdvantage(Advantage):
+    def power(self, state: ModelState) -> Array:
+        tried_mask = state.tries > 0.0
+        spread = self.policy(state) ** 2 * self.centre(state) ** 2
+        return jnp.sum(jnp.where(tried_mask, spread, 0.0), axis=-1)
+
+    def policy(self, state: ModelState) -> Array:
+        return state.policy_sums / jnp.maximum(
+            jnp.sum(state.policy_sums, axis=-1, keepdims=True), 1e-12
+        )
+
+    def centre(self, state: ModelState) -> Array:
+        tried_mask = state.tries > 0.0
+        values = state.value_sums / jnp.maximum(state.value_counts, 1e-12)
+        successor_values = jnp.where(
+            state.successor_slots >= 0, values[jnp.clip(state.successor_slots, 0)], 0.0
+        )
+        payoffs = state.payoff_sums / jnp.maximum(state.tries, 1.0)
+        discounts = state.discount_sums / jnp.maximum(state.tries, 1.0)
+        advantages = payoffs + discounts * successor_values - values[:, None]
+        baseline = jnp.sum(
+            jnp.where(tried_mask, self.policy(state) * advantages, 0.0), axis=-1, keepdims=True
+        )
+        return jnp.where(tried_mask, advantages - baseline, 0.0)
+
+    def init(self, archive_size: int, num_actions: int) -> ModelState:
+        table = jnp.zeros((archive_size, num_actions), jnp.float32)
+        column = jnp.zeros(archive_size, jnp.float32)
+        return ModelState(
+            action_counts=table,
+            advantage_sums=table,
+            probability_sums=table,
+            cell_visits=column,
+            scale=jnp.zeros((), jnp.float32),
+            tries=table,
+            payoff_sums=table,
+            discount_sums=table,
+            successor_slots=jnp.full((archive_size, num_actions), -1, jnp.int32),
+            value_sums=column,
+            value_counts=column,
+            policy_sums=table,
+        )
+
+    def forget(self, state: ModelState, wiped_mask: Array) -> ModelState:
+        lost_mask = (state.successor_slots >= 0) & wiped_mask[jnp.clip(state.successor_slots, 0)]
+        successor_slots = jnp.where(wiped_mask[:, None] | lost_mask, -1, state.successor_slots)
+        return super().forget(state, wiped_mask).replace(successor_slots=successor_slots)
+
+    def exit(self, transitions: Transition) -> tuple[Array, Array, Array, Array]:
+        first, second = transitions.first, transitions.second
+        leaving_slots, landing_slots = first.info["cell"], second.info["cell"]
+        ending_mask = second.terminated.astype(bool)
+        truncation_mask = second.truncated.astype(bool)
+        closed_mask = ending_mask | truncation_mask | (landing_slots != leaving_slots)
+        rewards = second.reward.astype(jnp.float32)
+        _, envs = jnp.shape(leaving_slots)
+
+        def back(later, step):
+            payoff, discount, successor_slots, known_mask = later
+            reward, closed, ending, truncation, landing = step
+            payoff = jnp.where(closed, reward, reward + self.gamma * payoff)
+            discount = jnp.where(
+                closed, self.gamma * (1.0 - ending.astype(jnp.float32)), self.gamma * discount
+            )
+            successor_slots = jnp.where(closed, jnp.where(ending, -1, landing), successor_slots)
+            known_mask = jnp.where(closed, ~truncation & (ending | (landing >= 0)), known_mask)
+            exited = (payoff, discount, successor_slots, known_mask)
+            return exited, exited
+
+        start = (
+            jnp.zeros(envs),
+            jnp.zeros(envs),
+            jnp.full(envs, -1, jnp.int32),
+            jnp.zeros(envs, bool),
+        )
+        _, exited = jax.lax.scan(
+            back,
+            start,
+            (rewards, closed_mask, ending_mask, truncation_mask, landing_slots),
+            reverse=True,
+        )
+        return exited
+
+    def update(self, state: ModelState, transitions: Transition) -> ModelState:
+        state = super().update(state, transitions)
+        archive_size, num_actions = jnp.shape(state.tries)
+        payoffs, discounts, successor_slots, known_mask = jax.tree.map(
+            lambda leaf: jnp.reshape(leaf, (-1,)), self.exit(transitions)
+        )
+        leaving_slots = jnp.reshape(transitions.first.info["cell"], (-1,))
+        actions = jnp.clip(
+            jnp.reshape(transitions.second.action, (-1,)).astype(jnp.int32), 0, num_actions - 1
+        )
+        known_mask = known_mask & (leaving_slots >= 0)
+        rows = jnp.where(known_mask, leaving_slots, archive_size)
+        surviving_rows = jnp.where(known_mask & (successor_slots >= 0), leaving_slots, archive_size)
+        visited_rows = jnp.where(leaving_slots >= 0, leaving_slots, archive_size)
+        values = jnp.reshape(transitions.aux["value"], (-1,)).astype(jnp.float32)
+        visit_probs = jax.nn.softmax(
+            jnp.reshape(transitions.aux["logits"], (-1, num_actions)).astype(jnp.float32), axis=-1
+        )
+        decay = 1.0 - self.rate
+        return state.replace(
+            tries=state.tries.at[rows, actions].add(1.0, mode="drop"),
+            payoff_sums=state.payoff_sums.at[rows, actions].add(payoffs, mode="drop"),
+            discount_sums=state.discount_sums.at[rows, actions].add(discounts, mode="drop"),
+            successor_slots=state.successor_slots.at[surviving_rows, actions].set(
+                successor_slots, mode="drop"
+            ),
+            value_sums=decay * state.value_sums
+            + jnp.zeros(archive_size).at[visited_rows].add(values, mode="drop"),
+            value_counts=decay * state.value_counts
+            + jnp.zeros(archive_size).at[visited_rows].add(1.0, mode="drop"),
+            policy_sums=decay * state.policy_sums
+            + jnp.zeros((archive_size, num_actions)).at[visited_rows].add(visit_probs, mode="drop"),
+        )
+
+
+@struct.dataclass
 class SelectorState:
     successor: Successor
     reach: Array
@@ -437,13 +574,60 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
     return pick(key, jnp.where(mask & (value >= highest), 0.0, -jnp.inf), shape)
 
 
+class Marginal:
+    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+        def choose(visits, key):
+            factor = selector.diminishing_factor(state, visits)
+            marginal = selector.footprint.pour(selector.successor, state.successor, worth * factor)
+            chosen_slot = random_argmax(marginal, eligible_mask, key, ())
+            spread = selector.footprint.expected_visits(
+                selector.successor, state.successor, chosen_slot
+            )
+            return visits + spread, chosen_slot
+
+        _, selected_slots = jax.lax.scan(
+            choose,
+            selector.committed_visits(state, occupied_counts),
+            jax.random.split(key, count),
+        )
+        return selected_slots
+
+
+@dataclass
+class TopK:
+    width: int = 32
+
+    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+        poured = selector.footprint.pour(selector.successor, state.successor, worth)
+        archive_size, *_ = jnp.shape(poured)
+        top_values, top_slots = jax.lax.top_k(
+            jnp.where(eligible_mask, poured, -jnp.inf), min(self.width, archive_size)
+        )
+        num_valid = jnp.maximum(jnp.sum(jnp.isfinite(top_values)), 1)
+        return top_slots[jnp.arange(count) % num_valid]
+
+
+@dataclass
+class Softmax:
+    temperature: float = 0.1
+
+    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+        poured = selector.footprint.pour(selector.successor, state.successor, worth)
+        highest = jnp.max(jnp.where(eligible_mask, poured, -jnp.inf))
+        logits = poured / (jnp.maximum(jnp.abs(highest), 1e-30) * self.temperature)
+        return jax.random.categorical(
+            key, jnp.where(eligible_mask, logits, -jnp.inf), shape=(count,)
+        )
+
+
 @dataclass
 class Selector:
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance
-    gain: Advantage | GreedyAdvantage
+    gain: Advantage | GreedyAdvantage | ModelAdvantage
     score: Diagonal | Kernel = Diagonal()
+    allocation: Marginal | TopK | Softmax = Marginal()
     k: float = 4.0
     rate: float = 0.2
 
@@ -502,30 +686,11 @@ class Selector:
         num_placed = share(self.k, wrapper.num_envs)
         occupied_counts = wrapper.occupied(archive_auto_reset_state, num_placed)
         worth = self.score(self, state, wrapper, archive_auto_reset_state, **context)
-        selected_slots = self.allot(state, worth, eligible_mask, occupied_counts, key, num_placed)
+        selected_slots = self.allocation(
+            self, state, worth, eligible_mask, occupied_counts, key, num_placed
+        )
         self.watch(state, worth, archive_state.mask, selected_slots)
         self.saturation(state, worth, eligible_mask, occupied_counts, selected_slots)
-        return selected_slots
-
-    def allot(
-        self,
-        state: SelectorState,
-        worth: Array,
-        eligible_mask: Array,
-        occupied_counts: Array | float,
-        key: Key,
-        count: int,
-    ) -> Array:
-        def choose(visits, key):
-            factor = self.diminishing_factor(state, visits)
-            marginal = self.footprint.pour(self.successor, state.successor, worth * factor)
-            chosen_slot = random_argmax(marginal, eligible_mask, key, ())
-            spread = self.footprint.expected_visits(self.successor, state.successor, chosen_slot)
-            return visits + spread, chosen_slot
-
-        _, selected_slots = jax.lax.scan(
-            choose, self.committed_visits(state, occupied_counts), jax.random.split(key, count)
-        )
         return selected_slots
 
     def relevant(self, state: SelectorState) -> Array:
@@ -603,10 +768,51 @@ class Selector:
         )
 
 
+@struct.dataclass
+class LedgerState(AlgorithmWrapperState):
+    step: Array
+    ledger: SelectorState
+
+
+@dataclass
+class Ledgered(AlgorithmWrapper):
+    selector: Selector
+    archive_size: int
+    num_actions: int
+
+    def init(self, key: Key, timestep: Timestep) -> LedgerState:
+        algorithm_state = self.algorithm.init(key, timestep)
+        return LedgerState(
+            algorithm_state,
+            step=algorithm_state.step,
+            ledger=self.selector.init(self.archive_size, self.num_actions),
+        )
+
+    def step(self, state: LedgerState, key: Key, timestep: Timestep, temperature=1.0):
+        algorithm_state, action, aux = self.algorithm.step(
+            state.algorithm_state.replace(step=state.step), key, timestep, temperature
+        )
+        return state.replace(algorithm_state=algorithm_state), action, aux
+
+    def update(
+        self, state: LedgerState, key: Key, transitions: Transition
+    ) -> LedgerState:
+        algorithm_state = state.algorithm_state.replace(step=state.step)
+        return state.replace(
+            algorithm_state=self.algorithm.update(algorithm_state, key, transitions)
+        )
+
+
 def pit(
     algorithm: Algorithm, environment: Environment, selector: Selector, seed: int = 0, **kwargs
-) -> tuple[Algorithm, Environment, Pit, Lap]:
+) -> tuple[Ledgered, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
+    algorithm = Ledgered(
+        algorithm,
+        selector=selector,
+        archive_size=wrapper.archive.archive_size,
+        num_actions=wrapper.num_actions,
+    )
 
     def assign(state, transitions):
         key = jax.random.fold_in(
@@ -614,9 +820,7 @@ def pit(
         )
         update_key, select_key, assign_key = jax.random.split(key, 3)
         archived = locate(state.environment_state)
-        ledger = archived.ledger
-        if not jax.tree.leaves(ledger):
-            ledger = selector.init(wrapper.archive.archive_size, wrapper.num_actions)
+        ledger = state.algorithm_state.ledger
         if transitions is not None:
             ledger = selector.update(ledger, update_key, transitions)
         slots = selector.select(
@@ -628,7 +832,10 @@ def pit(
             algorithm=algorithm,
             algorithm_state=state.algorithm_state,
         )
-        archived = wrapper.update(archived, assign_key, slots=slots, ledger=ledger)
-        return state.replace(environment_state=plant(state.environment_state, archived))
+        archived = wrapper.update(archived, assign_key, slots=slots)
+        return state.replace(
+            algorithm_state=state.algorithm_state.replace(ledger=ledger),
+            environment_state=plant(state.environment_state, archived),
+        )
 
     return algorithm, environment, assign, lambda state: state

@@ -22,7 +22,9 @@ class CellState:
     eligible: Array
 
 
-def admits(state: CellState, rho: Array, eviction_mask: Array, eligible: Array) -> Array:
+def admits(
+    state: CellState, rho: Array, eviction_mask: Array, eligible: Array
+) -> Array:
     upgrade = eligible & ~state.eligible
     downgrade = state.eligible & ~eligible
     return eviction_mask | upgrade | (~downgrade & (rho | ~state.rho))
@@ -57,7 +59,9 @@ class Archive:
 
     def init(self, env_state: PyTree) -> ArchiveState:
         _, *key_shape = jax.eval_shape(self.cell_fn, env_state).shape
-        snapshot = jax.eval_shape(lambda tree: jax.tree.map(remove_batch_axis, tree), env_state)
+        snapshot = jax.eval_shape(
+            lambda tree: jax.tree.map(remove_batch_axis, tree), env_state
+        )
         cell_state = CellState(
             snapshot=snapshot,
             time=jax.ShapeDtypeStruct((), jnp.int32),
@@ -76,13 +80,18 @@ class Archive:
 
     def at(self, state: ArchiveState, slot: Array) -> CellState:
         return jax.tree.map(
-            lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.replace(snapshot=None)
+            lambda leaf: leaf[jnp.clip(slot, 0)],
+            state.cell_states.replace(snapshot=None),
         )
 
-    def put(self, state: ArchiveState, slot: Array, cell_state: CellState) -> ArchiveState:
+    def put(
+        self, state: ArchiveState, slot: Array, cell_state: CellState
+    ) -> ArchiveState:
         slot = jnp.where(slot >= 0, slot, self.archive_size)
         cell_states = jax.tree.map(
-            lambda held, new: held.at[slot].set(new, mode="drop"), state.cell_states, cell_state
+            lambda held, new: held.at[slot].set(new, mode="drop"),
+            state.cell_states,
+            cell_state,
         )
         return state.replace(cell_states=cell_states)
 
@@ -125,7 +134,9 @@ class Archive:
             .at[jnp.where(admission_mask, clipped_slots, self.archive_size)]
             .max(write_priorities, mode="drop")
         )
-        write_mask = admission_mask & (write_priorities == highest_priority[clipped_slots])
+        write_mask = admission_mask & (
+            write_priorities == highest_priority[clipped_slots]
+        )
         cell_state = CellState(
             snapshot=env_state,
             time=jnp.broadcast_to(state.clock, jnp.shape(done)),
@@ -141,7 +152,9 @@ class Archive:
         return state, claimed_slots, opened_mask, evicted_slots
 
     def take(self, state: ArchiveState, slot: Array) -> PyTree:
-        return jax.tree.map(lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.snapshot)
+        return jax.tree.map(
+            lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.snapshot
+        )
 
     def eligible(self, state: ArchiveState) -> Array:
         return state.mask & state.cell_states.eligible
@@ -172,7 +185,6 @@ def widen(cell_fn: Callable[[PyTree], Array]) -> Callable[[PyTree], Array]:
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
-    ledger: PyTree = struct.field(metadata={"axis": None})
     assigned_slots: Array
     due_mask: Array
     current_slots: Array
@@ -267,7 +279,6 @@ class ArchiveAutoReset(AutoReset):
         state = ArchiveAutoResetState(
             env_state=env_state,
             archive_state=archive_state,
-            ledger=(),
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
             due_mask=jnp.zeros(self.num_envs, bool),
             current_slots=claimed_slots,
@@ -278,7 +289,11 @@ class ArchiveAutoReset(AutoReset):
         )
         return state, timestep.replace(
             info=self.mark(
-                state, timestep, claimed_slots, jnp.ones(self.num_envs, bool), evicted_slots
+                state,
+                timestep,
+                claimed_slots,
+                jnp.ones(self.num_envs, bool),
+                evicted_slots,
             ),
         )
 
@@ -291,7 +306,8 @@ class ArchiveAutoReset(AutoReset):
         episode_mask = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
         truncation_mask = state.due_mask & ~episode_mask
         timestep = timestep.replace(
-            truncated=timestep.truncated | broadcast(truncation_mask, timestep.truncated)
+            truncated=timestep.truncated
+            | broadcast(truncation_mask, timestep.truncated)
         )
         done = episode_mask | truncation_mask
         restart_mask = done & (state.assigned_slots >= 0)
@@ -300,7 +316,9 @@ class ArchiveAutoReset(AutoReset):
         )
 
         def load_snapshots():
-            archived_states = self.archive.take(state.archive_state, state.assigned_slots)
+            archived_states = self.archive.take(
+                state.archive_state, state.assigned_slots
+            )
             archived_states = self.refresh_fn(archived_states, seed_key)
             return jax.tree.map(
                 lambda archived, reset: jnp.where(
@@ -406,7 +424,9 @@ class ArchiveAutoReset(AutoReset):
         lox.log(
             {
                 "archive/placed": jnp.sum(block_mask, dtype=jnp.float32),
-                "archive/num_cells": jnp.sum(state.archive_state.mask, dtype=jnp.float32),
+                "archive/num_cells": jnp.sum(
+                    state.archive_state.mask, dtype=jnp.float32
+                ),
                 "archive/num_eligible": jnp.sum(
                     self.archive.eligible(state.archive_state), dtype=jnp.float32
                 ),
@@ -417,9 +437,13 @@ class ArchiveAutoReset(AutoReset):
             due_mask=block_mask,
         )
 
-    def update(self, state, key: Key, slots: Array | None = None, ledger: PyTree = None, **kwargs):
-        if ledger is not None:
-            state = state.replace(ledger=ledger)
+    def update(
+        self,
+        state,
+        key: Key,
+        slots: Array | None = None,
+        **kwargs,
+    ):
         if slots is not None:
             state = self.assign(state, slots)
         return state.replace(env_state=super().update(state.env_state, key, **kwargs))
