@@ -355,7 +355,7 @@ def plr(
         robust=robust,
     )
 
-    def pit(state, transitions):
+    def pit(key, state, transitions):
         tally = state.algorithm_state.tally
 
         def curate(node):
@@ -450,4 +450,4 @@ def plr(
         )
         return buffer
 
-    return algorithm, environment, pit, lambda state: state
+    return algorithm, environment, pit, lambda key, state: state

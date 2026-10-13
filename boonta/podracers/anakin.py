@@ -3,10 +3,11 @@ from functools import partial
 
 import jax
 import lox
-from boonta.algorithms import Algorithm
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
+
+from boonta.algorithms import Algorithm
 from boonta.utils import Key, PyTree, Timestep, Transition, sharded
 from boonta.utils.typing import Environment, EnvState
 
@@ -32,11 +33,11 @@ class Anakin:
     config: AnakinConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[AnakinState] = lambda state, transitions: state
-    lap: Lap[AnakinState] = lambda state: state
+    pit: Pit[AnakinState] = lambda key, state, transitions: state
+    lap: Lap[AnakinState] = lambda key, state: state
 
     def rollout(self, state: AnakinState, key, temperature):
-        algorithm_key, environment_key = jax.random.split(key)
+        algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
         algorithm_state, action, aux = self.algorithm.step(
             state.algorithm_state, algorithm_key, state.timestep, temperature
@@ -56,25 +57,28 @@ class Anakin:
             + self.config.num_envs * self.environment.num_agents
         )
         state = self.lap(
+            lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
                 timestep=timestep,
                 environment_state=environment_state,
-            )
+            ),
         )
         return state, transition
 
     def init(self, key: Key) -> AnakinState:
-        environment_key, algorithm_key = jax.random.split(key)
+        environment_key, algorithm_key, lap_key, pit_key = jax.random.split(key, 4)
         environment_state, timestep = self.environment.init(environment_key)
         algorithm_state = self.algorithm.init(algorithm_key, timestep)
         return self.pit(
+            pit_key,
             self.lap(
+                lap_key,
                 AnakinState(
                     timestep=timestep,
                     environment_state=environment_state,
                     algorithm_state=algorithm_state,
-                )
+                ),
             ),
             None,
         )
@@ -87,7 +91,7 @@ class Anakin:
 
     def train(self, state: AnakinState, key: Key, num_updates: int) -> PyTree:
         def step(state: AnakinState, key):
-            rollout_key, update_key = jax.random.split(key)
+            rollout_key, update_key, pit_key = jax.random.split(key, 3)
 
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
             state, transitions = jax.lax.scan(
@@ -96,22 +100,29 @@ class Anakin:
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions
             )
-            return self.pit(state.replace(algorithm_state=algorithm_state), transitions), None
+            return (
+                self.pit(
+                    pit_key, state.replace(algorithm_state=algorithm_state), transitions
+                ),
+                None,
+            )
 
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(step, state, keys)
         return state
 
     def evaluate(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
-        reset_key, rollout_key = jax.random.split(key)
+        reset_key, rollout_key, lap_key, pit_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
         state = self.pit(
+            pit_key,
             self.lap(
+                lap_key,
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
-                )
+                ),
             ),
             None,
         )
@@ -130,8 +141,8 @@ def make(
     config: AnakinConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[AnakinState] = lambda state, transitions: state,
-    lap: Lap[AnakinState] = lambda state: state,
+    pit: Pit[AnakinState] = lambda key, state, transitions: state,
+    lap: Lap[AnakinState] = lambda key, state: state,
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 

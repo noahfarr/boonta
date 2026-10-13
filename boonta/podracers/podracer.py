@@ -22,8 +22,8 @@ class PodracerState(Protocol):
 
 Boarded = TypeVar("Boarded", bound=PodracerState)
 
-Pit = Callable[[Boarded, Transition | None], Boarded]
-Lap = Callable[[Boarded], Boarded]
+Pit = Callable[[Key, Boarded, Transition | None], Boarded]
+Lap = Callable[[Key, Boarded], Boarded]
 
 
 class Podracer(Protocol[State]):

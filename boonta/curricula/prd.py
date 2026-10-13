@@ -804,7 +804,7 @@ class Ledgered(AlgorithmWrapper):
 
 
 def pit(
-    algorithm: Algorithm, environment: Environment, selector: Selector, seed: int = 0, **kwargs
+    algorithm: Algorithm, environment: Environment, selector: Selector, **kwargs
 ) -> tuple[Ledgered, Environment, Pit, Lap]:
     wrapper = unwrap(environment)
     algorithm = Ledgered(
@@ -814,10 +814,7 @@ def pit(
         num_actions=wrapper.num_actions,
     )
 
-    def assign(state, transitions):
-        key = jax.random.fold_in(
-            jax.random.key(seed), state.algorithm_state.step.astype(jnp.uint32)
-        )
+    def assign(key, state, transitions):
         update_key, select_key, assign_key = jax.random.split(key, 3)
         archived = locate(state.environment_state)
         ledger = state.algorithm_state.ledger
@@ -838,4 +835,4 @@ def pit(
             environment_state=plant(state.environment_state, archived),
         )
 
-    return algorithm, environment, assign, lambda state: state
+    return algorithm, environment, assign, lambda key, state: state

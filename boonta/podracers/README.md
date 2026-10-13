@@ -38,7 +38,7 @@ Each podracer builds its shardings from the state's dataclass fields. A field ma
 
 ## pit and lap
 
-All three podracers take two hooks. Both default to identity and take and return the podracer's state.
+All three podracers take two hooks. Both default to identity. `pit(key, state, transitions)` and `lap(key, state)` take a fresh key first, then the podracer's state, and return the state. The key is split from the podracer's own key, so a hook's randomness follows the run's seed.
 
 - `pit` fires once per update: at `init`, after every `algorithm.update`, and after `evaluate` restarts the environment. Use it when the algorithm's state decides part of the environment, such as a curriculum choosing the next level or a league seating an opponent.
 - `lap` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step.

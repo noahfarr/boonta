@@ -1,24 +1,36 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+import zoo
+from dummies import Corridor
 from flax import struct
 
-import numpy as np
-
-import zoo
 from boonta.curricula import erd, prd
-from boonta.curricula.prd import (Advantage, CountedRelevance, Diagonal,
-                                  GreedyAdvantage, Kernel, ModelAdvantage,
-                                  SuccessorFootprint, SuccessorRepresentation,
-                                  Softmax, TopK, UniformFootprint,
-                                  UniformRelevance)
+from boonta.curricula.prd import (
+    Advantage,
+    CountedRelevance,
+    Diagonal,
+    GreedyAdvantage,
+    Kernel,
+    ModelAdvantage,
+    Softmax,
+    SuccessorFootprint,
+    SuccessorRepresentation,
+    TopK,
+    UniformFootprint,
+    UniformRelevance,
+)
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.environments.wrappers.archive_auto_reset import ArchiveAutoReset, locate, share
+from boonta.environments.wrappers.archive_auto_reset import (
+    ArchiveAutoReset,
+    locate,
+    share,
+)
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
-from dummies import Corridor
 
 LENGTH = 6
 NUM_ENVS = 8
@@ -66,7 +78,12 @@ def stack(timesteps):
 
 
 def selector(
-    footprint, relevance, columns=None, gain=Advantage(), score=Diagonal(), allocation=prd.Marginal()
+    footprint,
+    relevance,
+    columns=None,
+    gain=Advantage(),
+    score=Diagonal(),
+    allocation=prd.Marginal(),
 ):
     return prd.Selector(
         successor=SuccessorRepresentation(gamma=0.75, columns=columns),
@@ -81,8 +98,8 @@ def selector(
 
 def place(selector, env, state, ledger, key, transitions):
     update_key, select_key, assign_key = jax.random.split(key, 3)
-    if isinstance(selector, erd.Selector):
-        slots = selector.select(env, state, select_key)
+    if selector is erd.select:
+        slots = erd.select(env, state, select_key, k=2.0)
         return env.update(state, assign_key, slots=slots), ledger
     if ledger is None:
         ledger = selector.init(env.archive.archive_size, env.num_actions)
@@ -97,7 +114,7 @@ def train(selector, updates=3, steps=4):
         Ladder(),
         num_envs=NUM_ENVS,
         cell_fn=lambda env: (lambda state: state.tag),
-        capacity=32,
+        archive_size=32,
     )
     key = jax.random.key(0)
     archive_auto_reset_state, timestep = env.init(key)
@@ -109,7 +126,9 @@ def train(selector, updates=3, steps=4):
         for _ in range(steps):
             key, act, move = jax.random.split(key, 3)
             archive_auto_reset_state, after = env.step(
-                move, archive_auto_reset_state, jax.random.randint(act, (NUM_ENVS,), 0, 2)
+                move,
+                archive_auto_reset_state,
+                jax.random.randint(act, (NUM_ENVS,), 0, 2),
             )
             firsts.append(timestep)
             seconds.append(after)
@@ -118,7 +137,11 @@ def train(selector, updates=3, steps=4):
         transitions = Transition(
             first=stack(firsts),
             second=stack(seconds),
-            aux={"value": blank, "log_prob": blank, "logits": jnp.zeros((steps, NUM_ENVS, 2))},
+            aux={
+                "value": blank,
+                "log_prob": blank,
+                "logits": jnp.zeros((steps, NUM_ENVS, 2)),
+            },
         )
         key, sub = jax.random.split(key)
         archive_auto_reset_state, ledger = place(
@@ -139,9 +162,19 @@ def train(selector, updates=3, steps=4):
         selector(UniformFootprint(), UniformRelevance()),
         selector(SuccessorFootprint(), CountedRelevance(), gain=GreedyAdvantage()),
         selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage()),
-        selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage(), allocation=TopK(width=4)),
-        selector(SuccessorFootprint(), CountedRelevance(), gain=ModelAdvantage(), allocation=Softmax()),
-        erd.Selector(k=2.0),
+        selector(
+            SuccessorFootprint(),
+            CountedRelevance(),
+            gain=ModelAdvantage(),
+            allocation=TopK(width=4),
+        ),
+        selector(
+            SuccessorFootprint(),
+            CountedRelevance(),
+            gain=ModelAdvantage(),
+            allocation=Softmax(),
+        ),
+        erd.select,
     ],
     ids=[
         "prd-successor",
@@ -184,7 +217,10 @@ def window(cell, action, reward, truncated):
             terminated=jnp.zeros((steps, envs), bool),
             truncated=truncated,
         ),
-        aux={"value": jnp.zeros((steps, envs)), "log_prob": jnp.full((steps, envs), jnp.log(0.5))},
+        aux={
+            "value": jnp.zeros((steps, envs)),
+            "log_prob": jnp.full((steps, envs), jnp.log(0.5)),
+        },
     )
 
 
@@ -192,7 +228,12 @@ def test_advantage_gain_is_the_policy_weighted_spread_of_action_means():
     steps, envs = 5, 4
     action = jnp.broadcast_to(jnp.array([0, 0, 1, 1]), (steps, envs))
     reward = jnp.where(action == 0, 1.0, -1.0).at[-1].set(100.0)
-    transitions = window(jnp.zeros((steps, envs), jnp.int32), action, reward, jnp.zeros((steps, envs), bool))
+    transitions = window(
+        jnp.zeros((steps, envs), jnp.int32),
+        action,
+        reward,
+        jnp.zeros((steps, envs), bool),
+    )
     gain = Advantage(gamma=0.0)
     state = gain.update(gain.init(1, 2), transitions)
     assert jnp.allclose(gain(state), jnp.array([0.25 * 1.0 + 0.25 * 1.0]))
@@ -209,28 +250,35 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 
 
 @pytest.mark.parametrize(
-    "curriculum, selector",
+    "curriculum, options",
     [
-        (prd.pit, selector(SuccessorFootprint(), CountedRelevance())),
-        (prd.pit, selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())),
-        (erd.pit, erd.Selector()),
+        (prd.pit, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
+        (
+            prd.pit,
+            {"selector": selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())},
+        ),
+        (erd.pit, {"k": 2.0}),
     ],
     ids=["prd", "prd-kernel", "erd"],
 )
-def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curriculum, selector):
+def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
+    curriculum, options
+):
     def archive(environment, num_envs):
         return RecordEpisodeStatistics(
             ArchiveAutoReset(
                 environment,
                 num_envs=num_envs,
                 cell_fn=lambda env: (lambda state: state.position),
-                capacity=32,
+                archive_size=32,
             )
         )
 
     def race(algorithm, environment, num_envs, num_steps):
-        algorithm, environment, pit, lap = curriculum(algorithm, environment, selector)
-        config = anakin.AnakinConfig(num_envs=num_envs, num_steps=num_steps, mesh=mesh(1))
+        algorithm, environment, pit, lap = curriculum(algorithm, environment, **options)
+        config = anakin.AnakinConfig(
+            num_envs=num_envs, num_steps=num_steps, mesh=mesh(1)
+        )
         return anakin.make(config, algorithm, environment, pit=pit, lap=lap)
 
     podracer = zoo.ppo(Corridor(), podracer=race, wrapper=archive)
@@ -240,6 +288,9 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(curri
     assert int(jnp.sum(archived.archive_state.mask)) == Corridor().length - 1
     assert bool(jnp.any(archived.due_mask))
     assert np.isfinite(np.asarray(logs["archive/placed"])).all()
-    assert all(np.isfinite(leaf).all() for leaf in jax.tree.leaves(state.algorithm_state.params))
+    assert all(
+        np.isfinite(leaf).all()
+        for leaf in jax.tree.leaves(state.algorithm_state.params)
+    )
     if curriculum is prd.pit:
         assert float(jnp.sum(state.algorithm_state.ledger.reach)) > 0.0
