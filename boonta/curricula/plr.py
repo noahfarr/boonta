@@ -72,7 +72,7 @@ class PLR(Pit):
     buffer_size: int
     num_envs: int
     replay_probability: float
-    staleness: float
+    staleness_coefficient: float
     temperature: float
     min_length: int
     gamma: float
@@ -127,7 +127,8 @@ class PLR(Pit):
         staleness = staleness_weights(
             buffer.timestamps, buffer.num_levels, buffer.episodes
         )
-        return (1.0 - self.staleness) * rank + self.staleness * staleness
+        coefficient = self.staleness_coefficient
+        return (1.0 - coefficient) * rank + coefficient * staleness
 
     def update_scores(
         self, buffer: LevelBuffer, stats: LevelStats, scored: Array
@@ -330,7 +331,7 @@ def make(
     environment: Environment,
     buffer_size: int,
     replay_probability: float,
-    staleness: float,
+    staleness_coefficient: float,
     temperature: float,
     min_length: int,
     gamma: float,
@@ -344,7 +345,7 @@ def make(
         buffer_size=buffer_size,
         num_envs=environment.num_envs,
         replay_probability=replay_probability,
-        staleness=staleness,
+        staleness_coefficient=staleness_coefficient,
         temperature=temperature,
         min_length=min_length,
         gamma=gamma,

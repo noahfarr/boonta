@@ -2,7 +2,7 @@ _target_: boonta.curricula.plr.make
 _partial_: true
 buffer_size: 4000
 replay_probability: 0.5
-staleness: 0.3
+staleness_coefficient: 0.3
 temperature: 1.0
 min_length: 2000
 gamma: ${algorithm.gamma}
