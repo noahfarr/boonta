@@ -169,11 +169,6 @@ def pick(key: Key, logits: Array, shape) -> Array:
     return jnp.clip(picked, 0, jnp.shape(logits)[0] - 1).astype(jnp.int32)
 
 
-def share(k: float, num_envs: int) -> int:
-    assert k >= 1.0, f"k must be at least 1, got {k}"
-    return int(round((1.0 - 1.0 / k) * num_envs))
-
-
 def widen(cell_fn: Callable[[PyTree], Array]) -> Callable[[PyTree], Array]:
     def widened(env_state):
         tag = cell_fn(env_state)

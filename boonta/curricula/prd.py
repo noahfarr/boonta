@@ -9,7 +9,7 @@ from flax import struct
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
 from boonta.environments.wrappers.archive_auto_reset import (
-    ArchiveAutoReset, ArchiveAutoResetState, pick, share, unwrap)
+    ArchiveAutoReset, ArchiveAutoResetState, pick, unwrap)
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Transition
 from boonta.utils.typing import Environment
@@ -647,6 +647,12 @@ class Selector:
     k: float = 4.0
     rate: float = 0.2
 
+    def __post_init__(self):
+        assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
+
+    def num_placed(self, num_envs: int) -> int:
+        return int(round((1.0 - 1.0 / self.k) * num_envs))
+
     def init(self, archive_size: int, num_actions: int) -> SelectorState:
         return SelectorState(
             successor=self.successor.init(archive_size),
@@ -699,7 +705,7 @@ class Selector:
     ):
         archive_state = archive_auto_reset_state.archive_state
         eligible_mask = wrapper.archive.eligible(archive_state)
-        num_placed = share(self.k, wrapper.num_envs)
+        num_placed = self.num_placed(wrapper.num_envs)
         resident_counts = wrapper.count_residents(archive_auto_reset_state, num_placed)
         worth = self.score(self, state, wrapper, archive_auto_reset_state, **context)
         selected_slots = self.allocation(

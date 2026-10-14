@@ -20,10 +20,10 @@ class ERD(Pit):
         assert isinstance(
             self.environment, ArchiveAutoReset
         ), "ERD restarts from an ArchiveAutoReset, and the environment wraps none"
+        assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
 
     @property
     def num_placed(self) -> int:
-        assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
         return int(round((1.0 - 1.0 / self.k) * self.environment.num_envs))
 
     def select(self, archive_auto_reset_state: ArchiveAutoResetState, key: Key) -> Array:
