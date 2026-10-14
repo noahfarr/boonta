@@ -7,7 +7,7 @@ from flax import struct
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (LevelBufferState, Robust, admit_levels,
+from boonta.curricula.plr import (LevelBufferState, admit_levels,
                                   draw_levels, maximum_monte_carlo,
                                   positive_value_loss, rank_weights,
                                   replay_weights, staleness_weights,
@@ -201,30 +201,6 @@ def played(theta, cut=1):
     return Transition(first=timestep, second=timestep, aux=aux)
 
 
-def moved(robust, theta):
-    algorithm = Robust(ppo(), capacity=1) if robust else ppo()
-    transitions = played(theta)
-    state = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[0], transitions.first))
-    updated = algorithm.update(state, jax.random.key(2), transitions)
-    leaves = zip(jax.tree.leaves(state.params), jax.tree.leaves(updated.params))
-    return updated, any(not np.array_equal(old, new) for old, new in leaves)
-
-
-def test_robust_plr_skips_the_update_after_a_fresh_rollout():
-    updated, changed = moved(robust=True, theta=2)
-    assert not changed
-
-
-def test_robust_plr_trains_after_a_replay_rollout():
-    _, changed = moved(robust=True, theta=0)
-    assert changed
-
-
-def test_exploratory_plr_trains_after_a_fresh_rollout_too():
-    _, changed = moved(robust=False, theta=2)
-    assert changed
-
-
 def test_the_cut_that_opens_a_rollout_is_never_scored():
     counted = tally_rollout(played(2), slots=3, gamma=0.99, gae_lambda=0.95)
     np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
@@ -247,7 +223,6 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
         staleness=0.3,
         temperature=1.0,
         minimum_fill=0.5,
-        robust=True,
         gamma=0.99,
         gae_lambda=0.95,
         sample=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),

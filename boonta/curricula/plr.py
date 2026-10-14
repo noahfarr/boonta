@@ -9,9 +9,6 @@ from flax import struct
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import \
     generalized_advantage_estimation
-from boonta.algorithms.wrappers.wrapper import Wrapper as AlgorithmWrapper
-from boonta.algorithms.wrappers.wrapper import \
-    WrapperState as AlgorithmWrapperState
 from boonta.environments.wrappers import UED, Wrapper, WrapperState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
@@ -179,47 +176,6 @@ class LevelBuffer(Wrapper):
     ) -> tuple[LevelBufferState, Timestep]:
         env_state, timestep = self._env.step(key, state.env_state, action)
         return state.replace(env_state=env_state), timestep
-
-
-@struct.dataclass
-class RobustState(AlgorithmWrapperState):
-    step: Array
-
-
-@dataclass
-class Robust(AlgorithmWrapper):
-    capacity: int
-
-    def init(self, key: Key, timestep: Timestep) -> RobustState:
-        algorithm_state = self.algorithm.init(key, timestep)
-        return RobustState(algorithm_state, step=algorithm_state.step)
-
-    def step(self, state: RobustState, key: Key, timestep: Timestep, temperature=1.0):
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state.replace(step=state.step), key, timestep, temperature
-        )
-        return state.replace(algorithm_state=algorithm_state), action, aux
-
-    def update(
-        self, state: RobustState, key: Key, transitions: Transition
-    ) -> RobustState:
-        algorithm_state = state.algorithm_state.replace(step=state.step)
-        updated = self.algorithm.update(algorithm_state, key, transitions)
-        theta = transitions.second.info["theta"][-1]
-        trained = jnp.all((theta >= 0) & (theta < self.capacity))
-        updated = updated.replace(
-            params=jax.tree.map(
-                lambda new, old: jnp.where(trained, new, old),
-                updated.params,
-                algorithm_state.params,
-            ),
-            optimizer_state=jax.tree.map(
-                lambda new, old: jnp.where(trained, new, old),
-                updated.optimizer_state,
-                algorithm_state.optimizer_state,
-            ),
-        )
-        return state.replace(algorithm_state=updated)
 
 
 def update_scores(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBufferState:
@@ -448,7 +404,6 @@ def plr(
     staleness: float,
     temperature: float,
     minimum_fill: float,
-    robust: bool,
     gamma: float,
     gae_lambda: float,
     sample: Callable[[Key], PyTree],
@@ -456,8 +411,6 @@ def plr(
     **kwargs,
 ) -> tuple[Algorithm, LevelBuffer, Curator, Lap | None]:
     environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
-    if robust:
-        algorithm = Robust(algorithm, capacity=capacity)
     curator = Curator(
         environment,
         replay_probability=replay_probability,
