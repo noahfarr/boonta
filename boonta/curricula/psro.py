@@ -42,16 +42,18 @@ class Solver(Protocol):
 
 def self_play() -> Solver:
     def solver(meta: Meta) -> Array:
-        return jax.nn.one_hot(meta.index, meta.members.shape[0])
+        capacity, *_ = meta.members.shape
+        return jax.nn.one_hot(meta.index, capacity)
 
     return solver
 
 
 def latest() -> Solver:
     def solver(meta: Meta) -> Array:
-        slots = jnp.arange(meta.members.shape[0])
+        capacity, *_ = meta.members.shape
+        slots = jnp.arange(capacity)
         newest = jnp.max(jnp.where(meta.members > 0, slots, -1))
-        return jax.nn.one_hot(newest, meta.members.shape[0])
+        return jax.nn.one_hot(newest, capacity)
 
     return solver
 
@@ -84,7 +86,8 @@ def pfsp_vs_lineage(
     def solver(meta: Meta) -> Array:
         eligible = (meta.members > 0) & meta.descends(lineage)
         if current:
-            slots = jnp.arange(meta.members.shape[0])
+            capacity, *_ = meta.members.shape
+            slots = jnp.arange(capacity)
             eligible = eligible & (slots < meta.learners)
         return weighted(meta, eligible, weighting)
 
@@ -340,7 +343,8 @@ class PSRO(Pit):
     def init(self, key: Key, state) -> PSROState:
         roster: RosterState = state.algorithm_state
         parts = len(self.learners)
-        width = state.timestep.terminated.shape[0] // parts
+        num_envs, *_ = state.timestep.terminated.shape
+        width = num_envs // parts
         learners = tuple(
             LearnerState(
                 opponent=jnp.array(index),

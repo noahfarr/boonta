@@ -32,7 +32,7 @@ def maximum_monte_carlo(stats: LevelStats, returns: Array) -> Array:
 
 
 def rank_weights(scores: Array, size: Array, temperature: float) -> Array:
-    (capacity,) = scores.shape
+    capacity, *_ = scores.shape
     valid = jnp.arange(capacity) < size
     order = jnp.argsort(-jnp.where(valid, scores, -jnp.inf))
     ranks = jnp.empty_like(order).at[order].set(jnp.arange(capacity) + 1)
@@ -42,7 +42,7 @@ def rank_weights(scores: Array, size: Array, temperature: float) -> Array:
 
 
 def staleness_weights(timestamps: Array, size: Array, episodes: Array) -> Array:
-    (capacity,) = timestamps.shape
+    capacity, *_ = timestamps.shape
     valid = jnp.arange(capacity) < size
     staleness = jnp.where(valid, episodes - timestamps, 0).astype(jnp.float32)
     total = staleness.sum()
@@ -200,7 +200,7 @@ class PLR(Pit):
     def draw(
         self, buffer: LevelBufferState, key: Key, count: int
     ) -> tuple[LevelBufferState, Array]:
-        (capacity,) = buffer.scores.shape
+        capacity, *_ = buffer.scores.shape
 
         def pick_level(buffer, key):
             index = jax.random.choice(key, capacity, p=self.weights(buffer))
@@ -222,8 +222,8 @@ class PLR(Pit):
         scored: Array,
         exploring: Array,
     ):
-        capacity = buffer.scores.shape[0]
-        slots = scored.shape[0]
+        capacity, *_ = buffer.scores.shape
+        slots, *_ = scored.shape
 
         def insert_level(carry, source):
             buffer, levels, admitted = carry
