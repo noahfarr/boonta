@@ -75,11 +75,13 @@ class Sebulba:
     config: SebulbaConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[RolloutState] = Pit()
+    pit: Pit[RolloutState] | None = None
     lap: Lap[RolloutState] | None = None
     shardings: PyTree = None
 
     def __post_init__(self):
+        if self.pit is None:
+            self.pit = Pit()
         if self.lap is None:
             self.lap = Lap()
 
@@ -345,7 +347,7 @@ def make(
     config: SebulbaConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[RolloutState] = Pit(),
+    pit: Pit[RolloutState] | None = None,
     lap: Lap[RolloutState] | None = None,
 ) -> Sebulba:
 

@@ -39,10 +39,12 @@ class Quadinaros:
     algorithm: Algorithm
     environment: Environment
     dataset: Dataset
-    pit: Pit[QuadinarosState] = Pit()
+    pit: Pit[QuadinarosState] | None = None
     lap: Lap[QuadinarosState] | None = None
 
     def __post_init__(self):
+        if self.pit is None:
+            self.pit = Pit()
         if self.lap is None:
             self.lap = Lap()
 
@@ -168,7 +170,7 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     dataset: Dataset,
-    pit: Pit[QuadinarosState] = Pit(),
+    pit: Pit[QuadinarosState] | None = None,
     lap: Lap[QuadinarosState] | None = None,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))

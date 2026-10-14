@@ -784,7 +784,7 @@ def test_league_composes_psro_learners_and_an_opponent_environment():
 
 
 def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
-    algorithm, environment, state = object(), object(), object()
+    algorithm, environment = object(), object()
     curriculum = instantiate(OmegaConf.load(DEFAULT))
 
     wrapped, placed, pit, lap = curriculum(
@@ -799,8 +799,7 @@ def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
 
     assert wrapped is algorithm
     assert placed is environment
-    assert pit.init(jax.random.key(0)) is None
-    assert pit(jax.random.key(0), state) is state
+    assert pit is None
     assert lap is None
 
 
