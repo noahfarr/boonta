@@ -182,33 +182,29 @@ class LevelBuffer(Wrapper):
 
 
 @struct.dataclass
-class GradedState(AlgorithmWrapperState):
+class RobustState(AlgorithmWrapperState):
     step: Array
 
 
 @dataclass
-class Graded(AlgorithmWrapper):
+class Robust(AlgorithmWrapper):
     capacity: int
-    robust: bool
 
-    def init(self, key: Key, timestep: Timestep) -> GradedState:
+    def init(self, key: Key, timestep: Timestep) -> RobustState:
         algorithm_state = self.algorithm.init(key, timestep)
-        return GradedState(algorithm_state, step=algorithm_state.step)
+        return RobustState(algorithm_state, step=algorithm_state.step)
 
-    def step(self, state: GradedState, key: Key, timestep: Timestep, temperature=1.0):
+    def step(self, state: RobustState, key: Key, timestep: Timestep, temperature=1.0):
         algorithm_state, action, aux = self.algorithm.step(
             state.algorithm_state.replace(step=state.step), key, timestep, temperature
         )
         return state.replace(algorithm_state=algorithm_state), action, aux
 
     def update(
-        self, state: GradedState, key: Key, transitions: Transition
-    ) -> GradedState:
+        self, state: RobustState, key: Key, transitions: Transition
+    ) -> RobustState:
         algorithm_state = state.algorithm_state.replace(step=state.step)
         updated = self.algorithm.update(algorithm_state, key, transitions)
-        if not self.robust:
-            return state.replace(algorithm_state=updated)
-
         theta = transitions.second.info["theta"][-1]
         trained = jnp.all((theta >= 0) & (theta < self.capacity))
         updated = updated.replace(
@@ -458,9 +454,10 @@ def plr(
     sample: Callable[[Key], PyTree],
     score: Callable[[Tally, Array], Array] = positive_value_loss,
     **kwargs,
-) -> tuple[Graded, LevelBuffer, Curator, Lap | None]:
+) -> tuple[Algorithm, LevelBuffer, Curator, Lap | None]:
     environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
-    algorithm = Graded(algorithm, capacity=capacity, robust=robust)
+    if robust:
+        algorithm = Robust(algorithm, capacity=capacity)
     curator = Curator(
         environment,
         replay_probability=replay_probability,

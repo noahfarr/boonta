@@ -7,7 +7,7 @@ from flax import struct
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (Graded, LevelBufferState, admit_levels,
+from boonta.curricula.plr import (LevelBufferState, Robust, admit_levels,
                                   draw_levels, maximum_monte_carlo,
                                   positive_value_loss, rank_weights,
                                   replay_weights, staleness_weights,
@@ -165,7 +165,7 @@ def test_replay_draws_only_from_the_filled_part_of_the_buffer():
     assert int(state.timestamps[0]) == 8
 
 
-def graded(robust):
+def ppo():
     environment = Dial()
     algorithm = PPO(
         cfg=PPOConfig(
@@ -184,7 +184,7 @@ def graded(robust):
         ),
         optimizer=zoo.adam(),
     )
-    return Graded(algorithm, capacity=1, robust=robust)
+    return algorithm
 
 
 def played(theta, cut=1):
@@ -202,7 +202,7 @@ def played(theta, cut=1):
 
 
 def moved(robust, theta):
-    algorithm = graded(robust)
+    algorithm = Robust(ppo(), capacity=1) if robust else ppo()
     transitions = played(theta)
     state = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[0], transitions.first))
     updated = algorithm.update(state, jax.random.key(2), transitions)
@@ -237,7 +237,7 @@ class Blink(Dial):
 
 
 def test_plr_fills_its_buffer_beneath_the_episode_statistics():
-    algorithm = graded(robust=True).algorithm
+    algorithm = ppo()
     environment = SameStepAutoReset(Blink(), 8)
     algorithm, environment, pit, lap = plr(
         algorithm,
