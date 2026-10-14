@@ -8,9 +8,10 @@ from flax import struct
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
-from boonta.environments.wrappers import UED, Wrapper, WrapperState
+from boonta.environments.wrappers import UED
+from boonta.environments.wrappers.ued import UEDState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Timestep, Transition
+from boonta.utils import Array, Key, PyTree, Transition
 from boonta.utils.typing import Environment
 
 
@@ -31,98 +32,35 @@ def maximum_monte_carlo(stats: LevelStats, returns: Array) -> Array:
     return best - stats.value / jnp.maximum(stats.episodes, 1.0)
 
 
-def rank_weights(scores: Array, num_levels: Array, temperature: float) -> Array:
-    buffer_size, *_ = scores.shape
-    valid = jnp.arange(buffer_size) < num_levels
-    order = jnp.argsort(-jnp.where(valid, scores, -jnp.inf))
-    ranks = jnp.empty_like(order).at[order].set(jnp.arange(buffer_size) + 1)
-    weights = jnp.where(valid, 1.0 / ranks, 0.0) ** (1.0 / temperature)
-    total = weights.sum()
-    return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
-
-
-def staleness_weights(timestamps: Array, num_levels: Array, episodes: Array) -> Array:
-    buffer_size, *_ = timestamps.shape
-    valid = jnp.arange(buffer_size) < num_levels
-    staleness = jnp.where(valid, episodes - timestamps, 0).astype(jnp.float32)
-    total = staleness.sum()
-    return jnp.where(
-        total > 0,
-        staleness / jnp.where(total > 0, total, 1.0),
-        valid / jnp.maximum(num_levels, 1),
-    )
-
-
 @struct.dataclass
-class LevelBufferState(WrapperState):
-    scores: Array = struct.field(metadata={"axis": None})
-    timestamps: Array = struct.field(metadata={"axis": None})
-    returns: Array = struct.field(metadata={"axis": None})
-    num_levels: Array = struct.field(metadata={"axis": None})
-    episodes: Array = struct.field(metadata={"axis": None})
-    exploring: Array = struct.field(metadata={"axis": None})
-
-
-class LevelBuffer(Wrapper):
-    def __init__(
-        self,
-        env,
-        buffer_size: int,
-        staging_size: int,
-        sample: Callable[[Key], PyTree],
-    ):
-        super().__init__(env)
-        self.buffer_size = buffer_size
-        self.staging_size = staging_size
-        self.sample = sample
-
-    def init(self, key: Key) -> tuple[LevelBufferState, Timestep]:
-        buffer_key, env_key = jax.random.split(key)
-        env_state, timestep = self._env.init(env_key)
-        num_slots = self.buffer_size + self.staging_size
-        levels = jax.tree.map(
-            lambda leaf: jnp.zeros((num_slots, *leaf.shape), leaf.dtype),
-            jax.eval_shape(self.sample, key),
-        )
-        env_state = self._env.update(
-            env_state,
-            jax.random.fold_in(buffer_key, 1),
-            theta=levels,
-            weights=jnp.zeros(num_slots, jnp.float32),
-        )
-        state = LevelBufferState(
-            env_state=env_state,
-            scores=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
-            timestamps=jnp.zeros(self.buffer_size, jnp.int32),
-            returns=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
-            num_levels=jnp.int32(0),
-            episodes=jnp.int32(0),
-            exploring=jnp.bool_(False),
-        )
-        return state, timestep
-
-    def step(
-        self, key: Key, state: LevelBufferState, action: Array
-    ) -> tuple[LevelBufferState, Timestep]:
-        env_state, timestep = self._env.step(key, state.env_state, action)
-        return state.replace(env_state=env_state), timestep
+class LevelBuffer:
+    levels: PyTree
+    scores: Array
+    timestamps: Array
+    returns: Array
+    num_levels: Array
+    episodes: Array
+    admit: Array
+    level_indices: Array
 
 
 @dataclass
 class PLR(Pit):
-    environment: LevelBuffer
+    environment: UED
+    buffer_size: int
+    num_envs: int
     replay_probability: float
-    staleness: float
+    staleness_coefficient: float
     temperature: float
-    minimum_fill: float
+    min_length: int
     gamma: float
     gae_lambda: float
-    sample: Callable[[Key], PyTree]
+    generate_level: Callable[[Key], PyTree]
     score: Callable[[LevelStats, Array], Array]
 
     @property
     def num_slots(self) -> int:
-        return self.environment.buffer_size + self.environment.staging_size
+        return self.buffer_size + self.num_envs
 
     def score_episodes(
         self, transitions: Transition, values: Array, advantages: Array
@@ -136,7 +74,12 @@ class PLR(Pit):
             length = length + 1.0
             finished = (positive / length, value / length, reward)
             kept = 1.0 - done
-            return (positive * kept, value * kept, reward * kept, length * kept), finished
+            return (
+                positive * kept,
+                value * kept,
+                reward * kept,
+                length * kept,
+            ), finished
 
         zeros = jnp.zeros(values.shape[1:], jnp.float32)
         done = transitions.second.done.astype(jnp.float32)
@@ -162,16 +105,36 @@ class PLR(Pit):
             .max(returns.reshape(-1), mode="drop"),
         )
 
-    def replay_weights(self, buffer: LevelBufferState) -> Array:
-        rank = rank_weights(buffer.scores, buffer.num_levels, self.temperature)
-        staleness = staleness_weights(
-            buffer.timestamps, buffer.num_levels, buffer.episodes
+    def rank_weights(self, buffer: LevelBuffer) -> Array:
+        buffer_size, *_ = buffer.scores.shape
+        valid = jnp.arange(buffer_size) < buffer.num_levels
+        order = jnp.argsort(-jnp.where(valid, buffer.scores, -jnp.inf))
+        ranks = jnp.empty_like(order).at[order].set(jnp.arange(buffer_size) + 1)
+        weights = jnp.where(valid, 1.0 / ranks, 0.0) ** (1.0 / self.temperature)
+        total = weights.sum()
+        return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
+
+    def staleness_weights(self, buffer: LevelBuffer) -> Array:
+        buffer_size, *_ = buffer.timestamps.shape
+        valid = jnp.arange(buffer_size) < buffer.num_levels
+        staleness = jnp.where(valid, buffer.episodes - buffer.timestamps, 0)
+        staleness = staleness.astype(jnp.float32)
+        total = staleness.sum()
+        return jnp.where(
+            total > 0,
+            staleness / jnp.where(total > 0, total, 1.0),
+            valid / jnp.maximum(buffer.num_levels, 1),
         )
-        return (1.0 - self.staleness) * rank + self.staleness * staleness
+
+    def replay_weights(self, buffer: LevelBuffer) -> Array:
+        rank = self.rank_weights(buffer)
+        staleness = self.staleness_weights(buffer)
+        coefficient = self.staleness_coefficient
+        return (1.0 - coefficient) * rank + coefficient * staleness
 
     def update_scores(
-        self, buffer: LevelBufferState, stats: LevelStats, scored: Array
-    ) -> LevelBufferState:
+        self, buffer: LevelBuffer, stats: LevelStats, scored: Array
+    ) -> LevelBuffer:
         buffer_size, *_ = buffer.scores.shape
         finished = (stats.episodes[:buffer_size] > 0) & (
             jnp.arange(buffer_size) < buffer.num_levels
@@ -185,44 +148,21 @@ class PLR(Pit):
             ),
         )
 
-    def draw(
-        self, buffer: LevelBufferState, key: Key, count: int
-    ) -> tuple[LevelBufferState, Array]:
-        buffer_size, *_ = buffer.scores.shape
-
-        def pick_level(buffer, key):
-            weights = self.replay_weights(buffer)
-            index = jax.random.choice(key, buffer_size, p=weights)
-            index = index.astype(jnp.int32)
-            episodes = buffer.episodes + 1
-            buffer = buffer.replace(
-                timestamps=buffer.timestamps.at[index].set(episodes),
-                episodes=episodes,
-            )
-            return buffer, index
-
-        return jax.lax.scan(pick_level, buffer, jax.random.split(key, count))
-
     def admit(
-        self,
-        buffer: LevelBufferState,
-        levels,
-        stats: LevelStats,
-        scored: Array,
-        exploring: Array,
-    ):
+        self, buffer: LevelBuffer, stats: LevelStats, scored: Array
+    ) -> tuple[LevelBuffer, Array]:
         buffer_size, *_ = buffer.scores.shape
         num_slots, *_ = scored.shape
 
         def insert_level(carry, source):
-            buffer, levels, num_admitted = carry
+            buffer, num_admitted = carry
             target = jnp.where(
                 buffer.num_levels < buffer_size,
                 buffer.num_levels,
                 jnp.argmin(self.replay_weights(buffer)),
             )
-            replaced = exploring & (buffer.scores[target] < scored[source])
-            episodes = buffer.episodes + exploring.astype(jnp.int32)
+            replaced = buffer.admit & (buffer.scores[target] < scored[source])
+            episodes = buffer.episodes + buffer.admit.astype(jnp.int32)
             buffer = buffer.replace(
                 scores=buffer.scores.at[target].set(
                     jnp.where(replaced, scored[source], buffer.scores[target])
@@ -239,93 +179,109 @@ class PLR(Pit):
                     buffer.num_levels,
                 ),
                 episodes=episodes,
-            )
-            levels = jax.tree.map(
-                lambda leaf: leaf.at[target].set(
-                    jnp.where(replaced, leaf[source], leaf[target])
+                levels=jax.tree.map(
+                    lambda leaf: leaf.at[target].set(
+                        jnp.where(replaced, leaf[source], leaf[target])
+                    ),
+                    buffer.levels,
                 ),
-                levels,
             )
-            return (buffer, levels, num_admitted + replaced.astype(jnp.int32)), None
+            return (buffer, num_admitted + replaced.astype(jnp.int32)), None
 
-        (buffer, levels, num_admitted), _ = jax.lax.scan(
+        (buffer, num_admitted), _ = jax.lax.scan(
             insert_level,
-            (buffer, levels, jnp.int32(0)),
+            (buffer, jnp.int32(0)),
             jnp.arange(buffer_size, num_slots),
         )
-        return buffer, levels, num_admitted
+        return buffer, num_admitted
 
-    def init(self, key: Key, state: PyTree) -> LevelStats:
-        return LevelStats(
-            episodes=jnp.zeros(self.num_slots, jnp.float32),
-            regret=jnp.zeros(self.num_slots, jnp.float32),
-            value=jnp.zeros(self.num_slots, jnp.float32),
-            returns=jnp.full(self.num_slots, -jnp.inf, jnp.float32),
+    def generate_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
+        levels = jax.vmap(self.generate_level)(jax.random.split(key, self.num_envs))
+        return buffer.replace(
+            levels=jax.tree.map(
+                lambda leaf, new: leaf.at[self.buffer_size :].set(new),
+                buffer.levels,
+                levels,
+            ),
+            admit=jnp.bool_(True),
+            level_indices=self.buffer_size + jnp.arange(self.num_envs, dtype=jnp.int32),
         )
 
+    def sample_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
+        buffer_size, *_ = buffer.scores.shape
+
+        def pick_level(buffer, key):
+            weights = self.replay_weights(buffer)
+            index = jax.random.choice(key, buffer_size, p=weights)
+            index = index.astype(jnp.int32)
+            episodes = buffer.episodes + 1
+            buffer = buffer.replace(
+                timestamps=buffer.timestamps.at[index].set(episodes),
+                episodes=episodes,
+            )
+            return buffer, index
+
+        buffer, level_indices = jax.lax.scan(
+            pick_level, buffer, jax.random.split(key, self.num_envs)
+        )
+        return buffer.replace(admit=jnp.bool_(False), level_indices=level_indices)
+
+    def init(self, key: Key, state: PyTree) -> LevelBuffer:
+        buffer = LevelBuffer(
+            levels=jax.tree.map(
+                lambda leaf: jnp.zeros((self.num_slots, *leaf.shape), leaf.dtype),
+                jax.eval_shape(self.generate_level, key),
+            ),
+            scores=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
+            timestamps=jnp.zeros(self.buffer_size, jnp.int32),
+            returns=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
+            num_levels=jnp.int32(0),
+            episodes=jnp.int32(0),
+            admit=jnp.bool_(True),
+            level_indices=jnp.zeros(self.num_envs, jnp.int32),
+        )
+        return self.generate_levels(buffer, key)
+
     def update(
-        self, state: LevelStats, key: Key, transitions: Transition, algorithm_state: PyTree
-    ) -> LevelStats:
+        self,
+        buffer: LevelBuffer,
+        key: Key,
+        transitions: Transition,
+        algorithm_state: PyTree,
+    ) -> LevelBuffer:
         values = transitions.aux["value"]
         advantages, _ = generalized_advantage_estimation(
             transitions, values, values[-1], self.gamma, self.gae_lambda
         )
-        return self.score_episodes(
+        stats = self.score_episodes(
             jax.tree.map(lambda leaf: leaf[1:], transitions),
             values[1:],
             advantages[1:],
         )
-
-    def __call__(self, key: Key, state):
-        def curate(node):
-            if isinstance(node, LevelBufferState):
-                return self.curate(node, state.pit_state, key)
-            return node
-
-        environment_state = jax.tree.map(
-            curate,
-            state.environment_state,
-            is_leaf=lambda node: isinstance(node, LevelBufferState),
-        )
-        return state.replace(environment_state=environment_state)
-
-    def curate(self, buffer: LevelBufferState, stats: LevelStats, key: Key):
-        buffer_size = self.environment.buffer_size
-        staging_size = self.environment.staging_size
         returns = jnp.concatenate(
-            [buffer.returns, jnp.full(staging_size, -jnp.inf, jnp.float32)]
+            [buffer.returns, jnp.full(self.num_envs, -jnp.inf, jnp.float32)]
         )
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
-
         buffer = self.update_scores(buffer, stats, scored)
-        buffer, levels, num_admitted = self.admit(
-            buffer, buffer.theta, stats, scored, buffer.exploring
-        )
+        buffer, num_admitted = self.admit(buffer, stats, scored)
 
-        update_key, decide_key, draw_key, sample_key = jax.random.split(key, 4)
-        replaying = (buffer.num_levels / buffer_size >= self.minimum_fill) & (
+        decide_key, sample_key, generate_key = jax.random.split(key, 3)
+        replaying = (buffer.num_levels >= self.min_length) & (
             jax.random.uniform(decide_key) < self.replay_probability
         )
-
-        def replay(buffer, levels):
-            buffer, assignment = self.draw(buffer, draw_key, staging_size)
-            return buffer, levels, assignment
-
-        def explore(buffer, levels):
-            fresh = jax.vmap(self.sample)(
-                jax.random.split(sample_key, staging_size)
-            )
-            levels = jax.tree.map(
-                lambda leaf, new: leaf.at[buffer_size:].set(new), levels, fresh
-            )
-            assignment = buffer_size + jnp.arange(staging_size, dtype=jnp.int32)
-            return buffer, levels, assignment
-
-        buffer, levels, assignment = jax.lax.cond(
-            replaying, replay, explore, buffer, levels
+        buffer = jax.lax.cond(
+            replaying,
+            lambda buffer: self.sample_levels(buffer, sample_key),
+            lambda buffer: self.generate_levels(buffer, generate_key),
+            buffer,
         )
-        level_weights = self.replay_weights(buffer)
+        self.report(buffer, stats, scored, num_admitted)
+        return buffer
 
+    def report(
+        self, buffer: LevelBuffer, stats: LevelStats, scored: Array, num_admitted
+    ) -> None:
+        buffer_size = self.buffer_size
         valid = jnp.arange(buffer_size) < buffer.num_levels
         finished = stats.episodes.sum()
         fresh = stats.episodes[buffer_size:] > 0
@@ -335,7 +291,9 @@ class PLR(Pit):
                 "buffer/num_admitted": num_admitted,
                 "buffer/score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.num_levels, 1),
-                "mu/score": jnp.where(valid, level_weights * buffer.scores, 0.0).sum(),
+                "mu/score": jnp.where(
+                    valid, self.replay_weights(buffer) * buffer.scores, 0.0
+                ).sum(),
                 "mu/fraction": stats.episodes[:buffer_size].sum()
                 / jnp.maximum(finished, 1.0),
                 "rho/score": jnp.where(
@@ -346,40 +304,50 @@ class PLR(Pit):
                 ),
             }
         )
-        return self.environment.update(
-            buffer.replace(exploring=~replaying),
-            update_key,
-            theta=levels,
-            assign=assignment,
+
+    def __call__(self, key: Key, state):
+        buffer = state.pit_state
+
+        def assign(node):
+            if isinstance(node, UEDState):
+                return self.environment.update(
+                    node, key, theta=buffer.levels, assign=buffer.level_indices
+                )
+            return node
+
+        environment_state = jax.tree.map(
+            assign,
+            state.environment_state,
+            is_leaf=lambda node: isinstance(node, UEDState),
         )
+        return state.replace(environment_state=environment_state)
 
 
-def plr(
+def make(
     algorithm: Algorithm,
     environment: Environment,
     buffer_size: int,
     replay_probability: float,
-    staleness: float,
+    staleness_coefficient: float,
     temperature: float,
-    minimum_fill: float,
+    min_length: int,
     gamma: float,
     gae_lambda: float,
-    sample: Callable[[Key], PyTree],
+    generate_level: Callable[[Key], PyTree],
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
-) -> tuple[Algorithm, LevelBuffer, PLR, Lap | None]:
-    environment = LevelBuffer(
-        UED(environment), buffer_size, environment.num_envs, sample
-    )
+) -> tuple[Algorithm, UED, PLR, Lap | None]:
     pit = PLR(
-        environment,
+        UED(environment),
+        buffer_size=buffer_size,
+        num_envs=environment.num_envs,
         replay_probability=replay_probability,
-        staleness=staleness,
+        staleness_coefficient=staleness_coefficient,
         temperature=temperature,
-        minimum_fill=minimum_fill,
+        min_length=min_length,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        sample=sample,
+        generate_level=generate_level,
         score=score,
     )
-    return algorithm, environment, pit, None
+    return algorithm, pit.environment, pit, None

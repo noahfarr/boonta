@@ -1,13 +1,13 @@
-_target_: boonta.curricula.plr
+_target_: boonta.curricula.plr.make
 _partial_: true
 buffer_size: 4000
 replay_probability: 0.5
-staleness: 0.3
+staleness_coefficient: 0.3
 temperature: 1.0
-minimum_fill: 0.5
+min_length: 2000
 gamma: ${algorithm.gamma}
 gae_lambda: ${algorithm.gae_lambda}
-sample: ???
+generate_level: ???
 score:
-  _target_: boonta.curricula.positive_value_loss
+  _target_: boonta.curricula.plr.positive_value_loss
   _partial_: true

@@ -1,17 +1,13 @@
-from types import SimpleNamespace
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax import struct
 
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (PLR, LevelBufferState,
-                                  maximum_monte_carlo, positive_value_loss,
-                                  rank_weights, staleness_weights)
+from boonta.curricula.plr import (PLR, LevelBuffer, maximum_monte_carlo,
+                                  positive_value_loss)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -21,18 +17,21 @@ from dummies import Dial
 
 
 def test_rank_weights_are_inverse_ranks_sharpened_by_the_temperature():
-    scores = jnp.array([3.0, 1.0, 2.0, 7.0])
-    np.testing.assert_allclose(rank_weights(scores, 3, 1.0), np.array([6, 2, 3, 0]) / 11, rtol=1e-6)
-    np.testing.assert_allclose(rank_weights(scores, 3, 0.5), np.array([36, 4, 9, 0]) / 49, rtol=1e-6)
+    scored = buffer([3.0, 1.0, 2.0, 7.0], [0, 0, 0, 0], 3, 0)
+    np.testing.assert_allclose(pit().rank_weights(scored), np.array([6, 2, 3, 0]) / 11, rtol=1e-6)
+    np.testing.assert_allclose(
+        pit(temperature=0.5).rank_weights(scored), np.array([36, 4, 9, 0]) / 49, rtol=1e-6
+    )
 
 
 def test_staleness_weights_follow_episodes_since_each_level_was_played():
-    timestamps = jnp.array([2, 5, 0, 9])
-    np.testing.assert_allclose(staleness_weights(timestamps, 3, 6), np.array([4, 1, 6, 0]) / 11, rtol=1e-6)
+    played = buffer([0.0] * 4, [2, 5, 0, 9], 3, 6)
+    np.testing.assert_allclose(pit().staleness_weights(played), np.array([4, 1, 6, 0]) / 11, rtol=1e-6)
 
 
-def test_staleness_is_uniform_over_the_buffer_when_nothing_is_staleness_weights():
-    np.testing.assert_allclose(staleness_weights(jnp.array([6, 6, 6, 0]), 3, 6), [1 / 3, 1 / 3, 1 / 3, 0])
+def test_staleness_is_uniform_over_the_buffer_when_nothing_is_stale():
+    played = buffer([0.0] * 4, [6, 6, 6, 0], 3, 6)
+    np.testing.assert_allclose(pit().staleness_weights(played), [1 / 3, 1 / 3, 1 / 3, 0])
 
 
 def test_priority_mixes_rank_and_staleness():
@@ -80,34 +79,32 @@ def test_scores_are_the_positive_value_loss_or_the_maximum_monte_carlo_regret():
     np.testing.assert_allclose(monte_carlo[[2, 5]], [1.5, 2.0], rtol=1e-6)
 
 
-@struct.dataclass
-class Inner:
-    playing: jax.Array
-
-
-def buffer(scores, timestamps, num_levels, episodes):
+def buffer(scores, timestamps, num_levels, episodes, levels=None, admit=False):
     buffer_size = len(scores)
-    return LevelBufferState(
-        Inner(playing=jnp.array([-1])),
+    return LevelBuffer(
+        levels=levels,
         scores=jnp.array(scores, jnp.float32),
         timestamps=jnp.array(timestamps, jnp.int32),
         returns=jnp.full(buffer_size, -jnp.inf),
         num_levels=jnp.int32(num_levels),
         episodes=jnp.int32(episodes),
-        exploring=jnp.bool_(False),
+        admit=jnp.bool_(admit),
+        level_indices=jnp.zeros(3, jnp.int32),
     )
 
 
-def pit(buffer_size=3, staging_size=3):
+def pit(buffer_size=3, num_envs=3, temperature=1.0):
     return PLR(
-        SimpleNamespace(buffer_size=buffer_size, staging_size=staging_size),
+        None,
+        buffer_size=buffer_size,
+        num_envs=num_envs,
         replay_probability=0.5,
-        staleness=0.3,
-        temperature=1.0,
-        minimum_fill=0.5,
+        staleness_coefficient=0.3,
+        temperature=temperature,
+        min_length=1,
         gamma=0.99,
         gae_lambda=0.95,
-        sample=None,
+        generate_level=lambda key: jax.random.uniform(key),
         score=positive_value_loss,
     )
 
@@ -121,12 +118,12 @@ def fresh(scores):
 def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_higher():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 2.0, 0.5, -jnp.inf])
-    state, levels, num_admitted = pit().admit(
-        buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10),
-        levels, counted, scored, jnp.bool_(True),
+    state, num_admitted = pit().admit(
+        buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10, levels, admit=True),
+        counted, scored,
     )
     np.testing.assert_array_equal(state.scores, [2.0, 5.0, 3.0])
-    np.testing.assert_array_equal(levels[:3], [30.0, 10.0, 20.0])
+    np.testing.assert_array_equal(state.levels[:3], [30.0, 10.0, 20.0])
     np.testing.assert_array_equal(state.timestamps, [11, 10, 10])
     assert int(state.episodes) == 13 and int(num_admitted) == 1
 
@@ -134,21 +131,21 @@ def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_high
 def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, -5.0, -jnp.inf, -jnp.inf])
-    state, levels, num_admitted = pit().admit(
-        buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
-        levels, counted, scored, jnp.bool_(True),
+    state, num_admitted = pit().admit(
+        buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3, levels, admit=True),
+        counted, scored,
     )
     assert int(state.num_levels) == 2 and int(num_admitted) == 1
     np.testing.assert_array_equal(state.scores[:2], [7.0, -5.0])
-    np.testing.assert_array_equal(levels[1], 30.0)
+    np.testing.assert_array_equal(state.levels[1], 30.0)
 
 
 def test_nothing_is_admitted_after_a_replay_rollout():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 9.0, 9.0, 9.0])
-    state, levels, num_admitted = pit().admit(
-        buffer([1.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
-        levels, counted, scored, jnp.bool_(False),
+    state, num_admitted = pit().admit(
+        buffer([1.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3, levels),
+        counted, scored,
     )
     assert int(state.num_levels) == 1 and int(num_admitted) == 0 and int(state.episodes) == 3
 
@@ -166,16 +163,18 @@ def test_a_replayed_level_takes_its_new_score_and_best_return():
 
 
 def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played():
-    state, indices = pit().draw(buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0), 4)
-    assert int(state.episodes) == 14
-    indices = np.asarray(indices)
+    state = pit(num_envs=4).sample_levels(
+        buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0)
+    )
+    assert int(state.episodes) == 14 and not state.admit
+    indices = np.asarray(state.level_indices)
     assert set(indices) <= {0, 1, 2}
     assert int(state.timestamps[indices[-1]]) == 14
 
 
 def test_replay_draws_only_from_the_filled_part_of_the_buffer():
-    state, indices = pit().draw(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0), 8)
-    np.testing.assert_array_equal(indices, 0)
+    state = pit(num_envs=8).sample_levels(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0))
+    np.testing.assert_array_equal(state.level_indices, 0)
     assert int(state.timestamps[0]) == 8
 
 
@@ -216,10 +215,12 @@ def played(theta, cut=1):
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    counted = pit(buffer_size=1, staging_size=2).update(
-        None, jax.random.key(0), played(2), None
+    empty = buffer([-jnp.inf, -jnp.inf], [0, 0], 0, 0, jnp.arange(4.0) * 10, True)
+    state = pit(buffer_size=2, num_envs=2).update(
+        empty, jax.random.key(0), played(3, cut=2), None
     )
-    np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
+    assert int(state.num_levels) == 1
+    assert float(state.levels[0]) == 30.0
 
 
 class Blink(Dial):
@@ -231,17 +232,17 @@ class Blink(Dial):
 def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     algorithm = ppo()
     environment = SameStepAutoReset(Blink(), 8)
-    algorithm, environment, pit, lap = plr(
+    algorithm, environment, pit, lap = plr.make(
         algorithm,
         environment,
         buffer_size=4,
         replay_probability=0.5,
-        staleness=0.3,
+        staleness_coefficient=0.3,
         temperature=1.0,
-        minimum_fill=0.5,
+        min_length=2,
         gamma=0.99,
         gae_lambda=0.95,
-        sample=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),
+        generate_level=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),
     )
     environment = RecordEpisodeStatistics(environment)
     config = anakin.AnakinConfig(num_envs=8, num_steps=8, mesh=mesh(1))
@@ -251,5 +252,13 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     sizes = np.asarray(logs["buffer/num_levels"])
     assert sizes.ravel()[-1] == 4
     assert (np.asarray(logs["mu/fraction"]) > 0).any()
-    played = np.asarray(state.environment_state.env_state.env_state.playing)
+    played = np.asarray(state.environment_state.env_state.playing)
     assert np.all(played >= 0)
+    assert int(state.pit_state.num_levels) == 4
+
+    evaluated, _ = podracer.evaluate(state, jax.random.key(2), 4)
+    for kept, held in zip(jax.tree.leaves(state.pit_state), jax.tree.leaves(evaluated.pit_state)):
+        np.testing.assert_array_equal(kept, held)
+    np.testing.assert_array_equal(
+        evaluated.environment_state.env_state.upcoming, state.pit_state.level_indices
+    )

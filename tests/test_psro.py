@@ -30,7 +30,7 @@ DEFAULT = Path(__file__).parents[1] / "hangar/config/curriculum/default.yaml"
 DECKS = ["alakazam", "thwackey"]
 
 LEAGUE = """
-_target_: boonta.curricula.psro
+_target_: boonta.curricula.psro.make
 _partial_: true
 capacity: 1024
 decay: 0.995
@@ -40,39 +40,39 @@ pool:
   - {lineage: alakazam, checkpoint: alakazam.msgpack}
   - {lineage: thwackey, checkpoint: thwackey.msgpack}
 learners:
-  - _target_: boonta.curricula.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: alakazam
     checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.mixture
+      _target_: boonta.curricula.psro.mixture
       weights: [0.5, 0.5]
       solvers:
-        - _target_: boonta.curricula.self_play
-        - _target_: boonta.curricula.pfsp
+        - _target_: boonta.curricula.psro.self_play
+        - _target_: boonta.curricula.psro.pfsp
           weighting:
-            _target_: boonta.curricula.hard
+            _target_: boonta.curricula.psro.hard
     admit:
-      _target_: boonta.curricula.periodic
+      _target_: boonta.curricula.psro.periodic
       every: 50
-  - _target_: boonta.curricula.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: thwackey
     checkpoint: thwackey.msgpack
     solver:
-      _target_: boonta.curricula.self_play
+      _target_: boonta.curricula.psro.self_play
     admit:
-      _target_: boonta.curricula.periodic
+      _target_: boonta.curricula.psro.periodic
       every: 50
-  - _target_: boonta.curricula.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: exploiter
     checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.pfsp_vs_lineage
+      _target_: boonta.curricula.psro.pfsp_vs_lineage
       lineage: alakazam
       current: true
       weighting:
-        _target_: boonta.curricula.hard
+        _target_: boonta.curricula.psro.hard
     admit:
-      _target_: boonta.curricula.threshold
+      _target_: boonta.curricula.psro.threshold
       level: 0.7
     resets: true
 """
@@ -266,7 +266,7 @@ def build(
     **extras,
 ):
     config = anakin.AnakinConfig(num_envs=num_envs, num_steps=4, mesh=mesh(2))
-    algorithm, environment, pit, lap = psro(
+    algorithm, environment, pit, lap = psro.make(
         oracle or SkillAlgorithm(optimizer=optax.sgd(1.0)),
         MarginEnvironment(num_envs=num_envs),
         learners=learners,

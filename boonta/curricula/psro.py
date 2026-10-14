@@ -504,7 +504,7 @@ class PSRO(Pit):
         )
 
 
-def psro(
+def make(
     algorithm: Algorithm,
     environment: Environment,
     learners,
