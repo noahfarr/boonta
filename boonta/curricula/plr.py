@@ -16,16 +16,16 @@ from boonta.utils.typing import Environment
 
 
 @struct.dataclass
-class Tally:
+class LevelStats:
     episodes: Array
     regret: Array
     value: Array
     returns: Array
 
 
-def empty_tally(slots: int) -> Tally:
+def empty_stats(slots: int) -> LevelStats:
     zeros = jnp.zeros(slots, jnp.float32)
-    return Tally(
+    return LevelStats(
         episodes=zeros,
         regret=zeros,
         value=zeros,
@@ -35,7 +35,7 @@ def empty_tally(slots: int) -> Tally:
 
 def tally_episodes(
     transitions: Transition, values: Array, advantages: Array, slots: int
-) -> Tally:
+) -> LevelStats:
     def accumulate_episode(carry, step):
         positive, value, reward, length = carry
         advantage, current, earned, done = step
@@ -61,8 +61,8 @@ def tally_episodes(
     )
     theta = transitions.second.info["theta"]
     index = jnp.where((done > 0) & (theta >= 0), theta, slots).reshape(-1)
-    empty = empty_tally(slots)
-    return Tally(
+    empty = empty_stats(slots)
+    return LevelStats(
         episodes=empty.episodes.at[index].add(1.0, mode="drop"),
         regret=empty.regret.at[index].add(regret.reshape(-1), mode="drop"),
         value=empty.value.at[index].add(value.reshape(-1), mode="drop"),
@@ -72,7 +72,7 @@ def tally_episodes(
 
 def tally_rollout(
     transitions: Transition, slots: int, gamma: float, gae_lambda: float
-) -> Tally:
+) -> LevelStats:
     values = transitions.aux["value"]
     advantages, _ = generalized_advantage_estimation(
         transitions, values, values[-1], gamma, gae_lambda
@@ -85,13 +85,13 @@ def tally_rollout(
     )
 
 
-def positive_value_loss(tally: Tally, returns: Array) -> Array:
-    return tally.regret / jnp.maximum(tally.episodes, 1.0)
+def positive_value_loss(stats: LevelStats, returns: Array) -> Array:
+    return stats.regret / jnp.maximum(stats.episodes, 1.0)
 
 
-def maximum_monte_carlo(tally: Tally, returns: Array) -> Array:
-    best = jnp.maximum(returns, tally.returns)
-    return best - tally.value / jnp.maximum(tally.episodes, 1.0)
+def maximum_monte_carlo(stats: LevelStats, returns: Array) -> Array:
+    best = jnp.maximum(returns, stats.returns)
+    return best - stats.value / jnp.maximum(stats.episodes, 1.0)
 
 
 def rank_weights(scores: Array, size: Array, temperature: float) -> Array:
@@ -178,14 +178,14 @@ class LevelBuffer(Wrapper):
         return state.replace(env_state=env_state), timestep
 
 
-def update_scores(buffer: LevelBufferState, tally: Tally, scored: Array) -> LevelBufferState:
+def update_scores(buffer: LevelBufferState, stats: LevelStats, scored: Array) -> LevelBufferState:
     capacity = buffer.scores.shape[0]
-    finished = (tally.episodes[:capacity] > 0) & (jnp.arange(capacity) < buffer.size)
+    finished = (stats.episodes[:capacity] > 0) & (jnp.arange(capacity) < buffer.size)
     return buffer.replace(
         scores=jnp.where(finished, scored[:capacity], buffer.scores),
         returns=jnp.where(
             finished,
-            jnp.maximum(buffer.returns, tally.returns[:capacity]),
+            jnp.maximum(buffer.returns, stats.returns[:capacity]),
             buffer.returns,
         ),
     )
@@ -222,7 +222,7 @@ def draw_levels(
 def admit_levels(
     buffer: LevelBufferState,
     levels,
-    tally: Tally,
+    stats: LevelStats,
     scored: Array,
     exploring: Array,
     temperature: float,
@@ -253,7 +253,7 @@ def admit_levels(
                 jnp.where(replaced, scored[source], buffer.scores[target])
             ),
             returns=buffer.returns.at[target].set(
-                jnp.where(replaced, tally.returns[source], buffer.returns[target])
+                jnp.where(replaced, stats.returns[source], buffer.returns[target])
             ),
             timestamps=buffer.timestamps.at[target].set(
                 jnp.where(replaced, episodes, buffer.timestamps[target])
@@ -287,18 +287,18 @@ class Curator(Pit):
     gamma: float
     gae_lambda: float
     sample: Callable[[Key], PyTree]
-    score: Callable[[Tally, Array], Array]
+    score: Callable[[LevelStats, Array], Array]
 
     @property
     def slots(self) -> int:
         return self.environment.capacity + self.environment.staging
 
-    def init(self, key: Key) -> Tally:
-        return empty_tally(self.slots)
+    def init(self, key: Key) -> LevelStats:
+        return empty_stats(self.slots)
 
     def update(
-        self, state: Tally, key: Key, transitions: Transition, algorithm_state: PyTree
-    ) -> Tally:
+        self, state: LevelStats, key: Key, transitions: Transition, algorithm_state: PyTree
+    ) -> LevelStats:
         return tally_rollout(transitions, self.slots, self.gamma, self.gae_lambda)
 
     def __call__(self, key: Key, state):
@@ -314,19 +314,19 @@ class Curator(Pit):
         )
         return state.replace(environment_state=environment_state)
 
-    def curate(self, buffer: LevelBufferState, tally: Tally, key: Key):
+    def curate(self, buffer: LevelBufferState, stats: LevelStats, key: Key):
         capacity, staging = self.environment.capacity, self.environment.staging
         temperature, staleness = self.temperature, self.staleness
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
-        scored = jnp.where(tally.episodes > 0, self.score(tally, returns), -jnp.inf)
+        scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
 
-        buffer = update_scores(buffer, tally, scored)
+        buffer = update_scores(buffer, stats, scored)
         buffer, levels, admitted = admit_levels(
             buffer,
             buffer.theta,
-            tally,
+            stats,
             scored,
             buffer.exploring,
             temperature,
@@ -364,13 +364,13 @@ class Curator(Pit):
         )
 
         valid = jnp.arange(capacity) < buffer.size
-        finished = tally.episodes.sum()
+        finished = stats.episodes.sum()
         lox.log(
             {
                 "plr/levels/size": buffer.size,
                 "plr/levels/admitted": admitted,
                 "plr/levels/replaying": replaying.astype(jnp.float32),
-                "plr/levels/replayed": tally.episodes[:capacity].sum()
+                "plr/levels/replayed": stats.episodes[:capacity].sum()
                 / jnp.maximum(finished, 1.0),
                 "plr/levels/mean_score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.size, 1),
@@ -383,9 +383,9 @@ class Curator(Pit):
                     valid, level_weights * buffer.scores, 0.0
                 ).sum(),
                 "plr/levels/fresh_score": jnp.where(
-                    tally.episodes[capacity:] > 0, scored[capacity:], 0.0
+                    stats.episodes[capacity:] > 0, scored[capacity:], 0.0
                 ).sum()
-                / jnp.maximum((tally.episodes[capacity:] > 0).sum(), 1),
+                / jnp.maximum((stats.episodes[capacity:] > 0).sum(), 1),
             }
         )
         return self.environment.update(
@@ -407,7 +407,7 @@ def plr(
     gamma: float,
     gae_lambda: float,
     sample: Callable[[Key], PyTree],
-    score: Callable[[Tally, Array], Array] = positive_value_loss,
+    score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
 ) -> tuple[Algorithm, LevelBuffer, Curator, Lap | None]:
     environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
