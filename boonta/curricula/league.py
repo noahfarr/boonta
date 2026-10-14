@@ -13,7 +13,7 @@ from boonta.utils.typing import Environment
 @dataclass
 class Seat(Pit):
     psro: PSRO
-    environment: Opponent
+    opponent: Opponent
     dress: Callable
 
     def __call__(self, key, state):
@@ -21,7 +21,7 @@ class Seat(Pit):
 
         def seat(node):
             if isinstance(node, OpponentState):
-                return self.environment.update(node, key, opponents=opponents)
+                return self.opponent.update(node, key, opponents=opponents)
             return node
 
         seated = jax.tree.map(
