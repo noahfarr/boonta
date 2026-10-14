@@ -10,7 +10,6 @@ from boonta.environments.wrappers.archive_auto_reset import (
     Archive,
     ArchiveAutoReset,
     lru,
-    share,
 )
 from boonta.utils import Timestep
 
@@ -259,13 +258,6 @@ def test_the_archive_hands_back_the_state_at_a_slot():
     state, index, _, _ = held.add(state, batch(jnp.arange(NUM_ENVS)), jnp.ones(NUM_ENVS, bool))
     got = held.take(state, index)
     assert bool(jnp.all(got.tag == jnp.arange(NUM_ENVS)))
-
-
-def test_share_rounds_the_fraction_the_block_holds():
-    assert share(2.0, NUM_ENVS) == 4
-    assert share(4.0, NUM_ENVS) == 6
-    assert share(1.0, NUM_ENVS) == 0
-    assert share(float("inf"), NUM_ENVS) == NUM_ENVS
 
 
 def test_a_running_episode_keeps_the_state_it_stepped_into():

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -27,7 +29,6 @@ from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset,
     ArchiveAutoResetState,
-    share,
 )
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -201,7 +202,7 @@ def train(selector, updates=3, steps=4):
 )
 def test_a_restart_distribution_runs_and_restarts_the_trailing_block(selector):
     env, archive_auto_reset_state, cut, _ = train(selector)
-    block = jnp.arange(NUM_ENVS) >= NUM_ENVS - share(2.0, NUM_ENVS)
+    block = jnp.arange(NUM_ENVS) >= NUM_ENVS // 2
     eligible = env.archive.eligible(archive_auto_reset_state.archive_state)
     assert bool(jnp.all(archive_auto_reset_state.due_mask == block))
     assert bool(jnp.all(eligible[archive_auto_reset_state.assigned_slots[block]]))
@@ -321,3 +322,16 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
 def test_a_restart_curriculum_needs_an_archive_auto_reset(curriculum, options):
     with pytest.raises(AssertionError, match="ArchiveAutoReset"):
         curriculum(None, RecordEpisodeStatistics(Corridor()), **options)
+
+
+@pytest.mark.parametrize(
+    "k, num_placed", [(2.0, 4), (4.0, 6), (1.0, 0), (float("inf"), NUM_ENVS)]
+)
+def test_k_rounds_the_fraction_of_environments_a_curriculum_places(k, num_placed):
+    env = ArchiveAutoReset(
+        Ladder(), num_envs=NUM_ENVS, cell_fn=lambda env: (lambda state: state.tag)
+    )
+    explorer = erd.ERD(env, k=k)
+    prioritized = replace(selector(SuccessorFootprint(), CountedRelevance()), k=k)
+    assert explorer.num_placed == num_placed
+    assert prioritized.num_placed(NUM_ENVS) == num_placed
