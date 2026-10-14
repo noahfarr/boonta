@@ -15,7 +15,7 @@ MOVES = jnp.array([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)
 
 def unsolve(state, key: Key, iters: int):
     fixed = state.fixed_grid
-    size = fixed.shape[0]
+    size, *_ = fixed.shape
     boxes = (fixed == TARGET).astype(jnp.uint8) * jnp.uint8(BOX)
 
     def empty(grid, cell):

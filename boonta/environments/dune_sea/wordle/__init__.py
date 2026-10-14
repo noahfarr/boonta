@@ -49,9 +49,8 @@ def encode(letters: Array) -> Array:
 
 
 def is_allowed(word_id: Array, allowed_guesses: Array) -> Array:
-    index = jnp.clip(
-        jnp.searchsorted(allowed_guesses, word_id), 0, allowed_guesses.shape[0] - 1
-    )
+    num_allowed, *_ = allowed_guesses.shape
+    index = jnp.clip(jnp.searchsorted(allowed_guesses, word_id), 0, num_allowed - 1)
     return allowed_guesses[index] == word_id
 
 
@@ -81,7 +80,8 @@ class Wordle(Environment):
     def init(
         self, key: Key
     ) -> tuple[EnvState, Timestep]:
-        index = jax.random.randint(key, (), 0, self.answer_pool.shape[0])
+        num_answers, *_ = self.answer_pool.shape
+        index = jax.random.randint(key, (), 0, num_answers)
         state = EnvState(
             secret_answer=self.answer_pool[index],
             guess_feedback=jnp.zeros(WORD_LENGTH, jnp.int32),
