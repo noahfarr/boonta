@@ -28,7 +28,7 @@ class Population(Wrapper):
     count: int
 
     def init(self, key: Key, timestep: Timestep) -> PopulationState:
-        slots = timestep.terminated.shape[0]
+        slots, *_ = timestep.terminated.shape
         assert slots % self.count == 0, (
             f"the environment's {slots} slots do not divide evenly among "
             f"{self.count} copies: each would be floored to {slots // self.count}, "

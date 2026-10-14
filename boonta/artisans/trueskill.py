@@ -59,7 +59,6 @@ class TrueSkill:
     opponents: dict[str, Opponent]
     name: str = "trueskill"
     ratings: dict[str, trueskill.Rating] = field(default_factory=dict, init=False)
-    epoch: int = field(default=0, init=False)
 
     def play(self, environment, first: Opponent, second: Opponent, key: Key) -> Scores:
         env = environment.unwrapped
@@ -97,13 +96,12 @@ class TrueSkill:
         return dict(walk(state.algorithm_state.params, []))
 
     def craft(
-        self, algorithm: object, environment: object, state: PyTree, logs: dict
+        self, key: Key, algorithm: object, environment: object, state: PyTree, logs: dict
     ) -> Metrics:
         subjects = self.subjects(state)
         for name in (*subjects, *self.opponents):
             self.ratings.setdefault(name, RATER.create_rating())
 
-        key = jax.random.PRNGKey(self.epoch)
         results = []
 
         names = sorted(self.opponents)
@@ -129,7 +127,6 @@ class TrueSkill:
                 results.extend((subject, name, float(s)) for s in np.asarray(scores))
 
         rate(self.ratings, results)
-        self.epoch += 1
 
         data = {}
         for subject in subjects:

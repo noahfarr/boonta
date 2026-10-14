@@ -522,6 +522,41 @@ def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
         Vectorize(Dial(), 2).time_limit()
 
 
+RENDERED = [
+    "Asterix-MinAtar",
+    "Breakout-MinAtar",
+    "Freeway-MinAtar",
+    "SpaceInvaders-MinAtar",
+    "Catch-bsuite",
+    "FourRooms-misc",
+    "MetaMaze-misc",
+    "PointRobot-misc",
+    "Pong-misc",
+]
+
+
+@pytest.mark.parametrize("env_id", RENDERED)
+def test_gymnax_draws_one_environment_through_its_wrappers_with_its_own_renderer(env_id):
+    from boonta.environments import gymnax
+
+    environment = RecordEpisodeStatistics(SameStepAutoReset(gymnax.make(env_id), 2))
+    state, _ = environment.init(jax.random.key(0))
+    frame = environment.render(jax.tree.map(lambda leaf: leaf[0], state))
+
+    assert frame.dtype == np.uint8
+    assert frame.ndim == 3 and frame.shape[-1] == 3
+    assert len(np.unique(frame.reshape(-1, 3), axis=0)) > 1
+
+
+def test_a_gymnax_game_gymnax_cannot_draw_refuses_to_render():
+    from boonta.environments import gymnax
+
+    environment = gymnax.make("DeepSea-bsuite")
+    state, _ = environment.init(jax.random.key(0))
+    with pytest.raises(NotImplementedError):
+        environment.render(state)
+
+
 def test_prompt_and_tool_calls_stretch_the_time_limit():
     calls = tool(TimeLimit(Dial(), 4))
     assert calls.time_limit() == 4 * 32

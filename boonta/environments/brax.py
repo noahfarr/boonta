@@ -71,8 +71,12 @@ class Brax(Environment):
         width: int = 320,
         camera: str | None = None,
     ) -> Array:
+        import mujoco
         from brax.io import image
 
+        model = self._env.sys.mj_model
+        if camera is None and model.ncam:
+            camera = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, 0)
         return image.render_array(
             self._env.sys,
             state.pipeline_state,

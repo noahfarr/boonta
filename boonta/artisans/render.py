@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax
 import numpy as np
 
@@ -8,33 +10,49 @@ class Render:
     def __init__(
         self,
         name: str = "render",
-        seed: int = 0,
-        env: int = 0,
         max_frames: int = 256,
         fps: int = 16,
+        kwargs: dict | None = None,
     ):
         self.name = name
-        self.seed = seed
-        self.env = env
         self.max_frames = max_frames
         self.fps = fps
+        self.kwargs = kwargs or {}
 
-    def craft(self, algorithm, environment, state, logs) -> Video:
-        num_envs = environment.num_envs
-        example, *_ = jax.tree.leaves(logs["env_state"])
-        entries, *_ = example.shape
-        steps = min(entries // num_envs, self.max_frames)
+    def rollout(self, algorithm, environment, algorithm_state, key):
+        init_key, key = jax.random.split(key)
+        environment_state, timestep = environment.init(init_key)
 
-        def trajectory(leaf):
-            leaf = leaf[: steps * num_envs, 0]
-            return leaf.reshape(steps, num_envs, *leaf.shape[1:])[:, self.env]
+        def step(carry, key):
+            algorithm_state, environment_state, timestep = carry
+            algorithm_key, environment_key = jax.random.split(key)
+            algorithm_state, action, _ = algorithm.step(
+                algorithm_state, algorithm_key, timestep, temperature=0.0
+            )
+            environment_state, timestep = environment.step(
+                environment_key, environment_state, action
+            )
+            env_state = jax.tree.map(lambda leaf: leaf[0], environment_state)
+            return (algorithm_state, environment_state, timestep), env_state
 
-        states = jax.tree.map(trajectory, logs["env_state"])
+        (_, environment_state, _), trajectory = jax.lax.scan(
+            step,
+            (algorithm_state, environment_state, timestep),
+            jax.random.split(key, self.max_frames),
+        )
+        environment.close(environment_state)
+        return trajectory
+
+    def craft(self, key, algorithm, environment, state, logs) -> Video:
+        rollout = jax.jit(partial(self.rollout, algorithm, environment))
+        trajectory = rollout(state.algorithm_state, key)
         frames = [
             np.asarray(
-                environment.render(jax.tree.map(lambda leaf: leaf[step], states)),
+                environment.render(
+                    jax.tree.map(lambda leaf: leaf[step], trajectory), **self.kwargs
+                ),
                 dtype=np.uint8,
             )
-            for step in range(steps)
+            for step in range(self.max_frames)
         ]
         return Video(self.name, np.stack(frames), fps=self.fps)

@@ -23,8 +23,9 @@ def assert_sharded():
     def check(leaf, mesh):
         assert leaf.sharding.spec == P("data"), f"expected P('data'), got {leaf.sharding.spec}"
         assert len(leaf.addressable_shards) == mesh.size
+        rows, *rest = leaf.shape
         for shard in leaf.addressable_shards:
-            assert shard.data.shape == (leaf.shape[0] // mesh.size, *leaf.shape[1:])
+            assert shard.data.shape == (rows // mesh.size, *rest)
 
     return check
 

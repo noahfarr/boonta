@@ -3,6 +3,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from gymnax.environments import spaces as gymnax_spaces
 
@@ -87,6 +88,26 @@ class Gymnax(Environment):
 
     def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
+
+    def render(self, state: Any) -> np.ndarray:
+        import matplotlib.pyplot as plt
+        from gymnax.visualize import Visualizer
+
+        state = getattr(state, "unwrapped", state)
+        visualizer = Visualizer(self._env, self._params, [state])
+        try:
+            visualizer.init()
+            if not hasattr(visualizer, "im"):
+                raise NotImplementedError(f"gymnax has no renderer for {self._env.name}")
+            visualizer.fig.canvas.draw()
+            image = np.asarray(visualizer.fig.canvas.buffer_rgba())[..., :3]
+            left, bottom, right, top = np.round(
+                visualizer.ax.get_window_extent().extents
+            ).astype(int)
+            height, *_ = image.shape
+            return image[height - top : height - bottom, left:right].copy()
+        finally:
+            plt.close(visualizer.fig)
 
 
 def keyed(env, bucket: int = 2):
