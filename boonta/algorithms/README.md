@@ -140,4 +140,4 @@ Run one case with
 
 ## Wrappers
 
-[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `PSRO` wraps a `Population` and keeps a pool, payoffs and opponent choice for self-play leagues. `sebulba` rejects both.
+[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that also warmstarts its copies, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both.

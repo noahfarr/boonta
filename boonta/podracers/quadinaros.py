@@ -96,20 +96,17 @@ class Quadinaros:
         lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
         algorithm_state = self.algorithm.init(algorithm_key, timestep)
-        return self.pit(
-            call_key,
-            self.lap(
-                step_key,
-                QuadinarosState(
-                    timestep=timestep,
-                    environment_state=environment_state,
-                    dataset_state=self.dataset.init(),
-                    algorithm_state=algorithm_state,
-                    pit_state=self.pit.init(pit_key),
-                    lap_state=self.lap.init(lap_key),
-                ),
-            ),
+        state = QuadinarosState(
+            timestep=timestep,
+            environment_state=environment_state,
+            dataset_state=self.dataset.init(),
+            algorithm_state=algorithm_state,
         )
+        state = state.replace(
+            pit_state=self.pit.init(pit_key, state),
+            lap_state=self.lap.init(lap_key, state),
+        )
+        return self.pit(call_key, self.lap(step_key, state))
 
     @property
     def batch_size(self) -> int:

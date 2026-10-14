@@ -208,11 +208,12 @@ def build_sebulba(directory, combo):
             timestep=timestep,
             environment_state=environment_state,
             carry=take(carry, 0, 1),
-            lap_state=racer.lap.init(lap_key),
         )
-        rollout_state = racer.pit(
-            call_key, racer.lap(step_key, actor_state.board(algorithm_state))
+        rollout_state = actor_state.board(algorithm_state)
+        rollout_state = rollout_state.replace(
+            lap_state=racer.lap.init(lap_key, rollout_state)
         )
+        rollout_state = racer.pit(call_key, racer.lap(step_key, rollout_state))
         num_laps = rollout_state.algorithm_state.step - algorithm_state.step
         actor_state = ActorState.alight(rollout_state)
         algorithm_state = algorithm_state.replace(step=algorithm_state.step + num_laps)

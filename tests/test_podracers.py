@@ -135,7 +135,7 @@ def test_pit_fires_at_init_after_training_and_at_evaluate(build):
 
 
 class Counter(Pit):
-    def init(self, key):
+    def init(self, key, state):
         return jnp.float32(0.0)
 
     def update(self, state, key, transitions, algorithm_state):
@@ -165,7 +165,7 @@ def test_the_pit_keeps_its_state_and_learns_once_per_update(build):
 
 
 class Odometer(Lap):
-    def init(self, key):
+    def init(self, key, state):
         return jnp.float32(0.0)
 
     def __call__(self, key, state):

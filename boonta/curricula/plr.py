@@ -7,8 +7,7 @@ import lox
 from flax import struct
 
 from boonta.algorithms import Algorithm
-from boonta.algorithms.advantage_estimators import \
-    generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
 from boonta.environments.wrappers import UED, Wrapper, WrapperState
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
@@ -21,16 +20,6 @@ class LevelStats:
     regret: Array
     value: Array
     returns: Array
-
-
-def empty_stats(slots: int) -> LevelStats:
-    zeros = jnp.zeros(slots, jnp.float32)
-    return LevelStats(
-        episodes=zeros,
-        regret=zeros,
-        value=zeros,
-        returns=jnp.full(slots, -jnp.inf, jnp.float32),
-    )
 
 
 def tally_episodes(
@@ -61,12 +50,14 @@ def tally_episodes(
     )
     theta = transitions.second.info["theta"]
     index = jnp.where((done > 0) & (theta >= 0), theta, slots).reshape(-1)
-    empty = empty_stats(slots)
+    empty = jnp.zeros(slots, jnp.float32)
     return LevelStats(
-        episodes=empty.episodes.at[index].add(1.0, mode="drop"),
-        regret=empty.regret.at[index].add(regret.reshape(-1), mode="drop"),
-        value=empty.value.at[index].add(value.reshape(-1), mode="drop"),
-        returns=empty.returns.at[index].max(returns.reshape(-1), mode="drop"),
+        episodes=empty.at[index].add(1.0, mode="drop"),
+        regret=empty.at[index].add(regret.reshape(-1), mode="drop"),
+        value=empty.at[index].add(value.reshape(-1), mode="drop"),
+        returns=jnp.full(slots, -jnp.inf, jnp.float32)
+        .at[index]
+        .max(returns.reshape(-1), mode="drop"),
     )
 
 
@@ -109,9 +100,9 @@ def replay_weights(
     temperature: float,
     staleness: float,
 ) -> Array:
-    return (1.0 - staleness) * rank_weights(scores, size, temperature) + staleness * staleness_weights(
-        timestamps, size, episodes
-    )
+    return (1.0 - staleness) * rank_weights(
+        scores, size, temperature
+    ) + staleness * staleness_weights(timestamps, size, episodes)
 
 
 @struct.dataclass
@@ -125,7 +116,9 @@ class LevelBufferState(WrapperState):
 
 
 class LevelBuffer(Wrapper):
-    def __init__(self, env, capacity: int, staging: int, sample: Callable[[Key], PyTree]):
+    def __init__(
+        self, env, capacity: int, staging: int, sample: Callable[[Key], PyTree]
+    ):
         super().__init__(env)
         self.capacity = capacity
         self.staging = staging
@@ -135,9 +128,9 @@ class LevelBuffer(Wrapper):
         buffer_key, env_key = jax.random.split(key)
         env_state, timestep = self._env.init(env_key)
         slots = self.capacity + self.staging
-        template = jax.eval_shape(self.sample, key)
         levels = jax.tree.map(
-            lambda leaf: jnp.zeros((slots, *leaf.shape), leaf.dtype), template
+            lambda leaf: jnp.zeros((slots, *leaf.shape), leaf.dtype),
+            jax.eval_shape(self.sample, key),
         )
         env_state = self._env.update(
             env_state,
@@ -146,7 +139,7 @@ class LevelBuffer(Wrapper):
             weights=jnp.zeros(slots, jnp.float32),
         )
         state = LevelBufferState(
-            env_state,
+            env_state=env_state,
             scores=jnp.full(self.capacity, -jnp.inf, jnp.float32),
             timestamps=jnp.zeros(self.capacity, jnp.int32),
             returns=jnp.full(self.capacity, -jnp.inf, jnp.float32),
@@ -164,7 +157,7 @@ class LevelBuffer(Wrapper):
 
 
 @dataclass
-class Curator(Pit):
+class PLR(Pit):
     environment: LevelBuffer
     replay_probability: float
     staleness: float
@@ -270,8 +263,13 @@ class Curator(Pit):
         )
         return buffer, levels, admitted
 
-    def init(self, key: Key) -> LevelStats:
-        return empty_stats(self.slots)
+    def init(self, key: Key, state: PyTree) -> LevelStats:
+        return LevelStats(
+            episodes=jnp.zeros(self.slots, jnp.float32),
+            regret=jnp.zeros(self.slots, jnp.float32),
+            value=jnp.zeros(self.slots, jnp.float32),
+            returns=jnp.full(self.slots, -jnp.inf, jnp.float32),
+        )
 
     def update(
         self, state: LevelStats, key: Key, transitions: Transition, algorithm_state: PyTree
@@ -381,9 +379,9 @@ def plr(
     sample: Callable[[Key], PyTree],
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
-) -> tuple[Algorithm, LevelBuffer, Curator, Lap | None]:
+) -> tuple[Algorithm, LevelBuffer, PLR, Lap | None]:
     environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
-    curator = Curator(
+    pit = PLR(
         environment,
         replay_probability=replay_probability,
         staleness=staleness,
@@ -394,4 +392,4 @@ def plr(
         sample=sample,
         score=score,
     )
-    return algorithm, environment, curator, None
+    return algorithm, environment, pit, None
