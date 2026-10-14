@@ -252,7 +252,7 @@ class ArchiveAutoReset(AutoReset):
 
     def count_residents(self, state, num_placed: int) -> Array:
         archive_size = self.archive.archive_size
-        held_mask = ~jnp.arange(self.num_envs) >= self.num_envs - num_placed & (
+        held_mask = (jnp.arange(self.num_envs) < self.num_envs - num_placed) & (
             state.current_slots >= 0
         )
         return (

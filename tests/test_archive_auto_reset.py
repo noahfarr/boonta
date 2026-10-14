@@ -81,7 +81,7 @@ def batch(tags):
 
 
 def build(inner=None, cell_fn=cell_of, **kwargs):
-    kwargs.setdefault("capacity", ARCHIVE_SIZE)
+    kwargs.setdefault("archive_size", ARCHIVE_SIZE)
     return ArchiveAutoReset(
         Ladder() if inner is None else inner,
         num_envs=NUM_ENVS,
@@ -342,12 +342,12 @@ def test_a_finished_episode_spawns_a_fresh_world():
         assert bool(jnp.all(state.env_state.depth[timestep.done] == 0))
 
 
-def test_occupied_counts_envs_outside_the_block_by_their_current_slot():
+def test_count_residents_counts_envs_outside_the_block_by_their_current_slot():
     env = build()
     state, _ = env.init(jax.random.key(0))
     current_slots = jnp.full(NUM_ENVS, -1, jnp.int32).at[1].set(3).at[2].set(3).at[3].set(5)
     state = state.replace(current_slots=current_slots)
-    counted = env.occupied(state, num_placed=4)
+    counted = env.count_residents(state, num_placed=4)
     assert float(counted[3]) == 2.0
     assert float(counted[5]) == 1.0
     assert float(jnp.sum(counted)) == 3.0
@@ -409,7 +409,7 @@ def test_a_step_reports_the_archive_miss_and_discovery_rate():
     state, _ = env.init(key)
     _, logs = lox.spool(env.step)(key, state, jnp.zeros(NUM_ENVS, jnp.int32))
     assert {
-        "archive/miss",
+        "archive/miss_rate",
         "archive/discovery_rate",
         "archive/rho",
         "archive/num_evictions",

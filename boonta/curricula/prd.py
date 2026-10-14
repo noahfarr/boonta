@@ -575,7 +575,7 @@ def random_argmax(value: Array, mask: Array, key: Key, shape) -> Array:
 
 
 class Marginal:
-    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
         def choose(visits, key):
             factor = selector.diminishing_factor(state, visits)
             marginal = selector.footprint.pour(selector.successor, state.successor, worth * factor)
@@ -587,7 +587,7 @@ class Marginal:
 
         _, selected_slots = jax.lax.scan(
             choose,
-            selector.committed_visits(state, occupied_counts),
+            selector.committed_visits(state, resident_counts),
             jax.random.split(key, count),
         )
         return selected_slots
@@ -597,7 +597,7 @@ class Marginal:
 class TopK:
     width: int = 32
 
-    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
         poured = selector.footprint.pour(selector.successor, state.successor, worth)
         archive_size, *_ = jnp.shape(poured)
         top_values, top_slots = jax.lax.top_k(
@@ -611,7 +611,7 @@ class TopK:
 class Softmax:
     temperature: float = 0.1
 
-    def __call__(self, selector, state, worth, eligible_mask, occupied_counts, key, count):
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
         poured = selector.footprint.pour(selector.successor, state.successor, worth)
         highest = jnp.max(jnp.where(eligible_mask, poured, -jnp.inf))
         logits = poured / (jnp.maximum(jnp.abs(highest), 1e-30) * self.temperature)
@@ -684,13 +684,13 @@ class Selector:
         archive_state = archive_auto_reset_state.archive_state
         eligible_mask = wrapper.archive.eligible(archive_state)
         num_placed = share(self.k, wrapper.num_envs)
-        occupied_counts = wrapper.occupied(archive_auto_reset_state, num_placed)
+        resident_counts = wrapper.count_residents(archive_auto_reset_state, num_placed)
         worth = self.score(self, state, wrapper, archive_auto_reset_state, **context)
         selected_slots = self.allocation(
-            self, state, worth, eligible_mask, occupied_counts, key, num_placed
+            self, state, worth, eligible_mask, resident_counts, key, num_placed
         )
         self.watch(state, worth, archive_state.mask, selected_slots)
-        self.saturation(state, worth, eligible_mask, occupied_counts, selected_slots)
+        self.saturation(state, worth, eligible_mask, resident_counts, selected_slots)
         return selected_slots
 
     def relevant(self, state: SelectorState) -> Array:
@@ -700,9 +700,9 @@ class Selector:
         scale = state.gain.scale
         return jnp.where(scale > 0.0, 1.0 / (1.0 + visits / jnp.maximum(scale, 1e-30)) ** 2, 1.0)
 
-    def committed_visits(self, state: SelectorState, occupied_counts: Array | float) -> Array:
+    def committed_visits(self, state: SelectorState, resident_counts: Array | float) -> Array:
         return self.footprint.spill(
-            self.successor, state.successor, jnp.zeros_like(state.reach) + occupied_counts
+            self.successor, state.successor, jnp.zeros_like(state.reach) + resident_counts
         )
 
     def value(self, state: SelectorState, worth: Array, visits: Array | float = 0.0) -> Array:
@@ -714,11 +714,11 @@ class Selector:
         state: SelectorState,
         worth: Array,
         eligible_mask: Array,
-        occupied_counts: Array | float,
+        resident_counts: Array | float,
         selected_slots: Array,
     ) -> None:
         archive_size, *_ = jnp.shape(eligible_mask)
-        committed = self.committed_visits(state, occupied_counts)
+        committed = self.committed_visits(state, resident_counts)
         restart_counts = jnp.zeros(archive_size).at[selected_slots].add(1.0)
         visits = committed + self.footprint.spill(self.successor, state.successor, restart_counts)
         scale = jnp.maximum(state.gain.scale, 1e-30)
