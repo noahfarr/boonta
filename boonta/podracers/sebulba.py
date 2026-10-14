@@ -75,8 +75,8 @@ class Sebulba:
     config: SebulbaConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[RolloutState] | None = None
-    lap: Lap[RolloutState] | None = None
+    pit: Pit | None = None
+    lap: Lap | None = None
     shardings: PyTree = None
 
     def __post_init__(self):
@@ -350,8 +350,8 @@ def make(
     config: SebulbaConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[RolloutState] | None = None,
-    lap: Lap[RolloutState] | None = None,
+    pit: Pit | None = None,
+    lap: Lap | None = None,
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)

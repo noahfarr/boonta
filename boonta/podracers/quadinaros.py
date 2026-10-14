@@ -39,8 +39,8 @@ class Quadinaros:
     algorithm: Algorithm
     environment: Environment
     dataset: Dataset
-    pit: Pit[QuadinarosState] | None = None
-    lap: Lap[QuadinarosState] | None = None
+    pit: Pit | None = None
+    lap: Lap | None = None
 
     def __post_init__(self):
         if self.pit is None:
@@ -167,8 +167,8 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     dataset: Dataset,
-    pit: Pit[QuadinarosState] | None = None,
-    lap: Lap[QuadinarosState] | None = None,
+    pit: Pit | None = None,
+    lap: Lap | None = None,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)

@@ -34,8 +34,8 @@ class Anakin:
     config: AnakinConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit[AnakinState] | None = None
-    lap: Lap[AnakinState] | None = None
+    pit: Pit | None = None
+    lap: Lap | None = None
 
     def __post_init__(self):
         if self.pit is None:
@@ -146,8 +146,8 @@ def make(
     config: AnakinConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit[AnakinState] | None = None,
-    lap: Lap[AnakinState] | None = None,
+    pit: Pit | None = None,
+    lap: Lap | None = None,
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 
