@@ -22,45 +22,6 @@ class LevelStats:
     returns: Array
 
 
-def tally_episodes(
-    transitions: Transition, values: Array, advantages: Array, slots: int
-) -> LevelStats:
-    def accumulate_episode(carry, step):
-        positive, value, reward, length = carry
-        advantage, current, earned, done = step
-        positive = positive + jnp.maximum(advantage, 0.0)
-        value = value + current
-        reward = reward + earned
-        length = length + 1.0
-        finished = (positive / length, value / length, reward)
-        kept = 1.0 - done
-        return (positive * kept, value * kept, reward * kept, length * kept), finished
-
-    zeros = jnp.zeros(values.shape[1:], jnp.float32)
-    done = transitions.second.done.astype(jnp.float32)
-    _, (regret, value, returns) = jax.lax.scan(
-        accumulate_episode,
-        (zeros, zeros, zeros, zeros),
-        (
-            advantages.astype(jnp.float32),
-            values.astype(jnp.float32),
-            transitions.second.reward.astype(jnp.float32),
-            done,
-        ),
-    )
-    theta = transitions.second.info["theta"]
-    index = jnp.where((done > 0) & (theta >= 0), theta, slots).reshape(-1)
-    empty = jnp.zeros(slots, jnp.float32)
-    return LevelStats(
-        episodes=empty.at[index].add(1.0, mode="drop"),
-        regret=empty.at[index].add(regret.reshape(-1), mode="drop"),
-        value=empty.at[index].add(value.reshape(-1), mode="drop"),
-        returns=jnp.full(slots, -jnp.inf, jnp.float32)
-        .at[index]
-        .max(returns.reshape(-1), mode="drop"),
-    )
-
-
 def positive_value_loss(stats: LevelStats, returns: Array) -> Array:
     return stats.regret / jnp.maximum(stats.episodes, 1.0)
 
@@ -172,6 +133,44 @@ class PLR(Pit):
     def slots(self) -> int:
         return self.environment.capacity + self.environment.staging
 
+    def tally(
+        self, transitions: Transition, values: Array, advantages: Array
+    ) -> LevelStats:
+        def accumulate_episode(carry, step):
+            positive, value, reward, length = carry
+            advantage, current, earned, done = step
+            positive = positive + jnp.maximum(advantage, 0.0)
+            value = value + current
+            reward = reward + earned
+            length = length + 1.0
+            finished = (positive / length, value / length, reward)
+            kept = 1.0 - done
+            return (positive * kept, value * kept, reward * kept, length * kept), finished
+
+        zeros = jnp.zeros(values.shape[1:], jnp.float32)
+        done = transitions.second.done.astype(jnp.float32)
+        _, (regret, value, returns) = jax.lax.scan(
+            accumulate_episode,
+            (zeros, zeros, zeros, zeros),
+            (
+                advantages.astype(jnp.float32),
+                values.astype(jnp.float32),
+                transitions.second.reward.astype(jnp.float32),
+                done,
+            ),
+        )
+        theta = transitions.second.info["theta"]
+        index = jnp.where((done > 0) & (theta >= 0), theta, self.slots).reshape(-1)
+        empty = jnp.zeros(self.slots, jnp.float32)
+        return LevelStats(
+            episodes=empty.at[index].add(1.0, mode="drop"),
+            regret=empty.at[index].add(regret.reshape(-1), mode="drop"),
+            value=empty.at[index].add(value.reshape(-1), mode="drop"),
+            returns=jnp.full(self.slots, -jnp.inf, jnp.float32)
+            .at[index]
+            .max(returns.reshape(-1), mode="drop"),
+        )
+
     def weights(self, buffer: LevelBufferState) -> Array:
         return replay_weights(
             buffer.scores,
@@ -278,11 +277,10 @@ class PLR(Pit):
         advantages, _ = generalized_advantage_estimation(
             transitions, values, values[-1], self.gamma, self.gae_lambda
         )
-        return tally_episodes(
+        return self.tally(
             jax.tree.map(lambda leaf: leaf[1:], transitions),
             values[1:],
             advantages[1:],
-            self.slots,
         )
 
     def __call__(self, key: Key, state):
