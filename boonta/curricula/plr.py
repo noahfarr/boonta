@@ -328,22 +328,22 @@ class PLR(Pit):
 
         valid = jnp.arange(buffer_size) < buffer.num_levels
         finished = stats.episodes.sum()
+        fresh = stats.episodes[buffer_size:] > 0
         lox.log(
             {
-                "plr/num_levels": buffer.num_levels,
-                "plr/num_admitted": num_admitted,
-                "plr/replay_rate": replaying.astype(jnp.float32),
-                "plr/replayed_fraction": stats.episodes[:buffer_size].sum()
-                / jnp.maximum(finished, 1.0),
-                "plr/buffer_score": jnp.where(valid, buffer.scores, 0.0).sum()
+                "archive/num_levels": buffer.num_levels,
+                "archive/num_admitted": num_admitted,
+                "archive/score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.num_levels, 1),
-                "plr/replay_score": jnp.where(
-                    valid, level_weights * buffer.scores, 0.0
-                ).sum(),
-                "plr/fresh_score": jnp.where(
-                    stats.episodes[buffer_size:] > 0, scored[buffer_size:], 0.0
-                ).sum()
-                / jnp.maximum((stats.episodes[buffer_size:] > 0).sum(), 1),
+                "mu/score": jnp.where(valid, level_weights * buffer.scores, 0.0).sum(),
+                "mu/fraction": stats.episodes[:buffer_size].sum()
+                / jnp.maximum(finished, 1.0),
+                "rho/score": jnp.where(
+                    fresh.any(),
+                    jnp.where(fresh, scored[buffer_size:], 0.0).sum()
+                    / jnp.maximum(fresh.sum(), 1),
+                    jnp.nan,
+                ),
             }
         )
         return self.environment.update(
