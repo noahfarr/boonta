@@ -14,6 +14,7 @@ class Kinetix(Environment):
     def __init__(self, env, params):
         self._env = env
         self._params = params
+        self._renderers = {}
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         obs, state = self._env.reset_env(key, self._params, None)
@@ -83,6 +84,15 @@ class Kinetix(Environment):
     def time_limit(self) -> int:
         return int(self._params.max_timesteps)
 
+    def render(self, state: Any, downscale: int = 1) -> Array:
+        if downscale not in self._renderers:
+            from kinetix.render.renderer_pixels import make_render_pixels
+
+            static = self._env.static_env_params.replace(downscale=downscale)
+            self._renderers[downscale] = jax.jit(make_render_pixels(self._params, static))
+        pixels = self._renderers[downscale](state)
+        return pixels.transpose(1, 0, 2)[::-1].astype(jnp.uint8)
+
 
 def level_sampler():
     from jax2d.engine import PhysicsEngine
@@ -124,7 +134,7 @@ def make(
     physics_engine = PhysicsEngine(static_env_params)
 
     if levels is not None:
-        count = jax.tree.leaves(levels)[0].shape[0]
+        count, *_ = jax.tree.leaves(levels)[0].shape
 
         def reset_fn(key):
             drawn = jax.random.randint(key, (), 0, count)

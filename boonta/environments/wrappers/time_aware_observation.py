@@ -20,9 +20,8 @@ class TimeAwareObservation(Wrapper):
 
     def observation_space(self) -> Space:
         space = self._env.observation_space()
-        return Space(
-            shape=(space.shape[0] + 1,), dtype=space.dtype, low=-jnp.inf, high=jnp.inf
-        )
+        size, *_ = space.shape
+        return Space(shape=(size + 1,), dtype=space.dtype, low=-jnp.inf, high=jnp.inf)
 
     def append_time(self, obs: Array, time: Array) -> Array:
         feature = time / self.max_steps - 0.5

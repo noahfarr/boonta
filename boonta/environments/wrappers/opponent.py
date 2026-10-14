@@ -57,7 +57,8 @@ class Opponent(Wrapper):
 
     def group(self, tree: PyTree, index: int) -> PyTree:
         def take(leaf):
-            width = leaf.shape[0] // self._groups
+            rows, *_ = leaf.shape
+            width = rows // self._groups
             return leaf[index * width : (index + 1) * width]
 
         return jax.tree.map(take, tree)

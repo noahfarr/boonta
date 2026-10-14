@@ -29,6 +29,8 @@ class QuadinarosState:
     environment_state: EnvState = struct.field(metadata={"axis": "data"})
     dataset_state: DatasetState = struct.field(metadata={"axis": "data"})
     algorithm_state: PyTree
+    pit_state: PyTree = None
+    lap_state: PyTree = None
 
 
 @dataclass
@@ -37,11 +39,17 @@ class Quadinaros:
     algorithm: Algorithm
     environment: Environment
     dataset: Dataset
-    pit: Pit[QuadinarosState] = lambda key, state, transitions: state
-    lap: Lap[QuadinarosState] = lambda key, state: state
+    pit: Pit | None = None
+    lap: Lap | None = None
+
+    def __post_init__(self):
+        if self.pit is None:
+            self.pit = Pit()
+        if self.lap is None:
+            self.lap = Lap()
 
     def step(self, state: QuadinarosState, key):
-        update_key, sample_key, pit_key = jax.random.split(key, 3)
+        update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
         batch = self.dataset.sample(
             state.dataset_state, sample_key, self.config.batch_shape
         )
@@ -54,10 +62,9 @@ class Quadinaros:
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step + self.batch_size
         )
-        return (
-            self.pit(pit_key, state.replace(algorithm_state=algorithm_state), batch),
-            None,
-        )
+        pit_state = self.pit.update(state.pit_state, pit_key, batch, algorithm_state)
+        state = state.replace(algorithm_state=algorithm_state, pit_state=pit_state)
+        return self.pit(call_key, state), None
 
     def rollout(self, state: QuadinarosState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -84,22 +91,22 @@ class Quadinaros:
         return state, None
 
     def init(self, key: Key) -> QuadinarosState:
-        environment_key, algorithm_key, lap_key, pit_key = jax.random.split(key, 4)
+        environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
+        pit_key, call_key = jax.random.split(pit_key)
+        lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
         algorithm_state = self.algorithm.init(algorithm_key, timestep)
-        return self.pit(
-            pit_key,
-            self.lap(
-                lap_key,
-                QuadinarosState(
-                    timestep=timestep,
-                    environment_state=environment_state,
-                    dataset_state=self.dataset.init(),
-                    algorithm_state=algorithm_state,
-                ),
-            ),
-            None,
+        state = QuadinarosState(
+            timestep=timestep,
+            environment_state=environment_state,
+            dataset_state=self.dataset.init(),
+            algorithm_state=algorithm_state,
         )
+        state = state.replace(
+            pit_state=self.pit.init(pit_key, state),
+            lap_state=self.lap.init(lap_key, state),
+        )
+        return self.pit(call_key, self.lap(step_key, state))
 
     @property
     def batch_size(self) -> int:
@@ -118,11 +125,11 @@ class Quadinaros:
         return self.fit(state.replace(dataset_state=dataset_state), key, num_updates)
 
     def evaluate(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
-        reset_key, rollout_key, lap_key, pit_key = jax.random.split(key, 4)
+        reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
         state = self.pit(
-            pit_key,
+            call_key,
             self.lap(
                 lap_key,
                 state.replace(
@@ -130,7 +137,6 @@ class Quadinaros:
                     environment_state=environment_state,
                 ),
             ),
-            None,
         )
         state, _ = jax.lax.scan(
             partial(self.rollout, temperature=0.0), state, rollout_keys
@@ -161,8 +167,8 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     dataset: Dataset,
-    pit: Pit[QuadinarosState] = lambda key, state, transitions: state,
-    lap: Lap[QuadinarosState] = lambda key, state: state,
+    pit: Pit | None = None,
+    lap: Lap | None = None,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)

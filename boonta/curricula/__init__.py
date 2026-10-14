@@ -3,30 +3,21 @@ from boonta.utils.typing import Environment
 
 from boonta.podracers.podracer import Lap, Pit
 
-from . import erd, prd
+from . import erd, plr, prd, psro
 from .curriculum import Curriculum
-from .league import league
-from .plr import maximum_monte_carlo, plr, positive_value_loss
 
 
 def default(
     algorithm: Algorithm, environment: Environment, **kwargs
-) -> tuple[Algorithm, Environment, Pit, Lap]:
-    return (
-        algorithm,
-        environment,
-        lambda key, state, transitions: state,
-        lambda key, state: state,
-    )
+) -> tuple[Algorithm, Environment, Pit | None, Lap | None]:
+    return algorithm, environment, None, None
 
 
 __all__ = [
     "Curriculum",
     "default",
     "erd",
-    "league",
-    "maximum_monte_carlo",
     "plr",
-    "positive_value_loss",
     "prd",
+    "psro",
 ]

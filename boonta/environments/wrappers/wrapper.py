@@ -56,8 +56,8 @@ class Wrapper(Environment):
     def time_limit(self):
         return self._env.time_limit()
 
-    def render(self, state):
-        return self._env.render(state)
+    def render(self, state, **kwargs):
+        return self._env.render(state, **kwargs)
 
     def close(self, state):
         self._env.close(getattr(state, "unwrapped", state))

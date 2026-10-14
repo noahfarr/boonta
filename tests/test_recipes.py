@@ -248,7 +248,7 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert default.hydra.runtime.choices.hyperparameters == "ppo/kinetix"
     assert plr.hydra.runtime.choices.hyperparameters == "ppo/kinetix/plr"
     assert plr.environment.num_envs == default.environment.num_envs
-    assert plr.curriculum.sample._target_ == "boonta.environments.kinetix.level_sampler"
+    assert plr.curriculum.generate_level._target_ == "boonta.environments.kinetix.level_sampler"
     assert configure("ppo", MINATAR, "curriculum=plr").hydra.runtime.choices.hyperparameters == "ppo/gymnax/minatar"
     maze = configure("recurrent_ppo", "jaxued/maze", "curriculum=plr")
     assert maze.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/maze/plr"

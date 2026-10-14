@@ -12,7 +12,7 @@ class Transcript:
         self.name = name
         self._num_examples = num_examples
 
-    def craft(self, algorithm, environment, state, logs) -> Text:
+    def craft(self, key, algorithm, environment, state, logs) -> Text:
         actions = np.asarray(logs["action"])
         *_, num_envs = actions.shape
         transcript = "\n\n".join(

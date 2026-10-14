@@ -13,11 +13,10 @@ export async function catalog() {
 
 const FRAMES = {
   cartpole: (track, obs) => ({ track, x: obs[0], theta: obs[2] }),
-  acrobot: (track, obs) => ({
-    track,
-    theta1: Math.atan2(obs[1], obs[0]),
-    theta2: Math.atan2(obs[3], obs[2]),
-  }),
+  pixels: (track, obs, shape) => {
+    const [height, width] = shape;
+    return { track, pixels: Uint8ClampedArray.from(obs), height, width };
+  },
   grid: (track, obs, shape) => {
     const [height, width, channels = 1] = shape;
     const grid = new Uint8Array(obs.length);
@@ -125,6 +124,12 @@ export async function start(selection, handlers = {}) {
   let update = 0;
   let steps = 0;
   const emit = (fields) => onUpdate({ update, steps, sps: speed.record(steps), ...fields });
+  const ended = (returns) => (returns ? Array.from(returns).filter(Number.isFinite) : []);
+  const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : NaN);
+  const report = (returns, fields = {}) => {
+    const episodes = ended(returns);
+    emit({ episodeReturn: mean(episodes), episodes, ...fields });
+  };
 
   if (podracer === "anakin" || podracer === "quadinaros") {
     const worker = spawn(podracer);
@@ -133,15 +138,14 @@ export async function start(selection, handlers = {}) {
       if (!data.episodes) {
         update += data.updates;
         steps += data.updates * data.batchSize;
-        emit({ episodeReturn: data.summary && data.summary[1] > 0 ? data.summary[0] / data.summary[1] : NaN });
+        report(data.summary, data.losses ? { losses: Array.from(data.losses) } : {});
         return;
       }
+      const width = data.episodes.length / data.updates;
       for (let i = 0; i < data.updates; i++) {
         update++;
         steps += data.batchSize;
-        const total = data.episodes[2 * i];
-        const count = data.episodes[2 * i + 1];
-        emit({ episodeReturn: count > 0 ? total / count : NaN });
+        report(data.episodes.subarray(i * width, (i + 1) * width));
       }
     });
     worker.postMessage({ base, seed });
@@ -155,8 +159,7 @@ export async function start(selection, handlers = {}) {
     attend(learner, (data) => {
       if (data.type !== "update") return;
       update = data.update;
-      const [total, count] = data.summary;
-      emit({ episodeReturn: count > 0 ? total / count : NaN, lag: data.lag });
+      report(data.summary, { lag: data.lag });
     });
     learner.postMessage({ base, seed, port: channel.port1 }, [channel.port1]);
     actor.postMessage({ base, seed, port: channel.port2 }, [channel.port2]);

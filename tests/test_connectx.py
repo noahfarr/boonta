@@ -29,7 +29,8 @@ def reference(board, mover, column, inarow):
     sign = np.where(np.arange(2) == mover, 1.0, -1.0)
     if board[0, column] != 0:
         return board, -sign, True, "illegal"
-    row = max(r for r in range(board.shape[0]) if board[r, column] == 0)
+    rows, *_ = board.shape
+    row = max(r for r in range(rows) if board[r, column] == 0)
     board[row, column] = mover + 1
     if lines(board, mover + 1, inarow):
         return board, sign, True, "win"
@@ -182,5 +183,5 @@ def test_the_gauntlet_scores_every_game_from_the_learners_seat(learner, opponent
     assert bool(over.all())
     assert low <= float(score.mean()) <= high
 
-    metrics = gauntlet.craft(scripted(learner), Vectorize(ConnectX(), 1), SimpleNamespace(algorithm_state=None), {})
+    metrics = gauntlet.craft(jax.random.key(0), scripted(learner), Vectorize(ConnectX(), 1), SimpleNamespace(algorithm_state=None), {})
     assert set(metrics.data) == {"gauntlet/rival", "gauntlet/mean"}

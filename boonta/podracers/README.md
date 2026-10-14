@@ -38,10 +38,15 @@ Each podracer builds its shardings from the state's dataclass fields. A field ma
 
 ## pit and lap
 
-All three podracers take two hooks. Both default to identity. `pit(key, state, transitions)` and `lap(key, state)` take a fresh key first, then the podracer's state, and return the state. The key is split from the podracer's own key, so a hook's randomness follows the run's seed.
+All three podracers take two hooks, `pit` and `lap`. Both default to doing nothing, and `None` means the same as `Pit()` or `Lap()`.
 
-- `pit` fires once per update: at `init`, after every `algorithm.update`, and after `evaluate` restarts the environment. Use it when the algorithm's state decides part of the environment, such as a curriculum choosing the next level or a league seating an opponent.
-- `lap` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step.
+A `pit` is a [`Pit`](podracer.py) with three methods, like an algorithm that acts on the environment instead of the agent:
+
+- `init(key, state)` returns the pit's own state, built from the podracer's starting state. The podracer keeps it in `state.pit_state`, replicated. The default returns `None`.
+- `update(pit_state, key, transitions, algorithm_state)` learns from the rollout and returns the new pit state. It fires after every `algorithm.update`, with the transitions that update trained on and the updated algorithm state. It never touches the environment. On `quadinaros` the transitions are the sampled batch.
+- `pit(key, state)` acts: it reads `state.pit_state` and rewrites the environment, such as a curriculum choosing the next level or a league seating an opponent. It fires once per update, at `init`, after every `update`, and after `evaluate` restarts the environment. It never sees transitions. It may also rewrite `state.algorithm_state`, as the league does to restart a learner it just admitted. Since `evaluate` fires it again without an update in between, the call must give the same result when repeated.
+
+A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key, state)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "data"}`.
 
 Each hook must fire in all those places. `evaluate` restarts the environment at its default settings, so a `pit` skipped there would evaluate a game training never played. A recipe passes the hooks by returning `pit` or `lap` in its dict. A [curriculum](../curricula/curriculum.py) supplies both: it takes `(algorithm, environment, **kwargs)` and returns `(algorithm, environment, pit, lap)`. [`tests/test_podracers.py`](../../tests/test_podracers.py) counts the calls on every podracer.
 
@@ -55,7 +60,7 @@ Each actor device owns its own environments and steps them in its own thread. `n
 
 The lag is fixed at one update. After every update the learner puts its `algorithm_state` in every actor's queue, and each actor takes from its queue before every rollout except the second. So rollout *k* is collected with the parameters of update *k*−2 while the learner trains update *k*−1. Nothing depends on thread timing, and a run is reproducible at a fixed seed. The queues are rebuilt at every `train` call, so changing `training.num_epochs` changes results.
 
-The state is `SebulbaState(actors, algorithm_state)`. `algorithm_state` exists once, as the learner's. Each `ActorState` holds only the actor's timestep, environment state and recurrent carry. `pit` and `lap` run on the actor, and what they write into `algorithm_state` is dropped after the rollout, except the step count. `evaluate` runs on the first actor. `sebulba` rejects `Population` and `PSRO`.
+The state is `SebulbaState(actors, algorithm_state, pit_state)`. `algorithm_state` and `pit_state` exist once, as the learner's. Each `ActorState` holds only the actor's timestep, environment state, recurrent carry and `lap_state`, so every actor keeps its own lap state across rollouts. `pit.update` runs on the learner after every update, and the learner sends the new `pit_state` to the actors along with `algorithm_state`, with the same lag. The `pit` call and `lap` run on the actor, and what they write into `algorithm_state` or `pit_state` is dropped after the rollout, except the step count. `evaluate` runs on the first actor. `sebulba` rejects `Population`, and so the league's `Roster`.
 
 The default config puts the learner and one actor on device 0. To give them separate GPUs, move the actor mesh:
 

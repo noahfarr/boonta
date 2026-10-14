@@ -11,6 +11,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
+from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import mesh
 
 from dummies import Dial, Episodes, Probe, demonstrations, flatten, publish, recordings
@@ -54,21 +55,23 @@ def environment_states(state):
     return [state.environment_state]
 
 
-def turn(key, state, transitions):
-    setting = state.algorithm_state.version + 100.0
-    return state.replace(
-        environment_state=Vectorize(Dial(), NUM_ENVS).update(
-            state.environment_state, jax.random.key(0), setting=setting
+class Turn(Pit):
+    def __call__(self, key, state):
+        setting = state.algorithm_state.version + 100.0
+        return state.replace(
+            environment_state=Vectorize(Dial(), NUM_ENVS).update(
+                state.environment_state, key, setting=setting
+            )
         )
-    )
 
 
-def tick(key, state):
-    return state.replace(
-        algorithm_state=state.algorithm_state.replace(
-            step=state.algorithm_state.step + 1000
+class Tick(Lap):
+    def __call__(self, key, state):
+        return state.replace(
+            algorithm_state=state.algorithm_state.replace(
+                step=state.algorithm_state.step + 1000
+            )
         )
-    )
 
 
 @pytest.mark.parametrize("build", EVERY)
@@ -91,7 +94,7 @@ def test_step_counts_the_samples_every_update_trains_on(build):
 
 @pytest.mark.parametrize("build", EVERY)
 def test_lap_fires_after_every_environment_step(build):
-    podracer = build(lap=tick)
+    podracer = build(lap=Tick())
     actors = ACTORS if build is on_sebulba else 1
     offline = build is on_quadinaros
     laps = 0 if offline else 2 * actors * NUM_STEPS
@@ -110,7 +113,7 @@ def test_lap_fires_after_every_environment_step(build):
 
 @pytest.mark.parametrize("build", ONLINE)
 def test_every_rollout_sees_the_setting_its_parameters_chose(build):
-    podracer = build(pit=turn)
+    podracer = build(pit=Turn())
     state = podracer.init(jax.random.key(0))
     _, logs = podracer.train(state, jax.random.key(1), 4)
     np.testing.assert_array_equal(
@@ -120,7 +123,7 @@ def test_every_rollout_sees_the_setting_its_parameters_chose(build):
 
 @pytest.mark.parametrize("build", EVERY)
 def test_pit_fires_at_init_after_training_and_at_evaluate(build):
-    podracer = build(pit=turn)
+    podracer = build(pit=Turn())
     state = podracer.init(jax.random.key(0))
     for environment_state in environment_states(state):
         np.testing.assert_array_equal(np.asarray(environment_state.setting), 100.0)
@@ -129,6 +132,65 @@ def test_pit_fires_at_init_after_training_and_at_evaluate(build):
     state, _ = podracer.evaluate(state, jax.random.key(2), 2)
     for environment_state in environment_states(state):
         np.testing.assert_array_equal(np.asarray(environment_state.setting), 103.0)
+
+
+class Counter(Pit):
+    def init(self, key, state):
+        return jnp.float32(0.0)
+
+    def update(self, state, key, transitions, algorithm_state):
+        return state + 1.0
+
+    def __call__(self, key, state):
+        return state.replace(
+            environment_state=Vectorize(Dial(), NUM_ENVS).update(
+                state.environment_state, key, setting=state.pit_state + 100.0
+            )
+        )
+
+
+@pytest.mark.parametrize("build", EVERY)
+def test_the_pit_keeps_its_state_and_learns_once_per_update(build):
+    podracer = build(pit=Counter())
+    state = podracer.init(jax.random.key(0))
+    assert float(state.pit_state) == 0.0
+    for environment_state in environment_states(state):
+        np.testing.assert_array_equal(np.asarray(environment_state.setting), 100.0)
+
+    state, _ = podracer.train(state, jax.random.key(1), 3)
+    assert float(state.pit_state) == 3.0
+    state, _ = podracer.evaluate(state, jax.random.key(2), 2)
+    for environment_state in environment_states(state):
+        np.testing.assert_array_equal(np.asarray(environment_state.setting), 103.0)
+
+
+class Odometer(Lap):
+    def init(self, key, state):
+        return jnp.float32(0.0)
+
+    def __call__(self, key, state):
+        return state.replace(lap_state=state.lap_state + 1.0)
+
+
+def lap_states(state):
+    if hasattr(state, "actors"):
+        return [float(actor.lap_state) for actor in state.actors]
+    return [float(state.lap_state)]
+
+
+@pytest.mark.parametrize("build", EVERY)
+def test_the_lap_keeps_its_state_across_steps_updates_and_evaluation(build):
+    podracer = build(lap=Odometer())
+    offline = build is on_quadinaros
+    state = podracer.init(jax.random.key(0))
+    assert lap_states(state) == [1.0] * len(lap_states(state))
+
+    state, _ = podracer.train(state, jax.random.key(1), 2)
+    trained = 1.0 + (0 if offline else 2 * NUM_STEPS)
+    assert lap_states(state) == [trained] * len(lap_states(state))
+
+    state, _ = podracer.evaluate(state, jax.random.key(2), 5)
+    assert float(state.lap_state) == trained + 1 + 5
 
 
 @pytest.mark.parametrize("build", EVERY)
@@ -303,22 +365,23 @@ def test_quadinaros_updates_the_dataset_once_per_train_call_and_closes_it():
 
 
 def test_quadinaros_pit_steers_the_data():
-    def steer(state, batch):
-        transitions = state.dataset_state.transitions
-        obs = transitions.first.obs.at[..., 1].set(state.algorithm_state.version)
-        first = transitions.first.replace(obs=obs)
-        return state.replace(
-            dataset_state=state.dataset_state.replace(
-                transitions=transitions.replace(first=first)
+    class Steer(Pit):
+        def __call__(self, key, state):
+            transitions = state.dataset_state.transitions
+            obs = transitions.first.obs.at[..., 1].set(state.algorithm_state.version)
+            first = transitions.first.replace(obs=obs)
+            return state.replace(
+                dataset_state=state.dataset_state.replace(
+                    transitions=transitions.replace(first=first)
+                )
             )
-        )
 
     class Reader(Probe):
         def update(self, state, key, transitions):
             lox.log({"reader/seen": jnp.mean(transitions.first.obs[..., 1])})
             return super().update(state, key, transitions)
 
-    podracer = on_quadinaros(algorithm=Reader(), pit=steer)
+    podracer = on_quadinaros(algorithm=Reader(), pit=Steer())
     state = podracer.init(jax.random.key(0))
     _, logs = podracer.train(state, jax.random.key(1), 3)
     np.testing.assert_array_equal(np.asarray(logs["reader/seen"]), [0.0, 1.0, 2.0])

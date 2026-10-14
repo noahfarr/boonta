@@ -19,16 +19,13 @@ class Gauntlet:
         opponents: Mapping[str, Bot],
         num_games: int = 512,
         opening: int = 4,
-        seed: int = 0,
         name: str = "gauntlet",
     ):
         self.opponents = dict(opponents)
         self.num_games = num_games
         self.opening = opening
-        self.key = jax.random.key(seed)
         self.name = name
         self.matches = {}
-        self.epoch = 0
 
     def match(self, algorithm, environment, opponent: Bot):
         game = environment.unwrapped
@@ -70,9 +67,7 @@ class Gauntlet:
 
         return jax.jit(play)
 
-    def craft(self, algorithm, environment, state, logs) -> Metrics:
-        key = jax.random.fold_in(self.key, self.epoch)
-        self.epoch += 1
+    def craft(self, key, algorithm, environment, state, logs) -> Metrics:
         data = {}
         for index, (name, opponent) in enumerate(self.opponents.items()):
             if name not in self.matches:
