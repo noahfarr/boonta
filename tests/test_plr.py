@@ -6,9 +6,8 @@ import numpy as np
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (PLR, LevelBuffer,
-                                  maximum_monte_carlo, positive_value_loss,
-                                  rank_weights, staleness_weights)
+from boonta.curricula.plr import (PLR, LevelBuffer, maximum_monte_carlo,
+                                  positive_value_loss)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -18,18 +17,21 @@ from dummies import Dial
 
 
 def test_rank_weights_are_inverse_ranks_sharpened_by_the_temperature():
-    scores = jnp.array([3.0, 1.0, 2.0, 7.0])
-    np.testing.assert_allclose(rank_weights(scores, 3, 1.0), np.array([6, 2, 3, 0]) / 11, rtol=1e-6)
-    np.testing.assert_allclose(rank_weights(scores, 3, 0.5), np.array([36, 4, 9, 0]) / 49, rtol=1e-6)
+    scored = buffer([3.0, 1.0, 2.0, 7.0], [0, 0, 0, 0], 3, 0)
+    np.testing.assert_allclose(pit().rank_weights(scored), np.array([6, 2, 3, 0]) / 11, rtol=1e-6)
+    np.testing.assert_allclose(
+        pit(temperature=0.5).rank_weights(scored), np.array([36, 4, 9, 0]) / 49, rtol=1e-6
+    )
 
 
 def test_staleness_weights_follow_episodes_since_each_level_was_played():
-    timestamps = jnp.array([2, 5, 0, 9])
-    np.testing.assert_allclose(staleness_weights(timestamps, 3, 6), np.array([4, 1, 6, 0]) / 11, rtol=1e-6)
+    played = buffer([0.0] * 4, [2, 5, 0, 9], 3, 6)
+    np.testing.assert_allclose(pit().staleness_weights(played), np.array([4, 1, 6, 0]) / 11, rtol=1e-6)
 
 
-def test_staleness_is_uniform_over_the_buffer_when_nothing_is_staleness_weights():
-    np.testing.assert_allclose(staleness_weights(jnp.array([6, 6, 6, 0]), 3, 6), [1 / 3, 1 / 3, 1 / 3, 0])
+def test_staleness_is_uniform_over_the_buffer_when_nothing_is_stale():
+    played = buffer([0.0] * 4, [6, 6, 6, 0], 3, 6)
+    np.testing.assert_allclose(pit().staleness_weights(played), [1 / 3, 1 / 3, 1 / 3, 0])
 
 
 def test_priority_mixes_rank_and_staleness():
@@ -91,14 +93,14 @@ def buffer(scores, timestamps, num_levels, episodes, levels=None, exploring=Fals
     )
 
 
-def pit(buffer_size=3, num_envs=3):
+def pit(buffer_size=3, num_envs=3, temperature=1.0):
     return PLR(
         None,
         buffer_size=buffer_size,
         num_envs=num_envs,
         replay_probability=0.5,
         staleness_coefficient=0.3,
-        temperature=1.0,
+        temperature=temperature,
         min_length=1,
         gamma=0.99,
         gae_lambda=0.95,

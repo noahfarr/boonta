@@ -32,28 +32,6 @@ def maximum_monte_carlo(stats: LevelStats, returns: Array) -> Array:
     return best - stats.value / jnp.maximum(stats.episodes, 1.0)
 
 
-def rank_weights(scores: Array, num_levels: Array, temperature: float) -> Array:
-    buffer_size, *_ = scores.shape
-    valid = jnp.arange(buffer_size) < num_levels
-    order = jnp.argsort(-jnp.where(valid, scores, -jnp.inf))
-    ranks = jnp.empty_like(order).at[order].set(jnp.arange(buffer_size) + 1)
-    weights = jnp.where(valid, 1.0 / ranks, 0.0) ** (1.0 / temperature)
-    total = weights.sum()
-    return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
-
-
-def staleness_weights(timestamps: Array, num_levels: Array, episodes: Array) -> Array:
-    buffer_size, *_ = timestamps.shape
-    valid = jnp.arange(buffer_size) < num_levels
-    staleness = jnp.where(valid, episodes - timestamps, 0).astype(jnp.float32)
-    total = staleness.sum()
-    return jnp.where(
-        total > 0,
-        staleness / jnp.where(total > 0, total, 1.0),
-        valid / jnp.maximum(num_levels, 1),
-    )
-
-
 @struct.dataclass
 class LevelBuffer:
     levels: PyTree
@@ -122,11 +100,30 @@ class PLR(Pit):
             .max(returns.reshape(-1), mode="drop"),
         )
 
-    def replay_weights(self, buffer: LevelBuffer) -> Array:
-        rank = rank_weights(buffer.scores, buffer.num_levels, self.temperature)
-        staleness = staleness_weights(
-            buffer.timestamps, buffer.num_levels, buffer.episodes
+    def rank_weights(self, buffer: LevelBuffer) -> Array:
+        buffer_size, *_ = buffer.scores.shape
+        valid = jnp.arange(buffer_size) < buffer.num_levels
+        order = jnp.argsort(-jnp.where(valid, buffer.scores, -jnp.inf))
+        ranks = jnp.empty_like(order).at[order].set(jnp.arange(buffer_size) + 1)
+        weights = jnp.where(valid, 1.0 / ranks, 0.0) ** (1.0 / self.temperature)
+        total = weights.sum()
+        return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
+
+    def staleness_weights(self, buffer: LevelBuffer) -> Array:
+        buffer_size, *_ = buffer.timestamps.shape
+        valid = jnp.arange(buffer_size) < buffer.num_levels
+        staleness = jnp.where(valid, buffer.episodes - buffer.timestamps, 0)
+        staleness = staleness.astype(jnp.float32)
+        total = staleness.sum()
+        return jnp.where(
+            total > 0,
+            staleness / jnp.where(total > 0, total, 1.0),
+            valid / jnp.maximum(buffer.num_levels, 1),
         )
+
+    def replay_weights(self, buffer: LevelBuffer) -> Array:
+        rank = self.rank_weights(buffer)
+        staleness = self.staleness_weights(buffer)
         coefficient = self.staleness_coefficient
         return (1.0 - coefficient) * rank + coefficient * staleness
 
