@@ -159,7 +159,7 @@ def test_a_replayed_level_takes_its_new_score_and_best_return():
         returns=jnp.array([0, 4.0, 0, 0, 0, 0]),
     )
     scored = jnp.array([0, 9.0, 0, 0, 0, 0])
-    state = pit().rescore(buffer([1.0, 5.0, 3.0], [1, 2, 3], 3, 10), counted, scored)
+    state = pit().update_scores(buffer([1.0, 5.0, 3.0], [1, 2, 3], 3, 10), counted, scored)
     np.testing.assert_array_equal(state.scores, [1.0, 9.0, 3.0])
     np.testing.assert_array_equal(state.returns[1], 4.0)
     np.testing.assert_array_equal(state.timestamps, [1, 2, 3])

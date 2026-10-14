@@ -169,7 +169,7 @@ class PLR(Pit):
         )
         return (1.0 - self.staleness) * rank + self.staleness * staleness
 
-    def rescore(
+    def update_scores(
         self, buffer: LevelBufferState, stats: LevelStats, scored: Array
     ) -> LevelBufferState:
         buffer_size, *_ = buffer.scores.shape
@@ -297,7 +297,7 @@ class PLR(Pit):
         )
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
 
-        buffer = self.rescore(buffer, stats, scored)
+        buffer = self.update_scores(buffer, stats, scored)
         buffer, levels, admitted = self.admit(
             buffer, buffer.theta, stats, scored, buffer.exploring
         )
