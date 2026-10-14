@@ -8,13 +8,10 @@ from flax import struct
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
-from boonta.algorithms.wrappers.wrapper import Wrapper as AlgorithmWrapper
-from boonta.algorithms.wrappers.wrapper import \
-    WrapperState as AlgorithmWrapperState
-from boonta.environments.wrappers.archive_auto_reset import (locate, pick,
-                                                             plant, share, unwrap)
+from boonta.environments.wrappers.archive_auto_reset import (
+    ArchiveAutoReset, ArchiveAutoResetState, pick, share, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Timestep, Transition
+from boonta.utils import Array, Key, PyTree, Transition
 from boonta.utils.typing import Environment
 
 
@@ -467,6 +464,7 @@ class SelectorState:
     successor: Successor
     reach: Array
     gain: GainState
+    direction: PyTree = None
 
 
 class CountedRelevance:
@@ -484,6 +482,12 @@ class UniformRelevance:
 
 
 class Diagonal:
+    def init(self, algorithm_state: PyTree) -> PyTree:
+        return None
+
+    def direct(self, selector, algorithm, algorithm_state, transitions) -> PyTree:
+        return None
+
     def __call__(self, selector, state, wrapper, archive_auto_reset_state, **context) -> Array:
         return selector.relevant(state) * selector.gain(state.gain)
 
@@ -492,29 +496,41 @@ class Diagonal:
 class Kernel:
     preconditioned: bool = True
 
+    def init(self, algorithm_state: PyTree) -> PyTree:
+        return jax.tree.map(jnp.zeros_like, algorithm_state.params["params"])
+
+    def policy(self, algorithm: Algorithm, params: PyTree):
+        def policy(inner, obs):
+            dist, _ = algorithm.network.apply({**params, "params": inner}, obs, temperature=1.0)
+            return dist
+
+        return policy
+
+    def direct(
+        self, selector, algorithm: Algorithm, algorithm_state: PyTree, transitions: Transition
+    ) -> PyTree:
+        params = algorithm_state.params
+        policy = self.policy(algorithm, params)
+        direction = jax.grad(lambda inner: self.climb(selector, policy, inner, transitions))(
+            params["params"]
+        )
+        if self.preconditioned:
+            direction = precondition(direction, algorithm_state.optimizer_state)
+        return direction
+
     def __call__(
         self,
         selector,
         state,
         wrapper,
         archive_auto_reset_state,
-        transitions: Transition | None = None,
         algorithm: Algorithm | None = None,
         algorithm_state=None,
         **context,
     ) -> Array:
-        if transitions is None or algorithm is None:
-            return jnp.zeros_like(state.reach)
         params = algorithm_state.params
         inner = params["params"]
-
-        def policy(inner, obs):
-            dist, _ = algorithm.network.apply({**params, "params": inner}, obs, temperature=1.0)
-            return dist
-
-        direction = jax.grad(lambda inner: self.climb(selector, policy, inner, transitions))(inner)
-        if self.preconditioned:
-            direction = precondition(direction, algorithm_state.optimizer_state)
+        policy = self.policy(algorithm, params)
         obs = wrapper.observe_cells(archive_auto_reset_state.archive_state)
         present_mask = state.gain.action_counts > 0.0
         advantages = jnp.where(present_mask, selector.gain.centre(state.gain), 0.0)
@@ -522,7 +538,7 @@ class Kernel:
         _, aligned = jax.jvp(
             lambda inner: jnp.sum(weight * policy(inner, obs).logits, axis=-1),
             (inner,),
-            (direction,),
+            (state.direction,),
         )
         return jnp.where(archive_auto_reset_state.archive_state.mask, aligned, 0.0)
 
@@ -768,71 +784,56 @@ class Selector:
         )
 
 
-@struct.dataclass
-class LedgerState(AlgorithmWrapperState):
-    step: Array
-    ledger: SelectorState
-
-
 @dataclass
-class Ledgered(AlgorithmWrapper):
+class PRD(Pit):
+    environment: ArchiveAutoReset
     selector: Selector
-    archive_size: int
-    num_actions: int
+    algorithm: Algorithm
 
-    def init(self, key: Key, timestep: Timestep) -> LedgerState:
-        algorithm_state = self.algorithm.init(key, timestep)
-        return LedgerState(
-            algorithm_state,
-            step=algorithm_state.step,
-            ledger=self.selector.init(self.archive_size, self.num_actions),
+    def init(self, key: Key, state: PyTree) -> SelectorState:
+        ledger = self.selector.init(
+            self.environment.archive.archive_size, self.environment.num_actions
         )
-
-    def step(self, state: LedgerState, key: Key, timestep: Timestep, temperature=1.0):
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state.replace(step=state.step), key, timestep, temperature
-        )
-        return state.replace(algorithm_state=algorithm_state), action, aux
+        return ledger.replace(direction=self.selector.score.init(state.algorithm_state))
 
     def update(
-        self, state: LedgerState, key: Key, transitions: Transition
-    ) -> LedgerState:
-        algorithm_state = state.algorithm_state.replace(step=state.step)
-        return state.replace(
-            algorithm_state=self.algorithm.update(algorithm_state, key, transitions)
+        self,
+        ledger: SelectorState,
+        key: Key,
+        transitions: Transition,
+        algorithm_state: PyTree,
+    ) -> SelectorState:
+        ledger = self.selector.update(ledger, key, transitions)
+        direction = self.selector.score.direct(
+            self.selector, self.algorithm, algorithm_state, transitions
         )
+        return ledger.replace(direction=direction)
+
+    def __call__(self, key: Key, state):
+        select_key, assign_key = jax.random.split(key)
+
+        def assign(node):
+            if isinstance(node, ArchiveAutoResetState):
+                slots = self.selector.select(
+                    state.pit_state,
+                    self.environment,
+                    node,
+                    select_key,
+                    algorithm=self.algorithm,
+                    algorithm_state=state.algorithm_state,
+                )
+                return self.environment.update(node, assign_key, slots=slots)
+            return node
+
+        environment_state = jax.tree.map(
+            assign,
+            state.environment_state,
+            is_leaf=lambda node: isinstance(node, ArchiveAutoResetState),
+        )
+        return state.replace(environment_state=environment_state)
 
 
-def pit(
+def make(
     algorithm: Algorithm, environment: Environment, selector: Selector, **kwargs
-) -> tuple[Ledgered, Environment, Pit, Lap]:
-    wrapper = unwrap(environment)
-    algorithm = Ledgered(
-        algorithm,
-        selector=selector,
-        archive_size=wrapper.archive.archive_size,
-        num_actions=wrapper.num_actions,
-    )
-
-    def assign(key, state, transitions):
-        update_key, select_key, assign_key = jax.random.split(key, 3)
-        archived = locate(state.environment_state)
-        ledger = state.algorithm_state.ledger
-        if transitions is not None:
-            ledger = selector.update(ledger, update_key, transitions)
-        slots = selector.select(
-            ledger,
-            wrapper,
-            archived,
-            select_key,
-            transitions=transitions,
-            algorithm=algorithm,
-            algorithm_state=state.algorithm_state,
-        )
-        archived = wrapper.update(archived, assign_key, slots=slots)
-        return state.replace(
-            algorithm_state=state.algorithm_state.replace(ledger=ledger),
-            environment_state=plant(state.environment_state, archived),
-        )
-
-    return algorithm, environment, assign, lambda key, state: state
+) -> tuple[Algorithm, Environment, PRD, Lap | None]:
+    return algorithm, environment, PRD(unwrap(environment), selector, algorithm), None

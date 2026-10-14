@@ -26,7 +26,7 @@ from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset,
-    locate,
+    ArchiveAutoResetState,
     share,
 )
 from boonta.podracers import anakin
@@ -98,15 +98,25 @@ def selector(
 
 def place(selector, env, state, ledger, key, transitions):
     update_key, select_key, assign_key = jax.random.split(key, 3)
-    if selector is erd.select:
-        slots = erd.select(env, state, select_key, k=2.0)
+    if isinstance(selector, erd.ERD):
+        slots = erd.ERD(env, k=selector.k).select(state, select_key)
         return env.update(state, assign_key, slots=slots), ledger
     if ledger is None:
         ledger = selector.init(env.archive.archive_size, env.num_actions)
     if transitions is not None:
         ledger = selector.update(ledger, update_key, transitions)
-    slots = selector.select(ledger, env, state, select_key, transitions=transitions)
+    slots = selector.select(ledger, env, state, select_key)
     return env.update(state, assign_key, slots=slots), ledger
+
+
+def archived(environment_state):
+    def found(node):
+        return isinstance(node, ArchiveAutoResetState)
+
+    (state,) = [
+        node for node in jax.tree.leaves(environment_state, is_leaf=found) if found(node)
+    ]
+    return state
 
 
 def train(selector, updates=3, steps=4):
@@ -174,7 +184,7 @@ def train(selector, updates=3, steps=4):
             gain=ModelAdvantage(),
             allocation=Softmax(),
         ),
-        erd.select,
+        erd.ERD(None, k=2.0),
     ],
     ids=[
         "prd-successor",
@@ -252,12 +262,12 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, options",
     [
-        (prd.pit, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
+        (prd.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
         (
-            prd.pit,
+            prd.make,
             {"selector": selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())},
         ),
-        (erd.pit, {"k": 2.0}),
+        (erd.make, {"k": 2.0}),
     ],
     ids=["prd", "prd-kernel", "erd"],
 )
@@ -284,13 +294,17 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
     podracer = zoo.ppo(Corridor(), podracer=race, wrapper=archive)
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 20)
-    archived = locate(state.environment_state)
-    assert int(jnp.sum(archived.archive_state.mask)) == Corridor().length - 1
-    assert bool(jnp.any(archived.due_mask))
+    archive = archived(state.environment_state)
+    assert int(jnp.sum(archive.archive_state.mask)) == Corridor().length - 1
+    assert bool(jnp.any(archive.due_mask))
     assert np.isfinite(np.asarray(logs["archive/placed"])).all()
     assert all(
         np.isfinite(leaf).all()
         for leaf in jax.tree.leaves(state.algorithm_state.params)
     )
-    if curriculum is prd.pit:
-        assert float(jnp.sum(state.algorithm_state.ledger.reach)) > 0.0
+    if curriculum is prd.make:
+        assert float(jnp.sum(state.pit_state.reach)) > 0.0
+
+    evaluated, _ = podracer.evaluate(state, jax.random.key(2), 4)
+    for kept, held in zip(jax.tree.leaves(state.pit_state), jax.tree.leaves(evaluated.pit_state)):
+        np.testing.assert_array_equal(kept, held)
