@@ -121,15 +121,15 @@ def few_resets(directory):
 
 
 def prioritized_restarts(directory):
-    return ["curriculum=prd", "environment.auto_reset.capacity=64"]
+    return ["curriculum=prd", "environment.auto_reset.archive_size=64"]
 
 
 def aligned_restarts(directory):
-    return ["curriculum=prd", "curriculum/prd/score=kernel", "environment.auto_reset.capacity=64"]
+    return ["curriculum=prd", "curriculum/prd/score=kernel", "environment.auto_reset.archive_size=64"]
 
 
 def exploring_restarts(directory):
-    return ["curriculum=erd", "environment.auto_reset.capacity=64"]
+    return ["curriculum=erd", "environment.auto_reset.archive_size=64"]
 
 
 MINATAR = "gymnax/minatar/breakout"
