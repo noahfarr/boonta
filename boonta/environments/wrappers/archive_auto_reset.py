@@ -204,12 +204,8 @@ def reset_time_limit(state: PyTree) -> PyTree:
 
 def unwrap(environment):
     env = environment
-    while not isinstance(env, ArchiveAutoReset):
+    while env is not None and not isinstance(env, ArchiveAutoReset):
         env = getattr(env, "_env", None)
-        if env is None:
-            raise ValueError(
-                "restart curricula drive an ArchiveAutoReset, and the environment has none"
-            )
     return env
 
 

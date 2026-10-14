@@ -98,8 +98,8 @@ def selector(
 
 def place(selector, env, state, ledger, key, transitions):
     update_key, select_key, assign_key = jax.random.split(key, 3)
-    if isinstance(selector, erd.ERD):
-        slots = erd.ERD(env, k=selector.k).select(state, select_key)
+    if selector == "erd":
+        slots = erd.ERD(env, k=2.0).select(state, select_key)
         return env.update(state, assign_key, slots=slots), ledger
     if ledger is None:
         ledger = selector.init(env.archive.archive_size, env.num_actions)
@@ -184,7 +184,7 @@ def train(selector, updates=3, steps=4):
             gain=ModelAdvantage(),
             allocation=Softmax(),
         ),
-        erd.ERD(None, k=2.0),
+        "erd",
     ],
     ids=[
         "prd-successor",
@@ -308,3 +308,16 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
     evaluated, _ = podracer.evaluate(state, jax.random.key(2), 4)
     for kept, held in zip(jax.tree.leaves(state.pit_state), jax.tree.leaves(evaluated.pit_state)):
         np.testing.assert_array_equal(kept, held)
+
+
+@pytest.mark.parametrize(
+    "curriculum, options",
+    [
+        (prd.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
+        (erd.make, {"k": 2.0}),
+    ],
+    ids=["prd", "erd"],
+)
+def test_a_restart_curriculum_needs_an_archive_auto_reset(curriculum, options):
+    with pytest.raises(AssertionError, match="ArchiveAutoReset"):
+        curriculum(None, RecordEpisodeStatistics(Corridor()), **options)

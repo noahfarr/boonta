@@ -16,6 +16,11 @@ class ERD(Pit):
     environment: ArchiveAutoReset
     k: float = 4.0
 
+    def __post_init__(self):
+        assert isinstance(
+            self.environment, ArchiveAutoReset
+        ), "ERD restarts from an ArchiveAutoReset, and the environment wraps none"
+
     @property
     def num_placed(self) -> int:
         assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
