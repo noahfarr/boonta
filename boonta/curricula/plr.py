@@ -70,21 +70,6 @@ def tally_episodes(
     )
 
 
-def level_stats(
-    transitions: Transition, slots: int, gamma: float, gae_lambda: float
-) -> LevelStats:
-    values = transitions.aux["value"]
-    advantages, _ = generalized_advantage_estimation(
-        transitions, values, values[-1], gamma, gae_lambda
-    )
-    return tally_episodes(
-        jax.tree.map(lambda leaf: leaf[1:], transitions),
-        values[1:],
-        advantages[1:],
-        slots,
-    )
-
-
 def positive_value_loss(stats: LevelStats, returns: Array) -> Array:
     return stats.regret / jnp.maximum(stats.episodes, 1.0)
 
@@ -299,7 +284,16 @@ class Curator(Pit):
     def update(
         self, state: LevelStats, key: Key, transitions: Transition, algorithm_state: PyTree
     ) -> LevelStats:
-        return level_stats(transitions, self.slots, self.gamma, self.gae_lambda)
+        values = transitions.aux["value"]
+        advantages, _ = generalized_advantage_estimation(
+            transitions, values, values[-1], self.gamma, self.gae_lambda
+        )
+        return tally_episodes(
+            jax.tree.map(lambda leaf: leaf[1:], transitions),
+            values[1:],
+            advantages[1:],
+            self.slots,
+        )
 
     def __call__(self, key: Key, state):
         def curate(node):

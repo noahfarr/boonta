@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -7,12 +9,11 @@ from flax import struct
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (LevelBufferState, admit_levels,
-                                  draw_levels, level_stats,
-                                  maximum_monte_carlo, positive_value_loss,
-                                  rank_weights, replay_weights,
-                                  staleness_weights, tally_episodes,
-                                  update_scores)
+from boonta.curricula.plr import (Curator, LevelBufferState, admit_levels,
+                                  draw_levels, maximum_monte_carlo,
+                                  positive_value_loss, rank_weights,
+                                  replay_weights, staleness_weights,
+                                  tally_episodes, update_scores)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -203,7 +204,18 @@ def played(theta, cut=1):
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    counted = level_stats(played(2), slots=3, gamma=0.99, gae_lambda=0.95)
+    pit = Curator(
+        SimpleNamespace(capacity=1, staging=2),
+        replay_probability=0.5,
+        staleness=0.3,
+        temperature=1.0,
+        minimum_fill=0.5,
+        gamma=0.99,
+        gae_lambda=0.95,
+        sample=None,
+        score=positive_value_loss,
+    )
+    counted = pit.update(None, jax.random.key(0), played(2), None)
     np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
 
 
