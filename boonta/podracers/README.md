@@ -48,8 +48,6 @@ A `pit` is a [`Pit`](podracer.py) with three methods, like an algorithm that act
 
 A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key, state)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "data"}`.
 
-`Stateless(fn)` turns a plain `fn(key, state)` into a pit or a lap with no state.
-
 Each hook must fire in all those places. `evaluate` restarts the environment at its default settings, so a `pit` skipped there would evaluate a game training never played. A recipe passes the hooks by returning `pit` or `lap` in its dict. A [curriculum](../curricula/curriculum.py) supplies both: it takes `(algorithm, environment, **kwargs)` and returns `(algorithm, environment, pit, lap)`. [`tests/test_podracers.py`](../../tests/test_podracers.py) counts the calls on every podracer.
 
 ## anakin
