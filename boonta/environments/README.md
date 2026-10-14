@@ -31,6 +31,8 @@ Podracers never call `init` in the middle of training, so a finished episode mus
 
 A game with free parameters, such as Kinetix's levels, takes `update(state, key, theta=...)`. It means "play this theta from its start": it starts a new episode, while every other `update` keyword changes settings without ending one. [`UED`](wrappers/ued.py) marks the boundary. It takes the first observation from `observe` and truncates the step it cuts.
 
+Given a set of theta, `UED` plays it in one of two ways. With `assign`, it cuts every episode, starts each environment on its assigned theta, and replays that theta whenever the episode ends, as PLR does. With `weights`, every finished episode draws its next theta from the weights, as SGS does, and `restart` cuts every episode once to draw them all.
+
 `update` always takes a key, right after the state. A game that needs randomness to start a theta, such as a pole whose first angle is drawn, uses it, and every other game ignores it. [`Vectorize`](wrappers/vectorize.py) passes the state, the key and the settings straight to the game, unvmapped, and [`UED`](wrappers/ued.py) vmaps over the environments itself with one key and one theta each. A caller passes a key it already holds, such as the key a podracer hands its `pit`.
 
 ## Wrappers

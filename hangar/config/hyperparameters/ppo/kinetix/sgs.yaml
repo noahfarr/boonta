@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/kinetix
+  - _self_
+
+curriculum:
+  generate_level:
+    _target_: boonta.environments.kinetix.level_sampler

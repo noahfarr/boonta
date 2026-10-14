@@ -255,6 +255,10 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert maze.environment.num_envs == configure("recurrent_ppo", "jaxued/maze").environment.num_envs
     cartpole = configure("recurrent_ppo", "jaxued/cartpole", "curriculum=plr")
     assert cartpole.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/cartpole/plr"
+    sampled = configure("recurrent_ppo", "jaxued/maze", "curriculum=sgs")
+    assert sampled.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/maze/sgs"
+    assert sampled.curriculum._target_ == "boonta.curricula.sgs.make"
+    assert sampled.curriculum.generate_level._target_ == "boonta.environments.jaxued.maze_generator"
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
