@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import reduce
 from typing import Protocol
 
@@ -207,6 +207,13 @@ class Member:
 
 
 
+def lineages(learners: list[Learner], pool: tuple[Member, ...]) -> tuple[str, ...]:
+    names = [learner.lineage for learner in learners] + [
+        member.lineage for member in pool
+    ]
+    return tuple(dict.fromkeys(names))
+
+
 @struct.dataclass(frozen=True)
 class LearnerState:
     opponent: Array
@@ -239,10 +246,7 @@ class PSRO(Pit):
 
     @property
     def names(self) -> tuple[str, ...]:
-        lineages = [learner.lineage for learner in self.learners] + [
-            member.lineage for member in self.pool
-        ]
-        return tuple(dict.fromkeys(lineages))
+        return lineages(self.learners, self.pool)
 
     def __post_init__(self):
         occupied = len(self.learners) + len(self.pool)
@@ -521,16 +525,16 @@ def psro(
         kl_coefficients=tuple(learner.kl_coefficient for learner in learners),
     )
     environment = Opponent(environment, play, initialize, groups=len(learners))
+    pool = tuple(
+        Member(lineage=spec.lineage, params=load(spec.checkpoint)) for spec in pool
+    )
     pit = PSRO(
         roster=roster,
         opponent=environment,
         learners=learners,
         capacity=capacity,
         decay=decay,
-        pool=tuple(
-            Member(lineage=spec.lineage, params=load(spec.checkpoint))
-            for spec in pool
-        ),
+        pool=pool,
+        dress=deal(environment, learners, lineages(learners, pool), **table),
     )
-    pit = replace(pit, dress=deal(environment, learners, pit.names, **table))
     return roster, environment, pit, None
