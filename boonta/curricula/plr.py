@@ -31,39 +31,39 @@ def maximum_monte_carlo(stats: LevelStats, returns: Array) -> Array:
     return best - stats.value / jnp.maximum(stats.episodes, 1.0)
 
 
-def rank_weights(scores: Array, size: Array, temperature: float) -> Array:
-    capacity, *_ = scores.shape
-    valid = jnp.arange(capacity) < size
+def rank_weights(scores: Array, num_levels: Array, temperature: float) -> Array:
+    buffer_size, *_ = scores.shape
+    valid = jnp.arange(buffer_size) < num_levels
     order = jnp.argsort(-jnp.where(valid, scores, -jnp.inf))
-    ranks = jnp.empty_like(order).at[order].set(jnp.arange(capacity) + 1)
+    ranks = jnp.empty_like(order).at[order].set(jnp.arange(buffer_size) + 1)
     weights = jnp.where(valid, 1.0 / ranks, 0.0) ** (1.0 / temperature)
     total = weights.sum()
     return jnp.where(total > 0, weights / jnp.where(total > 0, total, 1.0), 0.0)
 
 
-def staleness_weights(timestamps: Array, size: Array, episodes: Array) -> Array:
-    capacity, *_ = timestamps.shape
-    valid = jnp.arange(capacity) < size
+def staleness_weights(timestamps: Array, num_levels: Array, episodes: Array) -> Array:
+    buffer_size, *_ = timestamps.shape
+    valid = jnp.arange(buffer_size) < num_levels
     staleness = jnp.where(valid, episodes - timestamps, 0).astype(jnp.float32)
     total = staleness.sum()
     return jnp.where(
         total > 0,
         staleness / jnp.where(total > 0, total, 1.0),
-        valid / jnp.maximum(size, 1),
+        valid / jnp.maximum(num_levels, 1),
     )
 
 
 def replay_weights(
     scores: Array,
     timestamps: Array,
-    size: Array,
+    num_levels: Array,
     episodes: Array,
     temperature: float,
     staleness: float,
 ) -> Array:
     return (1.0 - staleness) * rank_weights(
-        scores, size, temperature
-    ) + staleness * staleness_weights(timestamps, size, episodes)
+        scores, num_levels, temperature
+    ) + staleness * staleness_weights(timestamps, num_levels, episodes)
 
 
 @struct.dataclass
@@ -71,40 +71,44 @@ class LevelBufferState(WrapperState):
     scores: Array = struct.field(metadata={"axis": None})
     timestamps: Array = struct.field(metadata={"axis": None})
     returns: Array = struct.field(metadata={"axis": None})
-    size: Array = struct.field(metadata={"axis": None})
+    num_levels: Array = struct.field(metadata={"axis": None})
     episodes: Array = struct.field(metadata={"axis": None})
     exploring: Array = struct.field(metadata={"axis": None})
 
 
 class LevelBuffer(Wrapper):
     def __init__(
-        self, env, capacity: int, staging: int, sample: Callable[[Key], PyTree]
+        self,
+        env,
+        buffer_size: int,
+        staging_size: int,
+        sample: Callable[[Key], PyTree],
     ):
         super().__init__(env)
-        self.capacity = capacity
-        self.staging = staging
+        self.buffer_size = buffer_size
+        self.staging_size = staging_size
         self.sample = sample
 
     def init(self, key: Key) -> tuple[LevelBufferState, Timestep]:
         buffer_key, env_key = jax.random.split(key)
         env_state, timestep = self._env.init(env_key)
-        slots = self.capacity + self.staging
+        num_slots = self.buffer_size + self.staging_size
         levels = jax.tree.map(
-            lambda leaf: jnp.zeros((slots, *leaf.shape), leaf.dtype),
+            lambda leaf: jnp.zeros((num_slots, *leaf.shape), leaf.dtype),
             jax.eval_shape(self.sample, key),
         )
         env_state = self._env.update(
             env_state,
             jax.random.fold_in(buffer_key, 1),
             theta=levels,
-            weights=jnp.zeros(slots, jnp.float32),
+            weights=jnp.zeros(num_slots, jnp.float32),
         )
         state = LevelBufferState(
             env_state=env_state,
-            scores=jnp.full(self.capacity, -jnp.inf, jnp.float32),
-            timestamps=jnp.zeros(self.capacity, jnp.int32),
-            returns=jnp.full(self.capacity, -jnp.inf, jnp.float32),
-            size=jnp.int32(0),
+            scores=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
+            timestamps=jnp.zeros(self.buffer_size, jnp.int32),
+            returns=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
+            num_levels=jnp.int32(0),
             episodes=jnp.int32(0),
             exploring=jnp.bool_(False),
         )
@@ -130,8 +134,8 @@ class PLR(Pit):
     score: Callable[[LevelStats, Array], Array]
 
     @property
-    def slots(self) -> int:
-        return self.environment.capacity + self.environment.staging
+    def num_slots(self) -> int:
+        return self.environment.buffer_size + self.environment.staging_size
 
     def score_episodes(
         self, transitions: Transition, values: Array, advantages: Array
@@ -160,13 +164,13 @@ class PLR(Pit):
             ),
         )
         theta = transitions.second.info["theta"]
-        index = jnp.where((done > 0) & (theta >= 0), theta, self.slots).reshape(-1)
-        empty = jnp.zeros(self.slots, jnp.float32)
+        index = jnp.where((done > 0) & (theta >= 0), theta, self.num_slots).reshape(-1)
+        empty = jnp.zeros(self.num_slots, jnp.float32)
         return LevelStats(
             episodes=empty.at[index].add(1.0, mode="drop"),
             regret=empty.at[index].add(regret.reshape(-1), mode="drop"),
             value=empty.at[index].add(value.reshape(-1), mode="drop"),
-            returns=jnp.full(self.slots, -jnp.inf, jnp.float32)
+            returns=jnp.full(self.num_slots, -jnp.inf, jnp.float32)
             .at[index]
             .max(returns.reshape(-1), mode="drop"),
         )
@@ -175,7 +179,7 @@ class PLR(Pit):
         return replay_weights(
             buffer.scores,
             buffer.timestamps,
-            buffer.size,
+            buffer.num_levels,
             buffer.episodes,
             self.temperature,
             self.staleness,
@@ -185,13 +189,13 @@ class PLR(Pit):
         self, buffer: LevelBufferState, stats: LevelStats, scored: Array
     ) -> LevelBufferState:
         buffer_size, *_ = buffer.scores.shape
-        mask = (stats.episodes[:buffer_size] > 0) & (
-            jnp.arange(buffer_size) < buffer.size
+        finished = (stats.episodes[:buffer_size] > 0) & (
+            jnp.arange(buffer_size) < buffer.num_levels
         )
         return buffer.replace(
-            scores=jnp.where(mask, scored[:buffer_size], buffer.scores),
+            scores=jnp.where(finished, scored[:buffer_size], buffer.scores),
             returns=jnp.where(
-                mask,
+                finished,
                 jnp.maximum(buffer.returns, stats.returns[:buffer_size]),
                 buffer.returns,
             ),
@@ -200,10 +204,10 @@ class PLR(Pit):
     def draw(
         self, buffer: LevelBufferState, key: Key, count: int
     ) -> tuple[LevelBufferState, Array]:
-        capacity, *_ = buffer.scores.shape
+        buffer_size, *_ = buffer.scores.shape
 
         def pick_level(buffer, key):
-            index = jax.random.choice(key, capacity, p=self.weights(buffer))
+            index = jax.random.choice(key, buffer_size, p=self.weights(buffer))
             index = index.astype(jnp.int32)
             episodes = buffer.episodes + 1
             buffer = buffer.replace(
@@ -222,14 +226,14 @@ class PLR(Pit):
         scored: Array,
         exploring: Array,
     ):
-        capacity, *_ = buffer.scores.shape
-        slots, *_ = scored.shape
+        buffer_size, *_ = buffer.scores.shape
+        num_slots, *_ = scored.shape
 
         def insert_level(carry, source):
             buffer, levels, admitted = carry
             target = jnp.where(
-                buffer.size < capacity,
-                buffer.size,
+                buffer.num_levels < buffer_size,
+                buffer.num_levels,
                 jnp.argmin(self.weights(buffer)),
             )
             replaced = exploring & (buffer.scores[target] < scored[source])
@@ -244,8 +248,10 @@ class PLR(Pit):
                 timestamps=buffer.timestamps.at[target].set(
                     jnp.where(replaced, episodes, buffer.timestamps[target])
                 ),
-                size=jnp.where(
-                    replaced, jnp.minimum(buffer.size + 1, capacity), buffer.size
+                num_levels=jnp.where(
+                    replaced,
+                    jnp.minimum(buffer.num_levels + 1, buffer_size),
+                    buffer.num_levels,
                 ),
                 episodes=episodes,
             )
@@ -258,16 +264,18 @@ class PLR(Pit):
             return (buffer, levels, admitted + replaced.astype(jnp.int32)), None
 
         (buffer, levels, admitted), _ = jax.lax.scan(
-            insert_level, (buffer, levels, jnp.int32(0)), jnp.arange(capacity, slots)
+            insert_level,
+            (buffer, levels, jnp.int32(0)),
+            jnp.arange(buffer_size, num_slots),
         )
         return buffer, levels, admitted
 
     def init(self, key: Key, state: PyTree) -> LevelStats:
         return LevelStats(
-            episodes=jnp.zeros(self.slots, jnp.float32),
-            regret=jnp.zeros(self.slots, jnp.float32),
-            value=jnp.zeros(self.slots, jnp.float32),
-            returns=jnp.full(self.slots, -jnp.inf, jnp.float32),
+            episodes=jnp.zeros(self.num_slots, jnp.float32),
+            regret=jnp.zeros(self.num_slots, jnp.float32),
+            value=jnp.zeros(self.num_slots, jnp.float32),
+            returns=jnp.full(self.num_slots, -jnp.inf, jnp.float32),
         )
 
     def update(
@@ -297,9 +305,10 @@ class PLR(Pit):
         return state.replace(environment_state=environment_state)
 
     def curate(self, buffer: LevelBufferState, stats: LevelStats, key: Key):
-        capacity, staging = self.environment.capacity, self.environment.staging
+        buffer_size = self.environment.buffer_size
+        staging_size = self.environment.staging_size
         returns = jnp.concatenate(
-            [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
+            [buffer.returns, jnp.full(staging_size, -jnp.inf, jnp.float32)]
         )
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
 
@@ -309,41 +318,42 @@ class PLR(Pit):
         )
 
         update_key, decide_key, draw_key, sample_key = jax.random.split(key, 4)
-        replaying = (buffer.size / capacity >= self.minimum_fill) & (
+        replaying = (buffer.num_levels / buffer_size >= self.minimum_fill) & (
             jax.random.uniform(decide_key) < self.replay_probability
         )
 
         def replay(buffer, levels):
-            buffer, assignment = self.draw(buffer, draw_key, staging)
+            buffer, assignment = self.draw(buffer, draw_key, staging_size)
             return buffer, levels, assignment
 
         def explore(buffer, levels):
             fresh = jax.vmap(self.sample)(
-                jax.random.split(sample_key, staging)
+                jax.random.split(sample_key, staging_size)
             )
             levels = jax.tree.map(
-                lambda leaf, new: leaf.at[capacity:].set(new), levels, fresh
+                lambda leaf, new: leaf.at[buffer_size:].set(new), levels, fresh
             )
-            return buffer, levels, capacity + jnp.arange(staging, dtype=jnp.int32)
+            assignment = buffer_size + jnp.arange(staging_size, dtype=jnp.int32)
+            return buffer, levels, assignment
 
         buffer, levels, assignment = jax.lax.cond(
             replaying, replay, explore, buffer, levels
         )
         level_weights = self.weights(buffer)
 
-        valid = jnp.arange(capacity) < buffer.size
+        valid = jnp.arange(buffer_size) < buffer.num_levels
         finished = stats.episodes.sum()
         lox.log(
             {
-                "plr/levels/size": buffer.size,
+                "plr/levels/num_levels": buffer.num_levels,
                 "plr/levels/admitted": admitted,
                 "plr/levels/replaying": replaying.astype(jnp.float32),
-                "plr/levels/replayed": stats.episodes[:capacity].sum()
+                "plr/levels/replayed": stats.episodes[:buffer_size].sum()
                 / jnp.maximum(finished, 1.0),
                 "plr/levels/mean_score": jnp.where(valid, buffer.scores, 0.0).sum()
-                / jnp.maximum(buffer.size, 1),
+                / jnp.maximum(buffer.num_levels, 1),
                 "plr/levels/max_score": jnp.where(
-                    buffer.size > 0,
+                    buffer.num_levels > 0,
                     jnp.where(valid, buffer.scores, -jnp.inf).max(),
                     jnp.nan,
                 ),
@@ -351,9 +361,9 @@ class PLR(Pit):
                     valid, level_weights * buffer.scores, 0.0
                 ).sum(),
                 "plr/levels/fresh_score": jnp.where(
-                    stats.episodes[capacity:] > 0, scored[capacity:], 0.0
+                    stats.episodes[buffer_size:] > 0, scored[buffer_size:], 0.0
                 ).sum()
-                / jnp.maximum((stats.episodes[capacity:] > 0).sum(), 1),
+                / jnp.maximum((stats.episodes[buffer_size:] > 0).sum(), 1),
             }
         )
         return self.environment.update(
@@ -367,7 +377,7 @@ class PLR(Pit):
 def plr(
     algorithm: Algorithm,
     environment: Environment,
-    capacity: int,
+    buffer_size: int,
     replay_probability: float,
     staleness: float,
     temperature: float,
@@ -378,7 +388,9 @@ def plr(
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
 ) -> tuple[Algorithm, LevelBuffer, PLR, Lap | None]:
-    environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
+    environment = LevelBuffer(
+        UED(environment), buffer_size, environment.num_envs, sample
+    )
     pit = PLR(
         environment,
         replay_probability=replay_probability,

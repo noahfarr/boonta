@@ -86,22 +86,22 @@ class Inner:
     playing: jax.Array
 
 
-def buffer(scores, timestamps, size, episodes):
-    capacity = len(scores)
+def buffer(scores, timestamps, num_levels, episodes):
+    buffer_size = len(scores)
     return LevelBufferState(
         Inner(playing=jnp.array([-1])),
         scores=jnp.array(scores, jnp.float32),
         timestamps=jnp.array(timestamps, jnp.int32),
-        returns=jnp.full(capacity, -jnp.inf),
-        size=jnp.int32(size),
+        returns=jnp.full(buffer_size, -jnp.inf),
+        num_levels=jnp.int32(num_levels),
         episodes=jnp.int32(episodes),
         exploring=jnp.bool_(False),
     )
 
 
-def pit(capacity=3, staging=3):
+def pit(buffer_size=3, staging_size=3):
     return PLR(
-        SimpleNamespace(capacity=capacity, staging=staging),
+        SimpleNamespace(buffer_size=buffer_size, staging_size=staging_size),
         replay_probability=0.5,
         staleness=0.3,
         temperature=1.0,
@@ -139,7 +139,7 @@ def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
         buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
         levels, counted, scored, jnp.bool_(True),
     )
-    assert int(state.size) == 2 and int(admitted) == 1
+    assert int(state.num_levels) == 2 and int(admitted) == 1
     np.testing.assert_array_equal(state.scores[:2], [7.0, -5.0])
     np.testing.assert_array_equal(levels[1], 30.0)
 
@@ -151,7 +151,7 @@ def test_nothing_is_admitted_after_a_replay_rollout():
         buffer([1.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
         levels, counted, scored, jnp.bool_(False),
     )
-    assert int(state.size) == 1 and int(admitted) == 0 and int(state.episodes) == 3
+    assert int(state.num_levels) == 1 and int(admitted) == 0 and int(state.episodes) == 3
 
 
 def test_a_replayed_level_takes_its_new_score_and_best_return():
@@ -217,7 +217,7 @@ def played(theta, cut=1):
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    counted = pit(capacity=1, staging=2).update(
+    counted = pit(buffer_size=1, staging_size=2).update(
         None, jax.random.key(0), played(2), None
     )
     np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
@@ -235,7 +235,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     algorithm, environment, pit, lap = plr(
         algorithm,
         environment,
-        capacity=4,
+        buffer_size=4,
         replay_probability=0.5,
         staleness=0.3,
         temperature=1.0,
@@ -249,7 +249,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     podracer = anakin.make(config, algorithm, environment, pit, lap)
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 12)
-    sizes = np.asarray(logs["plr/levels/size"])
+    sizes = np.asarray(logs["plr/levels/num_levels"])
     assert sizes.ravel()[-1] == 4
     assert np.asarray(logs["plr/levels/replaying"]).any()
     played = np.asarray(state.environment_state.env_state.env_state.playing)

@@ -1,6 +1,6 @@
 _target_: boonta.curricula.plr
 _partial_: true
-capacity: 4000
+buffer_size: 4000
 replay_probability: 0.5
 staleness: 0.3
 temperature: 1.0
