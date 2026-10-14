@@ -215,7 +215,7 @@ class PLR(Pit):
         num_slots, *_ = scored.shape
 
         def insert_level(carry, source):
-            buffer, levels, admitted = carry
+            buffer, levels, num_admitted = carry
             target = jnp.where(
                 buffer.num_levels < buffer_size,
                 buffer.num_levels,
@@ -246,14 +246,14 @@ class PLR(Pit):
                 ),
                 levels,
             )
-            return (buffer, levels, admitted + replaced.astype(jnp.int32)), None
+            return (buffer, levels, num_admitted + replaced.astype(jnp.int32)), None
 
-        (buffer, levels, admitted), _ = jax.lax.scan(
+        (buffer, levels, num_admitted), _ = jax.lax.scan(
             insert_level,
             (buffer, levels, jnp.int32(0)),
             jnp.arange(buffer_size, num_slots),
         )
-        return buffer, levels, admitted
+        return buffer, levels, num_admitted
 
     def init(self, key: Key, state: PyTree) -> LevelStats:
         return LevelStats(
@@ -298,7 +298,7 @@ class PLR(Pit):
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
 
         buffer = self.update_scores(buffer, stats, scored)
-        buffer, levels, admitted = self.admit(
+        buffer, levels, num_admitted = self.admit(
             buffer, buffer.theta, stats, scored, buffer.exploring
         )
 
@@ -330,22 +330,22 @@ class PLR(Pit):
         finished = stats.episodes.sum()
         lox.log(
             {
-                "plr/levels/num_levels": buffer.num_levels,
-                "plr/levels/admitted": admitted,
-                "plr/levels/replaying": replaying.astype(jnp.float32),
-                "plr/levels/replayed": stats.episodes[:buffer_size].sum()
+                "plr/num_levels": buffer.num_levels,
+                "plr/num_admitted": num_admitted,
+                "plr/replay_rate": replaying.astype(jnp.float32),
+                "plr/replayed_fraction": stats.episodes[:buffer_size].sum()
                 / jnp.maximum(finished, 1.0),
-                "plr/levels/mean_score": jnp.where(valid, buffer.scores, 0.0).sum()
+                "plr/mean_buffer_score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.num_levels, 1),
-                "plr/levels/max_score": jnp.where(
+                "plr/max_buffer_score": jnp.where(
                     buffer.num_levels > 0,
                     jnp.where(valid, buffer.scores, -jnp.inf).max(),
                     jnp.nan,
                 ),
-                "plr/levels/weighted_score": jnp.where(
+                "plr/expected_replay_score": jnp.where(
                     valid, level_weights * buffer.scores, 0.0
                 ).sum(),
-                "plr/levels/fresh_score": jnp.where(
+                "plr/mean_fresh_score": jnp.where(
                     stats.episodes[buffer_size:] > 0, scored[buffer_size:], 0.0
                 ).sum()
                 / jnp.maximum((stats.episodes[buffer_size:] > 0).sum(), 1),

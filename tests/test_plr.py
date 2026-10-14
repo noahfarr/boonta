@@ -121,24 +121,24 @@ def fresh(scores):
 def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_higher():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 2.0, 0.5, -jnp.inf])
-    state, levels, admitted = pit().admit(
+    state, levels, num_admitted = pit().admit(
         buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10),
         levels, counted, scored, jnp.bool_(True),
     )
     np.testing.assert_array_equal(state.scores, [2.0, 5.0, 3.0])
     np.testing.assert_array_equal(levels[:3], [30.0, 10.0, 20.0])
     np.testing.assert_array_equal(state.timestamps, [11, 10, 10])
-    assert int(state.episodes) == 13 and int(admitted) == 1
+    assert int(state.episodes) == 13 and int(num_admitted) == 1
 
 
 def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, -5.0, -jnp.inf, -jnp.inf])
-    state, levels, admitted = pit().admit(
+    state, levels, num_admitted = pit().admit(
         buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
         levels, counted, scored, jnp.bool_(True),
     )
-    assert int(state.num_levels) == 2 and int(admitted) == 1
+    assert int(state.num_levels) == 2 and int(num_admitted) == 1
     np.testing.assert_array_equal(state.scores[:2], [7.0, -5.0])
     np.testing.assert_array_equal(levels[1], 30.0)
 
@@ -146,11 +146,11 @@ def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
 def test_nothing_is_admitted_after_a_replay_rollout():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 9.0, 9.0, 9.0])
-    state, levels, admitted = pit().admit(
+    state, levels, num_admitted = pit().admit(
         buffer([1.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
         levels, counted, scored, jnp.bool_(False),
     )
-    assert int(state.num_levels) == 1 and int(admitted) == 0 and int(state.episodes) == 3
+    assert int(state.num_levels) == 1 and int(num_admitted) == 0 and int(state.episodes) == 3
 
 
 def test_a_replayed_level_takes_its_new_score_and_best_return():
@@ -248,8 +248,8 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     podracer = anakin.make(config, algorithm, environment, pit, lap)
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 12)
-    sizes = np.asarray(logs["plr/levels/num_levels"])
+    sizes = np.asarray(logs["plr/num_levels"])
     assert sizes.ravel()[-1] == 4
-    assert np.asarray(logs["plr/levels/replaying"]).any()
+    assert np.asarray(logs["plr/replay_rate"]).any()
     played = np.asarray(state.environment_state.env_state.env_state.playing)
     assert np.all(played >= 0)
