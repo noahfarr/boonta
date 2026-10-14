@@ -790,6 +790,11 @@ class PRD(Pit):
     selector: Selector
     algorithm: Algorithm
 
+    def __post_init__(self):
+        assert isinstance(
+            self.environment, ArchiveAutoReset
+        ), "PRD restarts from an ArchiveAutoReset, and the environment wraps none"
+
     def init(self, key: Key, state: PyTree) -> SelectorState:
         ledger = self.selector.init(
             self.environment.archive.archive_size, self.environment.num_actions
