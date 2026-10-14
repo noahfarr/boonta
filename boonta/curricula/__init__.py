@@ -3,7 +3,7 @@ from boonta.utils.typing import Environment
 
 from boonta.podracers.podracer import Lap, Pit
 
-from . import erd, plr, prd, psro
+from . import erd, plr, prd, psro, sgs
 from .curriculum import Curriculum
 
 
@@ -20,4 +20,5 @@ __all__ = [
     "plr",
     "prd",
     "psro",
+    "sgs",
 ]
