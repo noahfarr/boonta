@@ -1,35 +1,12 @@
-from dataclasses import dataclass
-from typing import Callable
-
-import jax
+from dataclasses import replace
 
 from boonta.algorithms import Algorithm
-from boonta.algorithms.wrappers.psro import PSRO, Member
-from boonta.environments.wrappers import Opponent, OpponentState
-from boonta.podracers.podracer import Lap, Pit
+from boonta.algorithms.wrappers.roster import Roster
+from boonta.environments.wrappers import Opponent
+from boonta.podracers.podracer import Lap
 from boonta.utils.typing import Environment
 
-
-@dataclass
-class Seat(Pit):
-    psro: PSRO
-    opponent: Opponent
-    dress: Callable
-
-    def __call__(self, key, state):
-        opponents = self.psro.opponents(state.algorithm_state)
-
-        def seat(node):
-            if isinstance(node, OpponentState):
-                return self.opponent.update(node, key, opponents=opponents)
-            return node
-
-        seated = jax.tree.map(
-            seat,
-            state.environment_state,
-            is_leaf=lambda node: isinstance(node, OpponentState),
-        )
-        return self.dress(state.replace(environment_state=seated))
+from .psro import PSRO, Member
 
 
 def league(
@@ -44,22 +21,29 @@ def league(
     pool=(),
     deal=lambda environment, learners, lineages, **table: lambda state: state,
     **table,
-) -> tuple[PSRO, Environment, Pit, Lap | None]:
+) -> tuple[Roster, Environment, PSRO, Lap | None]:
     learners = list(learners)
-    psro = PSRO(
-        algorithm=algorithm,
-        learners=learners,
-        capacity=capacity,
-        decay=decay,
-        pool=tuple(
-            Member(lineage=spec.lineage, params=load(spec.checkpoint)) for spec in pool
-        ),
+    roster = Roster(
+        algorithm,
+        count=len(learners),
         warmstarts={
             index: load(learner.warmstart)
             for index, learner in enumerate(learners)
             if learner.warmstart is not None
         },
+        kl_coefficients=tuple(learner.kl_coefficient for learner in learners),
     )
     environment = Opponent(environment, play, initialize, groups=len(learners))
-    dress = deal(environment, learners, psro.names, **table)
-    return psro, environment, Seat(psro, environment, dress), None
+    psro = PSRO(
+        roster=roster,
+        opponent=environment,
+        learners=learners,
+        capacity=capacity,
+        decay=decay,
+        pool=tuple(
+            Member(lineage=spec.lineage, params=load(spec.checkpoint))
+            for spec in pool
+        ),
+    )
+    psro = replace(psro, dress=deal(environment, learners, psro.names, **table))
+    return roster, environment, psro, None

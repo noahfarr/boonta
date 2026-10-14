@@ -365,8 +365,8 @@ def make(
     ), (
         f"{type(algorithm).__name__} runs a population, which sebulba does not support: "
         f"the actor keeps no recurrent carry for the population's copies, their step "
-        f"counts never reach the learner, and PSRO would credit each rollout to the "
-        f"opponent drawn one update after the one that played it. Use anakin."
+        f"counts never reach the learner, and the league would credit each rollout to "
+        f"the opponent drawn one update after the one that played it. Use anakin."
     )
 
     replicated = NamedSharding(config.learner, P())
