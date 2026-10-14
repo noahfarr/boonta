@@ -264,11 +264,10 @@ class PLR(Pit):
         return buffer, levels, admitted
 
     def init(self, key: Key, state: PyTree) -> LevelStats:
-        zeros = jnp.zeros(self.slots, jnp.float32)
         return LevelStats(
-            episodes=zeros,
-            regret=zeros,
-            value=zeros,
+            episodes=jnp.zeros(self.slots, jnp.float32),
+            regret=jnp.zeros(self.slots, jnp.float32),
+            value=jnp.zeros(self.slots, jnp.float32),
             returns=jnp.full(self.slots, -jnp.inf, jnp.float32),
         )
 
