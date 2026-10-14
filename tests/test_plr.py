@@ -11,8 +11,7 @@ from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
 from boonta.curricula.plr import (PLR, LevelBufferState,
                                   maximum_monte_carlo, positive_value_loss,
-                                  rank_weights, replay_weights,
-                                  staleness_weights)
+                                  rank_weights, staleness_weights)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -37,12 +36,12 @@ def test_staleness_is_uniform_over_the_buffer_when_nothing_is_staleness_weights(
 
 
 def test_priority_mixes_rank_and_staleness():
-    weights = replay_weights(jnp.array([3.0, 1.0, 2.0, 7.0]), jnp.array([2, 5, 0, 9]), 3, 6, 1.0, 0.3)
+    weights = pit().replay_weights(buffer([3.0, 1.0, 2.0, 7.0], [2, 5, 0, 9], 3, 6))
     np.testing.assert_allclose(weights, np.array([5.4, 1.7, 3.9, 0.0]) / 11, rtol=1e-6)
 
 
 def test_an_empty_buffer_has_no_weight():
-    np.testing.assert_array_equal(replay_weights(jnp.zeros(3), jnp.zeros(3, jnp.int32), 0, 0, 1.0, 0.3), 0.0)
+    np.testing.assert_array_equal(pit().replay_weights(buffer([0.0, 0.0, 0.0], [0, 0, 0], 0, 0)), 0.0)
 
 
 def rollout():

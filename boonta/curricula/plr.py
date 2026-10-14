@@ -53,19 +53,6 @@ def staleness_weights(timestamps: Array, num_levels: Array, episodes: Array) -> 
     )
 
 
-def replay_weights(
-    scores: Array,
-    timestamps: Array,
-    num_levels: Array,
-    episodes: Array,
-    temperature: float,
-    staleness: float,
-) -> Array:
-    return (1.0 - staleness) * rank_weights(
-        scores, num_levels, temperature
-    ) + staleness * staleness_weights(timestamps, num_levels, episodes)
-
-
 @struct.dataclass
 class LevelBufferState(WrapperState):
     scores: Array = struct.field(metadata={"axis": None})
@@ -175,15 +162,12 @@ class PLR(Pit):
             .max(returns.reshape(-1), mode="drop"),
         )
 
-    def weights(self, buffer: LevelBufferState) -> Array:
-        return replay_weights(
-            buffer.scores,
-            buffer.timestamps,
-            buffer.num_levels,
-            buffer.episodes,
-            self.temperature,
-            self.staleness,
+    def replay_weights(self, buffer: LevelBufferState) -> Array:
+        rank = rank_weights(buffer.scores, buffer.num_levels, self.temperature)
+        staleness = staleness_weights(
+            buffer.timestamps, buffer.num_levels, buffer.episodes
         )
+        return (1.0 - self.staleness) * rank + self.staleness * staleness
 
     def rescore(
         self, buffer: LevelBufferState, stats: LevelStats, scored: Array
@@ -207,7 +191,8 @@ class PLR(Pit):
         buffer_size, *_ = buffer.scores.shape
 
         def pick_level(buffer, key):
-            index = jax.random.choice(key, buffer_size, p=self.weights(buffer))
+            weights = self.replay_weights(buffer)
+            index = jax.random.choice(key, buffer_size, p=weights)
             index = index.astype(jnp.int32)
             episodes = buffer.episodes + 1
             buffer = buffer.replace(
@@ -234,7 +219,7 @@ class PLR(Pit):
             target = jnp.where(
                 buffer.num_levels < buffer_size,
                 buffer.num_levels,
-                jnp.argmin(self.weights(buffer)),
+                jnp.argmin(self.replay_weights(buffer)),
             )
             replaced = exploring & (buffer.scores[target] < scored[source])
             episodes = buffer.episodes + exploring.astype(jnp.int32)
@@ -339,7 +324,7 @@ class PLR(Pit):
         buffer, levels, assignment = jax.lax.cond(
             replaying, replay, explore, buffer, levels
         )
-        level_weights = self.weights(buffer)
+        level_weights = self.replay_weights(buffer)
 
         valid = jnp.arange(buffer_size) < buffer.num_levels
         finished = stats.episodes.sum()
