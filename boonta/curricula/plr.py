@@ -335,17 +335,12 @@ class PLR(Pit):
                 "plr/replay_rate": replaying.astype(jnp.float32),
                 "plr/replayed_fraction": stats.episodes[:buffer_size].sum()
                 / jnp.maximum(finished, 1.0),
-                "plr/mean_buffer_score": jnp.where(valid, buffer.scores, 0.0).sum()
+                "plr/buffer_score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.num_levels, 1),
-                "plr/max_buffer_score": jnp.where(
-                    buffer.num_levels > 0,
-                    jnp.where(valid, buffer.scores, -jnp.inf).max(),
-                    jnp.nan,
-                ),
-                "plr/expected_replay_score": jnp.where(
+                "plr/replay_score": jnp.where(
                     valid, level_weights * buffer.scores, 0.0
                 ).sum(),
-                "plr/mean_fresh_score": jnp.where(
+                "plr/fresh_score": jnp.where(
                     stats.episodes[buffer_size:] > 0, scored[buffer_size:], 0.0
                 ).sum()
                 / jnp.maximum((stats.episodes[buffer_size:] > 0).sum(), 1),
