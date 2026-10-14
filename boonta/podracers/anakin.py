@@ -26,6 +26,7 @@ class AnakinState:
     environment_state: EnvState = struct.field(metadata={"axis": "data"})
     algorithm_state: PyTree
     pit_state: PyTree = None
+    lap_state: PyTree = None
 
 
 @dataclass
@@ -34,10 +35,10 @@ class Anakin:
     algorithm: Algorithm
     environment: Environment
     pit: Pit[AnakinState] = Pit()
-    lap: Lap[AnakinState] = lambda state: state
+    lap: Lap[AnakinState] = Lap()
 
     def rollout(self, state: AnakinState, key, temperature):
-        algorithm_key, environment_key = jax.random.split(key)
+        algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
         algorithm_state, action, aux = self.algorithm.step(
             state.algorithm_state, algorithm_key, state.timestep, temperature
@@ -57,27 +58,32 @@ class Anakin:
             + self.config.num_envs * self.environment.num_agents
         )
         state = self.lap(
+            lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
                 timestep=timestep,
                 environment_state=environment_state,
-            )
+            ),
         )
         return state, transition
 
     def init(self, key: Key) -> AnakinState:
-        environment_key, algorithm_key, pit_key, call_key = jax.random.split(key, 4)
+        environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
+        pit_key, call_key = jax.random.split(pit_key)
+        lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
         algorithm_state = self.algorithm.init(algorithm_key, timestep)
         return self.pit(
             call_key,
             self.lap(
+                step_key,
                 AnakinState(
                     timestep=timestep,
                     environment_state=environment_state,
                     algorithm_state=algorithm_state,
                     pit_state=self.pit.init(pit_key),
-                )
+                    lap_state=self.lap.init(lap_key),
+                ),
             ),
         )
 
@@ -109,16 +115,17 @@ class Anakin:
         return state
 
     def evaluate(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
-        reset_key, rollout_key, call_key = jax.random.split(key, 3)
+        reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
         state = self.pit(
             call_key,
             self.lap(
+                lap_key,
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
-                )
+                ),
             ),
         )
         state, _ = jax.lax.scan(
@@ -137,7 +144,7 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     pit: Pit[AnakinState] = Pit(),
-    lap: Lap[AnakinState] = lambda state: state,
+    lap: Lap[AnakinState] = Lap(),
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 

@@ -20,22 +20,27 @@ class PodracerState(Protocol):
     @property
     def pit_state(self) -> PyTree: ...
 
+    @property
+    def lap_state(self) -> PyTree: ...
+
     def replace(self, **changes) -> Self: ...
 
 
 Boarded = TypeVar("Boarded", bound=PodracerState)
 
 
-class Pit(Generic[Boarded]):
+class Lap(Generic[Boarded]):
     def init(self, key: Key) -> PyTree:
         return None
 
+    def __call__(self, key: Key, state: Boarded) -> Boarded:
+        return state
+
+
+class Pit(Lap[Boarded]):
     def update(
         self, state: PyTree, key: Key, transitions: Transition, algorithm_state: PyTree
     ) -> PyTree:
-        return state
-
-    def __call__(self, key: Key, state: Boarded) -> Boarded:
         return state
 
 
@@ -45,9 +50,6 @@ class Stateless(Pit[Boarded]):
 
     def __call__(self, key: Key, state: Boarded) -> Boarded:
         return self.call(key, state)
-
-
-Lap = Callable[[Boarded], Boarded]
 
 
 class Podracer(Protocol[State]):

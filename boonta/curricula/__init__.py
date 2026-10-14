@@ -11,7 +11,7 @@ from .plr import maximum_monte_carlo, plr, positive_value_loss
 def default(
     algorithm: Algorithm, environment: Environment, **kwargs
 ) -> tuple[Algorithm, Environment, Pit, Lap]:
-    return algorithm, environment, Pit(), lambda state: state
+    return algorithm, environment, Pit(), Lap()
 
 
 __all__ = [

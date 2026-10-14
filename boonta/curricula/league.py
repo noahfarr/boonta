@@ -54,4 +54,4 @@ def league(
         )
         return dress(state.replace(environment_state=seated))
 
-    return psro, environment, Stateless(pit), lambda state: state
+    return psro, environment, Stateless(pit), Lap()

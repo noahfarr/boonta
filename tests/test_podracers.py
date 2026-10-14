@@ -11,7 +11,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.datasets.minari import Minari
 from boonta.environments.wrappers import Vectorize
 from boonta.podracers import anakin, quadinaros, sebulba
-from boonta.podracers.podracer import Pit, Stateless
+from boonta.podracers.podracer import Lap, Pit, Stateless
 from boonta.utils import mesh
 
 from dummies import Dial, Episodes, Probe, demonstrations, flatten, publish, recordings
@@ -65,7 +65,8 @@ def turn(key, state):
     )
 
 
-def tick(state):
+@Stateless
+def tick(key, state):
     return state.replace(
         algorithm_state=state.algorithm_state.replace(
             step=state.algorithm_state.step + 1000
@@ -161,6 +162,35 @@ def test_the_pit_keeps_its_state_and_learns_once_per_update(build):
     state, _ = podracer.evaluate(state, jax.random.key(2), 2)
     for environment_state in environment_states(state):
         np.testing.assert_array_equal(np.asarray(environment_state.setting), 103.0)
+
+
+class Odometer(Lap):
+    def init(self, key):
+        return jnp.float32(0.0)
+
+    def __call__(self, key, state):
+        return state.replace(lap_state=state.lap_state + 1.0)
+
+
+def lap_states(state):
+    if hasattr(state, "actors"):
+        return [float(actor.lap_state) for actor in state.actors]
+    return [float(state.lap_state)]
+
+
+@pytest.mark.parametrize("build", EVERY)
+def test_the_lap_keeps_its_state_across_steps_updates_and_evaluation(build):
+    podracer = build(lap=Odometer())
+    offline = build is on_quadinaros
+    state = podracer.init(jax.random.key(0))
+    assert lap_states(state) == [1.0] * len(lap_states(state))
+
+    state, _ = podracer.train(state, jax.random.key(1), 2)
+    trained = 1.0 + (0 if offline else 2 * NUM_STEPS)
+    assert lap_states(state) == [trained] * len(lap_states(state))
+
+    state, _ = podracer.evaluate(state, jax.random.key(2), 5)
+    assert float(state.lap_state) == trained + 1 + 5
 
 
 @pytest.mark.parametrize("build", EVERY)

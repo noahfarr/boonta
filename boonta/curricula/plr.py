@@ -472,4 +472,4 @@ def plr(
         sample=sample,
         score=score,
     )
-    return algorithm, environment, curator, lambda state: state
+    return algorithm, environment, curator, Lap()

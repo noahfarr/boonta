@@ -30,6 +30,7 @@ class QuadinarosState:
     dataset_state: DatasetState = struct.field(metadata={"axis": "data"})
     algorithm_state: PyTree
     pit_state: PyTree = None
+    lap_state: PyTree = None
 
 
 @dataclass
@@ -39,7 +40,7 @@ class Quadinaros:
     environment: Environment
     dataset: Dataset
     pit: Pit[QuadinarosState] = Pit()
-    lap: Lap[QuadinarosState] = lambda state: state
+    lap: Lap[QuadinarosState] = Lap()
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
@@ -60,7 +61,7 @@ class Quadinaros:
         return self.pit(call_key, state), None
 
     def rollout(self, state: QuadinarosState, key, temperature):
-        algorithm_key, environment_key = jax.random.split(key)
+        algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
         algorithm_state, action, aux = self.algorithm.step(
             state.algorithm_state, algorithm_key, state.timestep, temperature
@@ -74,28 +75,33 @@ class Quadinaros:
             + self.config.num_envs * self.environment.num_agents
         )
         state = self.lap(
+            lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
                 timestep=timestep,
                 environment_state=environment_state,
-            )
+            ),
         )
         return state, None
 
     def init(self, key: Key) -> QuadinarosState:
-        environment_key, algorithm_key, pit_key, call_key = jax.random.split(key, 4)
+        environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
+        pit_key, call_key = jax.random.split(pit_key)
+        lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
         algorithm_state = self.algorithm.init(algorithm_key, timestep)
         return self.pit(
             call_key,
             self.lap(
+                step_key,
                 QuadinarosState(
                     timestep=timestep,
                     environment_state=environment_state,
                     dataset_state=self.dataset.init(),
                     algorithm_state=algorithm_state,
                     pit_state=self.pit.init(pit_key),
-                )
+                    lap_state=self.lap.init(lap_key),
+                ),
             ),
         )
 
@@ -116,16 +122,17 @@ class Quadinaros:
         return self.fit(state.replace(dataset_state=dataset_state), key, num_updates)
 
     def evaluate(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
-        reset_key, rollout_key, call_key = jax.random.split(key, 3)
+        reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
         state = self.pit(
             call_key,
             self.lap(
+                lap_key,
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
-                )
+                ),
             ),
         )
         state, _ = jax.lax.scan(
@@ -158,7 +165,7 @@ def make(
     environment: Environment,
     dataset: Dataset,
     pit: Pit[QuadinarosState] = Pit(),
-    lap: Lap[QuadinarosState] = lambda state: state,
+    lap: Lap[QuadinarosState] = Lap(),
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)
