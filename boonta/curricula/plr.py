@@ -133,7 +133,7 @@ class PLR(Pit):
     def slots(self) -> int:
         return self.environment.capacity + self.environment.staging
 
-    def tally(
+    def score_episodes(
         self, transitions: Transition, values: Array, advantages: Array
     ) -> LevelStats:
         def accumulate_episode(carry, step):
@@ -277,7 +277,7 @@ class PLR(Pit):
         advantages, _ = generalized_advantage_estimation(
             transitions, values, values[-1], self.gamma, self.gae_lambda
         )
-        return self.tally(
+        return self.score_episodes(
             jax.tree.map(lambda leaf: leaf[1:], transitions),
             values[1:],
             advantages[1:],

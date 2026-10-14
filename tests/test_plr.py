@@ -61,9 +61,9 @@ def rollout():
     return Transition(first=second, second=second, aux={}), values, advantages
 
 
-def test_a_tally_scores_each_finished_episode_on_the_level_it_played():
+def test_each_finished_episode_is_scored_on_the_level_it_played():
     transitions, values, advantages = rollout()
-    counted = jax.tree.map(np.asarray, pit().tally(transitions, values, advantages))
+    counted = jax.tree.map(np.asarray, pit().score_episodes(transitions, values, advantages))
     np.testing.assert_array_equal(counted.episodes, [0, 0, 2, 0, 0, 1])
     np.testing.assert_allclose(counted.regret[[2, 5]], [0.5 + 1 / 3, 3.0], rtol=1e-6)
     np.testing.assert_allclose(counted.value[[2, 5]], [5.0, 1.0], rtol=1e-6)
@@ -73,7 +73,7 @@ def test_a_tally_scores_each_finished_episode_on_the_level_it_played():
 
 def test_scores_are_the_positive_value_loss_or_the_maximum_monte_carlo_regret():
     transitions, values, advantages = rollout()
-    counted = pit().tally(transitions, values, advantages)
+    counted = pit().score_episodes(transitions, values, advantages)
     returns = jnp.full(6, -jnp.inf).at[2].set(4.0)
     regret = np.asarray(positive_value_loss(counted, returns))
     monte_carlo = np.asarray(maximum_monte_carlo(counted, returns))
@@ -115,7 +115,7 @@ def pit(capacity=3, staging=3):
 
 def fresh(scores):
     scored = jnp.array(scores, jnp.float32)
-    counted = pit().tally(*rollout()).replace(returns=jnp.zeros(len(scores)))
+    counted = pit().score_episodes(*rollout()).replace(returns=jnp.zeros(len(scores)))
     return scored, counted
 
 
@@ -155,7 +155,7 @@ def test_nothing_is_admitted_after_a_replay_rollout():
 
 
 def test_a_replayed_level_takes_its_new_score_and_best_return():
-    counted = pit().tally(*rollout()).replace(
+    counted = pit().score_episodes(*rollout()).replace(
         episodes=jnp.array([0, 2, 0, 0, 0, 0], jnp.float32),
         returns=jnp.array([0, 4.0, 0, 0, 0, 0]),
     )
