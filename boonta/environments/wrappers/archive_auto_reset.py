@@ -202,18 +202,6 @@ def reset_time_limit(state: PyTree) -> PyTree:
     return state
 
 
-def locate(state: PyTree) -> ArchiveAutoResetState:
-    while not isinstance(state, ArchiveAutoResetState):
-        state = state.env_state
-    return state
-
-
-def plant(state: PyTree, archive_auto_reset_state: ArchiveAutoResetState) -> PyTree:
-    if isinstance(state, ArchiveAutoResetState):
-        return archive_auto_reset_state
-    return state.replace(env_state=plant(state.env_state, archive_auto_reset_state))
-
-
 def unwrap(environment):
     env = environment
     while not isinstance(env, ArchiveAutoReset):
