@@ -228,7 +228,7 @@ class Blink(Dial):
 def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     algorithm = ppo()
     environment = SameStepAutoReset(Blink(), 8)
-    algorithm, environment, pit, lap = plr(
+    algorithm, environment, pit, lap = plr.make(
         algorithm,
         environment,
         buffer_size=4,

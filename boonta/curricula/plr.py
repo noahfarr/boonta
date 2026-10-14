@@ -325,7 +325,7 @@ class PLR(Pit):
         return state.replace(environment_state=environment_state)
 
 
-def plr(
+def make(
     algorithm: Algorithm,
     environment: Environment,
     buffer_size: int,

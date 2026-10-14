@@ -12,5 +12,5 @@ curriculum:
     width: ${environment.kwargs.width}
     n_walls: ${environment.kwargs.n_walls}
   score:
-    _target_: boonta.curricula.maximum_monte_carlo
+    _target_: boonta.curricula.plr.maximum_monte_carlo
     _partial_: true

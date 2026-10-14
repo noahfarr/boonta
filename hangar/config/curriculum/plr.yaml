@@ -1,4 +1,4 @@
-_target_: boonta.curricula.plr
+_target_: boonta.curricula.plr.make
 _partial_: true
 buffer_size: 4000
 replay_probability: 0.5
@@ -9,5 +9,5 @@ gamma: ${algorithm.gamma}
 gae_lambda: ${algorithm.gae_lambda}
 sample: ???
 score:
-  _target_: boonta.curricula.positive_value_loss
+  _target_: boonta.curricula.plr.positive_value_loss
   _partial_: true
