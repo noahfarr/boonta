@@ -19,10 +19,9 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from boonta.artisans.trueskill import RATER, TrueSkill, conservative, rate
 from boonta.curricula import psro
 from boonta.curricula.psro import (
-    PSRO, Learner, Member, Meta, always, either, even, fictitious_self_play,
-    forgotten, hard, ladder, latest, mixture, nash, periodic,
-    prioritized_fictitious_self_play,
-    prioritized_fictitious_self_play_vs_lineage, self_play, threshold)
+    PSRO, Learner, Member, Meta, always, either, even, exploit_lineage,
+    fictitious_self_play, forgotten, hard, ladder, latest, mixture, nash,
+    periodic, prioritized_fictitious_self_play, self_play, threshold)
 from boonta.environments.wrappers import Opponent
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -67,7 +66,7 @@ learners:
     lineage: exploiter
     checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.psro.prioritized_fictitious_self_play_vs_lineage
+      _target_: boonta.curricula.psro.exploit_lineage
       lineage: alakazam
       current: true
       weighting:
@@ -414,7 +413,7 @@ def test_a_restart_reads_the_pool_as_it_stood_before_the_update():
             prioritized_fictitious_self_play(hard()),
             periodic(3),
             resets=True,
-            restart=prioritized_fictitious_self_play_vs_lineage("main", hard(), current=True),
+            restart=exploit_lineage("main", hard(), current=True),
         ),
     ]
     config, podracer = build(learners)
@@ -493,7 +492,7 @@ def test_the_pit_seats_the_drawn_opponents_before_the_deal():
 
 def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity():
     learners = [
-        entry("main", prioritized_fictitious_self_play_vs_lineage("rival", hard())),
+        entry("main", exploit_lineage("rival", hard())),
         entry("exploiter", latest(), periodic(3), resets=True),
     ]
     pool = [
@@ -630,7 +629,7 @@ def test_a_league_state_offers_trueskill_one_subject_per_role():
         prioritized_fictitious_self_play(hard()),
         prioritized_fictitious_self_play(even()),
         nash(iterations=8),
-        prioritized_fictitious_self_play_vs_lineage("main", hard()),
+        exploit_lineage("main", hard()),
         forgotten("main", hard()),
         mixture([fictitious_self_play(), latest()], [0.3, 0.7]),
         ladder(latest(), fictitious_self_play()),
@@ -642,7 +641,7 @@ def test_a_league_state_offers_trueskill_one_subject_per_role():
         "prioritized_fictitious_self_play-hard",
         "prioritized_fictitious_self_play-even",
         "nash",
-        "prioritized_fictitious_self_play_vs_lineage",
+        "exploit_lineage",
         "forgotten",
         "mixture",
         "ladder",
@@ -659,9 +658,9 @@ def test_solvers_return_a_distribution_over_occupied_slots(solver):
 @pytest.mark.parametrize(
     "solver, allowed",
     [
-        (prioritized_fictitious_self_play_vs_lineage("main", hard()), {0, 2}),
-        (prioritized_fictitious_self_play_vs_lineage("rival", hard()), {1, 3}),
-        (prioritized_fictitious_self_play_vs_lineage("main", hard(), current=True), {0}),
+        (exploit_lineage("main", hard()), {0, 2}),
+        (exploit_lineage("rival", hard()), {1, 3}),
+        (exploit_lineage("main", hard(), current=True), {0}),
         (forgotten("rival", hard()), {1}),
     ],
     ids=["main", "rival", "current-main", "forgotten-rival"],

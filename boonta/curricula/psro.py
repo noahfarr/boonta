@@ -80,7 +80,7 @@ def prioritized_fictitious_self_play(weighting: Callable[[Array], Array]) -> Sol
     return solver
 
 
-def prioritized_fictitious_self_play_vs_lineage(
+def exploit_lineage(
     lineage: str, weighting: Callable[[Array], Array], current: bool = False
 ) -> Solver:
     def solver(meta: Meta) -> Array:
