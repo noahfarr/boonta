@@ -70,7 +70,7 @@ class LevelBuffer:
 class PLR(Pit):
     environment: UED
     buffer_size: int
-    staging_size: int
+    num_envs: int
     replay_probability: float
     staleness: float
     temperature: float
@@ -82,7 +82,7 @@ class PLR(Pit):
 
     @property
     def num_slots(self) -> int:
-        return self.buffer_size + self.staging_size
+        return self.buffer_size + self.num_envs
 
     def score_episodes(
         self, transitions: Transition, values: Array, advantages: Array
@@ -212,7 +212,7 @@ class PLR(Pit):
         return buffer, num_admitted
 
     def explore(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
-        fresh = jax.vmap(self.sample)(jax.random.split(key, self.staging_size))
+        fresh = jax.vmap(self.sample)(jax.random.split(key, self.num_envs))
         return buffer.replace(
             levels=jax.tree.map(
                 lambda leaf, new: leaf.at[self.buffer_size :].set(new),
@@ -221,11 +221,11 @@ class PLR(Pit):
             ),
             exploring=jnp.bool_(True),
             assignment=self.buffer_size
-            + jnp.arange(self.staging_size, dtype=jnp.int32),
+            + jnp.arange(self.num_envs, dtype=jnp.int32),
         )
 
     def replay(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
-        buffer, assignment = self.draw(buffer, key, self.staging_size)
+        buffer, assignment = self.draw(buffer, key, self.num_envs)
         return buffer.replace(exploring=jnp.bool_(False), assignment=assignment)
 
     def init(self, key: Key, state: PyTree) -> LevelBuffer:
@@ -240,7 +240,7 @@ class PLR(Pit):
             num_levels=jnp.int32(0),
             episodes=jnp.int32(0),
             exploring=jnp.bool_(True),
-            assignment=jnp.zeros(self.staging_size, jnp.int32),
+            assignment=jnp.zeros(self.num_envs, jnp.int32),
         )
         return self.explore(buffer, key)
 
@@ -261,7 +261,7 @@ class PLR(Pit):
             advantages[1:],
         )
         returns = jnp.concatenate(
-            [buffer.returns, jnp.full(self.staging_size, -jnp.inf, jnp.float32)]
+            [buffer.returns, jnp.full(self.num_envs, -jnp.inf, jnp.float32)]
         )
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
         buffer = self.update_scores(buffer, stats, scored)
@@ -339,12 +339,10 @@ def make(
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
 ) -> tuple[Algorithm, UED, PLR, Lap | None]:
-    staging_size = environment.num_envs
-    environment = UED(environment)
     pit = PLR(
-        environment,
+        UED(environment),
         buffer_size=buffer_size,
-        staging_size=staging_size,
+        num_envs=environment.num_envs,
         replay_probability=replay_probability,
         staleness=staleness,
         temperature=temperature,
@@ -354,4 +352,4 @@ def make(
         sample=sample,
         score=score,
     )
-    return algorithm, environment, pit, None
+    return algorithm, pit.environment, pit, None

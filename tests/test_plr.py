@@ -91,11 +91,11 @@ def buffer(scores, timestamps, num_levels, episodes, levels=None, exploring=Fals
     )
 
 
-def pit(buffer_size=3, staging_size=3):
+def pit(buffer_size=3, num_envs=3):
     return PLR(
         None,
         buffer_size=buffer_size,
-        staging_size=staging_size,
+        num_envs=num_envs,
         replay_probability=0.5,
         staleness=0.3,
         temperature=1.0,
@@ -212,7 +212,7 @@ def played(theta, cut=1):
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
     empty = buffer([-jnp.inf, -jnp.inf], [0, 0], 0, 0, jnp.arange(4.0) * 10, True)
-    state = pit(buffer_size=2, staging_size=2).update(
+    state = pit(buffer_size=2, num_envs=2).update(
         empty, jax.random.key(0), played(3, cut=2), None
     )
     assert int(state.num_levels) == 1
