@@ -68,7 +68,7 @@ class LevelBuffer:
 
 @dataclass
 class PLR(Pit):
-    ued: UED
+    environment: UED
     buffer_size: int
     staging_size: int
     replay_probability: float
@@ -312,7 +312,7 @@ class PLR(Pit):
 
         def assign(node):
             if isinstance(node, UEDState):
-                return self.ued.update(
+                return self.environment.update(
                     node, key, theta=buffer.levels, assign=buffer.assignment
                 )
             return node
