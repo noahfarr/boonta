@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Protocol, Self, TypeVar
 
-from boonta.utils import Key, PyTree, Timestep
+from boonta.utils import Key, PyTree, Timestep, Transition
 from boonta.utils.typing import EnvState
 
 State = TypeVar("State")
@@ -17,13 +17,36 @@ class PodracerState(Protocol):
     @property
     def algorithm_state(self) -> PyTree: ...
 
+    @property
+    def pit_state(self) -> PyTree: ...
+
+    @property
+    def lap_state(self) -> PyTree: ...
+
     def replace(self, **changes) -> Self: ...
 
 
-Boarded = TypeVar("Boarded", bound=PodracerState)
+class Lap:
+    def init(self, key: Key, state: PodracerState) -> PyTree:
+        return None
 
-Pit = Callable[[Boarded], Boarded]
-Lap = Callable[[Boarded], Boarded]
+    def __call__(self, key: Key, state: PodracerState) -> PodracerState:
+        return state
+
+
+class Pit(Lap):
+    def update(
+        self, state: PyTree, key: Key, transitions: Transition, algorithm_state: PyTree
+    ) -> PyTree:
+        return state
+
+
+class Stateless(Pit):
+    def __init__(self, call: Callable[[Key, PodracerState], PodracerState]):
+        self.call = call
+
+    def __call__(self, key: Key, state: PodracerState) -> PodracerState:
+        return self.call(key, state)
 
 
 class Podracer(Protocol[State]):

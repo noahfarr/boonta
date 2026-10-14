@@ -196,7 +196,9 @@ def build_sebulba(directory, combo):
     update = lox.spool(racer.update)
 
     def initialize(key):
-        environment_key, algorithm_key = jax.random.split(key)
+        environment_key, algorithm_key, lap_key, step_key, call_key = jax.random.split(
+            key, 5
+        )
         environment_state, timestep = racer.environment.init(
             jax.random.fold_in(environment_key, 0)
         )
@@ -207,13 +209,13 @@ def build_sebulba(directory, combo):
             environment_state=environment_state,
             carry=take(carry, 0, 1),
         )
-        rollout_state = racer.pit(racer.lap(actor_state.board(algorithm_state)))
-        num_laps = rollout_state.algorithm_state.step - algorithm_state.step
-        actor_state = ActorState(
-            timestep=rollout_state.timestep,
-            environment_state=rollout_state.environment_state,
-            carry=getattr(rollout_state.algorithm_state, "carry", None),
+        rollout_state = actor_state.board(algorithm_state)
+        rollout_state = rollout_state.replace(
+            lap_state=racer.lap.init(lap_key, rollout_state)
         )
+        rollout_state = racer.pit(call_key, racer.lap(step_key, rollout_state))
+        num_laps = rollout_state.algorithm_state.step - algorithm_state.step
+        actor_state = ActorState.alight(rollout_state)
         algorithm_state = algorithm_state.replace(step=algorithm_state.step + num_laps)
         return algorithm_state, actor_state
 
@@ -232,11 +234,7 @@ def build_sebulba(directory, combo):
         before = rollout_state.algorithm_state.step
         (rollout_state, transitions), logs = unroll(rollout_state, key)
         num_laps = rollout_state.algorithm_state.step - before
-        actor_state = ActorState(
-            timestep=rollout_state.timestep,
-            environment_state=rollout_state.environment_state,
-            carry=getattr(rollout_state.algorithm_state, "carry", None),
-        )
+        actor_state = ActorState.alight(rollout_state)
         return actor_state, transitions, num_laps, logs
 
     transitions_shape = jax.eval_shape(

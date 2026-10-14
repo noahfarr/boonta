@@ -14,15 +14,14 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from boonta.algorithms.wrappers.population import Population
-from boonta.algorithms.wrappers.psro import (PSRO, Learner, Member, Meta,
-                                             always, either, even, forgotten,
-                                             fsp, hard, ladder, latest,
-                                             mixture, nash, periodic, pfsp,
-                                             pfsp_vs_lineage, self_play,
-                                             threshold)
+from boonta.algorithms.wrappers.roster import Roster
 from boonta.algorithms.wrappers.wrapper import Wrapper
 from boonta.artisans.trueskill import RATER, TrueSkill, conservative, rate
-from boonta.curricula import league
+from boonta.curricula import psro
+from boonta.curricula.psro import (
+    PSRO, Learner, Member, Meta, always, either, even, exploit_lineage,
+    fictitious_self_play, forgotten, hard, ladder, latest, mixture, nash,
+    periodic, prioritized_fictitious_self_play, self_play, threshold)
 from boonta.environments.wrappers import Opponent
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -31,7 +30,7 @@ DEFAULT = Path(__file__).parents[1] / "hangar/config/curriculum/default.yaml"
 DECKS = ["alakazam", "thwackey"]
 
 LEAGUE = """
-_target_: boonta.curricula.league
+_target_: boonta.curricula.psro.make
 _partial_: true
 capacity: 1024
 decay: 0.995
@@ -41,39 +40,39 @@ pool:
   - {lineage: alakazam, checkpoint: alakazam.msgpack}
   - {lineage: thwackey, checkpoint: thwackey.msgpack}
 learners:
-  - _target_: boonta.algorithms.wrappers.psro.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: alakazam
-    warmstart: alakazam.msgpack
+    checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.algorithms.wrappers.psro.mixture
+      _target_: boonta.curricula.psro.mixture
       weights: [0.5, 0.5]
       solvers:
-        - _target_: boonta.algorithms.wrappers.psro.self_play
-        - _target_: boonta.algorithms.wrappers.psro.pfsp
+        - _target_: boonta.curricula.psro.self_play
+        - _target_: boonta.curricula.psro.prioritized_fictitious_self_play
           weighting:
-            _target_: boonta.algorithms.wrappers.psro.hard
+            _target_: boonta.curricula.psro.hard
     admit:
-      _target_: boonta.algorithms.wrappers.psro.periodic
+      _target_: boonta.curricula.psro.periodic
       every: 50
-  - _target_: boonta.algorithms.wrappers.psro.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: thwackey
-    warmstart: thwackey.msgpack
+    checkpoint: thwackey.msgpack
     solver:
-      _target_: boonta.algorithms.wrappers.psro.self_play
+      _target_: boonta.curricula.psro.self_play
     admit:
-      _target_: boonta.algorithms.wrappers.psro.periodic
+      _target_: boonta.curricula.psro.periodic
       every: 50
-  - _target_: boonta.algorithms.wrappers.psro.Learner
+  - _target_: boonta.curricula.psro.Learner
     lineage: exploiter
-    warmstart: alakazam.msgpack
+    checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.algorithms.wrappers.psro.pfsp_vs_lineage
+      _target_: boonta.curricula.psro.exploit_lineage
       lineage: alakazam
       current: true
       weighting:
-        _target_: boonta.algorithms.wrappers.psro.hard
+        _target_: boonta.curricula.psro.hard
     admit:
-      _target_: boonta.algorithms.wrappers.psro.threshold
+      _target_: boonta.curricula.psro.threshold
       level: 0.7
     resets: true
 """
@@ -267,7 +266,7 @@ def build(
     **extras,
 ):
     config = anakin.AnakinConfig(num_envs=num_envs, num_steps=4, mesh=mesh(2))
-    algorithm, environment, pit, lap = league(
+    algorithm, environment, pit, lap = psro.make(
         oracle or SkillAlgorithm(optimizer=optax.sgd(1.0)),
         MarginEnvironment(num_envs=num_envs),
         learners=learners,
@@ -319,36 +318,36 @@ def divide_population():
     Population(ToyAlgorithm(optax.sgd(0.1)), count=3).init(jax.random.key(0), slices(8))
 
 
-def divide_league():
-    build([entry("main"), entry("exploiter", latest()), entry("rival", fsp())])
+def divide_psro():
+    build([entry("main"), entry("exploiter", latest()), entry("rival", fictitious_self_play())])
 
 
 def test_a_league_trains_its_learners_and_keeps_the_meta_game():
     learners = [
         entry("main", latest()),
-        entry("exploiter", pfsp(hard()), periodic(3), resets=True),
+        entry("exploiter", prioritized_fictitious_self_play(hard()), periodic(3), resets=True),
     ]
     config, podracer = build(learners)
     state = podracer.init(jax.random.key(0))
 
-    algorithm_state = state.algorithm_state
-    assert algorithm_state.pool.shape == (8, 1)
-    assert algorithm_state.payoff.shape == (8, 8)
-    assert int(algorithm_state.members.sum()) == int(algorithm_state.cursor) == 2
-    assert len(algorithm_state.learners) == 2
+    league_state = state.pit_state
+    assert league_state.pool.shape == (8, 1)
+    assert league_state.payoff.shape == (8, 8)
+    assert int(league_state.members.sum()) == int(league_state.cursor) == 2
+    assert len(league_state.learners) == 2
 
     updates = 6
     state, logs = podracer.train(state, jax.random.key(1), updates)
 
-    algorithm_state = state.algorithm_state
-    main, exploiter = algorithm_state.algorithm_states
+    main, exploiter = state.algorithm_state.algorithm_states
     assert float(main.params[0]) == updates
     assert float(exploiter.params[0]) == 0.0
-    cursor = int(algorithm_state.cursor)
+    league_state = state.pit_state
+    cursor = int(league_state.cursor)
     assert 2 < cursor <= 8
-    assert int(algorithm_state.members.sum()) == cursor
-    payoff = np.asarray(algorithm_state.payoff)
-    counts = np.asarray(algorithm_state.counts)
+    assert int(league_state.members.sum()) == cursor
+    payoff = np.asarray(league_state.payoff)
+    counts = np.asarray(league_state.counts)
     np.testing.assert_allclose(payoff, -payoff.T, atol=1e-5)
     np.testing.assert_allclose(counts, counts.T, atol=1e-5)
     assert np.all(np.isfinite(payoff))
@@ -375,17 +374,17 @@ def test_league_state_is_replicated_while_returns_and_rivals_follow_the_environm
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 1)
 
-    algorithm_state = state.algorithm_state
+    league_state = state.pit_state
     for leaf in (
-        algorithm_state.pool,
-        algorithm_state.payoff,
-        algorithm_state.counts,
-        algorithm_state.members,
+        league_state.pool,
+        league_state.payoff,
+        league_state.counts,
+        league_state.members,
     ):
         assert_replicated(leaf, config.mesh)
-    for inner in algorithm_state.algorithm_states:
+    for inner in state.algorithm_state.algorithm_states:
         assert_replicated(inner.params, config.mesh)
-    for learner in algorithm_state.learners:
+    for learner in league_state.learners:
         assert_sharded(learner.returns, config.mesh)
     assert_replicated(state.environment_state.params, config.mesh)
     podracer.close(state)
@@ -401,7 +400,7 @@ def test_the_pool_mirrors_the_current_policy_after_every_update():
         params = float(inner.params[0])
         assert params == updates
         np.testing.assert_allclose(
-            float(np.asarray(state.algorithm_state.pool)[0, 0]), params, atol=1e-2
+            float(np.asarray(state.pit_state.pool)[0, 0]), params, atol=1e-2
         )
     podracer.close(state)
 
@@ -411,10 +410,10 @@ def test_a_restart_reads_the_pool_as_it_stood_before_the_update():
         entry("main"),
         entry(
             "exploiter",
-            pfsp(hard()),
+            prioritized_fictitious_self_play(hard()),
             periodic(3),
             resets=True,
-            restart=pfsp_vs_lineage("main", hard(), current=True),
+            restart=exploit_lineage("main", hard(), current=True),
         ),
     ]
     config, podracer = build(learners)
@@ -493,7 +492,7 @@ def test_the_pit_seats_the_drawn_opponents_before_the_deal():
 
 def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity():
     learners = [
-        entry("main", pfsp_vs_lineage("rival", hard())),
+        entry("main", exploit_lineage("rival", hard())),
         entry("exploiter", latest(), periodic(3), resets=True),
     ]
     pool = [
@@ -503,52 +502,48 @@ def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity()
     config, podracer = build(learners, capacity=6, pool=pool)
 
     state = podracer.init(jax.random.key(0))
-    algorithm_state = state.algorithm_state
-    assert int(algorithm_state.cursor) == 4
-    np.testing.assert_allclose(np.asarray(algorithm_state.pool)[2:4, 0], [1.5, 0.5])
-    assert np.asarray(algorithm_state.lineages)[2] == 2
+    league_state = state.pit_state
+    assert int(league_state.cursor) == 4
+    np.testing.assert_allclose(np.asarray(league_state.pool)[2:4, 0], [1.5, 0.5])
+    assert np.asarray(league_state.lineages)[2] == 2
 
     state, logs = podracer.train(state, jax.random.key(1), 6)
-    algorithm_state = state.algorithm_state
-    assert int(algorithm_state.cursor) == 6
-    assert int(algorithm_state.members.sum()) == 6
-    pool = np.asarray(algorithm_state.pool)
+    league_state = state.pit_state
+    assert int(league_state.cursor) == 6
+    assert int(league_state.members.sum()) == 6
+    pool = np.asarray(league_state.pool)
     np.testing.assert_allclose(pool[2:4, 0], [1.5, 0.5])
     np.testing.assert_allclose(pool[4:6, 0], [2.0, 3.0])
     assert np.all(np.isfinite(np.asarray(logs["learner_0/reference"])))
     podracer.close(state)
 
 
-def test_only_the_learners_that_name_a_warmstart_start_from_it():
+def test_only_the_learners_that_name_a_checkpoint_start_from_it():
     learners = [
-        entry("main", latest(), warmstart=jnp.array([3.0])),
+        entry("main", latest(), checkpoint=jnp.array([3.0])),
         entry("exploiter", latest(), periodic(3)),
     ]
     config, podracer = build(learners)
 
     state = podracer.init(jax.random.key(0))
     started, cold = state.algorithm_state.algorithm_states
-    warm, _ = state.algorithm_state.learners
+    warm, _ = state.algorithm_state.initial_states
 
     np.testing.assert_allclose(np.asarray(started.params), [3.0])
     np.testing.assert_allclose(np.asarray(cold.params), [0.0])
-    np.testing.assert_allclose(np.asarray(warm.initial_state.params), [3.0])
+    np.testing.assert_allclose(np.asarray(warm.params), [3.0])
 
 
-@pytest.mark.parametrize("divide", [divide_population, divide_league])
+@pytest.mark.parametrize("divide", [divide_population, divide_psro])
 def test_a_batch_that_does_not_divide_among_the_copies_is_rejected(divide):
     with pytest.raises(AssertionError, match="multiple of 3"):
         divide()
 
 
 def test_anchoring_needs_an_oracle_that_takes_auxiliary_losses():
-    learners = [entry(kl_coefficient=0.01)]
     with pytest.raises(AssertionError, match="auxiliary losses"):
-        PSRO(
-            algorithm=SkillAlgorithm(optimizer=optax.sgd(1.0)),
-            learners=learners,
-            capacity=4,
-            decay=0.9,
+        Roster(
+            SkillAlgorithm(optimizer=optax.sgd(1.0)), count=1, kl_coefficients=(0.01,)
         )
 
 
@@ -561,9 +556,9 @@ def test_a_learner_with_a_kl_coefficient_is_held_near_its_initial_parameters():
         state = podracer.init(jax.random.key(0))
         state, _ = podracer.train(state, jax.random.key(1), 6)
         (inner,) = state.algorithm_state.algorithm_states
-        (learner,) = state.algorithm_state.learners
+        (initial,) = state.algorithm_state.initial_states
         podracer.close(state)
-        return float(inner.params[0]), np.asarray(learner.initial_state.params)
+        return float(inner.params[0]), np.asarray(initial.params)
 
     free, free_initial = train(0.0)
     held, held_initial = train(5.0)
@@ -574,17 +569,11 @@ def test_a_learner_with_a_kl_coefficient_is_held_near_its_initial_parameters():
     np.testing.assert_allclose(held_initial, [0.0])
 
 
-def test_a_league_wraps_a_population_around_the_oracle():
+def test_a_roster_is_a_population_around_the_oracle():
     oracle = SkillAlgorithm(optimizer=optax.sgd(1.0))
-    wrapped = PSRO(
-        algorithm=oracle,
-        learners=[entry(resets=True)],
-        capacity=4,
-        decay=0.9,
-    )
-    assert isinstance(wrapped.algorithm, Population)
-    assert wrapped.algorithm.count == 1
-    assert wrapped.oracle is oracle
+    wrapped = Roster(oracle, count=1)
+    assert isinstance(wrapped, Population)
+    assert wrapped.algorithm is oracle
     assert wrapped.optimizer is oracle.optimizer
     assert wrapped.wraps(SkillAlgorithm)
     assert not wrapped.wraps(MarginEnvironment)
@@ -636,23 +625,23 @@ def test_a_league_state_offers_trueskill_one_subject_per_role():
     [
         self_play(),
         latest(),
-        fsp(),
-        pfsp(hard()),
-        pfsp(even()),
+        fictitious_self_play(),
+        prioritized_fictitious_self_play(hard()),
+        prioritized_fictitious_self_play(even()),
         nash(iterations=8),
-        pfsp_vs_lineage("main", hard()),
+        exploit_lineage("main", hard()),
         forgotten("main", hard()),
-        mixture([fsp(), latest()], [0.3, 0.7]),
-        ladder(latest(), fsp()),
+        mixture([fictitious_self_play(), latest()], [0.3, 0.7]),
+        ladder(latest(), fictitious_self_play()),
     ],
     ids=[
         "self_play",
         "latest",
-        "fsp",
-        "pfsp-hard",
-        "pfsp-even",
+        "fictitious_self_play",
+        "prioritized_fictitious_self_play-hard",
+        "prioritized_fictitious_self_play-even",
         "nash",
-        "pfsp_vs_lineage",
+        "exploit_lineage",
         "forgotten",
         "mixture",
         "ladder",
@@ -669,9 +658,9 @@ def test_solvers_return_a_distribution_over_occupied_slots(solver):
 @pytest.mark.parametrize(
     "solver, allowed",
     [
-        (pfsp_vs_lineage("main", hard()), {0, 2}),
-        (pfsp_vs_lineage("rival", hard()), {1, 3}),
-        (pfsp_vs_lineage("main", hard(), current=True), {0}),
+        (exploit_lineage("main", hard()), {0, 2}),
+        (exploit_lineage("rival", hard()), {1, 3}),
+        (exploit_lineage("main", hard(), current=True), {0}),
         (forgotten("rival", hard()), {1}),
     ],
     ids=["main", "rival", "current-main", "forgotten-rival"],
@@ -693,10 +682,10 @@ def test_lineage_solvers_pick_only_from_the_members_they_are_meant_to(solver, al
 
 
 def test_a_ladder_falls_back_only_while_the_primary_is_losing():
-    solver = ladder(latest(), fsp(), level=0.3)
+    solver = ladder(latest(), fictitious_self_play(), level=0.3)
 
     losing = meta(**record(-3.0, 3.0))
-    np.testing.assert_allclose(np.asarray(solver(losing)), np.asarray(fsp()(losing)))
+    np.testing.assert_allclose(np.asarray(solver(losing)), np.asarray(fictitious_self_play()(losing)))
 
     winning = meta(**record(3.0, 3.0))
     np.testing.assert_allclose(
@@ -736,7 +725,7 @@ def test_admission_follows_the_schedule_and_the_win_rate(
     assert bool(admit(state)) is admitted
 
 
-def test_league_composes_psro_learners_and_an_opponent_environment():
+def test_psro_composes_a_roster_an_opponent_environment_and_a_psro_pit():
     curriculum = instantiate(OmegaConf.create(LEAGUE))
     game = SimpleNamespace(num_agents=2)
     oracle = object()
@@ -760,31 +749,34 @@ def test_league_composes_psro_learners_and_an_opponent_environment():
         deal=deal,
     )
 
-    assert isinstance(algorithm, PSRO)
-    assert isinstance(algorithm.algorithm, Population)
-    assert algorithm.oracle is oracle
-    assert algorithm.algorithm.count == 3
-    assert [learner.lineage for learner in algorithm.learners] == DECKS + ["exploiter"]
-    assert [member.lineage for member in algorithm.pool] == DECKS
-    assert algorithm.names == (*DECKS, "exploiter")
-    assert algorithm.pool[0].params == "alakazam.msgpack"
-    assert sorted(algorithm.warmstarts) == list(range(3))
-    assert algorithm.warmstarts[2] == "alakazam.msgpack"
-    assert algorithm.capacity == 1024
+    assert isinstance(algorithm, Roster)
+    assert algorithm.algorithm is oracle
+    assert algorithm.count == 3
+    assert sorted(algorithm.initial_params) == list(range(3))
+    assert algorithm.initial_params[2] == "alakazam.msgpack"
+
+    assert isinstance(pit, PSRO)
+    assert pit.roster is algorithm
+    assert pit.opponent is environment
+    assert [learner.lineage for learner in pit.learners] == DECKS + ["exploiter"]
+    assert [member.lineage for member in pit.pool] == DECKS
+    assert pit.names == (*DECKS, "exploiter")
+    assert pit.pool[0].params == "alakazam.msgpack"
+    assert pit.capacity == 1024
 
     assert isinstance(environment, Opponent)
     assert environment.num_agents == 1
     assert game.num_agents == 2
 
     assert dealt["environment"] is environment
-    assert dealt["learners"] == algorithm.learners
-    assert dealt["lineages"] == algorithm.names
+    assert dealt["learners"] == pit.learners
+    assert dealt["lineages"] == pit.names
     assert dict(dealt["assignments"]) == {"exploiter": "alakazam"}
-    assert lap("state") == "state"
+    assert lap is None
 
 
 def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
-    algorithm, environment, state = object(), object(), object()
+    algorithm, environment = object(), object()
     curriculum = instantiate(OmegaConf.load(DEFAULT))
 
     wrapped, placed, pit, lap = curriculum(
@@ -799,8 +791,8 @@ def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
 
     assert wrapped is algorithm
     assert placed is environment
-    assert pit(state) is state
-    assert lap(state) is state
+    assert pit is None
+    assert lap is None
 
 
 @pytest.fixture(scope="module")

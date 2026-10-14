@@ -6,11 +6,11 @@ defaults:
 curriculum:
   replay_probability: 0.8
   temperature: 0.3
-  sample:
+  generate_level:
     _target_: boonta.environments.jaxued.maze_generator
     height: ${environment.kwargs.height}
     width: ${environment.kwargs.width}
     n_walls: ${environment.kwargs.n_walls}
   score:
-    _target_: boonta.curricula.maximum_monte_carlo
+    _target_: boonta.curricula.plr.maximum_monte_carlo
     _partial_: true
