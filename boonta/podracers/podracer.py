@@ -30,7 +30,7 @@ Boarded = TypeVar("Boarded", bound=PodracerState)
 
 
 class Lap(Generic[Boarded]):
-    def init(self, key: Key) -> PyTree:
+    def init(self, key: Key, state: Boarded) -> PyTree:
         return None
 
     def __call__(self, key: Key, state: Boarded) -> Boarded:

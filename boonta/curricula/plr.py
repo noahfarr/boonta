@@ -270,7 +270,7 @@ class Curator(Pit):
         )
         return buffer, levels, admitted
 
-    def init(self, key: Key) -> LevelStats:
+    def init(self, key: Key, state: PyTree) -> LevelStats:
         return empty_stats(self.slots)
 
     def update(

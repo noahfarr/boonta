@@ -153,13 +153,16 @@ class Sebulba:
         algorithm_state = jax.jit(self.algorithm.init, out_shardings=self.shardings)(
             jax.device_put(algorithm_key, replicated), timestep
         )
-        pit_state = jax.jit(self.pit.init)(jax.device_put(pit_key, replicated))
+        pit_state = jax.jit(self.pit.init)(
+            jax.device_put(pit_key, replicated),
+            RolloutState(timestep, None, algorithm_state),
+        )
         carry = getattr(algorithm_state, "carry", None)
         start = jax.device_get(algorithm_state.step)
 
         def begin(key, state):
             lap_key, step_key, call_key = jax.random.split(key, 3)
-            state = state.replace(lap_state=self.lap.init(lap_key))
+            state = state.replace(lap_state=self.lap.init(lap_key, state))
             return self.pit(call_key, self.lap(step_key, state))
 
         actors, num_laps = [], 0

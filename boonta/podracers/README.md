@@ -42,11 +42,11 @@ All three podracers take two hooks, `pit` and `lap`. Both default to doing nothi
 
 A `pit` is a [`Pit`](podracer.py) with three methods, like an algorithm that acts on the environment instead of the agent:
 
-- `init(key)` returns the pit's own state. The podracer keeps it in `state.pit_state`, replicated. The default returns `None`.
+- `init(key, state)` returns the pit's own state, built from the podracer's starting state. The podracer keeps it in `state.pit_state`, replicated. The default returns `None`.
 - `update(pit_state, key, transitions, algorithm_state)` learns from the rollout and returns the new pit state. It fires after every `algorithm.update`, with the transitions that update trained on and the updated algorithm state. It never touches the environment. On `quadinaros` the transitions are the sampled batch.
 - `pit(key, state)` acts: it reads `state.pit_state` and rewrites the environment, such as a curriculum choosing the next level or a league seating an opponent. It fires once per update, at `init`, after every `update`, and after `evaluate` restarts the environment. It never sees transitions.
 
-A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "data"}`.
+A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key, state)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "data"}`.
 
 `Stateless(fn)` turns a plain `fn(key, state)` into a pit or a lap with no state.
 

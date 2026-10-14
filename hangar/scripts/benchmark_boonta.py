@@ -73,8 +73,8 @@ class TrackedPit(Pit):
     def __init__(self, pit):
         self.pit = pit
 
-    def init(self, key):
-        return self.pit.init(key)
+    def init(self, key, state):
+        return self.pit.init(key, state)
 
     def update(self, state, key, transitions, algorithm_state):
         return px.track(name="pit/update")(self.pit.update)(
@@ -89,8 +89,8 @@ class TrackedLap(Lap):
     def __init__(self, lap):
         self.lap = lap
 
-    def init(self, key):
-        return self.lap.init(key)
+    def init(self, key, state):
+        return self.lap.init(key, state)
 
     def __call__(self, key, state):
         return px.track(name="lap")(self.lap)(key, state)

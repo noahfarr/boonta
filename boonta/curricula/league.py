@@ -52,8 +52,7 @@ def league(
         capacity=capacity,
         decay=decay,
         pool=tuple(
-            Member(lineage=spec.lineage, params=load(spec.checkpoint))
-            for spec in pool
+            Member(lineage=spec.lineage, params=load(spec.checkpoint)) for spec in pool
         ),
         warmstarts={
             index: load(learner.warmstart)
