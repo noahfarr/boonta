@@ -10,8 +10,8 @@ from .plr import maximum_monte_carlo, plr, positive_value_loss
 
 def default(
     algorithm: Algorithm, environment: Environment, **kwargs
-) -> tuple[Algorithm, Environment, Pit, Lap]:
-    return algorithm, environment, Pit(), Lap()
+) -> tuple[Algorithm, Environment, Pit, Lap | None]:
+    return algorithm, environment, Pit(), None
 
 
 __all__ = [

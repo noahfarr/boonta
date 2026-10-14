@@ -106,7 +106,7 @@ def benchmark(overrides, num_updates, seed):
     if components.get("environment") is not None:
         components["environment"] = TrackedEnvironment(components["environment"])
     components["pit"] = TrackedPit(components.get("pit", Pit()))
-    components["lap"] = TrackedLap(components.get("lap", Lap()))
+    components["lap"] = TrackedLap(components.get("lap") or Lap())
     podracer = instantiate(cfg.podracer)(**components)
     algorithm, environment = podracer.algorithm, podracer.environment
 

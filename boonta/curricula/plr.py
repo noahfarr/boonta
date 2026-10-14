@@ -458,7 +458,7 @@ def plr(
     sample: Callable[[Key], PyTree],
     score: Callable[[Tally, Array], Array] = positive_value_loss,
     **kwargs,
-) -> tuple[Graded, LevelBuffer, Curator, Lap]:
+) -> tuple[Graded, LevelBuffer, Curator, Lap | None]:
     environment = LevelBuffer(UED(environment), capacity, environment.num_envs, sample)
     algorithm = Graded(algorithm, capacity=capacity, robust=robust)
     curator = Curator(
@@ -472,4 +472,4 @@ def plr(
         sample=sample,
         score=score,
     )
-    return algorithm, environment, curator, Lap()
+    return algorithm, environment, curator, None

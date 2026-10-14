@@ -35,7 +35,11 @@ class Anakin:
     algorithm: Algorithm
     environment: Environment
     pit: Pit[AnakinState] = Pit()
-    lap: Lap[AnakinState] = Lap()
+    lap: Lap[AnakinState] | None = None
+
+    def __post_init__(self):
+        if self.lap is None:
+            self.lap = Lap()
 
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -144,7 +148,7 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     pit: Pit[AnakinState] = Pit(),
-    lap: Lap[AnakinState] = Lap(),
+    lap: Lap[AnakinState] | None = None,
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 

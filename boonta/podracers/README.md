@@ -38,7 +38,7 @@ Each podracer builds its shardings from the state's dataclass fields. A field ma
 
 ## pit and lap
 
-All three podracers take two hooks, `pit` and `lap`. Both default to doing nothing.
+All three podracers take two hooks, `pit` and `lap`. Both default to doing nothing, and `lap=None` means the same as `Lap()`.
 
 A `pit` is a [`Pit`](podracer.py) with three methods, like an algorithm that acts on the environment instead of the agent:
 

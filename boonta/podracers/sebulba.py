@@ -76,8 +76,12 @@ class Sebulba:
     algorithm: Algorithm
     environment: Environment
     pit: Pit[RolloutState] = Pit()
-    lap: Lap[RolloutState] = Lap()
+    lap: Lap[RolloutState] | None = None
     shardings: PyTree = None
+
+    def __post_init__(self):
+        if self.lap is None:
+            self.lap = Lap()
 
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -342,7 +346,7 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     pit: Pit[RolloutState] = Pit(),
-    lap: Lap[RolloutState] = Lap(),
+    lap: Lap[RolloutState] | None = None,
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)

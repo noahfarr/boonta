@@ -44,7 +44,7 @@ def league(
     pool=(),
     deal=lambda environment, learners, lineages, **table: lambda state: state,
     **table,
-) -> tuple[PSRO, Environment, Pit, Lap]:
+) -> tuple[PSRO, Environment, Pit, Lap | None]:
     learners = list(learners)
     psro = PSRO(
         algorithm=algorithm,
@@ -63,4 +63,4 @@ def league(
     )
     environment = Opponent(environment, play, initialize, groups=len(learners))
     dress = deal(environment, learners, psro.names, **table)
-    return psro, environment, Seat(psro, environment, dress), Lap()
+    return psro, environment, Seat(psro, environment, dress), None

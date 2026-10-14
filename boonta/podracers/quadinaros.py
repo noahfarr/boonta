@@ -40,7 +40,11 @@ class Quadinaros:
     environment: Environment
     dataset: Dataset
     pit: Pit[QuadinarosState] = Pit()
-    lap: Lap[QuadinarosState] = Lap()
+    lap: Lap[QuadinarosState] | None = None
+
+    def __post_init__(self):
+        if self.lap is None:
+            self.lap = Lap()
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
@@ -165,7 +169,7 @@ def make(
     environment: Environment,
     dataset: Dataset,
     pit: Pit[QuadinarosState] = Pit(),
-    lap: Lap[QuadinarosState] = Lap(),
+    lap: Lap[QuadinarosState] | None = None,
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)
