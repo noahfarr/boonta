@@ -134,7 +134,7 @@ def make(
     physics_engine = PhysicsEngine(static_env_params)
 
     if levels is not None:
-        count = jax.tree.leaves(levels)[0].shape[0]
+        count, *_ = jax.tree.leaves(levels)[0].shape
 
         def reset_fn(key):
             drawn = jax.random.randint(key, (), 0, count)
