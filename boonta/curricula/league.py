@@ -1,10 +1,35 @@
+from dataclasses import dataclass
+from typing import Callable
+
 import jax
 
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.psro import PSRO, Member
 from boonta.environments.wrappers import Opponent, OpponentState
-from boonta.podracers.podracer import Lap, Pit, Stateless
+from boonta.podracers.podracer import Lap, Pit
 from boonta.utils.typing import Environment
+
+
+@dataclass
+class Seat(Pit):
+    psro: PSRO
+    environment: Opponent
+    dress: Callable
+
+    def __call__(self, key, state):
+        opponents = self.psro.opponents(state.algorithm_state)
+
+        def seat(node):
+            if isinstance(node, OpponentState):
+                return self.environment.update(node, key, opponents=opponents)
+            return node
+
+        seated = jax.tree.map(
+            seat,
+            state.environment_state,
+            is_leaf=lambda node: isinstance(node, OpponentState),
+        )
+        return self.dress(state.replace(environment_state=seated))
 
 
 def league(
@@ -38,20 +63,4 @@ def league(
     )
     environment = Opponent(environment, play, initialize, groups=len(learners))
     dress = deal(environment, learners, psro.names, **table)
-
-    def pit(key, state):
-        opponents = psro.opponents(state.algorithm_state)
-
-        def seat(node):
-            if isinstance(node, OpponentState):
-                return environment.update(node, key, opponents=opponents)
-            return node
-
-        seated = jax.tree.map(
-            seat,
-            state.environment_state,
-            is_leaf=lambda node: isinstance(node, OpponentState),
-        )
-        return dress(state.replace(environment_state=seated))
-
-    return psro, environment, Stateless(pit), Lap()
+    return psro, environment, Seat(psro, environment, dress), Lap()
