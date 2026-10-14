@@ -163,7 +163,7 @@ def test_a_replayed_level_takes_its_new_score_and_best_return():
 
 
 def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played():
-    state = pit(num_envs=4).replay(
+    state = pit(num_envs=4).sample_levels(
         buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0)
     )
     assert int(state.episodes) == 14 and not state.exploring
@@ -173,7 +173,7 @@ def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played()
 
 
 def test_replay_draws_only_from_the_filled_part_of_the_buffer():
-    state = pit(num_envs=8).replay(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0))
+    state = pit(num_envs=8).sample_levels(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0))
     np.testing.assert_array_equal(state.assignment, 0)
     assert int(state.timestamps[0]) == 8
 

@@ -191,7 +191,7 @@ class PLR(Pit):
         )
         return buffer, num_admitted
 
-    def explore(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
+    def generate_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
         fresh = jax.vmap(self.generate_level)(jax.random.split(key, self.num_envs))
         return buffer.replace(
             levels=jax.tree.map(
@@ -204,7 +204,7 @@ class PLR(Pit):
             + jnp.arange(self.num_envs, dtype=jnp.int32),
         )
 
-    def replay(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
+    def sample_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
         buffer_size, *_ = buffer.scores.shape
 
         def pick_level(buffer, key):
@@ -237,7 +237,7 @@ class PLR(Pit):
             exploring=jnp.bool_(True),
             assignment=jnp.zeros(self.num_envs, jnp.int32),
         )
-        return self.explore(buffer, key)
+        return self.generate_levels(buffer, key)
 
     def update(
         self,
@@ -262,14 +262,14 @@ class PLR(Pit):
         buffer = self.update_scores(buffer, stats, scored)
         buffer, num_admitted = self.admit(buffer, stats, scored)
 
-        decide_key, replay_key, explore_key = jax.random.split(key, 3)
+        decide_key, sample_key, generate_key = jax.random.split(key, 3)
         replaying = (buffer.num_levels >= self.min_length) & (
             jax.random.uniform(decide_key) < self.replay_probability
         )
         buffer = jax.lax.cond(
             replaying,
-            lambda buffer: self.replay(buffer, replay_key),
-            lambda buffer: self.explore(buffer, explore_key),
+            lambda buffer: self.sample_levels(buffer, sample_key),
+            lambda buffer: self.generate_levels(buffer, generate_key),
             buffer,
         )
         self.report(buffer, stats, scored, num_admitted)
