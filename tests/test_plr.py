@@ -79,7 +79,7 @@ def test_scores_are_the_positive_value_loss_or_the_maximum_monte_carlo_regret():
     np.testing.assert_allclose(monte_carlo[[2, 5]], [1.5, 2.0], rtol=1e-6)
 
 
-def buffer(scores, timestamps, num_levels, episodes, levels=None, exploring=False):
+def buffer(scores, timestamps, num_levels, episodes, levels=None, admit=False):
     buffer_size = len(scores)
     return LevelBuffer(
         levels=levels,
@@ -88,8 +88,8 @@ def buffer(scores, timestamps, num_levels, episodes, levels=None, exploring=Fals
         returns=jnp.full(buffer_size, -jnp.inf),
         num_levels=jnp.int32(num_levels),
         episodes=jnp.int32(episodes),
-        exploring=jnp.bool_(exploring),
-        assignment=jnp.zeros(3, jnp.int32),
+        admit=jnp.bool_(admit),
+        level_indices=jnp.zeros(3, jnp.int32),
     )
 
 
@@ -119,7 +119,7 @@ def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_high
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 2.0, 0.5, -jnp.inf])
     state, num_admitted = pit().admit(
-        buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10, levels, exploring=True),
+        buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10, levels, admit=True),
         counted, scored,
     )
     np.testing.assert_array_equal(state.scores, [2.0, 5.0, 3.0])
@@ -132,7 +132,7 @@ def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, -5.0, -jnp.inf, -jnp.inf])
     state, num_admitted = pit().admit(
-        buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3, levels, exploring=True),
+        buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3, levels, admit=True),
         counted, scored,
     )
     assert int(state.num_levels) == 2 and int(num_admitted) == 1
@@ -166,15 +166,15 @@ def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played()
     state = pit(num_envs=4).sample_levels(
         buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0)
     )
-    assert int(state.episodes) == 14 and not state.exploring
-    indices = np.asarray(state.assignment)
+    assert int(state.episodes) == 14 and not state.admit
+    indices = np.asarray(state.level_indices)
     assert set(indices) <= {0, 1, 2}
     assert int(state.timestamps[indices[-1]]) == 14
 
 
 def test_replay_draws_only_from_the_filled_part_of_the_buffer():
     state = pit(num_envs=8).sample_levels(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0))
-    np.testing.assert_array_equal(state.assignment, 0)
+    np.testing.assert_array_equal(state.level_indices, 0)
     assert int(state.timestamps[0]) == 8
 
 
@@ -260,5 +260,5 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     for kept, held in zip(jax.tree.leaves(state.pit_state), jax.tree.leaves(evaluated.pit_state)):
         np.testing.assert_array_equal(kept, held)
     np.testing.assert_array_equal(
-        evaluated.environment_state.env_state.upcoming, state.pit_state.assignment
+        evaluated.environment_state.env_state.upcoming, state.pit_state.level_indices
     )

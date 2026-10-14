@@ -40,8 +40,8 @@ class LevelBuffer:
     returns: Array
     num_levels: Array
     episodes: Array
-    exploring: Array
-    assignment: Array
+    admit: Array
+    level_indices: Array
 
 
 @dataclass
@@ -74,7 +74,12 @@ class PLR(Pit):
             length = length + 1.0
             finished = (positive / length, value / length, reward)
             kept = 1.0 - done
-            return (positive * kept, value * kept, reward * kept, length * kept), finished
+            return (
+                positive * kept,
+                value * kept,
+                reward * kept,
+                length * kept,
+            ), finished
 
         zeros = jnp.zeros(values.shape[1:], jnp.float32)
         done = transitions.second.done.astype(jnp.float32)
@@ -148,7 +153,6 @@ class PLR(Pit):
     ) -> tuple[LevelBuffer, Array]:
         buffer_size, *_ = buffer.scores.shape
         num_slots, *_ = scored.shape
-        exploring = buffer.exploring
 
         def insert_level(carry, source):
             buffer, num_admitted = carry
@@ -157,8 +161,8 @@ class PLR(Pit):
                 buffer.num_levels,
                 jnp.argmin(self.replay_weights(buffer)),
             )
-            replaced = exploring & (buffer.scores[target] < scored[source])
-            episodes = buffer.episodes + exploring.astype(jnp.int32)
+            replaced = buffer.admit & (buffer.scores[target] < scored[source])
+            episodes = buffer.episodes + buffer.admit.astype(jnp.int32)
             buffer = buffer.replace(
                 scores=buffer.scores.at[target].set(
                     jnp.where(replaced, scored[source], buffer.scores[target])
@@ -192,16 +196,15 @@ class PLR(Pit):
         return buffer, num_admitted
 
     def generate_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
-        fresh = jax.vmap(self.generate_level)(jax.random.split(key, self.num_envs))
+        levels = jax.vmap(self.generate_level)(jax.random.split(key, self.num_envs))
         return buffer.replace(
             levels=jax.tree.map(
                 lambda leaf, new: leaf.at[self.buffer_size :].set(new),
                 buffer.levels,
-                fresh,
+                levels,
             ),
-            exploring=jnp.bool_(True),
-            assignment=self.buffer_size
-            + jnp.arange(self.num_envs, dtype=jnp.int32),
+            admit=jnp.bool_(True),
+            level_indices=self.buffer_size + jnp.arange(self.num_envs, dtype=jnp.int32),
         )
 
     def sample_levels(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
@@ -218,10 +221,10 @@ class PLR(Pit):
             )
             return buffer, index
 
-        buffer, assignment = jax.lax.scan(
+        buffer, level_indices = jax.lax.scan(
             pick_level, buffer, jax.random.split(key, self.num_envs)
         )
-        return buffer.replace(exploring=jnp.bool_(False), assignment=assignment)
+        return buffer.replace(admit=jnp.bool_(False), level_indices=level_indices)
 
     def init(self, key: Key, state: PyTree) -> LevelBuffer:
         buffer = LevelBuffer(
@@ -234,8 +237,8 @@ class PLR(Pit):
             returns=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
             num_levels=jnp.int32(0),
             episodes=jnp.int32(0),
-            exploring=jnp.bool_(True),
-            assignment=jnp.zeros(self.num_envs, jnp.int32),
+            admit=jnp.bool_(True),
+            level_indices=jnp.zeros(self.num_envs, jnp.int32),
         )
         return self.generate_levels(buffer, key)
 
@@ -308,7 +311,7 @@ class PLR(Pit):
         def assign(node):
             if isinstance(node, UEDState):
                 return self.environment.update(
-                    node, key, theta=buffer.levels, assign=buffer.assignment
+                    node, key, theta=buffer.levels, assign=buffer.level_indices
                 )
             return node
 
