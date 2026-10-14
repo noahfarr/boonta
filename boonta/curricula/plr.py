@@ -77,7 +77,7 @@ class PLR(Pit):
     min_length: int
     gamma: float
     gae_lambda: float
-    sample: Callable[[Key], PyTree]
+    generate_level: Callable[[Key], PyTree]
     score: Callable[[LevelStats, Array], Array]
 
     @property
@@ -213,7 +213,7 @@ class PLR(Pit):
         return buffer, num_admitted
 
     def explore(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
-        fresh = jax.vmap(self.sample)(jax.random.split(key, self.num_envs))
+        fresh = jax.vmap(self.generate_level)(jax.random.split(key, self.num_envs))
         return buffer.replace(
             levels=jax.tree.map(
                 lambda leaf, new: leaf.at[self.buffer_size :].set(new),
@@ -233,7 +233,7 @@ class PLR(Pit):
         buffer = LevelBuffer(
             levels=jax.tree.map(
                 lambda leaf: jnp.zeros((self.num_slots, *leaf.shape), leaf.dtype),
-                jax.eval_shape(self.sample, key),
+                jax.eval_shape(self.generate_level, key),
             ),
             scores=jnp.full(self.buffer_size, -jnp.inf, jnp.float32),
             timestamps=jnp.zeros(self.buffer_size, jnp.int32),
@@ -336,7 +336,7 @@ def make(
     min_length: int,
     gamma: float,
     gae_lambda: float,
-    sample: Callable[[Key], PyTree],
+    generate_level: Callable[[Key], PyTree],
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
 ) -> tuple[Algorithm, UED, PLR, Lap | None]:
@@ -350,7 +350,7 @@ def make(
         min_length=min_length,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        sample=sample,
+        generate_level=generate_level,
         score=score,
     )
     return algorithm, pit.environment, pit, None

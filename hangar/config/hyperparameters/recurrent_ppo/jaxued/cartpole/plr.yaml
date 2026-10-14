@@ -6,7 +6,7 @@ defaults:
 curriculum:
   replay_probability: 0.8
   temperature: 0.3
-  sample:
+  generate_level:
     _target_: boonta.environments.jaxued.control_generator
     env_id: ${environment.env_id}
   score:

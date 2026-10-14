@@ -102,7 +102,7 @@ def pit(buffer_size=3, num_envs=3):
         min_length=1,
         gamma=0.99,
         gae_lambda=0.95,
-        sample=lambda key: jax.random.uniform(key),
+        generate_level=lambda key: jax.random.uniform(key),
         score=positive_value_loss,
     )
 
@@ -238,7 +238,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
         min_length=2,
         gamma=0.99,
         gae_lambda=0.95,
-        sample=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),
+        generate_level=lambda key: jax.random.uniform(key, minval=1.0, maxval=2.0),
     )
     environment = RecordEpisodeStatistics(environment)
     config = anakin.AnakinConfig(num_envs=8, num_steps=8, mesh=mesh(1))
