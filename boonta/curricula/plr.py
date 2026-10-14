@@ -163,105 +163,6 @@ class LevelBuffer(Wrapper):
         return state.replace(env_state=env_state), timestep
 
 
-def update_scores(buffer: LevelBufferState, stats: LevelStats, scored: Array) -> LevelBufferState:
-    capacity = buffer.scores.shape[0]
-    finished = (stats.episodes[:capacity] > 0) & (jnp.arange(capacity) < buffer.size)
-    return buffer.replace(
-        scores=jnp.where(finished, scored[:capacity], buffer.scores),
-        returns=jnp.where(
-            finished,
-            jnp.maximum(buffer.returns, stats.returns[:capacity]),
-            buffer.returns,
-        ),
-    )
-
-
-def draw_levels(
-    buffer: LevelBufferState,
-    key: Key,
-    count: int,
-    temperature: float,
-    staleness: float,
-) -> tuple[LevelBufferState, Array]:
-    (capacity,) = buffer.scores.shape
-
-    def pick_level(buffer, key):
-        weights = replay_weights(
-            buffer.scores,
-            buffer.timestamps,
-            buffer.size,
-            buffer.episodes,
-            temperature,
-            staleness,
-        )
-        index = jax.random.choice(key, capacity, p=weights).astype(jnp.int32)
-        episodes = buffer.episodes + 1
-        buffer = buffer.replace(
-            timestamps=buffer.timestamps.at[index].set(episodes), episodes=episodes
-        )
-        return buffer, index
-
-    return jax.lax.scan(pick_level, buffer, jax.random.split(key, count))
-
-
-def admit_levels(
-    buffer: LevelBufferState,
-    levels,
-    stats: LevelStats,
-    scored: Array,
-    exploring: Array,
-    temperature: float,
-    staleness: float,
-):
-    capacity = buffer.scores.shape[0]
-    slots = scored.shape[0]
-
-    def insert_level(carry, source):
-        buffer, levels, admitted = carry
-        weights = replay_weights(
-            buffer.scores,
-            buffer.timestamps,
-            buffer.size,
-            buffer.episodes,
-            temperature,
-            staleness,
-        )
-        target = jnp.where(
-            buffer.size < capacity,
-            buffer.size,
-            jnp.argmin(weights),
-        )
-        replaced = exploring & (buffer.scores[target] < scored[source])
-        episodes = buffer.episodes + exploring.astype(jnp.int32)
-        buffer = buffer.replace(
-            scores=buffer.scores.at[target].set(
-                jnp.where(replaced, scored[source], buffer.scores[target])
-            ),
-            returns=buffer.returns.at[target].set(
-                jnp.where(replaced, stats.returns[source], buffer.returns[target])
-            ),
-            timestamps=buffer.timestamps.at[target].set(
-                jnp.where(replaced, episodes, buffer.timestamps[target])
-            ),
-            size=jnp.where(
-                replaced, jnp.minimum(buffer.size + 1, capacity), buffer.size
-            ),
-            episodes=episodes,
-        )
-        levels = jax.tree.map(
-            lambda leaf: leaf.at[target].set(
-                jnp.where(replaced, leaf[source], leaf[target])
-            ),
-            levels,
-        )
-        return (buffer, levels, admitted + replaced.astype(jnp.int32)), None
-
-    (buffer, levels, admitted), _ = jax.lax.scan(
-        insert_level, (buffer, levels, jnp.int32(0)), jnp.arange(capacity, slots)
-    )
-    return buffer, levels, admitted
-
-
 @dataclass
 class Curator(Pit):
     environment: LevelBuffer
@@ -277,6 +178,97 @@ class Curator(Pit):
     @property
     def slots(self) -> int:
         return self.environment.capacity + self.environment.staging
+
+    def weights(self, buffer: LevelBufferState) -> Array:
+        return replay_weights(
+            buffer.scores,
+            buffer.timestamps,
+            buffer.size,
+            buffer.episodes,
+            self.temperature,
+            self.staleness,
+        )
+
+    def rescore(
+        self, buffer: LevelBufferState, stats: LevelStats, scored: Array
+    ) -> LevelBufferState:
+        buffer_size, *_ = buffer.scores.shape
+        mask = (stats.episodes[:buffer_size] > 0) & (
+            jnp.arange(buffer_size) < buffer.size
+        )
+        return buffer.replace(
+            scores=jnp.where(mask, scored[:buffer_size], buffer.scores),
+            returns=jnp.where(
+                mask,
+                jnp.maximum(buffer.returns, stats.returns[:buffer_size]),
+                buffer.returns,
+            ),
+        )
+
+    def draw(
+        self, buffer: LevelBufferState, key: Key, count: int
+    ) -> tuple[LevelBufferState, Array]:
+        (capacity,) = buffer.scores.shape
+
+        def pick_level(buffer, key):
+            index = jax.random.choice(key, capacity, p=self.weights(buffer))
+            index = index.astype(jnp.int32)
+            episodes = buffer.episodes + 1
+            buffer = buffer.replace(
+                timestamps=buffer.timestamps.at[index].set(episodes),
+                episodes=episodes,
+            )
+            return buffer, index
+
+        return jax.lax.scan(pick_level, buffer, jax.random.split(key, count))
+
+    def admit(
+        self,
+        buffer: LevelBufferState,
+        levels,
+        stats: LevelStats,
+        scored: Array,
+        exploring: Array,
+    ):
+        capacity = buffer.scores.shape[0]
+        slots = scored.shape[0]
+
+        def insert_level(carry, source):
+            buffer, levels, admitted = carry
+            target = jnp.where(
+                buffer.size < capacity,
+                buffer.size,
+                jnp.argmin(self.weights(buffer)),
+            )
+            replaced = exploring & (buffer.scores[target] < scored[source])
+            episodes = buffer.episodes + exploring.astype(jnp.int32)
+            buffer = buffer.replace(
+                scores=buffer.scores.at[target].set(
+                    jnp.where(replaced, scored[source], buffer.scores[target])
+                ),
+                returns=buffer.returns.at[target].set(
+                    jnp.where(replaced, stats.returns[source], buffer.returns[target])
+                ),
+                timestamps=buffer.timestamps.at[target].set(
+                    jnp.where(replaced, episodes, buffer.timestamps[target])
+                ),
+                size=jnp.where(
+                    replaced, jnp.minimum(buffer.size + 1, capacity), buffer.size
+                ),
+                episodes=episodes,
+            )
+            levels = jax.tree.map(
+                lambda leaf: leaf.at[target].set(
+                    jnp.where(replaced, leaf[source], leaf[target])
+                ),
+                levels,
+            )
+            return (buffer, levels, admitted + replaced.astype(jnp.int32)), None
+
+        (buffer, levels, admitted), _ = jax.lax.scan(
+            insert_level, (buffer, levels, jnp.int32(0)), jnp.arange(capacity, slots)
+        )
+        return buffer, levels, admitted
 
     def init(self, key: Key) -> LevelStats:
         return empty_stats(self.slots)
@@ -310,21 +302,14 @@ class Curator(Pit):
 
     def curate(self, buffer: LevelBufferState, stats: LevelStats, key: Key):
         capacity, staging = self.environment.capacity, self.environment.staging
-        temperature, staleness = self.temperature, self.staleness
         returns = jnp.concatenate(
             [buffer.returns, jnp.full(staging, -jnp.inf, jnp.float32)]
         )
         scored = jnp.where(stats.episodes > 0, self.score(stats, returns), -jnp.inf)
 
-        buffer = update_scores(buffer, stats, scored)
-        buffer, levels, admitted = admit_levels(
-            buffer,
-            buffer.theta,
-            stats,
-            scored,
-            buffer.exploring,
-            temperature,
-            staleness,
+        buffer = self.rescore(buffer, stats, scored)
+        buffer, levels, admitted = self.admit(
+            buffer, buffer.theta, stats, scored, buffer.exploring
         )
 
         update_key, decide_key, draw_key, sample_key = jax.random.split(key, 4)
@@ -333,7 +318,7 @@ class Curator(Pit):
         )
 
         def replay(buffer, levels):
-            buffer, assignment = draw_levels(buffer, draw_key, staging, temperature, staleness)
+            buffer, assignment = self.draw(buffer, draw_key, staging)
             return buffer, levels, assignment
 
         def explore(buffer, levels):
@@ -348,14 +333,7 @@ class Curator(Pit):
         buffer, levels, assignment = jax.lax.cond(
             replaying, replay, explore, buffer, levels
         )
-        level_weights = replay_weights(
-            buffer.scores,
-            buffer.timestamps,
-            buffer.size,
-            buffer.episodes,
-            temperature,
-            staleness,
-        )
+        level_weights = self.weights(buffer)
 
         valid = jnp.arange(capacity) < buffer.size
         finished = stats.episodes.sum()

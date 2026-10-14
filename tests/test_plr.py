@@ -9,11 +9,10 @@ from flax import struct
 import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
-from boonta.curricula.plr import (Curator, LevelBufferState, admit_levels,
-                                  draw_levels, maximum_monte_carlo,
-                                  positive_value_loss, rank_weights,
-                                  replay_weights, staleness_weights,
-                                  tally_episodes, update_scores)
+from boonta.curricula.plr import (Curator, LevelBufferState,
+                                  maximum_monte_carlo, positive_value_loss,
+                                  rank_weights, replay_weights,
+                                  staleness_weights, tally_episodes)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -100,6 +99,20 @@ def buffer(scores, timestamps, size, episodes):
     )
 
 
+def curator(capacity=3, staging=3):
+    return Curator(
+        SimpleNamespace(capacity=capacity, staging=staging),
+        replay_probability=0.5,
+        staleness=0.3,
+        temperature=1.0,
+        minimum_fill=0.5,
+        gamma=0.99,
+        gae_lambda=0.95,
+        sample=None,
+        score=positive_value_loss,
+    )
+
+
 def fresh(scores):
     scored = jnp.array(scores, jnp.float32)
     counted = tally_episodes(*rollout(), slots=len(scores)).replace(returns=jnp.zeros(len(scores)))
@@ -109,9 +122,9 @@ def fresh(scores):
 def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_higher():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 2.0, 0.5, -jnp.inf])
-    state, levels, admitted = admit_levels(
+    state, levels, admitted = curator().admit(
         buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10),
-        levels, counted, scored, jnp.bool_(True), 1.0, 0.3,
+        levels, counted, scored, jnp.bool_(True),
     )
     np.testing.assert_array_equal(state.scores, [2.0, 5.0, 3.0])
     np.testing.assert_array_equal(levels[:3], [30.0, 10.0, 20.0])
@@ -122,9 +135,9 @@ def test_a_fresh_level_replaces_the_lowest_weighted_level_only_if_it_scores_high
 def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, -5.0, -jnp.inf, -jnp.inf])
-    state, levels, admitted = admit_levels(
+    state, levels, admitted = curator().admit(
         buffer([7.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
-        levels, counted, scored, jnp.bool_(True), 1.0, 0.3,
+        levels, counted, scored, jnp.bool_(True),
     )
     assert int(state.size) == 2 and int(admitted) == 1
     np.testing.assert_array_equal(state.scores[:2], [7.0, -5.0])
@@ -134,9 +147,9 @@ def test_any_scored_fresh_level_enters_a_buffer_that_is_not_full():
 def test_nothing_is_admitted_after_a_replay_rollout():
     levels = jnp.arange(6.0) * 10
     scored, counted = fresh([0, 0, 0, 9.0, 9.0, 9.0])
-    state, levels, admitted = admit_levels(
+    state, levels, admitted = curator().admit(
         buffer([1.0, -jnp.inf, -jnp.inf], [0, 0, 0], 1, 3),
-        levels, counted, scored, jnp.bool_(False), 1.0, 0.3,
+        levels, counted, scored, jnp.bool_(False),
     )
     assert int(state.size) == 1 and int(admitted) == 0 and int(state.episodes) == 3
 
@@ -147,14 +160,14 @@ def test_a_replayed_level_takes_its_new_score_and_best_return():
         returns=jnp.array([0, 4.0, 0, 0, 0, 0]),
     )
     scored = jnp.array([0, 9.0, 0, 0, 0, 0])
-    state = update_scores(buffer([1.0, 5.0, 3.0], [1, 2, 3], 3, 10), counted, scored)
+    state = curator().rescore(buffer([1.0, 5.0, 3.0], [1, 2, 3], 3, 10), counted, scored)
     np.testing.assert_array_equal(state.scores, [1.0, 9.0, 3.0])
     np.testing.assert_array_equal(state.returns[1], 4.0)
     np.testing.assert_array_equal(state.timestamps, [1, 2, 3])
 
 
 def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played():
-    state, indices = draw_levels(buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0), 4, 1.0, 0.3)
+    state, indices = curator().draw(buffer([1.0, 5.0, 3.0], [10, 10, 10], 3, 10), jax.random.key(0), 4)
     assert int(state.episodes) == 14
     indices = np.asarray(indices)
     assert set(indices) <= {0, 1, 2}
@@ -162,7 +175,7 @@ def test_each_replay_draw_counts_an_episode_and_marks_its_level_as_just_played()
 
 
 def test_replay_draws_only_from_the_filled_part_of_the_buffer():
-    state, indices = draw_levels(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0), 8, 1.0, 0.3)
+    state, indices = curator().draw(buffer([1.0, 5.0, 3.0], [0, 0, 0], 1, 0), jax.random.key(0), 8)
     np.testing.assert_array_equal(indices, 0)
     assert int(state.timestamps[0]) == 8
 
@@ -204,18 +217,9 @@ def played(theta, cut=1):
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    pit = Curator(
-        SimpleNamespace(capacity=1, staging=2),
-        replay_probability=0.5,
-        staleness=0.3,
-        temperature=1.0,
-        minimum_fill=0.5,
-        gamma=0.99,
-        gae_lambda=0.95,
-        sample=None,
-        score=positive_value_loss,
+    counted = curator(capacity=1, staging=2).update(
+        None, jax.random.key(0), played(2), None
     )
-    counted = pit.update(None, jax.random.key(0), played(2), None)
     np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
 
 
