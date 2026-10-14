@@ -139,7 +139,8 @@ class SkillAlgorithm:
         )
 
     def step(self, state, key, timestep, temperature=1.0):
-        action = jnp.broadcast_to(state.params[0], (timestep.obs.shape[0],))
+        num_envs, *_ = timestep.obs.shape
+        action = jnp.broadcast_to(state.params[0], (num_envs,))
         return state, action, {}
 
     def loss(self, params):
@@ -176,7 +177,8 @@ class Anchorable(SkillAlgorithm):
 @dataclass
 class Thermal(SkillAlgorithm):
     def step(self, state, key, timestep, temperature=1.0):
-        return state, jnp.full((timestep.obs.shape[0],), temperature), {}
+        num_envs, *_ = timestep.obs.shape
+        return state, jnp.full((num_envs,), temperature), {}
 
 
 @dataclass

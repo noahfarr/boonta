@@ -68,9 +68,10 @@ class UED(Wrapper):
         drawn = jnp.full(self.num_envs, -1, jnp.int32)
         if state.weights is not None:
             weighted = state.weights.sum() > 0
+            num_slots, *_ = state.weights.shape
             sampled = jax.random.choice(
                 key,
-                state.weights.shape[0],
+                num_slots,
                 (self.num_envs,),
                 p=jnp.where(weighted, state.weights, 1.0),
             ).astype(jnp.int32)
@@ -149,8 +150,10 @@ class UED(Wrapper):
                 upcoming=jnp.asarray(assign, jnp.int32),
             )
         if state.theta is not None and state.weights is not None:
-            (capacity,) = state.weights.shape
-            assert all(
-                leaf.shape[0] == capacity for leaf in jax.tree.leaves(state.theta)
-            ), "theta and weights must hold one entry per slot"
+            num_slots, *_ = state.weights.shape
+            for leaf in jax.tree.leaves(state.theta):
+                leaf_slots, *_ = leaf.shape
+                assert (
+                    leaf_slots == num_slots
+                ), "theta and weights must hold one entry per slot"
         return state
