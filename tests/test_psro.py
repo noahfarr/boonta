@@ -17,7 +17,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.algorithms.wrappers.roster import Roster
 from boonta.algorithms.wrappers.wrapper import Wrapper
 from boonta.artisans.trueskill import RATER, TrueSkill, conservative, rate
-from boonta.curricula import league
+from boonta.curricula import psro
 from boonta.curricula.psro import (PSRO, Learner, Member, Meta, always, either,
                                    even, forgotten, fsp, hard, ladder, latest,
                                    mixture, nash, periodic, pfsp,
@@ -30,7 +30,7 @@ DEFAULT = Path(__file__).parents[1] / "hangar/config/curriculum/default.yaml"
 DECKS = ["alakazam", "thwackey"]
 
 LEAGUE = """
-_target_: boonta.curricula.league
+_target_: boonta.curricula.psro
 _partial_: true
 capacity: 1024
 decay: 0.995
@@ -40,39 +40,39 @@ pool:
   - {lineage: alakazam, checkpoint: alakazam.msgpack}
   - {lineage: thwackey, checkpoint: thwackey.msgpack}
 learners:
-  - _target_: boonta.curricula.psro.Learner
+  - _target_: boonta.curricula.Learner
     lineage: alakazam
     warmstart: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.psro.mixture
+      _target_: boonta.curricula.mixture
       weights: [0.5, 0.5]
       solvers:
-        - _target_: boonta.curricula.psro.self_play
-        - _target_: boonta.curricula.psro.pfsp
+        - _target_: boonta.curricula.self_play
+        - _target_: boonta.curricula.pfsp
           weighting:
-            _target_: boonta.curricula.psro.hard
+            _target_: boonta.curricula.hard
     admit:
-      _target_: boonta.curricula.psro.periodic
+      _target_: boonta.curricula.periodic
       every: 50
-  - _target_: boonta.curricula.psro.Learner
+  - _target_: boonta.curricula.Learner
     lineage: thwackey
     warmstart: thwackey.msgpack
     solver:
-      _target_: boonta.curricula.psro.self_play
+      _target_: boonta.curricula.self_play
     admit:
-      _target_: boonta.curricula.psro.periodic
+      _target_: boonta.curricula.periodic
       every: 50
-  - _target_: boonta.curricula.psro.Learner
+  - _target_: boonta.curricula.Learner
     lineage: exploiter
     warmstart: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.psro.pfsp_vs_lineage
+      _target_: boonta.curricula.pfsp_vs_lineage
       lineage: alakazam
       current: true
       weighting:
-        _target_: boonta.curricula.psro.hard
+        _target_: boonta.curricula.hard
     admit:
-      _target_: boonta.curricula.psro.threshold
+      _target_: boonta.curricula.threshold
       level: 0.7
     resets: true
 """
@@ -266,7 +266,7 @@ def build(
     **extras,
 ):
     config = anakin.AnakinConfig(num_envs=num_envs, num_steps=4, mesh=mesh(2))
-    algorithm, environment, pit, lap = league(
+    algorithm, environment, pit, lap = psro(
         oracle or SkillAlgorithm(optimizer=optax.sgd(1.0)),
         MarginEnvironment(num_envs=num_envs),
         learners=learners,
@@ -318,7 +318,7 @@ def divide_population():
     Population(ToyAlgorithm(optax.sgd(0.1)), count=3).init(jax.random.key(0), slices(8))
 
 
-def divide_league():
+def divide_psro():
     build([entry("main"), entry("exploiter", latest()), entry("rival", fsp())])
 
 
@@ -534,7 +534,7 @@ def test_only_the_learners_that_name_a_warmstart_start_from_it():
     np.testing.assert_allclose(np.asarray(warm.params), [3.0])
 
 
-@pytest.mark.parametrize("divide", [divide_population, divide_league])
+@pytest.mark.parametrize("divide", [divide_population, divide_psro])
 def test_a_batch_that_does_not_divide_among_the_copies_is_rejected(divide):
     with pytest.raises(AssertionError, match="multiple of 3"):
         divide()
@@ -725,7 +725,7 @@ def test_admission_follows_the_schedule_and_the_win_rate(
     assert bool(admit(state)) is admitted
 
 
-def test_league_composes_a_roster_an_opponent_environment_and_a_psro_pit():
+def test_psro_composes_a_roster_an_opponent_environment_and_a_psro_pit():
     curriculum = instantiate(OmegaConf.create(LEAGUE))
     game = SimpleNamespace(num_agents=2)
     oracle = object()

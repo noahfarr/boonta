@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import reduce
 from typing import Protocol
 
@@ -7,10 +7,12 @@ import jax
 import jax.numpy as jnp
 import lox
 from flax import struct
+from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.roster import Roster, RosterState
 from boonta.environments.wrappers import Opponent, OpponentState
-from boonta.podracers.podracer import Pit
+from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key, PyTree, Transition, conditional_update, take
+from boonta.utils.typing import Environment
 
 
 @dataclass
@@ -492,3 +494,43 @@ class PSRO(Pit):
                 environment_state=seated,
             )
         )
+
+
+def psro(
+    algorithm: Algorithm,
+    environment: Environment,
+    learners,
+    play,
+    initialize,
+    capacity,
+    decay,
+    load=lambda checkpoint: checkpoint,
+    pool=(),
+    deal=lambda environment, learners, lineages, **table: lambda state: state,
+    **table,
+) -> tuple[Roster, Environment, PSRO, Lap | None]:
+    learners = list(learners)
+    roster = Roster(
+        algorithm,
+        count=len(learners),
+        warmstarts={
+            index: load(learner.warmstart)
+            for index, learner in enumerate(learners)
+            if learner.warmstart is not None
+        },
+        kl_coefficients=tuple(learner.kl_coefficient for learner in learners),
+    )
+    environment = Opponent(environment, play, initialize, groups=len(learners))
+    pit = PSRO(
+        roster=roster,
+        opponent=environment,
+        learners=learners,
+        capacity=capacity,
+        decay=decay,
+        pool=tuple(
+            Member(lineage=spec.lineage, params=load(spec.checkpoint))
+            for spec in pool
+        ),
+    )
+    pit = replace(pit, dress=deal(environment, learners, pit.names, **table))
+    return roster, environment, pit, None
