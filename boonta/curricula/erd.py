@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from boonta.algorithms import Algorithm
 from boonta.environments.wrappers.archive_auto_reset import (
-    ArchiveAutoReset, ArchiveAutoResetState, pick, share, unwrap)
+    ArchiveAutoReset, ArchiveAutoResetState, pick, unwrap)
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Array, Key
 from boonta.utils.typing import Environment
@@ -16,12 +16,16 @@ class ERD(Pit):
     environment: ArchiveAutoReset
     k: float = 4.0
 
+    @property
+    def num_placed(self) -> int:
+        assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
+        return int(round((1.0 - 1.0 / self.k) * self.environment.num_envs))
+
     def select(self, archive_auto_reset_state: ArchiveAutoResetState, key: Key) -> Array:
         eligible_mask = self.environment.archive.eligible(
             archive_auto_reset_state.archive_state
         )
-        num_placed = share(self.k, self.environment.num_envs)
-        return pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (num_placed,))
+        return pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (self.num_placed,))
 
     def __call__(self, key: Key, state):
         select_key, assign_key = jax.random.split(key)
