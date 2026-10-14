@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from typing import Protocol, Self, TypeVar
 
 from boonta.utils import Key, PyTree, Timestep, Transition
@@ -39,14 +38,6 @@ class Pit(Lap):
         self, state: PyTree, key: Key, transitions: Transition, algorithm_state: PyTree
     ) -> PyTree:
         return state
-
-
-class Stateless(Pit):
-    def __init__(self, call: Callable[[Key, PodracerState], PodracerState]):
-        self.call = call
-
-    def __call__(self, key: Key, state: PodracerState) -> PodracerState:
-        return self.call(key, state)
 
 
 class Podracer(Protocol[State]):
