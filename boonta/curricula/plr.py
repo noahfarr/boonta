@@ -143,24 +143,6 @@ class PLR(Pit):
             ),
         )
 
-    def draw(
-        self, buffer: LevelBuffer, key: Key, count: int
-    ) -> tuple[LevelBuffer, Array]:
-        buffer_size, *_ = buffer.scores.shape
-
-        def pick_level(buffer, key):
-            weights = self.replay_weights(buffer)
-            index = jax.random.choice(key, buffer_size, p=weights)
-            index = index.astype(jnp.int32)
-            episodes = buffer.episodes + 1
-            buffer = buffer.replace(
-                timestamps=buffer.timestamps.at[index].set(episodes),
-                episodes=episodes,
-            )
-            return buffer, index
-
-        return jax.lax.scan(pick_level, buffer, jax.random.split(key, count))
-
     def admit(
         self, buffer: LevelBuffer, stats: LevelStats, scored: Array
     ) -> tuple[LevelBuffer, Array]:
@@ -223,7 +205,22 @@ class PLR(Pit):
         )
 
     def replay(self, buffer: LevelBuffer, key: Key) -> LevelBuffer:
-        buffer, assignment = self.draw(buffer, key, self.num_envs)
+        buffer_size, *_ = buffer.scores.shape
+
+        def pick_level(buffer, key):
+            weights = self.replay_weights(buffer)
+            index = jax.random.choice(key, buffer_size, p=weights)
+            index = index.astype(jnp.int32)
+            episodes = buffer.episodes + 1
+            buffer = buffer.replace(
+                timestamps=buffer.timestamps.at[index].set(episodes),
+                episodes=episodes,
+            )
+            return buffer, index
+
+        buffer, assignment = jax.lax.scan(
+            pick_level, buffer, jax.random.split(key, self.num_envs)
+        )
         return buffer.replace(exploring=jnp.bool_(False), assignment=assignment)
 
     def init(self, key: Key, state: PyTree) -> LevelBuffer:
