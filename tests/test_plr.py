@@ -8,10 +8,11 @@ import zoo
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.curricula import plr
 from boonta.curricula.plr import (LevelBufferState, admit_levels,
-                                  draw_levels, maximum_monte_carlo,
-                                  positive_value_loss, rank_weights,
-                                  replay_weights, staleness_weights,
-                                  tally_episodes, tally_rollout, update_scores)
+                                  draw_levels, level_stats,
+                                  maximum_monte_carlo, positive_value_loss,
+                                  rank_weights, replay_weights,
+                                  staleness_weights, tally_episodes,
+                                  update_scores)
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
@@ -202,7 +203,7 @@ def played(theta, cut=1):
 
 
 def test_the_cut_that_opens_a_rollout_is_never_scored():
-    counted = tally_rollout(played(2), slots=3, gamma=0.99, gae_lambda=0.95)
+    counted = level_stats(played(2), slots=3, gamma=0.99, gae_lambda=0.95)
     np.testing.assert_array_equal(counted.episodes, [0, 0, 4])
 
 

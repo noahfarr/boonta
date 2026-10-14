@@ -70,7 +70,7 @@ def tally_episodes(
     )
 
 
-def tally_rollout(
+def level_stats(
     transitions: Transition, slots: int, gamma: float, gae_lambda: float
 ) -> LevelStats:
     values = transitions.aux["value"]
@@ -299,7 +299,7 @@ class Curator(Pit):
     def update(
         self, state: LevelStats, key: Key, transitions: Transition, algorithm_state: PyTree
     ) -> LevelStats:
-        return tally_rollout(transitions, self.slots, self.gamma, self.gae_lambda)
+        return level_stats(transitions, self.slots, self.gamma, self.gae_lambda)
 
     def __call__(self, key: Key, state):
         def curate(node):
