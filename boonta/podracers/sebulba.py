@@ -121,17 +121,19 @@ class Sebulba:
         keys = jax.random.split(rollout_key, self.config.num_steps)
         return jax.lax.scan(partial(self.rollout, temperature=1.0), state, keys)
 
-    def update(self, algorithm_state: PyTree, key: Key, transitions: Transition):
-        return self.algorithm.update(algorithm_state, key, transitions)
-
-    def renew(
+    def update(
         self,
+        algorithm_state: PyTree,
         pit_state: PyTree,
         key: Key,
         transitions: Transition,
-        algorithm_state: PyTree,
     ):
-        return self.pit.update(pit_state, key, transitions, algorithm_state)
+        algorithm_key, pit_key = jax.random.split(key)
+        algorithm_state = self.algorithm.update(
+            algorithm_state, algorithm_key, transitions
+        )
+        pit_state = self.pit.update(pit_state, pit_key, transitions, algorithm_state)
+        return algorithm_state, pit_state
 
     def init(self, key: Key) -> SebulbaState:
         replicated = NamedSharding(self.config.learner, P())
@@ -204,7 +206,7 @@ class Sebulba:
         sharded = NamedSharding(self.config.learner, P(None, "data"))
         devices = list(self.config.actor.devices.flat)
         num_devices = len(devices)
-        actor_key, learner_key, pit_key = jax.random.split(key, 3)
+        actor_key, learner_key = jax.random.split(key)
 
         parameter_queues = [queue.Queue() for _ in devices]
         rollout_queues = [queue.Queue() for _ in devices]
@@ -285,19 +287,13 @@ class Sebulba:
                 update_key = jax.device_put(
                     jax.random.fold_in(learner_key, update), replicated
                 )
-                algorithm_state, update_log = self.update(
-                    algorithm_state, update_key, transitions
-                )
-                renew_key = jax.device_put(
-                    jax.random.fold_in(pit_key, update), replicated
-                )
-                pit_state, pit_log = self.renew(
-                    pit_state, renew_key, transitions, algorithm_state
+                (algorithm_state, pit_state), update_log = self.update(
+                    algorithm_state, pit_state, update_key, transitions
                 )
                 for parameter_queue in parameter_queues:
                     parameter_queue.put((algorithm_state, pit_state))
                 log = concatenate([log for _, _, log, _ in deliveries])
-                logs.append(log | update_log | pit_log)
+                logs.append(log | update_log)
             for worker in workers:
                 worker.result()
         finally:
@@ -388,9 +384,9 @@ def make(
         lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))
     )
     podracer.update = jax.jit(
-        lox.spool(podracer.update), out_shardings=(podracer.shardings, replicated)
+        lox.spool(podracer.update),
+        out_shardings=((podracer.shardings, replicated), replicated),
     )
-    podracer.renew = jax.jit(lox.spool(podracer.renew), out_shardings=replicated)
     podracer.assess = jax.jit(
         lox.spool(lox.strip(podracer.assess, tags=["training"])),
         static_argnums=(2,),
