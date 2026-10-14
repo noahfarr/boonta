@@ -248,7 +248,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     podracer = anakin.make(config, algorithm, environment, pit, lap)
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 12)
-    sizes = np.asarray(logs["archive/num_levels"])
+    sizes = np.asarray(logs["buffer/num_levels"])
     assert sizes.ravel()[-1] == 4
     assert (np.asarray(logs["mu/fraction"]) > 0).any()
     played = np.asarray(state.environment_state.env_state.env_state.playing)

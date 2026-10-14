@@ -331,9 +331,9 @@ class PLR(Pit):
         fresh = stats.episodes[buffer_size:] > 0
         lox.log(
             {
-                "archive/num_levels": buffer.num_levels,
-                "archive/num_admitted": num_admitted,
-                "archive/score": jnp.where(valid, buffer.scores, 0.0).sum()
+                "buffer/num_levels": buffer.num_levels,
+                "buffer/num_admitted": num_admitted,
+                "buffer/score": jnp.where(valid, buffer.scores, 0.0).sum()
                 / jnp.maximum(buffer.num_levels, 1),
                 "mu/score": jnp.where(valid, level_weights * buffer.scores, 0.0).sum(),
                 "mu/fraction": stats.episodes[:buffer_size].sum()
