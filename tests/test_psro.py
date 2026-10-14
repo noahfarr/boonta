@@ -42,7 +42,7 @@ pool:
 learners:
   - _target_: boonta.curricula.Learner
     lineage: alakazam
-    warmstart: alakazam.msgpack
+    checkpoint: alakazam.msgpack
     solver:
       _target_: boonta.curricula.mixture
       weights: [0.5, 0.5]
@@ -56,7 +56,7 @@ learners:
       every: 50
   - _target_: boonta.curricula.Learner
     lineage: thwackey
-    warmstart: thwackey.msgpack
+    checkpoint: thwackey.msgpack
     solver:
       _target_: boonta.curricula.self_play
     admit:
@@ -64,7 +64,7 @@ learners:
       every: 50
   - _target_: boonta.curricula.Learner
     lineage: exploiter
-    warmstart: alakazam.msgpack
+    checkpoint: alakazam.msgpack
     solver:
       _target_: boonta.curricula.pfsp_vs_lineage
       lineage: alakazam
@@ -518,9 +518,9 @@ def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity()
     podracer.close(state)
 
 
-def test_only_the_learners_that_name_a_warmstart_start_from_it():
+def test_only_the_learners_that_name_a_checkpoint_start_from_it():
     learners = [
-        entry("main", latest(), warmstart=jnp.array([3.0])),
+        entry("main", latest(), checkpoint=jnp.array([3.0])),
         entry("exploiter", latest(), periodic(3)),
     ]
     config, podracer = build(learners)
@@ -752,8 +752,8 @@ def test_psro_composes_a_roster_an_opponent_environment_and_a_psro_pit():
     assert isinstance(algorithm, Roster)
     assert algorithm.algorithm is oracle
     assert algorithm.count == 3
-    assert sorted(algorithm.warmstarts) == list(range(3))
-    assert algorithm.warmstarts[2] == "alakazam.msgpack"
+    assert sorted(algorithm.initial_params) == list(range(3))
+    assert algorithm.initial_params[2] == "alakazam.msgpack"
 
     assert isinstance(pit, PSRO)
     assert pit.roster is algorithm

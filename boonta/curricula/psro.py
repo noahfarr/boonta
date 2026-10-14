@@ -196,7 +196,7 @@ class Learner:
     resets: bool = False
     restart: Solver | None = None
     kl_coefficient: float = 0.0
-    warmstart: str | None = None
+    checkpoint: str | None = None
 
 
 @dataclass
@@ -517,10 +517,10 @@ def psro(
     roster = Roster(
         algorithm,
         count=len(learners),
-        warmstarts={
-            index: load(learner.warmstart)
+        initial_params={
+            index: load(learner.checkpoint)
             for index, learner in enumerate(learners)
-            if learner.warmstart is not None
+            if learner.checkpoint is not None
         },
         kl_coefficients=tuple(learner.kl_coefficient for learner in learners),
     )

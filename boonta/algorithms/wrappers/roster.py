@@ -16,7 +16,7 @@ class RosterState(PopulationState):
 
 @dataclass
 class Roster(Population):
-    warmstarts: dict[int, PyTree] = field(default_factory=dict)
+    initial_params: dict[int, PyTree] = field(default_factory=dict)
     kl_coefficients: tuple[float, ...] = ()
 
     def __post_init__(self):
@@ -32,7 +32,7 @@ class Roster(Population):
         state = super().init(key, timestep)
         algorithm_states = tuple(
             algorithm_state.replace(
-                params=self.warmstarts.get(index, algorithm_state.params)
+                params=self.initial_params.get(index, algorithm_state.params)
             )
             for index, algorithm_state in enumerate(state.algorithm_states)
         )
