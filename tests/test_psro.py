@@ -18,10 +18,11 @@ from boonta.algorithms.wrappers.roster import Roster
 from boonta.algorithms.wrappers.wrapper import Wrapper
 from boonta.artisans.trueskill import RATER, TrueSkill, conservative, rate
 from boonta.curricula import psro
-from boonta.curricula.psro import (PSRO, Learner, Member, Meta, always, either,
-                                   even, forgotten, fsp, hard, ladder, latest,
-                                   mixture, nash, periodic, pfsp,
-                                   pfsp_vs_lineage, self_play, threshold)
+from boonta.curricula.psro import (
+    PSRO, Learner, Member, Meta, always, either, even, fictitious_self_play,
+    forgotten, hard, ladder, latest, mixture, nash, periodic,
+    prioritized_fictitious_self_play,
+    prioritized_fictitious_self_play_vs_lineage, self_play, threshold)
 from boonta.environments.wrappers import Opponent
 from boonta.podracers import anakin
 from boonta.utils import Timestep, Transition, mesh
@@ -48,7 +49,7 @@ learners:
       weights: [0.5, 0.5]
       solvers:
         - _target_: boonta.curricula.psro.self_play
-        - _target_: boonta.curricula.psro.pfsp
+        - _target_: boonta.curricula.psro.prioritized_fictitious_self_play
           weighting:
             _target_: boonta.curricula.psro.hard
     admit:
@@ -66,7 +67,7 @@ learners:
     lineage: exploiter
     checkpoint: alakazam.msgpack
     solver:
-      _target_: boonta.curricula.psro.pfsp_vs_lineage
+      _target_: boonta.curricula.psro.prioritized_fictitious_self_play_vs_lineage
       lineage: alakazam
       current: true
       weighting:
@@ -319,13 +320,13 @@ def divide_population():
 
 
 def divide_psro():
-    build([entry("main"), entry("exploiter", latest()), entry("rival", fsp())])
+    build([entry("main"), entry("exploiter", latest()), entry("rival", fictitious_self_play())])
 
 
 def test_a_league_trains_its_learners_and_keeps_the_meta_game():
     learners = [
         entry("main", latest()),
-        entry("exploiter", pfsp(hard()), periodic(3), resets=True),
+        entry("exploiter", prioritized_fictitious_self_play(hard()), periodic(3), resets=True),
     ]
     config, podracer = build(learners)
     state = podracer.init(jax.random.key(0))
@@ -410,10 +411,10 @@ def test_a_restart_reads_the_pool_as_it_stood_before_the_update():
         entry("main"),
         entry(
             "exploiter",
-            pfsp(hard()),
+            prioritized_fictitious_self_play(hard()),
             periodic(3),
             resets=True,
-            restart=pfsp_vs_lineage("main", hard(), current=True),
+            restart=prioritized_fictitious_self_play_vs_lineage("main", hard(), current=True),
         ),
     ]
     config, podracer = build(learners)
@@ -492,7 +493,7 @@ def test_the_pit_seats_the_drawn_opponents_before_the_deal():
 
 def test_the_initial_pool_is_never_overwritten_and_admission_stops_at_capacity():
     learners = [
-        entry("main", pfsp_vs_lineage("rival", hard())),
+        entry("main", prioritized_fictitious_self_play_vs_lineage("rival", hard())),
         entry("exploiter", latest(), periodic(3), resets=True),
     ]
     pool = [
@@ -625,23 +626,23 @@ def test_a_league_state_offers_trueskill_one_subject_per_role():
     [
         self_play(),
         latest(),
-        fsp(),
-        pfsp(hard()),
-        pfsp(even()),
+        fictitious_self_play(),
+        prioritized_fictitious_self_play(hard()),
+        prioritized_fictitious_self_play(even()),
         nash(iterations=8),
-        pfsp_vs_lineage("main", hard()),
+        prioritized_fictitious_self_play_vs_lineage("main", hard()),
         forgotten("main", hard()),
-        mixture([fsp(), latest()], [0.3, 0.7]),
-        ladder(latest(), fsp()),
+        mixture([fictitious_self_play(), latest()], [0.3, 0.7]),
+        ladder(latest(), fictitious_self_play()),
     ],
     ids=[
         "self_play",
         "latest",
-        "fsp",
-        "pfsp-hard",
-        "pfsp-even",
+        "fictitious_self_play",
+        "prioritized_fictitious_self_play-hard",
+        "prioritized_fictitious_self_play-even",
         "nash",
-        "pfsp_vs_lineage",
+        "prioritized_fictitious_self_play_vs_lineage",
         "forgotten",
         "mixture",
         "ladder",
@@ -658,9 +659,9 @@ def test_solvers_return_a_distribution_over_occupied_slots(solver):
 @pytest.mark.parametrize(
     "solver, allowed",
     [
-        (pfsp_vs_lineage("main", hard()), {0, 2}),
-        (pfsp_vs_lineage("rival", hard()), {1, 3}),
-        (pfsp_vs_lineage("main", hard(), current=True), {0}),
+        (prioritized_fictitious_self_play_vs_lineage("main", hard()), {0, 2}),
+        (prioritized_fictitious_self_play_vs_lineage("rival", hard()), {1, 3}),
+        (prioritized_fictitious_self_play_vs_lineage("main", hard(), current=True), {0}),
         (forgotten("rival", hard()), {1}),
     ],
     ids=["main", "rival", "current-main", "forgotten-rival"],
@@ -682,10 +683,10 @@ def test_lineage_solvers_pick_only_from_the_members_they_are_meant_to(solver, al
 
 
 def test_a_ladder_falls_back_only_while_the_primary_is_losing():
-    solver = ladder(latest(), fsp(), level=0.3)
+    solver = ladder(latest(), fictitious_self_play(), level=0.3)
 
     losing = meta(**record(-3.0, 3.0))
-    np.testing.assert_allclose(np.asarray(solver(losing)), np.asarray(fsp()(losing)))
+    np.testing.assert_allclose(np.asarray(solver(losing)), np.asarray(fictitious_self_play()(losing)))
 
     winning = meta(**record(3.0, 3.0))
     np.testing.assert_allclose(

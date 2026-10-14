@@ -58,7 +58,7 @@ def latest() -> Solver:
     return solver
 
 
-def fsp() -> Solver:
+def fictitious_self_play() -> Solver:
     def solver(meta: Meta) -> Array:
         weight = meta.members.astype(jnp.float32)
         return weight / weight.sum()
@@ -73,14 +73,14 @@ def weighted(meta: Meta, eligible: Array, weighting: Callable) -> Array:
     return jnp.where(total > 0, weight / jnp.maximum(total, 1e-8), uniform)
 
 
-def pfsp(weighting: Callable[[Array], Array]) -> Solver:
+def prioritized_fictitious_self_play(weighting: Callable[[Array], Array]) -> Solver:
     def solver(meta: Meta) -> Array:
         return weighted(meta, meta.members > 0, weighting)
 
     return solver
 
 
-def pfsp_vs_lineage(
+def prioritized_fictitious_self_play_vs_lineage(
     lineage: str, weighting: Callable[[Array], Array], current: bool = False
 ) -> Solver:
     def solver(meta: Meta) -> Array:
