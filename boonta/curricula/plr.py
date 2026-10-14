@@ -74,7 +74,7 @@ class PLR(Pit):
     replay_probability: float
     staleness: float
     temperature: float
-    minimum_fill: float
+    min_length: int
     gamma: float
     gae_lambda: float
     sample: Callable[[Key], PyTree]
@@ -268,7 +268,7 @@ class PLR(Pit):
         buffer, num_admitted = self.admit(buffer, stats, scored)
 
         decide_key, replay_key, explore_key = jax.random.split(key, 3)
-        replaying = (buffer.num_levels / self.buffer_size >= self.minimum_fill) & (
+        replaying = (buffer.num_levels >= self.min_length) & (
             jax.random.uniform(decide_key) < self.replay_probability
         )
         buffer = jax.lax.cond(
@@ -332,7 +332,7 @@ def make(
     replay_probability: float,
     staleness: float,
     temperature: float,
-    minimum_fill: float,
+    min_length: int,
     gamma: float,
     gae_lambda: float,
     sample: Callable[[Key], PyTree],
@@ -346,7 +346,7 @@ def make(
         replay_probability=replay_probability,
         staleness=staleness,
         temperature=temperature,
-        minimum_fill=minimum_fill,
+        min_length=min_length,
         gamma=gamma,
         gae_lambda=gae_lambda,
         sample=sample,
