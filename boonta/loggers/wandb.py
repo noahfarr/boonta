@@ -2,7 +2,7 @@ import jax
 import numpy as np
 import wandb
 
-from boonta.artisans import Checkpoint, Text, Video
+from boonta.artisans import Checkpoint, Metrics, Text, Video
 from boonta.utils import PyTree
 
 
@@ -81,6 +81,9 @@ class WandbLogger:
             return
         if isinstance(artifact, Checkpoint):
             self.checkpoint = artifact
+        elif isinstance(artifact, Metrics):
+            for run in self.runs.values():
+                run.log(dict(artifact.data), step=step)
         elif isinstance(artifact, Text):
             html = wandb.Html(f"<pre>{artifact.data}</pre>")
             for run in self.runs.values():

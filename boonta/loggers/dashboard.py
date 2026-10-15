@@ -14,7 +14,7 @@ from rich.progress import (BarColumn, Progress, SpinnerColumn, TextColumn,
                            TimeElapsedColumn, TimeRemainingColumn)
 from rich.table import Table
 
-from boonta.artisans import Text
+from boonta.artisans import Metrics, Text
 from boonta.utils import PyTree
 
 def uncover() -> None:
@@ -77,6 +77,8 @@ class DashboardLogger:
             k: np.array([np.asarray(row).mean() for row in v], dtype=np.float64)
             for k, v in data.items()
         }
+        if step == self._step:
+            metrics = {**self._metrics, **metrics}
         self._metrics, self._step = metrics, step
         self.progress.update(self.progress_task, completed=step)
         dashboard = self.build_dashboard(
@@ -85,6 +87,8 @@ class DashboardLogger:
         self.live.update(dashboard, refresh=True)
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
+        if isinstance(artifact, Metrics):
+            self.log({k: np.reshape(v, (1, 1)) for k, v in artifact.data.items()}, steps=step)
         if jax.process_index() == 0 and isinstance(artifact, Text):
             self.generations[artifact.name] = artifact.data
             self.live.update(

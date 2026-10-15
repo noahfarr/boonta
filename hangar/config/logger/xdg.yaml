@@ -1,0 +1,3 @@
+# @package loggers.xdg
+_target_: boonta.loggers.XdgLogger
+directory: ${hydra:runtime.output_dir}

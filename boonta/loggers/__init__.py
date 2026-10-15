@@ -1,6 +1,7 @@
 from .file import FileLogger
 from .logger import Logger, MultiLogger
 from .orbax import OrbaxLogger
+from .xdg import XdgLogger
 
 __all__ = [
     "DashboardLogger",
@@ -9,6 +10,7 @@ __all__ = [
     "MultiLogger",
     "OrbaxLogger",
     "WandbLogger",
+    "XdgLogger",
 ]
 
 

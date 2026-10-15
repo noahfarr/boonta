@@ -9,7 +9,7 @@ import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 
-from boonta.utils.checkpoint import load_checkpoint, newest
+from boonta.utils.checkpoint import load_checkpoint, resolve_checkpoint
 from boonta.utils.wandb import load_artifact
 from hangar import recipes
 
@@ -30,11 +30,11 @@ def resolve(run, num_envs):
         if overrides is None:
             raise FileNotFoundError(f"No .hydra/overrides.yaml found under {path}")
         cfg = compose([*OmegaConf.load(overrides), f"environment.num_envs={num_envs}"])
-        checkpoint = Path(newest(path)) / "algorithm_state"
+        checkpoint = Path(resolve_checkpoint(path)) / "algorithm_state"
         if not checkpoint.is_dir():
             raise FileNotFoundError(
                 f"No algorithm_state checkpoint under {path}; train with "
-                "+artisan=[checkpointer] logger=orbax"
+                "+artisan=[checkpoint] logger=orbax"
             )
         return cfg, lambda: {"algorithm_state": load_checkpoint(checkpoint)}
 

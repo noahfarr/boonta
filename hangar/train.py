@@ -16,9 +16,8 @@ def main(cfg):
     if cfg.num_processes > 1:
         jax.distributed.initialize(num_processes=cfg.num_processes)
 
-    from boonta.artisans import Metrics
     from boonta.loggers import MultiLogger
-    from boonta.utils import SystemMonitor, load_checkpoint, newest
+    from boonta.utils import SystemMonitor, load_checkpoint, resolve_checkpoint
     from hangar import recipes
     from hangar.brief import brief
 
@@ -51,7 +50,7 @@ def main(cfg):
     key = jax.random.key(cfg.seed)
     init_key, train_key, evaluate_key = jax.random.split(key, 3)
 
-    state = load_checkpoint(newest(cfg.checkpoint), podracer.init(init_key))
+    state = load_checkpoint(resolve_checkpoint(cfg.checkpoint), podracer.init(init_key))
 
     epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
     assert remainder == 0, (
@@ -79,14 +78,9 @@ def main(cfg):
         }
 
     def craft(state, logs, step):
-        metrics = {}
         keys = jax.random.split(jax.random.fold_in(craft_key, step), max(len(artisans), 1))
         for key, artisan in zip(keys, artisans):
-            artifact = artisan.craft(key, algorithm, environment, state, logs)
-            logger.log_artifact(artifact, step)
-            if isinstance(artifact, Metrics):
-                metrics |= {k: np.asarray(v).reshape(1, 1) for k, v in artifact.data.items()}
-        return metrics
+            logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
 
     try:
         data = {}
@@ -95,7 +89,7 @@ def main(cfg):
             if cfg.evaluation.num_steps:
                 _, logs = podracer.evaluate(state, baseline_key, cfg.evaluation.num_steps)
                 data |= reduce(logs, "evaluation/")
-                data |= craft(state, logs, 0)
+                craft(state, logs, 0)
             logger.log(data, steps=jnp.array([0, 0]))
 
         for epoch in range(epoch, cfg.training.num_epochs):
@@ -110,7 +104,7 @@ def main(cfg):
                     state, evaluate_keys[epoch], cfg.evaluation.num_steps
                 )
                 data |= reduce(logs, "evaluation/")
-            data |= craft(state, logs, int(steps.max()))
+            craft(state, logs, int(steps.max()))
 
             data |= monitor.metrics(step=int(steps.max()))
             logger.log(data, steps=steps)

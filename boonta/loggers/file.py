@@ -4,7 +4,7 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from boonta.artisans import Video
+from boonta.artisans import Metrics, Video
 from boonta.utils import PyTree
 
 
@@ -18,13 +18,17 @@ class FileLogger:
     def log(self, data: PyTree, steps: PyTree, **kwargs) -> None:
         if jax.process_index() != 0:
             return
-        index = len(self.steps)
-        self.steps.append(int(np.asarray(steps).max()))
+        step = int(np.asarray(steps).max())
+        if not self.steps or self.steps[-1] != step:
+            self.steps.append(step)
+        index = len(self.steps) - 1
         for key, value in data.items():
             self.history[key].append((index, np.array([np.mean(row) for row in value])))
         self.save()
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
+        if isinstance(artifact, Metrics):
+            self.log({k: np.reshape(v, (1, 1)) for k, v in artifact.data.items()}, steps=step)
         if jax.process_index() == 0 and isinstance(artifact, Video):
             self.directory.mkdir(parents=True, exist_ok=True)
             path = self.directory / f"{artifact.name}-{step}.gif"
