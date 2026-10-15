@@ -78,9 +78,6 @@ jumanji = [
 kinetix = [
     "kinetix-env",
 ]
-league = [
-    "trueskill>=0.4.5",
-]
 libero = [
     "libero",
     "robosuite==1.4.1",
@@ -102,6 +99,9 @@ pynes = [
 slurm = [
     "slurmpilot; python_full_version >= '3.12'",
     "hydra-slurmpilot-launcher; python_full_version >= '3.12'",
+]
+trueskill = [
+    "trueskill>=0.4.5",
 ]
 wandb = [
     "joblib>=1.0",

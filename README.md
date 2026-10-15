@@ -81,7 +81,7 @@ The core is JAX, Flax, Optax, Distrax, Flashbax, Orbax and lox: enough to train 
 | `gymnax` | Gymnax | the `gymnax` environments, such as MinAtar |
 | `offline` | Minari | the `minari` datasets of BC and IQL |
 | `huggingface` | huggingface-hub, tokenizers, safetensors, Jinja2 | loading Qwen3, Gemma, SigLIP and π0 weights |
-| `league` | TrueSkill | the `TrueSkill` artisan |
+| `trueskill` | TrueSkill | the `TrueSkill` artisan |
 | `wandb` | wandb, pandas, joblib, tqdm | `WandbLogger` and `boonta.utils.wandb` |
 | `chat` | Textual, plus `huggingface` | the chat scripts in `hangar/scripts` |
 

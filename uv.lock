@@ -1201,9 +1201,6 @@ jumanji = [
 kinetix = [
     { name = "kinetix-env" },
 ]
-league = [
-    { name = "trueskill" },
-]
 libero = [
     { name = "bddl" },
     { name = "libero" },
@@ -1225,6 +1222,9 @@ pynes = [
 slurm = [
     { name = "hydra-slurmpilot-launcher", marker = "python_full_version >= '3.12'" },
     { name = "slurmpilot", marker = "python_full_version >= '3.12'" },
+]
+trueskill = [
+    { name = "trueskill" },
 ]
 wandb = [
     { name = "joblib" },
@@ -1313,12 +1313,12 @@ requires-dist = [
     { name = "torchvision", marker = "python_full_version < '3.12' and sys_platform == 'linux' and extra == 'isaaclab'", specifier = "==0.22.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "tqdm", marker = "extra == 'wandb'", specifier = ">=4.0" },
     { name = "tqdx", marker = "extra == 'benchmark'", specifier = ">=0.1.5" },
-    { name = "trueskill", marker = "extra == 'league'", specifier = ">=0.4.5" },
+    { name = "trueskill", marker = "extra == 'trueskill'", specifier = ">=0.4.5" },
     { name = "wandb", marker = "extra == 'benchmark'", specifier = ">=0.28.0" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.28.0" },
     { name = "xminigrid", marker = "extra == 'xland-minigrid'" },
 ]
-provides-extras = ["ale", "benchmark", "bluffjax", "brax", "chat", "craftax", "gymnax", "hangar", "huggingface", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "league", "libero", "mapox", "mujoco-playground", "offline", "pynes", "slurm", "wandb", "xland-minigrid"]
+provides-extras = ["ale", "benchmark", "bluffjax", "brax", "chat", "craftax", "gymnax", "hangar", "huggingface", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "offline", "pynes", "slurm", "trueskill", "wandb", "xland-minigrid"]
 
 [package.metadata.requires-dev]
 dev = [
