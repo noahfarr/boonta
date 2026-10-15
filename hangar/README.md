@@ -10,7 +10,7 @@
 uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; both take the same overrides. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
+`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; both read the same `config` and take the same overrides. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job; `boonta evaluate` writes there too, so set `hydra.run.dir=${checkpoint}/evaluation` to keep its videos and metrics beside the checkpoint.
 
 | Override | Effect |
 | --- | --- |

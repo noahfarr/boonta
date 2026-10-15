@@ -13,7 +13,7 @@ from hangar import resolvers  # noqa: F401
 @hydra.main(
     version_base=None,
     config_path=str(Path(__file__).parent / "config"),
-    config_name="evaluate",
+    config_name="config",
 )
 def main(cfg):
     from boonta.loggers import MultiLogger
