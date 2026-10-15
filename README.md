@@ -69,11 +69,23 @@ boonta is not on PyPI. Install it from a checkout with [uv](https://docs.astral.
 
 ```bash
 git clone https://github.com/noahfarr/boonta && cd boonta
-uv sync                  # the library
-uv sync --extra hangar   # the library, plus Hydra to run the configs in hangar
+uv sync --no-dev                    # the core
+uv sync --no-dev --extra hangar     # the core, plus Hydra to run the configs in hangar
 ```
 
-The library never imports `hangar`, Hydra or OmegaConf. Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
+The core is JAX, Flax, Optax, Distrax, Flashbax, Orbax and lox: enough to train any algorithm on an environment you write in JAX. It installs 57 packages, down from 127. Everything else is an extra, and the library imports it only when you use it:
+
+| Extra | Adds | Needed for |
+|---|---|---|
+| `hangar` | Hydra, OmegaConf, Rich, Pillow, psutil, nvidia-ml-py | the `boonta` command, the dashboard logger, videos |
+| `gymnax` | Gymnax | the `gymnax` environments, such as MinAtar |
+| `minari` | Minari | the `minari` datasets of BC and IQL |
+| `huggingface` | huggingface-hub, tokenizers, safetensors, Jinja2 | loading Qwen3, Gemma, SigLIP and π0 weights |
+| `trueskill` | TrueSkill | the `TrueSkill` artisan |
+| `wandb` | wandb, pandas, joblib, tqdm | `WandbLogger` and `boonta.utils.wandb` |
+| `chat` | Textual, plus `huggingface` | the chat scripts in `hangar/scripts` |
+
+Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra gymnax --extra craftax`. Plain `uv sync` also installs the `dev` group: pytest and the packages the tests import.
 
 ## Guides
 

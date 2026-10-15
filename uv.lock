@@ -1098,18 +1098,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/33/16/6795fd638b593acd3c80c7a5aebb3471576d463e1b36a90154fa106ef5c5/bddl-3.6.0.tar.gz", hash = "sha256:81d40ab7a32769828ecad3110c7db5e40e26cfb29b1158b3448a6ccb91e5d386", size = 2338616, upload-time = "2025-06-23T02:24:05.166Z" }
 
 [[package]]
-name = "bleach"
-version = "6.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "webencodings" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/48/3c/e12ac860709702bd5ebeb9b56a4fe334f1001246ee1b8f2b7ee28912df7d/bleach-6.4.0.tar.gz", hash = "sha256:4202482733d85cedd04e59fcb2f89f4e4c7c385a78d3c3c23c30446843a37452", size = 204857, upload-time = "2026-06-05T13:01:13.734Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl", hash = "sha256:4b6b6a54fff2e69a3dde9d21cc6301220bee3c3cb792187d11403fd795031081", size = 165109, upload-time = "2026-06-05T13:01:12.504Z" },
-]
-
-[[package]]
 name = "blinker"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1138,36 +1126,14 @@ dependencies = [
     { name = "distrax" },
     { name = "flashbax" },
     { name = "flax" },
-    { name = "gymnax" },
-    { name = "h5py" },
-    { name = "huggingface-hub" },
     { name = "jax", marker = "sys_platform == 'darwin' or sys_platform == 'linux' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
     { name = "jax", marker = "sys_platform == 'darwin' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
     { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "jinja2" },
-    { name = "joblib" },
-    { name = "kaggle" },
     { name = "lox" },
-    { name = "minari", extra = ["hdf5"] },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "nvidia-ml-py" },
     { name = "optax" },
     { name = "orbax-checkpoint" },
-    { name = "pandas", version = "2.2.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.12.*' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm')" },
-    { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or extra == 'extra-6-boonta-isaaclab' or extra != 'extra-6-boonta-isaaclab-arena' or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "pillow", version = "11.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
-    { name = "psutil", version = "5.9.8", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "psutil", version = "7.2.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
-    { name = "rich" },
-    { name = "safetensors" },
-    { name = "textual" },
-    { name = "tokenizers" },
-    { name = "tqdm" },
-    { name = "tqdx" },
-    { name = "trueskill" },
-    { name = "wandb" },
 ]
 
 [package.optional-dependencies]
@@ -1176,6 +1142,8 @@ ale = [
 ]
 benchmark = [
     { name = "performax" },
+    { name = "tqdx" },
+    { name = "wandb" },
 ]
 bluffjax = [
     { name = "bluffjax", marker = "python_full_version >= '3.12' or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
@@ -1183,12 +1151,34 @@ bluffjax = [
 brax = [
     { name = "brax" },
 ]
+chat = [
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
+    { name = "safetensors" },
+    { name = "textual" },
+    { name = "tokenizers" },
+]
 craftax = [
     { name = "craftax" },
 ]
+gymnax = [
+    { name = "gymnax" },
+]
 hangar = [
     { name = "hydra-core" },
+    { name = "nvidia-ml-py" },
     { name = "omegaconf" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
+    { name = "psutil", version = "5.9.8", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "psutil", version = "7.2.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
+    { name = "rich" },
+]
+huggingface = [
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
+    { name = "safetensors" },
+    { name = "tokenizers" },
 ]
 isaaclab = [
     { name = "isaaclab", extra = ["isaacsim"], marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
@@ -1219,6 +1209,9 @@ libero = [
 mapox = [
     { name = "mapox" },
 ]
+minari = [
+    { name = "minari", extra = ["hdf5"] },
+]
 mujoco-playground = [
     { name = "ml-collections" },
     { name = "playground" },
@@ -1230,13 +1223,33 @@ slurm = [
     { name = "hydra-slurmpilot-launcher", marker = "python_full_version >= '3.12'" },
     { name = "slurmpilot", marker = "python_full_version >= '3.12'" },
 ]
+trueskill = [
+    { name = "trueskill" },
+]
+wandb = [
+    { name = "joblib" },
+    { name = "pandas", version = "2.2.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.12.*' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm')" },
+    { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or extra == 'extra-6-boonta-isaaclab' or extra != 'extra-6-boonta-isaaclab-arena' or (extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "tqdm" },
+    { name = "wandb" },
+]
 xland-minigrid = [
     { name = "xminigrid" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "gymnax" },
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
+    { name = "minari", extra = ["hdf5"] },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
     { name = "pytest" },
+    { name = "rich" },
+    { name = "safetensors" },
+    { name = "tokenizers" },
+    { name = "trueskill" },
 ]
 sweep = [
     { name = "carbs" },
@@ -1254,14 +1267,14 @@ requires-dist = [
     { name = "ale-py", extras = ["xla"], marker = "extra == 'ale'", specifier = ">=0.12.0" },
     { name = "bddl", marker = "extra == 'libero'" },
     { name = "bluffjax", marker = "python_full_version >= '3.12' and extra == 'bluffjax'", git = "https://github.com/AryamanReddi99/bluffjax" },
+    { name = "boonta", extras = ["huggingface"], marker = "extra == 'chat'" },
     { name = "brax", marker = "extra == 'brax'" },
     { name = "craftax", marker = "extra == 'craftax'", specifier = "<1.6" },
     { name = "distrax", specifier = ">=0.1.9" },
     { name = "flashbax", specifier = ">=0.1.3" },
     { name = "flax", specifier = ">=0.12.7" },
-    { name = "gymnax", specifier = ">=0.0.9" },
-    { name = "h5py", specifier = ">=3.0" },
-    { name = "huggingface-hub", specifier = ">=1.24.0" },
+    { name = "gymnax", marker = "extra == 'gymnax'", specifier = ">=0.0.9" },
+    { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=1.24.0" },
     { name = "hydra-core", marker = "extra == 'hangar'", specifier = ">=1.3.4" },
     { name = "hydra-slurmpilot-launcher", marker = "python_full_version >= '3.12' and extra == 'slurm'", git = "ssh://git@github.com/noahfarr/hydra-slurmpilot-launcher.git" },
     { name = "isaaclab", extras = ["isaacsim"], marker = "python_full_version < '3.12' and sys_platform == 'linux' and extra == 'isaaclab'", specifier = "==2.3.2.post1" },
@@ -1270,45 +1283,56 @@ requires-dist = [
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux'", specifier = ">=0.10.2" },
     { name = "jaxmarl", marker = "extra == 'jaxmarl'" },
     { name = "jaxued", marker = "extra == 'jaxued'", git = "https://github.com/DramaCow/jaxued?rev=0f8f1284677375b889e4f13a32c9617cd009f8c4" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "joblib", specifier = ">=1.0" },
+    { name = "jinja2", marker = "extra == 'huggingface'", specifier = ">=3.1" },
+    { name = "joblib", marker = "extra == 'wandb'", specifier = ">=1.0" },
     { name = "jumanji", marker = "extra == 'jumanji'" },
-    { name = "kaggle", specifier = ">=2.2.3" },
     { name = "kinetix-env", marker = "extra == 'kinetix'" },
     { name = "libero", marker = "extra == 'libero'", git = "https://github.com/Lifelong-Robot-Learning/LIBERO" },
     { name = "lox", git = "https://github.com/huterguier/lox" },
     { name = "mapox", marker = "extra == 'mapox'", git = "https://github.com/gabe00122/mapox" },
-    { name = "minari", extras = ["hdf5"], specifier = ">=0.5.3" },
+    { name = "minari", extras = ["hdf5"], marker = "extra == 'minari'", specifier = ">=0.5.3" },
     { name = "ml-collections", marker = "extra == 'mujoco-playground'" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "nvidia-ml-py", specifier = ">=12.0" },
+    { name = "nvidia-ml-py", marker = "extra == 'hangar'", specifier = ">=12.0" },
     { name = "omegaconf", marker = "extra == 'hangar'", specifier = ">=2.3.1" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "orbax-checkpoint", specifier = ">=0.12.1" },
-    { name = "pandas", specifier = ">=2.0" },
+    { name = "pandas", marker = "extra == 'wandb'", specifier = ">=2.0" },
     { name = "performax", marker = "extra == 'benchmark'", git = "https://github.com/noahfarr/performax?rev=f22adf27970a4bfff51d364e757e47be6b0a62ee" },
-    { name = "pillow", specifier = ">=10.0" },
+    { name = "pillow", marker = "extra == 'hangar'", specifier = ">=10.0" },
     { name = "playground", marker = "extra == 'mujoco-playground'" },
-    { name = "psutil", specifier = ">=5.9.8" },
+    { name = "psutil", marker = "extra == 'hangar'", specifier = ">=5.9.8" },
     { name = "pynes", marker = "extra == 'pynes'", git = "ssh://git@github.com/noahfarr/pynes.git?rev=150735eb55be0b0e46da226ff308cfde8fc875ac" },
-    { name = "rich", specifier = ">=15.0.0" },
+    { name = "rich", marker = "extra == 'hangar'", specifier = ">=15.0.0" },
     { name = "robosuite", marker = "extra == 'libero'", specifier = "==1.4.1" },
-    { name = "safetensors", specifier = ">=0.8.0" },
+    { name = "safetensors", marker = "extra == 'huggingface'", specifier = ">=0.8.0" },
     { name = "slurmpilot", marker = "python_full_version >= '3.12' and extra == 'slurm'", git = "https://github.com/noahfarr/slurmpilot.git?branch=feat%2Fspignore" },
-    { name = "textual", specifier = ">=8.2.8" },
-    { name = "tokenizers", specifier = ">=0.20" },
+    { name = "textual", marker = "extra == 'chat'", specifier = ">=8.2.8" },
+    { name = "tokenizers", marker = "extra == 'huggingface'", specifier = ">=0.20" },
     { name = "torch", marker = "python_full_version < '3.12' and sys_platform == 'linux' and extra == 'isaaclab'", specifier = "==2.7.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "python_full_version < '3.12' and sys_platform == 'linux' and extra == 'isaaclab'", specifier = "==0.22.0", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "tqdm", specifier = ">=4.0" },
-    { name = "tqdx", specifier = ">=0.1.5" },
-    { name = "trueskill", specifier = ">=0.4.5" },
-    { name = "wandb", specifier = ">=0.28.0" },
+    { name = "tqdm", marker = "extra == 'wandb'", specifier = ">=4.0" },
+    { name = "tqdx", marker = "extra == 'benchmark'", specifier = ">=0.1.5" },
+    { name = "trueskill", marker = "extra == 'trueskill'", specifier = ">=0.4.5" },
+    { name = "wandb", marker = "extra == 'benchmark'", specifier = ">=0.28.0" },
+    { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.28.0" },
     { name = "xminigrid", marker = "extra == 'xland-minigrid'" },
 ]
-provides-extras = ["ale", "benchmark", "bluffjax", "brax", "craftax", "hangar", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "pynes", "slurm", "xland-minigrid"]
+provides-extras = ["ale", "benchmark", "bluffjax", "brax", "chat", "craftax", "gymnax", "hangar", "huggingface", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "minari", "mujoco-playground", "pynes", "slurm", "trueskill", "wandb", "xland-minigrid"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
+dev = [
+    { name = "gymnax", specifier = ">=0.0.9" },
+    { name = "huggingface-hub", specifier = ">=1.24.0" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "minari", extras = ["hdf5"], specifier = ">=0.5.3" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "safetensors", specifier = ">=0.8.0" },
+    { name = "tokenizers", specifier = ">=0.20" },
+    { name = "trueskill", specifier = ">=0.4.5" },
+]
 sweep = [
     { name = "carbs", git = "https://github.com/imbue-ai/carbs.git" },
     { name = "determined", specifier = "==0.35.0" },
@@ -6132,44 +6156,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a1/ca/473f8ebb101553fb2ea6ab1d34324d6677844c968947ac050c759d539f2c/jupytext-1.19.5.tar.gz", hash = "sha256:605026446d605aa54fd7f7fc69df6ae51c7a46053d4cebf05afdc64d66de3df0", size = 4600916, upload-time = "2026-07-21T22:00:29.198Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/c6/76ee9dacedcd8c67d8fa53dd975613733bdd28242a4c41518ff1c8aeaa64/jupytext-1.19.5-py3-none-any.whl", hash = "sha256:af22351202171116b986fe1f4f9233a13ca4a85d5eec57a87900ed48521dbae4", size = 229246, upload-time = "2026-07-21T22:00:27.218Z" },
-]
-
-[[package]]
-name = "kaggle"
-version = "2.2.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "bleach" },
-    { name = "jupytext" },
-    { name = "kagglesdk" },
-    { name = "packaging", version = "23.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "packaging", version = "26.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
-    { name = "protobuf" },
-    { name = "python-dateutil" },
-    { name = "python-dotenv" },
-    { name = "python-slugify" },
-    { name = "requests", version = "2.32.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
-    { name = "tqdm" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/22/9e4d5015aad7c7794af098e3def53a26a7deae3ee2e348c129bc2446260e/kaggle-2.2.4.tar.gz", hash = "sha256:28a58f6c1b9f46ce2afdfb439e0c4e91219e818b377ea4254f4e479456d8cb78", size = 317079, upload-time = "2026-07-23T21:20:57.915Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/0b/79bbabb2b3f7eaee3bcde7397abf29bbdd8694886f45bef460fca5d71729/kaggle-2.2.4-py3-none-any.whl", hash = "sha256:47d3b258363f4693ade67d875b1c108bfaa87a469f4b6fe85903e7c9757aa09c", size = 126165, upload-time = "2026-07-23T21:20:56.631Z" },
-]
-
-[[package]]
-name = "kagglesdk"
-version = "0.1.35"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "protobuf" },
-    { name = "requests", version = "2.32.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
-    { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/47/3f/2b7b46e8c17046261b138f22c5b7421bbbb85cf6a8f69f4aa43fe983eb1a/kagglesdk-0.1.35.tar.gz", hash = "sha256:7373c46e7546dc983e1cd87fb7555906f799869b6f02a747a3121c89edc420b8", size = 198490, upload-time = "2026-07-22T21:54:32.319Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/96/37de4e0442378ac96e324123418b81cf5be0e9c7f7236fddae6641b20db2/kagglesdk-0.1.35-py3-none-any.whl", hash = "sha256:af662aedfad00aa5d5e3dd946c1a82b5117cf4964f6f9e96cea6e83b77419e17", size = 248627, upload-time = "2026-07-22T21:54:30.737Z" },
 ]
 
 [[package]]
@@ -11733,15 +11719,6 @@ wheels = [
 ]
 
 [[package]]
-name = "python-dotenv"
-version = "1.2.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
-]
-
-[[package]]
 name = "python-ffmpeg"
 version = "2.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -11761,18 +11738,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f3/87/f44d7c9f274c7ee665a29b885ec97089ec5dc034c7f3fafa03da9e39a09e/python_multipart-0.0.20.tar.gz", hash = "sha256:8dd0cab45b8e23064ae09147625994d090fa46f5b0d1e13af944c331a7fa9d13", size = 37158, upload-time = "2024-12-16T19:45:46.972Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/58/38b5afbc1a800eeea951b9285d3912613f2603bdf897a4ab0f4bd7f405fc/python_multipart-0.0.20-py3-none-any.whl", hash = "sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104", size = 24546, upload-time = "2024-12-16T19:45:44.423Z" },
-]
-
-[[package]]
-name = "python-slugify"
-version = "8.0.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "text-unidecode" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/87/c7/5e1547c44e31da50a460df93af11a535ace568ef89d7a811069ead340c4a/python-slugify-8.0.4.tar.gz", hash = "sha256:59202371d1d05b54a9e7720c5e038f928f45daaffe41dd10822f3907b937c856", size = 10921, upload-time = "2024-02-08T18:32:45.488Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/62/02da182e544a51a5c3ccf4b03ab79df279f9c60c5e82d5e8bec7ca26ac11/python_slugify-8.0.4-py2.py3-none-any.whl", hash = "sha256:276540b79961052b66b7d116620b36518847f52d5fd9e3a70164fc8c50faa6b8", size = 10051, upload-time = "2024-02-08T18:32:43.911Z" },
 ]
 
 [[package]]
@@ -13665,15 +13630,6 @@ wheels = [
 ]
 
 [[package]]
-name = "text-unidecode"
-version = "1.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ab/e2/e9a00f0ccb71718418230718b3d900e71a5d16e701a3dae079a21e9cd8f8/text-unidecode-1.3.tar.gz", hash = "sha256:bad6603bb14d279193107714b288be206cac565dfa49aa5b105294dd5c4aab93", size = 76885, upload-time = "2019-08-30T21:36:45.405Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl", hash = "sha256:1311f10e8b895935241623731c2ba64f4c455287888b18189350b67134a822e8", size = 78154, upload-time = "2019-08-30T21:37:03.543Z" },
-]
-
-[[package]]
 name = "textual"
 version = "8.2.8"
 source = { registry = "https://pypi.org/simple" }
@@ -14701,15 +14657,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/34/74/c6428f875774288bec1396f5bfcbc2d925700a4dad61727fd5f2b12f249d/wcwidth-0.8.2.tar.gz", hash = "sha256:91fbef97204b96a3d4d421609b80340b760cf33e26da123ff243d76b1fda8dda", size = 1466253, upload-time = "2026-06-29T18:11:11.601Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/42/3e5985a0a7e57de470b320c6d6a1a67c844f6737a587f3d44dd13d1819e7/wcwidth-0.8.2-py3-none-any.whl", hash = "sha256:d63947694a0539a1d51e01eda7caf800c291020e6cdd7e28ad7b14dd33ad4f85", size = 323166, upload-time = "2026-06-29T18:11:09.888Z" },
-]
-
-[[package]]
-name = "webencodings"
-version = "0.5.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0b/02/ae6ceac1baeda530866a85075641cec12989bd8d31af6d5ab4a3e8c92f47/webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923", size = 9721, upload-time = "2017-04-05T20:21:34.189Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/24/2a3e3df732393fed8b3ebf2ec078f05546de641fe1b667ee316ec1dcf3b7/webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78", size = 11774, upload-time = "2017-04-05T20:21:32.581Z" },
 ]
 
 [[package]]

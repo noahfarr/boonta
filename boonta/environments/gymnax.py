@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
-from gymnax.environments import spaces as gymnax_spaces
 
 from boonta.utils import Array, Key, Timestep
 
@@ -75,6 +74,8 @@ class Gymnax(Environment):
         )
 
     def action_space(self) -> Space:
+        from gymnax.environments import spaces as gymnax_spaces
+
         space = self._env.action_space(self._params)
 
         if isinstance(space, gymnax_spaces.Discrete):

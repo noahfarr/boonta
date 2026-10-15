@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import jax
-from huggingface_hub import snapshot_download
-from safetensors.flax import load_file
 
 
 def load_weights(repo_id: str) -> dict:
+    from huggingface_hub import snapshot_download
+    from safetensors.flax import load_file
+
     directory = Path(snapshot_download(repo_id, allow_patterns=["*.safetensors"]))
     cpu = jax.devices("cpu")[0]
     state: dict[str, jax.Array] = {}
