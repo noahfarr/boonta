@@ -403,7 +403,7 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     assert axes.step is False
 
 
-def test_the_xdg_logger_opens_an_image_once_and_redraws_it_in_place(tmp_path, monkeypatch):
+def test_the_xdg_logger_opens_each_image_it_is_given(tmp_path, monkeypatch):
     from unittest import mock
 
     from boonta.loggers import XdgLogger
@@ -416,5 +416,5 @@ def test_the_xdg_logger_opens_an_image_once_and_redraws_it_in_place(tmp_path, mo
         for step in (1, 2):
             logger.log_artifact(Image("plot", np.full((8, 8, 3), step, np.uint8)), step=step)
 
-    assert popen.call_count == 1
-    assert [path.name for path in tmp_path.iterdir()] == ["plot.png"]
+    assert popen.call_count == 2
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["plot-1.png", "plot-2.png"]
