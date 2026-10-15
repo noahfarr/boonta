@@ -1,0 +1,6 @@
+# @package _global_.curriculum.selector.gain
+_target_: boonta.curricula.prd.GreedyAdvantage
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+shrinkage: 4.0

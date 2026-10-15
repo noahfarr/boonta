@@ -707,6 +707,17 @@ def test_a_restart_draws_each_theta_from_the_weights():
     np.testing.assert_array_equal(games(state), np.asarray(THETA)[drawn])
 
 
+def test_with_weights_every_finished_episode_draws_its_next_theta():
+    environment, state, _ = ued(Flicker())
+    state = environment.update(
+        state, jax.random.key(2), weights=jnp.array([1.0, 0.0, 3.0]), restart=True
+    )
+    state, timesteps = play(environment, state, [idle(environment)] * 8)
+    drawn = np.stack([np.asarray(timestep.info["theta"]) for timestep in timesteps[1:]])
+    assert set(np.unique(drawn)) <= {0, 2}
+    assert len({tuple(row) for row in drawn}) > 1
+
+
 def test_a_restart_without_weights_leaves_every_game_alone():
     environment, state, _ = ued(Dial())
     state = environment.update(state, jax.random.key(2), restart=True)

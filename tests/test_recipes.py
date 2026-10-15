@@ -120,6 +120,18 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def prioritized_restarts(directory):
+    return ["curriculum=prd", "environment.auto_reset.archive_size=64"]
+
+
+def aligned_restarts(directory):
+    return ["curriculum=prd", "curriculum/prd/score=kernel", "environment.auto_reset.archive_size=64"]
+
+
+def exploring_restarts(directory):
+    return ["curriculum=erd", "environment.auto_reset.archive_size=64"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -130,6 +142,9 @@ CASES = [
     ("ppo", "dune_sea/chain_of_forks", None, False),
     ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
+    ("ppo", MINATAR, None, prioritized_restarts),
+    ("ppo", MINATAR, None, aligned_restarts),
+    ("ppo", MINATAR, None, exploring_restarts),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
     ("grpo", MINATAR, None, False),
@@ -240,6 +255,10 @@ def test_a_curriculum_takes_its_settings_from_the_hyperparameters_of_its_environ
     assert maze.environment.num_envs == configure("recurrent_ppo", "jaxued/maze").environment.num_envs
     cartpole = configure("recurrent_ppo", "jaxued/cartpole", "curriculum=plr")
     assert cartpole.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/cartpole/plr"
+    sampled = configure("recurrent_ppo", "jaxued/maze", "curriculum=sgs")
+    assert sampled.hydra.runtime.choices.hyperparameters == "recurrent_ppo/jaxued/maze/sgs"
+    assert sampled.curriculum._target_ == "boonta.curricula.sgs.make"
+    assert sampled.curriculum.generate_level._target_ == "boonta.environments.jaxued.maze_generator"
 
 
 @pytest.mark.parametrize("overrides, seed", [((), 0), (("hydra.job.num=3",), 3)])
