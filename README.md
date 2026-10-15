@@ -73,8 +73,6 @@ uv sync --no-dev                    # the core
 uv sync --no-dev --extra hangar     # the core, plus Hydra to run the configs in hangar
 ```
 
-The core is JAX, Flax, Optax, Distrax, Flashbax, Orbax and lox: enough to train any algorithm on an environment you write in JAX. It installs 57 packages, down from 127. Everything else is an extra, and the library imports it only when you use it:
-
 | Extra | Adds | Needed for |
 |---|---|---|
 | `hangar` | Hydra, OmegaConf, Rich, Pillow, psutil, nvidia-ml-py | the `boonta` command, the dashboard logger, videos |
