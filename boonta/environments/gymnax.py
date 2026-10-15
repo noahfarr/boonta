@@ -127,6 +127,22 @@ def keyed(env, bucket: int = 2):
     return cell
 
 
+def binned(env, widths: tuple[float, ...]):
+    game = getattr(env, "unwrapped", env)
+    widths = jnp.asarray(list(widths), jnp.float32)
+
+    def cell(env_state):
+        raw = env_state.unwrapped
+        obs = jax.vmap(lambda state: game._env.get_obs(state, game._params))(raw)
+        bins = jnp.floor(obs / widths).astype(jnp.int32)
+        batch, num_dimensions = jnp.shape(bins)
+        key = jnp.zeros(batch, jnp.int32)
+        for dimension in range(num_dimensions):
+            key = key * jnp.int32(1000003) + bins[:, dimension]
+        return key
+
+    return cell
+
 def make(env_id, params=None, **kwargs):
     import gymnax
 

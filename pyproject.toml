@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.scripts]
-boonta = "hangar.main:main"
+boonta = "hangar:main"
 
 [project.optional-dependencies]
 ale = [
@@ -89,6 +89,9 @@ mapox = [
 mujoco-playground = [
     "ml-collections",
     "playground",
+]
+plot = [
+    "matplotlib",
 ]
 pynes = [
     "pynes",

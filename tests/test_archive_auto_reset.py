@@ -466,3 +466,22 @@ def test_an_updated_block_ends_at_the_next_step_and_restarts_from_its_cell():
     assert bool(jnp.all(after.env_state.tag[~block] == state.env_state.tag[~block] + 1))
     assert bool(jnp.all(cut.obs[block, 1] == stored))
     assert bool(jnp.all(cut.info["start"][block] == False))  # noqa: E712
+
+
+def test_without_preempting_the_block_finishes_its_episode_before_it_moves():
+    env = build()
+    state, _ = drive(env, steps=2, action=1)
+    cell = int(state.current_slots[0])
+    state = env.update(state, jax.random.key(3), slots=echo(state), preempt=False)
+    block = jnp.arange(NUM_ENVS) >= NUM_ENVS - 4
+    assert not bool(jnp.any(state.due_mask))
+    assert bool(jnp.all(state.assigned_slots[block] == cell))
+    after, cut = env.step(jax.random.key(4), state, jnp.ones(NUM_ENVS, jnp.int32))
+    assert not bool(jnp.any(cut.truncated))
+    assert bool(jnp.all(after.env_state.tag == state.env_state.tag + 1))
+    after, cut = env.step(jax.random.key(5), after, jnp.ones(NUM_ENVS, jnp.int32))
+    assert bool(jnp.all(cut.terminated))
+    stored = after.archive_state.cell_states.snapshot.tag[cell]
+    assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.current_slots[block] == cell))
+    assert bool(jnp.all(after.env_state.tag[block] == stored))
+    assert bool(jnp.all(after.rho[~block]))

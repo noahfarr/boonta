@@ -12,7 +12,7 @@ from hydra.core.utils import JobStatus
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from boonta.utils import load_checkpoint, newest
+from boonta.utils import load_checkpoint, resolve_checkpoint
 from hangar import resolvers  # noqa: F401
 from hydra_plugins.hydra_pbt_sweeper._population import (choose, perturb,
                                                          sample, typed)
@@ -173,7 +173,7 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
             assert job["training.num_epochs"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
-            assert job["+artisan@artisans.checkpointer"] == "checkpointer"
+            assert job["+artisan@artisans.checkpoint"] == "checkpoint"
             assert job["+logger@loggers.orbax"] == "orbax"
             assert job["++loggers.orbax.max_to_keep"] == "1"
             assert job["++loggers.orbax.best"] == "false"
@@ -209,7 +209,7 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
     subprocess.run(
         [
             sys.executable,
-            str(ROOT / "hangar/main.py"),
+            str(ROOT / "hangar/train.py"),
             "-m",
             "hydra/sweeper=pbt",
             "algorithm=ppo",
@@ -232,7 +232,7 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
     )
     for member in range(2):
         runs = [tmp_path / f"generation_{generation}/member_{member}/seed_0" for generation in range(2)]
-        first, second = (load_checkpoint(Path(newest(run)) / "algorithm_state") for run in runs)
+        first, second = (load_checkpoint(Path(resolve_checkpoint(run)) / "algorithm_state") for run in runs)
         assert int(first["step"]) == 64
         assert int(second["step"]) == 128
         for run, step in zip(runs, (64, 128)):

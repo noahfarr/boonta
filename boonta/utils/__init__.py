@@ -37,7 +37,7 @@ from .quantization import (
     quantized_dot_general,
     quantizing,
 )
-from .checkpoint import load_checkpoint, newest
+from .checkpoint import load_checkpoint, resolve_checkpoint
 from .system_monitor import SystemMonitor
 from .sharding import mesh, sharded, vary
 from .timestep import Timestep
@@ -58,7 +58,7 @@ __all__ = [
     "dequantize",
     "get_attention_implementation",
     "load_checkpoint",
-    "newest",
+    "resolve_checkpoint",
     "SystemMonitor",
     "load_config",
     "load_gemma",

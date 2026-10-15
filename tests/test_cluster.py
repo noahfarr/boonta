@@ -34,7 +34,7 @@ def launch(directory: Path, devices: int, overrides: list[str], output: Path, **
         **slurm,
     }
     directory.mkdir(parents=True, exist_ok=True)
-    command = [sys.executable, str(ROOT / "hangar/main.py"), *RUN, *overrides]
+    command = [sys.executable, str(ROOT / "hangar/train.py"), *RUN, *overrides]
     with output.open("w") as log:
         return subprocess.Popen(command, cwd=directory, env=environment, stdout=log, stderr=log)
 
@@ -55,7 +55,7 @@ def test_a_run_across_two_processes_equals_the_same_run_in_one(tmp_path):
     port = free_port()
     outputs = [tmp_path / f"process{index}.log" for index in range(2)] + [tmp_path / "single.log"]
     runs = [
-        launch(tmp_path / "cluster", 2, ["num_processes=2", "logger=[file,orbax]", "+artisan=[checkpointer]"], output, **task(index, port))
+        launch(tmp_path / "cluster", 2, ["num_processes=2", "logger=[file,orbax]", "+artisan=[checkpoint]"], output, **task(index, port))
         for index, output in zip(range(2), outputs)
     ] + [launch(tmp_path / "single", 4, ["logger=file", "hydra.run.dir=."], outputs[-1])]
 

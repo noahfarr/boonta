@@ -1223,6 +1223,10 @@ mujoco-playground = [
     { name = "ml-collections" },
     { name = "playground" },
 ]
+plot = [
+    { name = "matplotlib", version = "3.10.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'linux' and extra == 'extra-6-boonta-isaaclab') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version >= '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or (sys_platform != 'linux' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm') or (extra != 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena' and extra == 'extra-6-boonta-slurm')" },
+    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (python_full_version < '3.12' and extra != 'extra-6-boonta-isaaclab') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-isaaclab-arena') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-mapox') or (python_full_version < '3.12' and extra == 'extra-6-boonta-isaaclab' and extra == 'extra-6-boonta-slurm') or sys_platform != 'linux'" },
+]
 pynes = [
     { name = "pynes" },
 ]
@@ -1278,6 +1282,7 @@ requires-dist = [
     { name = "libero", marker = "extra == 'libero'", git = "https://github.com/Lifelong-Robot-Learning/LIBERO" },
     { name = "lox", git = "https://github.com/huterguier/lox" },
     { name = "mapox", marker = "extra == 'mapox'", git = "https://github.com/gabe00122/mapox" },
+    { name = "matplotlib", marker = "extra == 'plot'" },
     { name = "minari", extras = ["hdf5"], specifier = ">=0.5.3" },
     { name = "ml-collections", marker = "extra == 'mujoco-playground'" },
     { name = "numpy", specifier = ">=2.0" },
@@ -1305,7 +1310,7 @@ requires-dist = [
     { name = "wandb", specifier = ">=0.28.0" },
     { name = "xminigrid", marker = "extra == 'xland-minigrid'" },
 ]
-provides-extras = ["ale", "benchmark", "bluffjax", "brax", "craftax", "hangar", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "pynes", "slurm", "xland-minigrid"]
+provides-extras = ["ale", "benchmark", "bluffjax", "brax", "craftax", "hangar", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "plot", "pynes", "slurm", "xland-minigrid"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

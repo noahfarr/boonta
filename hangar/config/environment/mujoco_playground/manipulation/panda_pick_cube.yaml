@@ -1,0 +1,11 @@
+namespace: mujoco_playground
+suite: manipulation
+env_id: PandaPickCube
+kwargs:
+  config_overrides:
+    impl: jax
+  default_camera:
+    lookat: [0.35, 0.0, 0.3]
+    distance: 1.7
+    azimuth: 100
+    elevation: -22

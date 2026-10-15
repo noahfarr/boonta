@@ -187,6 +187,8 @@ class ArchiveAutoResetState(WrapperState):
     age: Array
     earned: Array
     graded: Array
+    window_weights: Array
+    slot_weights: Array = struct.field(metadata={"axis": None})
 
 
 def reset_time_limit(state: PyTree) -> PyTree:
@@ -218,7 +220,10 @@ class ArchiveAutoReset(AutoReset):
         refresh_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
     ):
         super().__init__(env, num_envs=num_envs)
-        self.num_actions = int(getattr(env.action_space(), "num_actions", 1))
+        action_space = env.action_space()
+        discrete = jnp.issubdtype(getattr(action_space, "dtype", jnp.int32), jnp.integer)
+        num_actions = getattr(action_space, "num_actions", 1) if discrete else 1
+        self.num_actions = num_actions if isinstance(num_actions, int) else 1
         self.archive = Archive(
             archive_size=archive_size,
             cell_fn=widen(cell_fn(env=env)),
@@ -259,6 +264,8 @@ class ArchiveAutoReset(AutoReset):
             archive_state=archive_state,
             assigned_slots=jnp.full(self.num_envs, -1, jnp.int32),
             due_mask=jnp.zeros(self.num_envs, bool),
+            window_weights=jnp.ones(self.num_envs, jnp.float32),
+            slot_weights=jnp.ones(self.archive.archive_size, jnp.float32),
             current_slots=claimed_slots,
             rho=jnp.ones(self.num_envs, bool),
             age=jnp.zeros(self.num_envs, jnp.int32),
@@ -376,6 +383,11 @@ class ArchiveAutoReset(AutoReset):
             "rho": state.rho,
             "start": start_mask,
             "evicted": evicted_slots,
+            "sample_weight": broadcast(
+                state.window_weights
+                * jnp.where(current_slots >= 0, state.slot_weights[jnp.clip(current_slots, 0)], 1.0),
+                timestep.reward,
+            ),
         }
 
     def record_episode_statistics(self, earned, graded, age, rho, done) -> None:
@@ -391,7 +403,14 @@ class ArchiveAutoReset(AutoReset):
             }
         )
 
-    def assign(self, state, selected_slots: Array):
+    def assign(
+        self,
+        state,
+        selected_slots: Array,
+        preempt: bool = True,
+        weights: Array | None = None,
+        slot_weights: Array | None = None,
+    ):
         num_placed, *_ = jnp.shape(selected_slots)
         block_mask = jnp.arange(self.num_envs) >= self.num_envs - num_placed
         assigned_slots = (
@@ -412,7 +431,9 @@ class ArchiveAutoReset(AutoReset):
         )
         return state.replace(
             assigned_slots=jnp.where(block_mask, assigned_slots, -1),
-            due_mask=block_mask,
+            due_mask=block_mask & preempt,
+            window_weights=jnp.ones(self.num_envs, jnp.float32) if weights is None else weights,
+            slot_weights=state.slot_weights if slot_weights is None else slot_weights,
         )
 
     def update(
@@ -420,10 +441,13 @@ class ArchiveAutoReset(AutoReset):
         state,
         key: Key,
         slots: Array | None = None,
+        preempt: bool = True,
+        weights: Array | None = None,
+        slot_weights: Array | None = None,
         **kwargs,
     ):
         if slots is not None:
-            state = self.assign(state, slots)
+            state = self.assign(state, slots, preempt, weights, slot_weights)
         return state.replace(env_state=super().update(state.env_state, key, **kwargs))
 
     def action_mask(self, state) -> Array | None:

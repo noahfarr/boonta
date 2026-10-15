@@ -8,3 +8,4 @@ curriculum:
   _target_: boonta.curricula.erd.make
   _partial_: true
   k: 4.0
+  restart_at: rollout

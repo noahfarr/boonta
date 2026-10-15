@@ -117,3 +117,24 @@ class ChainOfForks(Environment):
             terminated=self.terminal[cell] | perished,
             truncated=jnp.bool_(False),
         )
+
+
+def on_optimal_path(env):
+    game = getattr(env, "unwrapped", env)
+    successor = np.asarray(game.successor)
+    reward = np.asarray(game.reward)
+    terminal = np.asarray(game.terminal)
+    survival = (1.0 - game.hazard) * (~terminal)
+    values = np.zeros(game.num_cells)
+    for _ in range(4 * game.num_cells):
+        landing = reward[successor] + survival[successor] * values[successor]
+        values = landing.max(axis=-1)
+    path, cell = np.zeros(game.num_cells, bool), game.start
+    while not path[cell]:
+        path[cell] = True
+        if terminal[cell]:
+            break
+        landing = reward[successor[cell]] + survival[successor[cell]] * values[successor[cell]]
+        cell = successor[cell, np.argmax(landing)]
+    path = jnp.asarray(path)
+    return lambda env_state: path[env_state.cell]

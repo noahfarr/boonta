@@ -3,6 +3,7 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 import numpy as np
+import lox
 import pytest
 import zoo
 from dummies import Corridor
@@ -22,6 +23,7 @@ from boonta.curricula.prd import (
     TopK,
     UniformFootprint,
     UniformRelevance,
+    WaterFilling,
 )
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
@@ -185,6 +187,9 @@ def train(selector, updates=3, steps=4):
             gain=ModelAdvantage(),
             allocation=Softmax(),
         ),
+        selector(SuccessorFootprint(), CountedRelevance(), allocation=WaterFilling()),
+        selector(UniformFootprint(), CountedRelevance(), allocation=WaterFilling()),
+        selector(SuccessorFootprint(), CountedRelevance(), allocation=prd.Uniform()),
         "erd",
     ],
     ids=[
@@ -197,6 +202,9 @@ def train(selector, updates=3, steps=4):
         "prd-model-advantage",
         "prd-top-k",
         "prd-softmax",
+        "prd-water-filling",
+        "prd-uniform-footprint-water-filling",
+        "prd-uniform-allocation",
         "erd",
     ],
 )
@@ -269,8 +277,23 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
             {"selector": selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())},
         ),
         (erd.make, {"k": 2.0}),
+        (
+            prd.make,
+            {
+                "selector": selector(SuccessorFootprint(), CountedRelevance()),
+                "restart_at": "episode",
+            },
+        ),
+        (erd.make, {"k": 2.0, "restart_at": "episode"}),
+        (
+            prd.make,
+            {
+                "selector": selector(SuccessorFootprint(), CountedRelevance(), allocation=prd.Importance()),
+                "importance_weights": True,
+            },
+        ),
     ],
-    ids=["prd", "prd-kernel", "erd"],
+    ids=["prd", "prd-kernel", "erd", "prd-episode", "erd-episode", "prd-importance"],
 )
 def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
     curriculum, options
@@ -297,7 +320,8 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
     state, logs = podracer.train(state, jax.random.key(1), 20)
     archive = archived(state.environment_state)
     assert int(jnp.sum(archive.archive_state.mask)) == Corridor().length - 1
-    assert bool(jnp.any(archive.due_mask))
+    assert bool(jnp.any(archive.assigned_slots >= 0))
+    assert bool(jnp.any(archive.due_mask)) == (options.get("restart_at") != "episode")
     assert np.isfinite(np.asarray(logs["archive/placed"])).all()
     assert all(
         np.isfinite(leaf).all()
@@ -335,3 +359,75 @@ def test_k_rounds_the_fraction_of_environments_a_curriculum_places(k, num_placed
     prioritized = replace(selector(SuccessorFootprint(), CountedRelevance()), k=k)
     assert explorer.num_placed == num_placed
     assert prioritized.num_placed(NUM_ENVS) == num_placed
+
+
+def test_the_relative_efficiency_compares_the_batch_with_one_from_rho():
+    archive_size, num_envs = 4, 4
+    tabular = selector(SuccessorFootprint(), CountedRelevance())
+    ledger = tabular.init(archive_size, num_actions=2).replace(
+        successor=prd.Successor(
+            columns=jnp.arange(archive_size)[None], weights=jnp.eye(archive_size)
+        ),
+        reach=jnp.array([3.0, 1.0, 0.0, 0.0]),
+    )
+    worth = jnp.array([0.0, 1.0, 0.0, 0.0])
+
+    def relative_efficiency():
+        tabular.log_relative_efficiency(
+            ledger, worth, jnp.ones(archive_size, bool), jnp.array([1, 1]), num_envs
+        )
+
+    _, logs = lox.spool(relative_efficiency)()
+    np.testing.assert_allclose(logs["relative_efficiency/linear"], 2.5)
+    np.testing.assert_allclose(logs["relative_efficiency/saturated"], 2.5)
+    np.testing.assert_allclose(logs["relative_efficiency/ceiling"], 4.0)
+
+
+def test_water_filling_gives_each_start_its_share_of_the_level():
+    archive_size, count = 4, 64
+    tabular = selector(SuccessorFootprint(), CountedRelevance())
+    ledger = tabular.init(archive_size, num_actions=2)
+    ledger = ledger.replace(
+        successor=prd.Successor(
+            columns=jnp.arange(archive_size)[None], weights=jnp.eye(archive_size)
+        ),
+        gain=ledger.gain.replace(scale=jnp.float32(8.0)),
+    )
+    worth = jnp.array([4.0, 1.0, 1.0, 0.0])
+    eligible_mask = jnp.array([True, True, False, True])
+    slots = WaterFilling()(
+        tabular, ledger, worth, eligible_mask, 0.0, jax.random.key(0), count
+    )
+    restarts = np.bincount(np.asarray(slots), minlength=archive_size)
+    inverse_root_level = (count + 2 * 8.0) / (8.0 * (2.0 + 1.0))
+    expected = 8.0 * (np.array([2.0, 1.0]) * inverse_root_level - 1.0)
+    assert restarts.sum() == count
+    assert restarts[2] == restarts[3] == 0
+    np.testing.assert_allclose(restarts[:2], expected, atol=1.0)
+
+
+
+def test_a_blend_sends_its_uniform_share_anywhere_and_the_rest_by_its_inner_rule():
+    slots = jnp.arange(8)
+    inner = lambda selector, state, worth, eligible, residents, key, count: jnp.full(count, 7)
+    chosen = prd.Blend(inner=inner, uniform_share=0.25)(
+        None, None, None, slots < 4, None, jax.random.key(0), 8
+    )
+    assert chosen.shape == (8,)
+    assert bool(jnp.all(chosen[:2] < 4)) and bool(jnp.all(chosen[2:] == 7))
+
+
+def test_importance_weights_undo_the_restarts_so_the_batch_starts_from_rho():
+    env = ArchiveAutoReset(
+        Ladder(), num_envs=NUM_ENVS, cell_fn=lambda env: (lambda state: state.tag), archive_size=8
+    )
+    state, _ = env.init(jax.random.key(0))
+    reach = jnp.asarray([4.0, 2.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    ledger = selector(SuccessorFootprint(), CountedRelevance()).init(8, 2).replace(reach=reach)
+    slots = jnp.asarray([2, 2, 3, 3], jnp.int32)
+    state = state.replace(current_slots=jnp.asarray([0, 0, 1, 2, -1, -1, -1, -1], jnp.int32))
+    weights = selector(SuccessorFootprint(), CountedRelevance()).window_weights(ledger, env, state, slots)
+    relevance = reach / reach.sum()
+    mixture = 0.5 * relevance + 0.5 * jnp.zeros(8).at[slots].add(0.25)
+    np.testing.assert_allclose(weights[4:], relevance[slots] / mixture[slots], rtol=1e-6)
+    np.testing.assert_allclose(weights[:4], relevance[jnp.asarray([0, 0, 1, 2])] / mixture[jnp.asarray([0, 0, 1, 2])], rtol=1e-6)

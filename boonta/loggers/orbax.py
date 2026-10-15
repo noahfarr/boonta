@@ -1,3 +1,4 @@
+import logging
 import operator
 import os
 
@@ -5,6 +6,7 @@ import orbax.checkpoint as ocp
 
 from boonta.artisans import Checkpoint
 from boonta.utils import PyTree
+from boonta.utils.checkpoint import savable
 
 
 def barriers(name: str) -> ocp.options.MultiprocessingOptions:
@@ -22,6 +24,7 @@ class OrbaxLogger:
         best: bool = True,
         **kwargs,
     ):
+        logging.getLogger("absl").setLevel(logging.WARNING)
         self.latest = ocp.CheckpointManager(
             os.path.join(directory, "latest"),
             options=ocp.CheckpointManagerOptions(
@@ -52,7 +55,7 @@ class OrbaxLogger:
     def bundle(self, artifact: Checkpoint):
         return ocp.args.Composite(
             **{
-                name: ocp.args.StandardSave(tree)
+                name: ocp.args.StandardSave(savable(tree))
                 for name, tree in artifact.data.items()
             }
         )

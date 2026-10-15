@@ -1,16 +1,16 @@
 # hangar
 
-`hangar` turns a Hydra config into a training run. `main.py` asks `recipes.make` for a podracer built from the chosen algorithm and environment, trains it, and logs the results.
+`hangar` turns a Hydra config into a training run. `train.py` asks `recipes.make` for a podracer built from the chosen algorithm and environment, trains it, and logs the results. `evaluate.py` builds the same podracer, loads a checkpoint into it and evaluates it.
 
 ## Run
 
 `hangar` needs Hydra and OmegaConf, which come with the `hangar` extra: `uv sync --extra hangar` installs them.
 
 ```bash
-uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
+uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-`boonta` is the console command for `hangar/main.py`. Hydra resolves the config relative to `main.py`, so it works from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
+`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; both take the same overrides. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job.
 
 | Override | Effect |
 | --- | --- |
@@ -22,7 +22,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 
 ### Several machines
 
-`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 uv run boonta num_processes=8`. `main.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
+`num_processes` above 1 runs one training across that many processes. Set it to the total count, machines times tasks per machine, and launch one task per GPU, for example `srun --nodes=2 --ntasks-per-node=4 uv run boonta train num_processes=8`. `train.py` then calls `jax.distributed.initialize()`, which finds each task's rank and the coordinator through SLURM, Open MPI or JAX's coordinator variables. A count that does not match what the launcher started fails or hangs until it times out. `anakin` and `quadinaros` shard over every device of every task. All tasks write to one directory, `outputs/<job id>-<array id>/`. Process 0 alone prints the brief and runs the file, dashboard and wandb loggers. Every process takes part in an orbax checkpoint save. `sebulba` still runs on one machine.
 
 ## Config groups
 
@@ -32,7 +32,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `environment` | paths under `config/environment/`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
 | `podracer` | `anakin` (on-policy), `sebulba` (actor/learner split), `quadinaros` (offline) | `anakin` |
 | `logger` | `dashboard`, `file`, `wandb`, `orbax` | `dashboard` |
-| `artisan` | `checkpointer`, `render` (plays the first environment greedily each epoch and draws it as a GIF; needs an environment with `render`), `transcript` | none |
+| `artisan` | `checkpoint`, `render` (plays the first environment greedily each epoch and draws it as a GIF; needs an environment with `render`), `transcript`, `plot` (draws the mean episode return of each epoch as a PNG; needs matplotlib, from `--extra plot`) | none |
 | `torso`, `stack`, `cell` | recurrent network parts | set by the recurrent algorithms |
 | `buffer` | `transition`, `trajectory`, `episode`, `prioritised_episode` (the last two need `buffer.sample_sequence_length`) | set by the replay algorithms |
 | `curriculum` | `default` | `default` |
@@ -40,7 +40,7 @@ uv run boonta algorithm=ppo environment=gymnax/minatar/breakout
 | `scoring` | `best`, `final`, `mean`: how a run's returns become its score for a sweeper | `best` |
 | `search_space` | the sweepers' search spaces, `<algorithm>/<environment>` | picked like `hyperparameters` |
 
-Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan=[checkpointer]`. `artisan` is not in the defaults list, so it takes a leading `+`. Saving checkpoints to disk takes both the `checkpointer` artisan and the `orbax` logger.
+Loggers and artisans combine as lists, for example `logger=[file,wandb] artisan=[checkpoint]`. Saving checkpoints to disk takes both the `checkpoint` artisan and the `orbax` logger.
 
 `hyperparameters/<algorithm>/<environment>.yaml` is applied automatically, after the algorithm, environment and curriculum. When there is no file for the exact environment, the `cascade` resolver walks up the environment path until it finds one, and falls back to `hyperparameters/<algorithm>.yaml`. So `hyperparameters/ppo/gymnax/minatar.yaml` covers every MinAtar game. At each step it first tries `<environment>/<curriculum>.yaml`, which holds what a curriculum needs on that environment, such as the level sampler `hyperparameters/ppo/kinetix/plr.yaml` gives PLR.
 
@@ -53,8 +53,8 @@ Loggers and artisans combine as lists, for example `logger=[file,wandb] +artisan
 `hydra/sweeper=carbs` turns a multirun into a CARBS search in which every trial is one run, seeded with its trial number unless you set `seed`. A grid multirun is unaffected:
 
 ```bash
-uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx
-uv run boonta -m algorithm=ippo environment=dune_sea/connectx seed=0,1,2
+uv run boonta train -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx
+uv run boonta train -m algorithm=ippo environment=dune_sea/connectx seed=0,1,2
 ```
 
 The search space is `config/search_space/<algorithm>/<environment>.yaml`, looked up like the hyperparameters above, so `search_space/ippo/dune_sea/connectx.yaml` holds the ConnectX space. Each file starts with `# @package search_space` and holds only the parameters. Each parameter is a config key with a `distribution` (`uniform`, `int_uniform`, `uniform_pow2`, `log_normal`, `logit_normal`), a `min` and a `max`, and optionally a `center`, a `scale` and a `rounding_factor`. An algorithm-wide space goes in `search_space/<algorithm>.yaml`, and an environment's space builds on it by listing `/search_space/<algorithm>` before `_self_` in its defaults. Every run carries its space as plain data in the top-level `search_space` key, which only the CARBS sweeper reads: its `params` default to `${oc.select:search_space,null}`. Keys set under `hydra.sweeper.params` in a config are merged on top, and `++hydra.sweeper.params={...}` replaces the space.
@@ -65,11 +65,11 @@ Pick a launcher as usual, for example `hydra/launcher=submitit_local` or `hydra/
 
 ```bash
 uv sync --extra hangar --group sweep
-uv run boonta -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx \
+uv run boonta train -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/connectx \
     hydra.sweeper.n_trials=1024 hydra.sweeper.num_random_samples=16 hydra.sweeper.resample_frequency=16 \
     hydra.sweeper.max_failure_rate=0.5 hydra.sweeper.max_suggestion_cost=900 \
     logger=[file,orbax] loggers.orbax.max_to_keep=1 ++loggers.orbax.best=false \
-    +artisan=[checkpointer] scoring=final \
+    +artisan=[checkpoint] scoring=final \
     hydra/launcher=submitit_local hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=30
 ```
 
@@ -82,7 +82,7 @@ Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `mult
 `hydra/sweeper=pbt` runs [population-based training](https://arxiv.org/abs/1711.09846) over the same search space, one generation at a time. It needs nothing beyond `hangar`:
 
 ```bash
-uv run boonta -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/breakout \
+uv run boonta train -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/breakout \
     logger=file evaluation.num_steps=1000
 ```
 
@@ -98,7 +98,7 @@ The plugin knows nothing about boonta. It takes three settings that say how to d
 
 Generation `g` of `G` sets each budget key to its full-run value times `(g + 1) / G`, so `generations` must divide every value. In hangar a generation's run plans `(g + 1) / G` of the steps over `(g + 1) / G` of the epochs, which keeps the steps per epoch of the full run. A member resuming from its parent's checkpoint continues at the checkpoint's epoch and runs to the end of its plan. A learning-rate schedule built from `total_timesteps` is planned anew in every generation, so it restarts or jumps at each one.
 
-Hangar's `overrides` are `scoring=final`, `+artisan@artisans.checkpointer=checkpointer`, `+logger@loggers.orbax=orbax`, `++loggers.orbax.max_to_keep=1` and `++loggers.orbax.best=false`. So every run scores its last epoch and adds the `checkpointer` artisan and an `orbax` logger to whatever artisans and loggers it already has. The logger writes to its default `${hydra:runtime.output_dir}/checkpoints`, which is the run's own dir, and keeps only the latest checkpoint, the generation's last epoch. The next generation passes that run dir as `checkpoint=`, which resolves to `checkpoints/latest`. A command-line override of any key the sweeper sets is dropped from every job, and the budget keys take their full-run values from the command line. The checkpointer saves only `algorithm_state` by default, so a resumed run starts its environments afresh. On `anakin` with JAX environments, `++artisans.checkpointer.fields=[algorithm_state,environment_state,timestep]` also carries the environments, and adding `pit_state` carries a curriculum's own state, such as the league's pool and payoffs or PLR's level buffer. Sweep jobs are seeded by job number, so a member's generations still differ in their random keys. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
+Hangar's `overrides` are `scoring=final`, `+artisan@artisans.checkpoint=checkpoint`, `+logger@loggers.orbax=orbax`, `++loggers.orbax.max_to_keep=1` and `++loggers.orbax.best=false`. So every run scores its last epoch and adds the `checkpoint` artisan and an `orbax` logger to whatever artisans and loggers it already has. The logger writes to its default `${hydra:runtime.output_dir}/checkpoints`, which is the run's own dir, and keeps only the latest checkpoint, the generation's last epoch. The next generation passes that run dir as `checkpoint=`, which resolves to `checkpoints/latest`. A command-line override of any key the sweeper sets is dropped from every job, and the budget keys take their full-run values from the command line. The checkpointer saves only `algorithm_state` by default, so a resumed run starts its environments afresh. On `anakin` with JAX environments, `++artisans.checkpoint.fields=[algorithm_state,environment_state,timestep]` also carries the environments, and adding `pit_state` carries a curriculum's own state, such as the league's pool and payoffs or PLR's level buffer. Sweep jobs are seeded by job number, so a member's generations still differ in their random keys. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
 
 Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `rollout.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper does not check this. A search over such a key fails in the second generation, when a member's checkpoint no longer fits its fresh state and the restore raises. Searching a budget key does nothing, since the sweeper sets those itself.
 

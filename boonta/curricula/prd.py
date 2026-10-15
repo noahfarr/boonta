@@ -50,6 +50,13 @@ class SuccessorRepresentation:
         )
         return jnp.sum(successor.weights * gathered, axis=-1)
 
+    def pour_squared(self, successor: Successor, term: Array) -> Array:
+        size, *_ = jnp.shape(term)
+        gathered = jnp.where(
+            successor.columns < size, term[jnp.clip(successor.columns, 0, size - 1)], 0.0
+        )
+        return jnp.sum(successor.weights**2 * gathered, axis=-1)
+
     def expected_visits(self, successor: Successor, start_slot: Array) -> Array:
         columns, weights = successor.columns, successor.weights
         archive_size, _ = jnp.shape(weights)
@@ -171,6 +178,11 @@ class SuccessorFootprint:
     def pour(self, successor: SuccessorRepresentation, table: Successor, term: Array) -> Array:
         return successor.pour(table, term)
 
+    def pour_squared(
+        self, successor: SuccessorRepresentation, table: Successor, term: Array
+    ) -> Array:
+        return successor.pour_squared(table, term)
+
     def expected_visits(
         self, successor: SuccessorRepresentation, table: Successor, start_slot: Array
     ) -> Array:
@@ -183,6 +195,12 @@ class SuccessorFootprint:
 class UniformFootprint:
     def pour(self, successor: SuccessorRepresentation, table: Successor, term: Array) -> Array:
         return jnp.full_like(term, jnp.mean(term))
+
+    def pour_squared(
+        self, successor: SuccessorRepresentation, table: Successor, term: Array
+    ) -> Array:
+        archive_size, *_ = jnp.shape(term)
+        return jnp.full_like(term, jnp.mean(term) / archive_size)
 
     def expected_visits(
         self, successor: SuccessorRepresentation, table: Successor, start_slot: Array
@@ -327,6 +345,12 @@ class GreedyAdvantage(Advantage):
         present_mask = state.action_counts > 0.0
         trust = state.action_counts / (state.action_counts + self.shrinkage)
         return jnp.max(jnp.where(present_mask, trust * self.centre(state), 0.0), axis=-1)
+
+
+@dataclass
+class UniformGain(Advantage):
+    def __call__(self, state: GainState) -> Array:
+        return jnp.ones_like(state.cell_visits)
 
 
 @struct.dataclass
@@ -609,6 +633,88 @@ class Marginal:
         return selected_slots
 
 
+class Uniform:
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
+        return pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (count,))
+
+
+@dataclass
+class WaterFilling:
+    iterations: int = 50
+    noise_scale_multiplier: float = 1.0
+
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
+        argmax_key, order_key = jax.random.split(key)
+        noise_scale = state.gain.scale * self.noise_scale_multiplier
+        committed = selector.committed_visits(state, resident_counts)
+        first_value = jnp.where(eligible_mask, selector.value(state, worth, committed), 0.0)
+        curvature = selector.footprint.pour_squared(
+            selector.successor,
+            state.successor,
+            jnp.abs(worth) / (1.0 + committed / jnp.maximum(noise_scale, 1e-30)) ** 3,
+        )
+        saturating_restarts = noise_scale * first_value / jnp.maximum(curvature, 1e-30)
+        highest = jnp.max(first_value)
+
+        def restarts_at(level):
+            return jnp.where(
+                first_value > level,
+                saturating_restarts * (jnp.sqrt(first_value / level) - 1.0),
+                0.0,
+            )
+
+        def bisect(_, bounds):
+            low, high = bounds
+            middle = jnp.sqrt(low * high)
+            too_many = jnp.sum(restarts_at(middle)) > count
+            return jnp.where(too_many, middle, low), jnp.where(too_many, high, middle)
+
+        low, _ = jax.lax.fori_loop(
+            0, self.iterations, bisect, (highest * 1e-12, highest)
+        )
+        restarts = restarts_at(low)
+        boundaries = jnp.cumsum(restarts) * count / jnp.maximum(jnp.sum(restarts), 1e-30)
+        archive_size, *_ = jnp.shape(restarts)
+        filled_slots = jnp.minimum(
+            jnp.searchsorted(boundaries, jnp.arange(count) + 0.5), archive_size - 1
+        )
+        filled_slots = jax.random.permutation(order_key, filled_slots)
+        return jnp.where(
+            (noise_scale > 0.0) & (highest > 0.0),
+            filled_slots,
+            random_argmax(first_value, eligible_mask, argmax_key, (count,)),
+        )
+
+
+@dataclass
+class Importance:
+    gain_exponent: float = 0.5
+
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
+        relevance = selector.relevant(state)
+        gain = jnp.maximum(selector.gain(state.gain), 0.0)
+        weight = relevance * gain**self.gain_exponent
+        logits = jnp.where(eligible_mask & (weight > 0.0), jnp.log(jnp.maximum(weight, 1e-30)), -jnp.inf)
+        fallback = jnp.where(eligible_mask, 0.0, -jnp.inf)
+        logits = jnp.where(jnp.any(jnp.isfinite(logits)), logits, fallback)
+        return jax.random.categorical(key, logits, shape=(count,))
+
+
+@dataclass
+class Blend:
+    inner: "Marginal | WaterFilling | TopK | Softmax"
+    uniform_share: float = 0.5
+
+    def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
+        uniform_key, inner_key = jax.random.split(key)
+        num_uniform = int(round(self.uniform_share * count))
+        uniform_slots = Uniform()(selector, state, worth, eligible_mask, resident_counts, uniform_key, num_uniform)
+        inner_slots = self.inner(
+            selector, state, worth, eligible_mask, resident_counts, inner_key, count - num_uniform
+        )
+        return jnp.concatenate([uniform_slots, inner_slots])
+
+
 @dataclass
 class TopK:
     width: int = 32
@@ -641,9 +747,9 @@ class Selector:
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance
-    gain: Advantage | GreedyAdvantage | ModelAdvantage
+    gain: Advantage | GreedyAdvantage | UniformGain | ModelAdvantage
     score: Diagonal | Kernel = Diagonal()
-    allocation: Marginal | TopK | Softmax = Marginal()
+    allocation: Marginal | WaterFilling | Uniform | TopK | Softmax | Blend | Importance = Marginal()
     k: float = 4.0
     rate: float = 0.2
 
@@ -713,7 +819,29 @@ class Selector:
         )
         self.watch(state, worth, archive_state.mask, selected_slots)
         self.saturation(state, worth, eligible_mask, resident_counts, selected_slots)
+        self.log_relative_efficiency(
+            state, worth, eligible_mask, selected_slots, wrapper.num_envs
+        )
         return selected_slots
+
+    def window_weights(self, state: SelectorState, wrapper, archive_auto_reset_state, selected_slots) -> Array:
+        num_placed, *_ = jnp.shape(selected_slots)
+        num_envs = wrapper.num_envs
+        archive_size, *_ = jnp.shape(state.reach)
+        relevance = state.reach / jnp.maximum(jnp.sum(state.reach), 1e-30)
+        restart_share = jnp.zeros(archive_size).at[selected_slots].add(1.0) / max(num_placed, 1)
+        placed_fraction = num_placed / num_envs
+        mixture = (1.0 - placed_fraction) * relevance + placed_fraction * restart_share
+        block_mask = jnp.arange(num_envs) >= num_envs - num_placed
+        start_slots = jnp.where(
+            block_mask,
+            jnp.zeros(num_envs, jnp.int32).at[num_envs - num_placed:].set(selected_slots),
+            archive_auto_reset_state.current_slots,
+        )
+        known = start_slots >= 0
+        clipped = jnp.clip(start_slots, 0)
+        weights = relevance[clipped] / jnp.maximum(mixture[clipped], 1e-30)
+        return jnp.where(known, weights, 1.0).astype(jnp.float32)
 
     def relevant(self, state: SelectorState) -> Array:
         return self.relevance(self.successor, state.successor, state.reach)
@@ -758,6 +886,65 @@ class Selector:
             }
         )
 
+    def log_relative_efficiency(
+        self,
+        state: SelectorState,
+        worth: Array,
+        eligible_mask: Array,
+        selected_slots: Array,
+        num_envs: int,
+    ) -> None:
+        archive_size, *_ = jnp.shape(eligible_mask)
+        num_placed, *_ = jnp.shape(selected_slots)
+        num_starting = max(num_envs - num_placed, 1)
+        start_visits = state.reach
+        start_steps = jnp.sum(start_visits)
+        restarts_per_slot = jnp.zeros(archive_size).at[selected_slots].add(1.0)
+        restart_footprint = self.footprint.spill(self.successor, state.successor, restarts_per_slot)
+        restart_visits = (
+            restart_footprint
+            * start_steps
+            * num_placed
+            / num_starting
+            / jnp.maximum(jnp.sum(restart_footprint), 1e-30)
+        )
+        mixed_visits = start_visits + restart_visits
+        rho_only_visits = start_visits * num_envs / num_starting
+        noise_scale = state.gain.scale
+
+        def improvement_from(visits, saturated):
+            if saturated:
+                visits = jnp.where(
+                    noise_scale > 0.0, noise_scale * visits / (visits + noise_scale), visits
+                )
+            return jnp.sum(worth * visits)
+
+        def ratio(numerator, denominator):
+            return jnp.where(denominator > 0.0, numerator / denominator, 1.0)
+
+        episode_lengths = self.footprint.pour(
+            self.successor, state.successor, jnp.ones(archive_size)
+        )
+        value_per_step = self.value(state, worth) / jnp.maximum(episode_lengths, 1e-30)
+        best_value_per_step = jnp.max(jnp.where(eligible_mask, value_per_step, 0.0))
+        start_value_per_step = jnp.sum(start_visits * worth) / jnp.maximum(start_steps, 1e-30)
+        numerator = improvement_from(mixed_visits, saturated=False)
+        denominator = improvement_from(rho_only_visits, saturated=False)
+        lox.log(
+            {
+                "relative_efficiency/linear": ratio(numerator, denominator),
+                "relative_efficiency/saturated": ratio(
+                    improvement_from(mixed_visits, saturated=True),
+                    improvement_from(rho_only_visits, saturated=True),
+                ),
+                "relative_efficiency/ceiling": ratio(
+                    best_value_per_step, start_value_per_step
+                ),
+                "relative_efficiency/numerator": numerator,
+                "relative_efficiency/denominator": denominator,
+            }
+        )
+
     def watch(
         self, state: SelectorState, worth: Array, archive_mask: Array, selected_slots: Array
     ) -> None:
@@ -795,11 +982,14 @@ class PRD(Pit):
     environment: ArchiveAutoReset
     selector: Selector
     algorithm: Algorithm
+    restart_at: str = "rollout"
+    importance_weights: bool = False
 
     def __post_init__(self):
         assert isinstance(
             self.environment, ArchiveAutoReset
         ), "PRD restarts from an ArchiveAutoReset, and the environment wraps none"
+        assert self.restart_at in ("rollout", "episode"), self.restart_at
 
     def init(self, key: Key, state: PyTree) -> SelectorState:
         ledger = self.selector.init(
@@ -833,7 +1023,12 @@ class PRD(Pit):
                     algorithm=self.algorithm,
                     algorithm_state=state.algorithm_state,
                 )
-                return self.environment.update(node, assign_key, slots=slots)
+                weights = None
+                if self.importance_weights:
+                    weights = self.selector.window_weights(state.pit_state, self.environment, node, slots)
+                return self.environment.update(
+                    node, assign_key, slots=slots, preempt=self.restart_at == "rollout", weights=weights
+                )
             return node
 
         environment_state = jax.tree.map(
@@ -845,6 +1040,12 @@ class PRD(Pit):
 
 
 def make(
-    algorithm: Algorithm, environment: Environment, selector: Selector, **kwargs
+    algorithm: Algorithm,
+    environment: Environment,
+    selector: Selector,
+    restart_at: str = "rollout",
+    importance_weights: bool = False,
+    **kwargs,
 ) -> tuple[Algorithm, Environment, PRD, Lap | None]:
-    return algorithm, environment, PRD(unwrap(environment), selector, algorithm), None
+    pit = PRD(unwrap(environment), selector, algorithm, restart_at, importance_weights)
+    return algorithm, environment, pit, None

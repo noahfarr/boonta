@@ -7,3 +7,4 @@ summary:
   Environment: ${environment.env_id}
   Total Timesteps: ${total_timesteps}
   Seed: ${seed}
+  Curriculum: ${hydra:runtime.choices.curriculum}

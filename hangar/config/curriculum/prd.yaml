@@ -12,11 +12,13 @@ defaults:
 curriculum:
   _target_: boonta.curricula.prd.make
   _partial_: true
+  restart_at: rollout
+  importance_weights: false
   selector:
     _target_: boonta.curricula.prd.Selector
     k: 4.0
     successor:
       _target_: boonta.curricula.prd.SuccessorRepresentation
-      gamma: ${eval:'1 - 1 / ${rollout.num_steps}'}
+      gamma: ${eval:'1 - 1 / ${rollout.num_steps} if "${curriculum.restart_at}" == "rollout" else ${algorithm.gamma}'}
       rate: 0.1
       columns: 256

@@ -17,8 +17,8 @@ import zoo
 from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.artisans import Checkpoint, Render, Video
-from boonta.utils import load_checkpoint, newest, sharded
+from boonta.artisans import Checkpoint, Image, Plot, Render, Video
+from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief
 
@@ -79,7 +79,7 @@ def test_resume_restores_the_whole_algorithm_state(tmp_path, build):
     fresh = podracer.init(jax.random.key(0))
     save(tmp_path, trained)
 
-    restored = load_checkpoint(newest(tmp_path), fresh)
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
 
     assert moved(fresh.algorithm_state.params, trained.algorithm_state.params)
     assert_restored(trained.algorithm_state, restored.algorithm_state)
@@ -99,7 +99,7 @@ def test_resume_restores_each_saved_field_and_leaves_the_rest_fresh(tmp_path, fi
     fresh = podracer.init(jax.random.key(0))
     save(tmp_path, trained, fields=fields)
 
-    restored = load_checkpoint(newest(tmp_path), fresh)
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
 
     items = {item.name for item in (tmp_path / "checkpoints/latest/96").iterdir()}
     assert items == {*fields, "_CHECKPOINT_METADATA"}
@@ -115,16 +115,15 @@ def test_resume_fails_when_a_saved_field_changed_shape(tmp_path):
     save(tmp_path, saved.init(jax.random.key(0)))
 
     with pytest.raises(ValueError, match="stored shape"):
-        load_checkpoint(newest(tmp_path), wider.init(jax.random.key(0)))
+        load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
 
 
-def test_newest_resolves_a_run_directory_to_its_latest_or_best_checkpoint(tmp_path):
+def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_path):
     log_scores(tmp_path / "checkpoints", [1.0, 3.0, 2.0])
 
-    assert newest(tmp_path) == str(tmp_path / "checkpoints/latest/3")
-    assert newest(tmp_path, "best") == str(tmp_path / "checkpoints/best/2")
-    assert newest(tmp_path / "checkpoints/best/2") == str(tmp_path / "checkpoints/best/2")
-    assert newest(None) is None
+    assert resolve_checkpoint(tmp_path) == str(tmp_path / "checkpoints/latest/3")
+    assert resolve_checkpoint(tmp_path / "checkpoints/best/2") == str(tmp_path / "checkpoints/best/2")
+    assert resolve_checkpoint(None) is None
 
 
 def test_the_checkpointer_saves_exactly_the_fields_it_names():
@@ -205,6 +204,28 @@ def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
     logger.log_artifact(Checkpoint("checkpoint", {}), step=100)
 
     assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
+
+
+def test_the_file_logger_writes_each_image_as_a_png(tmp_path):
+    logger = FileLogger(directory=tmp_path)
+    logger.log_artifact(Image("plot", np.zeros((8, 8, 3), np.uint8)), step=100)
+
+    assert [path.name for path in tmp_path.iterdir()] == ["plot-100.png"]
+
+
+def test_the_plot_artisan_draws_the_history_of_finished_episodes():
+    plot = Plot(size=(3.0, 2.0), dpi=50)
+    key = "episode_statistics/episode_return"
+    first = plot.craft(None, None, None, None, {key: np.array([np.nan, 1.0, 3.0, np.nan])})
+    second = plot.craft(None, None, None, None, {key: np.full((2, 2), np.nan)})
+    third = plot.craft(None, None, None, None, {key: np.array([[5.0, np.nan]])})
+
+    np.testing.assert_array_equal(plot.means, [2.0, np.nan, 5.0])
+    np.testing.assert_array_equal(plot.stds, [1.0, np.nan, 0.0])
+    for image in (first, second, third):
+        assert image.name == "episode_return"
+        assert image.data.shape == (100, 150, 3) and image.data.dtype == np.uint8
+    assert not np.array_equal(first.data, third.data)
 
 
 def test_the_render_artisan_plays_and_draws_the_first_environment():
@@ -302,7 +323,7 @@ def test_brief_lists_the_run_settings_but_not_hydra_loggers_or_artisans(capsys):
             "algorithm": {"gamma": 0.99, "lr": 0.0003},
             "hydra": {"job_name": "launch"},
             "loggers": {"wandb": {"project": "elsewhere"}},
-            "artisans": {"checkpointer": {"interval": 7777}},
+            "artisans": {"checkpoint": {"interval": 7777}},
         }
     )
 
@@ -380,3 +401,20 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     assert axes.opponents is None
     assert axes.weights.kernel == root
     assert axes.step is False
+
+
+def test_the_xdg_logger_opens_an_image_once_and_redraws_it_in_place(tmp_path, monkeypatch):
+    from unittest import mock
+
+    from boonta.loggers import XdgLogger
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    logger = XdgLogger(directory=tmp_path)
+    with mock.patch("shutil.which", return_value="/usr/bin/xdg-open"), mock.patch(
+        "subprocess.Popen"
+    ) as popen:
+        for step in (1, 2):
+            logger.log_artifact(Image("plot", np.full((8, 8, 3), step, np.uint8)), step=step)
+
+    assert popen.call_count == 1
+    assert [path.name for path in tmp_path.iterdir()] == ["plot.png"]

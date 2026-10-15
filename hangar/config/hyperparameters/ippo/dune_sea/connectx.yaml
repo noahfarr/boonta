@@ -23,8 +23,6 @@ network:
   features: 256
   layers: 2
 
-score: gauntlet/mean
-
 artisans:
   gauntlet:
     _target_: boonta.artisans.Gauntlet

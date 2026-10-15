@@ -8,7 +8,7 @@ budget_variable:
 checkpoint: checkpoint
 overrides:
   - scoring=final
-  - +artisan@artisans.checkpointer=checkpointer
+  - +artisan@artisans.checkpoint=checkpoint
   - +logger@loggers.orbax=orbax
   - ++loggers.orbax.max_to_keep=1
   - ++loggers.orbax.best=false

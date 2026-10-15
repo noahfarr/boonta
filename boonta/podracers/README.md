@@ -28,7 +28,7 @@ Pick one with `podracer=sebulba` on the command line. Offline algorithms such as
 - `sebulba`: the same, times the number of actor devices.
 - `quadinaros`: the product of `batch_shape`.
 
-`hangar/main.py` splits `total_timesteps` into `training.num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
+`hangar/train.py` splits `total_timesteps` into `training.num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
 
 The podracer counts steps into `algorithm_state.step`. The online podracers add `num_envs × num_agents` after every environment step. `quadinaros` adds `batch_size` after every update.
 
@@ -65,7 +65,7 @@ The state is `SebulbaState(actors, algorithm_state, pit_state)`. `algorithm_stat
 The default config puts the learner and one actor on device 0. To give them separate GPUs, move the actor mesh:
 
 ```bash
-uv run boonta podracer=sebulba podracer.config.actor.start=1
+uv run boonta train podracer=sebulba podracer.config.actor.start=1
 ```
 
 ## quadinaros
@@ -74,7 +74,7 @@ uv run boonta podracer=sebulba podracer.config.actor.start=1
 
 ## Several machines
 
-Set `num_processes` to the total number of processes and start one per GPU, for example with `srun --nodes=2 --ntasks-per-node=4 uv run boonta num_processes=8`. `main.py` then calls `jax.distributed.initialize`, and the default meshes of `anakin` and `quadinaros` span every device of every process. `sebulba` runs on one machine. See [`hangar/README.md`](../../hangar/README.md).
+Set `num_processes` to the total number of processes and start one per GPU, for example with `srun --nodes=2 --ntasks-per-node=4 uv run boonta train num_processes=8`. `train.py` then calls `jax.distributed.initialize`, and the default meshes of `anakin` and `quadinaros` span every device of every process. `sebulba` runs on one machine. See [`hangar/README.md`](../../hangar/README.md).
 
 ## Add a podracer
 

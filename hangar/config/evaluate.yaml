@@ -1,0 +1,7 @@
+defaults:
+  - config
+  - _self_
+
+hydra:
+  run:
+    dir: ${checkpoint}/evaluation/${now:%Y-%m-%d}/${now:%H-%M-%S}

@@ -1,6 +1,7 @@
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from .artifact import Video
@@ -32,7 +33,10 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            env_state = jax.tree.map(lambda leaf: leaf[0], environment_state)
+            env_state = jax.tree.map(
+                lambda leaf: jnp.take(leaf, 0, axis=0),
+                getattr(environment_state, "unwrapped", environment_state),
+            )
             return (algorithm_state, environment_state, timestep), env_state
 
         (_, environment_state, _), trajectory = jax.lax.scan(

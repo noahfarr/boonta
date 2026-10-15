@@ -1,0 +1,20 @@
+# @package _global_
+
+# MuJoCo Playground's reference PPO for PandaPickCube (brax): 20M steps, discount 0.97,
+# 2048 envs x 10-step unrolls, 32 minibatches x 8 epochs, lr 1e-3, entropy 2e-2.
+total_timesteps: 20_000_000
+
+algorithm:
+  gamma: 0.97
+  num_minibatches: 32
+  update_epochs: 8
+  entropy_coefficient: 0.02
+
+rollout:
+  num_steps: 10
+
+environment:
+  num_envs: 2048
+
+optimizer:
+  lr: 1e-3

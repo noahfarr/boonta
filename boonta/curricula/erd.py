@@ -15,12 +15,14 @@ from boonta.utils.typing import Environment
 class ERD(Pit):
     environment: ArchiveAutoReset
     k: float = 4.0
+    restart_at: str = "rollout"
 
     def __post_init__(self):
         assert isinstance(
             self.environment, ArchiveAutoReset
         ), "ERD restarts from an ArchiveAutoReset, and the environment wraps none"
         assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
+        assert self.restart_at in ("rollout", "episode"), self.restart_at
 
     @property
     def num_placed(self) -> int:
@@ -38,7 +40,9 @@ class ERD(Pit):
         def assign(node):
             if isinstance(node, ArchiveAutoResetState):
                 slots = self.select(node, select_key)
-                return self.environment.update(node, assign_key, slots=slots)
+                return self.environment.update(
+                    node, assign_key, slots=slots, preempt=self.restart_at == "rollout"
+                )
             return node
 
         environment_state = jax.tree.map(
@@ -50,6 +54,10 @@ class ERD(Pit):
 
 
 def make(
-    algorithm: Algorithm, environment: Environment, k: float = 4.0, **kwargs
+    algorithm: Algorithm,
+    environment: Environment,
+    k: float = 4.0,
+    restart_at: str = "rollout",
+    **kwargs,
 ) -> tuple[Algorithm, Environment, ERD, Lap | None]:
-    return algorithm, environment, ERD(unwrap(environment), k), None
+    return algorithm, environment, ERD(unwrap(environment), k, restart_at), None

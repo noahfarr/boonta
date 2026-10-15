@@ -19,7 +19,11 @@ class Checkpointer:
         self.fields = tuple(fields)
 
     def craft(self, key, algorithm, environment, state, logs) -> Checkpoint:
-        parts = {field: getattr(state, field) for field in self.fields}
+        parts = {
+            field: getattr(state, field)
+            for field in self.fields
+            if getattr(state, field) is not None
+        }
         if not logs:
             return Checkpoint(self.name, parts)
         return Checkpoint(self.name, parts, float(np.nanmean(self.score(logs))))

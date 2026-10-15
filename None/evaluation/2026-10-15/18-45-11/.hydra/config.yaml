@@ -1,0 +1,73 @@
+total_timesteps: 150000000
+seed: ${trial:}
+num_processes: 1
+checkpoint: null
+training:
+  num_epochs: 10
+evaluation:
+  num_steps: 0
+score: ${eval:'"evaluation" if ${evaluation.num_steps} else "training"'}/episode_return
+loggers:
+  dashboard:
+    _target_: boonta.loggers.DashboardLogger
+    total_timesteps: ${total_timesteps}
+    refresh_per_second: 1
+    summary:
+      Algorithm: ${hydra:runtime.choices.algorithm}
+      Environment: ${environment.env_id}
+      Total Timesteps: ${total_timesteps}
+      Seed: ${seed}
+      Curriculum: ${hydra:runtime.choices.curriculum}
+  xdg:
+    _target_: boonta.loggers.XdgLogger
+    directory: ${hydra:runtime.output_dir}
+artisans:
+  render:
+    _target_: boonta.artisans.Render
+    name: render
+    max_frames: 256
+    fps: 16
+    kwargs: {}
+podracer:
+  _target_: boonta.podracers.anakin.make
+  _partial_: true
+  config:
+    _target_: boonta.podracers.anakin.AnakinConfig
+    num_envs: ${environment.num_envs}
+    num_steps: ${rollout.num_steps}
+    mesh:
+      _target_: boonta.utils.mesh
+      count: ${device_count:}
+algorithm:
+  _target_: boonta.algorithms.ppo.PPOConfig
+  num_minibatches: 32
+  update_epochs: 8
+  clip_coefficient: 0.3
+  clip_value_loss: false
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.97
+  gae_lambda: 0.95
+  normalize_advantage: true
+rollout:
+  num_steps: 40
+environment:
+  num_envs: 1024
+  auto_reset:
+    _target_: boonta.environments.wrappers.SameStepAutoReset
+    num_envs: ${environment.num_envs}
+  namespace: mujoco_playground
+  suite: manipulation
+  env_id: AlohaSinglePegInsertion
+  kwargs:
+    config_overrides:
+      impl: warp
+optimizer:
+  lr: 0.0003
+  max_grad_norm: 0.5
+curriculum:
+  _target_: boonta.curricula.default
+  _partial_: true
+scoring:
+  _target_: builtins.max
+  _partial_: true
