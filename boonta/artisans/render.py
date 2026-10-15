@@ -48,6 +48,14 @@ class Render:
         return trajectory
 
     def craft(self, key, algorithm, environment, state, logs) -> Video:
+        try:
+            # Environments that draw with pyplot (gymnax) would otherwise open a window
+            # per frame on an interactive backend, which is slow and hangs under the dashboard.
+            from matplotlib import pyplot
+
+            pyplot.switch_backend("Agg")
+        except ImportError:
+            pass
         rollout = jax.jit(partial(self.rollout, algorithm, environment))
         trajectory = rollout(state.algorithm_state, key)
         frames = [
