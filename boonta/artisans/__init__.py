@@ -21,7 +21,6 @@ __all__ = [
 
 
 def __getattr__(name):
-    # trueskill is an optional dependency, so TrueSkill is imported on first use
     if name == "TrueSkill":
         from .trueskill import TrueSkill
 

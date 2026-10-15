@@ -13,7 +13,6 @@ __all__ = [
 
 
 def __getattr__(name):
-    # wandb and rich are optional dependencies, so these load on first use
     if name == "DashboardLogger":
         from .dashboard import DashboardLogger
 
