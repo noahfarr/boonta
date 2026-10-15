@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-boonta = "hangar.main:main"
+boonta = "hangar:main"
 
 [project.optional-dependencies]
 ale = [

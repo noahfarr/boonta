@@ -21,6 +21,7 @@ defaults:
   - environment/auto_reset: same_step
   - environment: gymnax/minatar/breakout
   - logger: dashboard
+  - artisan: null
   - curriculum: default
   - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
   - scoring: best

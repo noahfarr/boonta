@@ -18,7 +18,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Video
-from boonta.utils import load_checkpoint, newest, sharded
+from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief
 
@@ -79,7 +79,7 @@ def test_resume_restores_the_whole_algorithm_state(tmp_path, build):
     fresh = podracer.init(jax.random.key(0))
     save(tmp_path, trained)
 
-    restored = load_checkpoint(newest(tmp_path), fresh)
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
 
     assert moved(fresh.algorithm_state.params, trained.algorithm_state.params)
     assert_restored(trained.algorithm_state, restored.algorithm_state)
@@ -99,7 +99,7 @@ def test_resume_restores_each_saved_field_and_leaves_the_rest_fresh(tmp_path, fi
     fresh = podracer.init(jax.random.key(0))
     save(tmp_path, trained, fields=fields)
 
-    restored = load_checkpoint(newest(tmp_path), fresh)
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
 
     items = {item.name for item in (tmp_path / "checkpoints/latest/96").iterdir()}
     assert items == {*fields, "_CHECKPOINT_METADATA"}
@@ -115,16 +115,15 @@ def test_resume_fails_when_a_saved_field_changed_shape(tmp_path):
     save(tmp_path, saved.init(jax.random.key(0)))
 
     with pytest.raises(ValueError, match="stored shape"):
-        load_checkpoint(newest(tmp_path), wider.init(jax.random.key(0)))
+        load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
 
 
-def test_newest_resolves_a_run_directory_to_its_latest_or_best_checkpoint(tmp_path):
+def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_path):
     log_scores(tmp_path / "checkpoints", [1.0, 3.0, 2.0])
 
-    assert newest(tmp_path) == str(tmp_path / "checkpoints/latest/3")
-    assert newest(tmp_path, "best") == str(tmp_path / "checkpoints/best/2")
-    assert newest(tmp_path / "checkpoints/best/2") == str(tmp_path / "checkpoints/best/2")
-    assert newest(None) is None
+    assert resolve_checkpoint(tmp_path) == str(tmp_path / "checkpoints/latest/3")
+    assert resolve_checkpoint(tmp_path / "checkpoints/best/2") == str(tmp_path / "checkpoints/best/2")
+    assert resolve_checkpoint(None) is None
 
 
 def test_the_checkpointer_saves_exactly_the_fields_it_names():
@@ -302,7 +301,7 @@ def test_brief_lists_the_run_settings_but_not_hydra_loggers_or_artisans(capsys):
             "algorithm": {"gamma": 0.99, "lr": 0.0003},
             "hydra": {"job_name": "launch"},
             "loggers": {"wandb": {"project": "elsewhere"}},
-            "artisans": {"checkpointer": {"interval": 7777}},
+            "artisans": {"checkpoint": {"interval": 7777}},
         }
     )
 

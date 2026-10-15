@@ -1,3 +1,5 @@
+import shutil
+
 import jax
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
@@ -197,6 +199,7 @@ def brief(cfg, state) -> None:
     ]
     sections.append(settings(prune(flatten(cfg))))
     width = max(span(sizes(head, body, footer)) for head, body, footer, _ in sections)
+    width = max(width, shutil.get_terminal_size().columns)
     lines = [""]
     for head, body, footer, aligned in sections:
         lines.extend(panel(head, body, footer, aligned, width))

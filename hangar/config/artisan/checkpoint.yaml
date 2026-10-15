@@ -1,2 +1,2 @@
-# @package artisans.checkpointer
+# @package artisans.checkpoint
 _target_: boonta.artisans.Checkpointer
