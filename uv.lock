@@ -1209,12 +1209,12 @@ libero = [
 mapox = [
     { name = "mapox" },
 ]
+minari = [
+    { name = "minari", extra = ["hdf5"] },
+]
 mujoco-playground = [
     { name = "ml-collections" },
     { name = "playground" },
-]
-offline = [
-    { name = "minari", extra = ["hdf5"] },
 ]
 pynes = [
     { name = "pynes" },
@@ -1290,7 +1290,7 @@ requires-dist = [
     { name = "libero", marker = "extra == 'libero'", git = "https://github.com/Lifelong-Robot-Learning/LIBERO" },
     { name = "lox", git = "https://github.com/huterguier/lox" },
     { name = "mapox", marker = "extra == 'mapox'", git = "https://github.com/gabe00122/mapox" },
-    { name = "minari", extras = ["hdf5"], marker = "extra == 'offline'", specifier = ">=0.5.3" },
+    { name = "minari", extras = ["hdf5"], marker = "extra == 'minari'", specifier = ">=0.5.3" },
     { name = "ml-collections", marker = "extra == 'mujoco-playground'" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "nvidia-ml-py", marker = "extra == 'hangar'", specifier = ">=12.0" },
@@ -1318,7 +1318,7 @@ requires-dist = [
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.28.0" },
     { name = "xminigrid", marker = "extra == 'xland-minigrid'" },
 ]
-provides-extras = ["ale", "benchmark", "bluffjax", "brax", "chat", "craftax", "gymnax", "hangar", "huggingface", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "mujoco-playground", "offline", "pynes", "slurm", "trueskill", "wandb", "xland-minigrid"]
+provides-extras = ["ale", "benchmark", "bluffjax", "brax", "chat", "craftax", "gymnax", "hangar", "huggingface", "isaaclab", "isaaclab-arena", "jaxmarl", "jaxued", "jumanji", "kinetix", "libero", "mapox", "minari", "mujoco-playground", "pynes", "slurm", "trueskill", "wandb", "xland-minigrid"]
 
 [package.metadata.requires-dev]
 dev = [

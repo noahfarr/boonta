@@ -86,12 +86,12 @@ libero = [
 mapox = [
     "mapox",
 ]
+minari = [
+    "minari[hdf5]>=0.5.3",
+]
 mujoco-playground = [
     "ml-collections",
     "playground",
-]
-offline = [
-    "minari[hdf5]>=0.5.3",
 ]
 pynes = [
     "pynes",

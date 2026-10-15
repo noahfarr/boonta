@@ -15,7 +15,7 @@ A batch is a `Transition(first, second)`, the same shape online algorithms see. 
 
 ## Minari
 
-[`minari.py`](minari.py) reads a [Minari](https://minari.farama.org) dataset. Minari comes with the `offline` extra, and the module imports it only when a dataset is built. Pick one with the `dataset` config group:
+[`minari.py`](minari.py) reads a [Minari](https://minari.farama.org) dataset. Minari comes with the `minari` extra, and the module imports it only when a dataset is built. Pick one with the `dataset` config group:
 
 ```bash
 uv run boonta algorithm=bc environment=brax/mujoco/hopper
