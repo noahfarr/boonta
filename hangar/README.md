@@ -4,7 +4,7 @@
 
 ## Run
 
-`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra: `uv sync --extra hangar` installs them.
+`hangar` needs Hydra and OmegaConf, which come with the `hangar` extra: `uv sync --extra hangar` installs them, along with what a run uses to monitor itself and show the dashboard. The example below also needs the `gymnax` extra, so install `uv sync --extra hangar --extra gymnax`. Every config group that needs more says which extra in [Install](../README.md#install).
 
 ```bash
 uv run boonta algorithm=ppo environment=gymnax/minatar/breakout

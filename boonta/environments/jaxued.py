@@ -3,7 +3,6 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from gymnax.environments import spaces as gymnax_spaces
 
 from boonta.utils import Array, Key, PyTree, Timestep
 
@@ -16,6 +15,8 @@ def strong_leaf(leaf: Any) -> Array:
 
 
 def convert_space(space) -> Space:
+    from gymnax.environments import spaces as gymnax_spaces
+
     if isinstance(space, gymnax_spaces.Discrete):
         return Space(shape=(), dtype=jnp.int32, low=0, high=space.n - 1)
     return Space(shape=space.shape, dtype=space.dtype, low=space.low, high=space.high)
