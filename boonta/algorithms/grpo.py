@@ -62,8 +62,7 @@ class GRPO:
 
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, tuple]:
             advantages = transitions.aux["advantages"]
-            valid = transitions.aux["valid"]
-            num_valid = jnp.maximum(valid.sum(), 1.0)
+            episode_mask = transitions.aux["episode_mask"]
 
             dist, variables = self.network.apply(
                 params,
@@ -73,15 +72,17 @@ class GRPO:
             )
 
             log_probs = dist.log_prob(transitions.second.action)
-            entropy = (dist.entropy() * valid).sum() / num_valid
+            entropy = (dist.entropy() * episode_mask).sum() / jnp.maximum(
+                episode_mask.sum(), 1.0
+            )
             ratio = jnp.exp(log_probs - transitions.aux["log_prob"])
             approximate_kl = (
-                (transitions.aux["log_prob"] - log_probs) * valid
-            ).sum() / num_valid
+                (transitions.aux["log_prob"] - log_probs) * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
             clip_fraction = (
                 (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
-                * valid
-            ).sum() / num_valid
+                * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
             actor_loss = (
                 -(
                     jnp.minimum(
@@ -93,15 +94,15 @@ class GRPO:
                         )
                         * advantages,
                     )
-                    * valid
+                    * episode_mask
                 ).sum()
-                / num_valid
+                / jnp.maximum(episode_mask.sum(), 1.0)
             )
 
             log_ratio = transitions.aux["reference_log_prob"] - log_probs
             reference_kl = (
-                (jnp.exp(log_ratio) - log_ratio - 1.0) * valid
-            ).sum() / num_valid
+                (jnp.exp(log_ratio) - log_ratio - 1.0) * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
 
             loss = actor_loss + self.cfg.kl_coefficient * reference_kl
 
@@ -127,11 +128,15 @@ class GRPO:
                 clip_fraction,
             )
 
-        advantages, valid = self.advantage_estimator(
+        advantages, episode_mask = self.advantage_estimator(
             transitions, self.cfg.gamma, self.cfg.group_size
         )
         transitions = transitions.replace(
-            aux={**transitions.aux, "advantages": advantages, "valid": valid}
+            aux={
+                **transitions.aux,
+                "advantages": advantages,
+                "episode_mask": episode_mask,
+            }
         )
 
         transitions = jax.tree.map(lambda x: x.reshape(-1, *x.shape[2:]), transitions)
@@ -149,9 +154,10 @@ class GRPO:
                 lambda leaf: jnp.take(leaf, indices, axis=0), transitions
             )
             advantages = minibatch.aux["advantages"]
-            valid = minibatch.aux["valid"]
-            num_valid = jnp.maximum(valid.sum(), 1.0)
-            advantage = (advantages * valid).sum() / num_valid
+            episode_mask = minibatch.aux["episode_mask"]
+            advantage = (advantages * episode_mask).sum() / jnp.maximum(
+                episode_mask.sum(), 1.0
+            )
 
             (_, aux), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True

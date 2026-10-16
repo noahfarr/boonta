@@ -63,12 +63,12 @@ def group_relative_advantage_estimator(
     rewards = transitions.second.reward
     dones = transitions.second.done
 
-    valid = (jnp.cumsum(dones, axis=0) - dones == 0).astype(rewards.dtype)
+    episode_mask = (jnp.cumsum(dones, axis=0) - dones == 0).astype(rewards.dtype)
     discounts = gamma ** jnp.arange(num_steps, dtype=rewards.dtype)
-    returns = discounts @ (rewards * valid)
+    returns = discounts @ (rewards * episode_mask)
 
     groups = returns.reshape(num_envs // group_size, group_size)
     mean = groups.mean(axis=1, keepdims=True)
     std = groups.std(axis=1, keepdims=True)
     advantages = ((groups - mean) / (std + 1e-8)).reshape(-1)
-    return jnp.broadcast_to(advantages, valid.shape), valid
+    return jnp.broadcast_to(advantages, episode_mask.shape), episode_mask
