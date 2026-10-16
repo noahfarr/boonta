@@ -13,9 +13,8 @@ RUN = [
     "environment.num_envs=64",
     "total_timesteps=40960",
     "training.num_epochs=2",
-    "evaluation.num_steps=16",
 ]
-LEARNING = ("actor/", "critic/", "training/", "evaluation/")
+LEARNING = ("actor/", "critic/", "training/")
 
 
 def free_port() -> int:
