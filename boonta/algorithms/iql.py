@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, remove_feature_axis
+from boonta.utils import Timestep, Trajectory, Transition, canonicalize_dtype, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 
@@ -70,7 +70,8 @@ class IQL:
         action = dist.sample(seed=key)
         return state, action, {}
 
-    def update(self, state: IQLState, key: Key, transitions: Transition) -> IQLState:
+    def update(self, state: IQLState, key: Key, trajectory: Trajectory) -> IQLState:
+        transitions = trajectory.transitions
         del key
 
         def value_loss_fn(

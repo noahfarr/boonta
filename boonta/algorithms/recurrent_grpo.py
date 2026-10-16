@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import (Timestep, Transition, canonicalize_dtype,
+from boonta.utils import (Timestep, Trajectory, Transition, canonicalize_dtype,
                           remove_time_axis)
 
 
@@ -29,7 +29,6 @@ class RecurrentGRPOConfig:
 class RecurrentGRPOState:
     step: Array
     carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     reference_params: PyTree
     optimizer_state: optax.OptState
@@ -60,7 +59,6 @@ class RecurrentGRPO:
         return RecurrentGRPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             carry=carry,
-            rollout_carry=carry,
             params=params,
             reference_params=params,
             optimizer_state=self.optimizer.init(params["params"]),
@@ -89,8 +87,14 @@ class RecurrentGRPO:
         return state.replace(carry=carry), remove_time_axis(action), aux
 
     def update(
-        self, state: RecurrentGRPOState, key: Key, transitions: Transition
+        self, state: RecurrentGRPOState, key: Key, trajectory: Trajectory
     ) -> RecurrentGRPOState:
+        transitions, carry = trajectory.transitions, trajectory.carry
+        assert carry is not None, (
+            f"{type(self).__name__} replays the rollout from the carry it started "
+            f"from, but the trajectory holds none"
+        )
+
         num_steps, num_envs = transitions.second.reward.shape
         num_groups = num_envs // self.cfg.group_size
 
@@ -192,7 +196,7 @@ class RecurrentGRPO:
                 clip_fraction,
             )
 
-        initial_carry = state.rollout_carry
+        initial_carry = carry
         advantages, valid = group_relative_advantage_estimation(transitions)
         trajectory = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "valid": valid}
@@ -282,4 +286,4 @@ class RecurrentGRPO:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

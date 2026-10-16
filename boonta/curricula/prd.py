@@ -11,7 +11,7 @@ from boonta.algorithms.advantage_estimators import generalized_advantage_estimat
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset, ArchiveAutoResetState, pick, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, PyTree, Trajectory, Transition
 from boonta.utils.typing import Environment
 
 
@@ -1001,9 +1001,10 @@ class PRD(Pit):
         self,
         ledger: SelectorState,
         key: Key,
-        transitions: Transition,
+        trajectory: Trajectory,
         algorithm_state: PyTree,
     ) -> SelectorState:
+        transitions = trajectory.transitions
         ledger = self.selector.update(ledger, key, transitions)
         direction = self.selector.score.direct(
             self.selector, self.algorithm, algorithm_state, transitions

@@ -10,6 +10,7 @@ from flax import struct
 
 from boonta.utils import (
     Timestep,
+    Trajectory,
     Transition,
     canonicalize_dtype,
     conditional_update,
@@ -83,7 +84,8 @@ class SAC:
         action = dist.sample(seed=key)
         return state, action, {}
 
-    def update(self, state: SACState, key: Key, transitions: Transition) -> SACState:
+    def update(self, state: SACState, key: Key, trajectory: Trajectory) -> SACState:
+        transitions = trajectory.transitions
         def critic_loss_fn(
             critic_params: PyTree, state: SACState, transitions: Transition, key: Key
         ) -> tuple[Array, tuple[PyTree, Array]]:

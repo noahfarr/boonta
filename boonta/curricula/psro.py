@@ -11,7 +11,7 @@ from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.roster import Roster, RosterState
 from boonta.environments.wrappers import Opponent, OpponentState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition, conditional_update, take
+from boonta.utils import Array, Key, PyTree, Trajectory, Transition, conditional_update, take
 from boonta.utils.typing import Environment
 
 
@@ -388,9 +388,10 @@ class PSRO(Pit):
         self,
         state: PSROState,
         key: Key,
-        transitions: Transition,
+        trajectory: Trajectory,
         algorithm_state: RosterState,
     ) -> PSROState:
+        transitions = trajectory.transitions
         following = []
         for index, learner in enumerate(self.learners):
             state, params = self.iterate(

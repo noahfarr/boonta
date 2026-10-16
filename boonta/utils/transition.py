@@ -9,3 +9,9 @@ class Transition:
     first: Timestep | None = None
     second: Timestep | None = None
     aux: PyTree | None = None
+
+
+@struct.dataclass(frozen=True)
+class Trajectory:
+    transitions: Transition
+    carry: PyTree | None = None

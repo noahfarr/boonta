@@ -10,6 +10,7 @@ from flax import struct
 
 from boonta.utils import (
     Timestep,
+    Trajectory,
     Transition,
     add_feature_axis,
     canonicalize_dtype,
@@ -72,7 +73,8 @@ class DQN:
         action = dist.sample(seed=key)
         return state, action, {}
 
-    def update(self, state: DQNState, key: Key, transitions: Transition) -> DQNState:
+    def update(self, state: DQNState, key: Key, trajectory: Trajectory) -> DQNState:
+        transitions = trajectory.transitions
         def loss_fn(
             params: PyTree, state: DQNState, transitions: Transition
         ) -> tuple[Array, tuple[PyTree, Array]]:

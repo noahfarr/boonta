@@ -10,6 +10,7 @@ from flax import struct
 
 from boonta.utils import (
     Timestep,
+    Trajectory,
     Transition,
     add_time_axis,
     canonicalize_dtype,
@@ -121,8 +122,9 @@ class RecurrentSAC:
         return state.replace(carry=carry), action, {}
 
     def update(
-        self, state: RecurrentSACState, key: Key, transitions: Transition
+        self, state: RecurrentSACState, key: Key, trajectory: Trajectory
     ) -> RecurrentSACState:
+        transitions = trajectory.transitions
         def critic_loss_fn(
             critic_params: PyTree,
             state: RecurrentSACState,

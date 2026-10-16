@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
+from boonta.utils import Timestep, Trajectory, Transition, canonicalize_dtype, flatten, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimation
@@ -68,7 +68,8 @@ class PPO:
             },
         )
 
-    def update(self, state: PPOState, key: Key, transitions: Transition) -> PPOState:
+    def update(self, state: PPOState, key: Key, trajectory: Trajectory) -> PPOState:
+        transitions = trajectory.transitions
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, tuple]:
             advantages = transitions.aux["advantages"]
             returns = transitions.aux["returns"]

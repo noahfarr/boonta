@@ -13,7 +13,7 @@ import zoo
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
 from boonta.algorithms.wrappers.population import Population
 from boonta.environments.wrappers import ChunkAction
-from boonta.utils import Timestep, Transition
+from boonta.utils import Timestep, Trajectory, Transition
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
 
@@ -262,7 +262,8 @@ def targets(build, environment, key, boundary, perturbed):
     transitions = rollout(environment, boundary, perturbed)
     first = jax.tree.map(lambda leaf: leaf[0], transitions.first)
     state = algorithm.init(jax.random.key(1), first)
-    jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions))
+    trajectory = Trajectory(transitions=transitions, carry=getattr(state, "carry", None))
+    jax.block_until_ready(algorithm.update(state, jax.random.key(2), trajectory))
     jax.effects_barrier()
     trained = 2 if boundary == "terminated" else 1
     before = np.asarray(transitions.first.obs[:trained, ..., 0]).ravel().tolist()
@@ -295,7 +296,7 @@ def test_recurrent_bc_learns_only_from_weighted_steps(weight, moves):
     episodes = demonstrations(environment, jax.random.key(0), 32)
     batch = episodes.replace(aux={"weight": jnp.full(episodes.second.reward.shape, weight)})
     state = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
-    updated = algorithm.update(state, jax.random.key(2), batch)
+    updated = algorithm.update(state, jax.random.key(2), Trajectory(transitions=batch))
 
     changed = [
         not np.array_equal(before, after)

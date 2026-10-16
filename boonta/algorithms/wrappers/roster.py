@@ -2,7 +2,7 @@ from dataclasses import dataclass, field, replace
 
 import jax
 from flax import struct
-from boonta.utils import Array, Key, PyTree, Timestep, Transition, conditional_update, place
+from boonta.utils import Array, Key, PyTree, Timestep, Trajectory, conditional_update, place
 
 from ..algorithm import Algorithm
 from ..auxiliary_losses import Anchor
@@ -55,7 +55,7 @@ class Roster(Population):
         )
 
     def update(
-        self, state: RosterState, key: Key, transitions: Transition
+        self, state: RosterState, key: Key, trajectory: Trajectory
     ) -> RosterState:
         state = self.synchronize(state)
         for index in range(self.count):
@@ -63,7 +63,7 @@ class Roster(Population):
                 state,
                 index,
                 jax.random.fold_in(key, index),
-                self.portion(transitions, index),
+                self.portion(trajectory, index),
                 self.anchored(state, index),
             )
         return state

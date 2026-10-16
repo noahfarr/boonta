@@ -11,8 +11,8 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
-                          sharded, take)
+from boonta.utils import (Key, PyTree, Timestep, Trajectory, Transition,
+                          concatenate, sharded, take)
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -126,13 +126,13 @@ class Sebulba:
         algorithm_state: PyTree,
         pit_state: PyTree,
         key: Key,
-        transitions: Transition,
+        trajectory: Trajectory,
     ):
         algorithm_key, pit_key = jax.random.split(key)
         algorithm_state = self.algorithm.update(
-            algorithm_state, algorithm_key, transitions
+            algorithm_state, algorithm_key, trajectory
         )
-        pit_state = self.pit.update(pit_state, pit_key, transitions, algorithm_state)
+        pit_state = self.pit.update(pit_state, pit_key, trajectory, algorithm_state)
         return algorithm_state, pit_state
 
     def init(self, key: Key) -> SebulbaState:
@@ -236,8 +236,9 @@ class Sebulba:
                     )
                     log = jax.device_put(log, replicated)
                     num_laps = rollout_state.algorithm_state.step - before
+                    start = actor_state.carry
                     actor_state = ActorState.alight(rollout_state)
-                    rollout_queue.put((actor_state, transitions, log, num_laps))
+                    rollout_queue.put((actor_state, start, transitions, log, num_laps))
             except BaseException as error:
                 rollout_queue.put(error)
                 raise
@@ -265,34 +266,41 @@ class Sebulba:
                 for delivery in deliveries:
                     if isinstance(delivery, BaseException):
                         raise delivery
-                actors = [actor_state for actor_state, _, _, _ in deliveries]
+                actors = [actor_state for actor_state, *_ in deliveries]
                 transitions = concatenate(
-                    [jax.device_put(pieces, sharded) for _, pieces, _, _ in deliveries],
+                    [jax.device_put(pieces, sharded) for _, _, pieces, _, _ in deliveries],
                     1,
                 )
                 carries = [
-                    jax.device_put(actor_state.carry, replicated)
-                    for actor_state in actors
-                    if actor_state.carry is not None
+                    jax.device_put(start, replicated)
+                    for _, start, *_ in deliveries
+                    if start is not None
                 ]
-                num_laps = sum(jax.device_get(laps) for _, _, _, laps in deliveries)
+                carry = (
+                    jax.device_put(
+                        concatenate(carries), NamedSharding(self.config.learner, P("data"))
+                    )
+                    if carries
+                    else None
+                )
+                num_laps = sum(jax.device_get(laps) for *_, laps in deliveries)
                 algorithm_state = algorithm_state.replace(
                     step=algorithm_state.step + num_laps
                 )
-                if carries:
-                    algorithm_state = algorithm_state.replace(
-                        carry=concatenate(carries)
-                    )
                 algorithm_state = jax.device_put(algorithm_state, self.shardings)
                 update_key = jax.device_put(
                     jax.random.fold_in(learner_key, update), replicated
                 )
                 (algorithm_state, pit_state), update_log = self.update(
-                    algorithm_state, pit_state, update_key, transitions
+                    algorithm_state,
+                    pit_state,
+                    update_key,
+                    Trajectory(transitions=transitions, carry=carry),
                 )
+                parameters = algorithm_state.replace(carry=None) if carries else algorithm_state
                 for parameter_queue in parameter_queues:
-                    parameter_queue.put((algorithm_state, pit_state))
-                log = concatenate([log for _, _, log, _ in deliveries])
+                    parameter_queue.put((parameters, pit_state))
+                log = concatenate([log for _, _, _, log, _ in deliveries])
                 logs.append(log | update_log)
             for worker in workers:
                 worker.result()

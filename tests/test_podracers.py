@@ -138,7 +138,7 @@ class Counter(Pit):
     def init(self, key, state):
         return jnp.float32(0.0)
 
-    def update(self, state, key, transitions, algorithm_state):
+    def update(self, state, key, trajectory, algorithm_state):
         return state + 1.0
 
     def __call__(self, key, state):
@@ -251,6 +251,18 @@ def test_init_never_hands_train_one_buffer_twice(build):
     ]
     assert len(pointers) == len(set(pointers))
     podracer.train(state, jax.random.key(1), 2)
+
+
+@pytest.mark.parametrize("build", ONLINE)
+def test_update_sees_the_carry_its_rollout_started_from(build):
+    podracer = build()
+    state = podracer.init(jax.random.key(0))
+    state, logs = podracer.train(state, jax.random.key(1), 3)
+    np.testing.assert_array_equal(
+        np.asarray(logs["probe/carry"]), [0, NUM_STEPS, 2 * NUM_STEPS]
+    )
+    for carry in [actor.carry for actor in getattr(state, "actors", [state.algorithm_state])]:
+        np.testing.assert_array_equal(np.asarray(carry), 3 * NUM_STEPS)
 
 
 def test_sebulba_trains_on_every_actor_at_once():
@@ -377,9 +389,9 @@ def test_quadinaros_pit_steers_the_data():
             )
 
     class Reader(Probe):
-        def update(self, state, key, transitions):
-            lox.log({"reader/seen": jnp.mean(transitions.first.obs[..., 1])})
-            return super().update(state, key, transitions)
+        def update(self, state, key, trajectory):
+            lox.log({"reader/seen": jnp.mean(trajectory.transitions.first.obs[..., 1])})
+            return super().update(state, key, trajectory)
 
     podracer = on_quadinaros(algorithm=Reader(), pit=Steer())
     state = podracer.init(jax.random.key(0))

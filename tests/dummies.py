@@ -264,11 +264,14 @@ class Probe:
             {"version": jnp.full((num_envs,), state.version)},
         )
 
-    def update(self, state, key, transitions) -> ProbeState:
+    def update(self, state, key, trajectory) -> ProbeState:
+        transitions = trajectory.transitions
         logs = {
             "probe/version": state.version,
             "probe/observed": jnp.mean(transitions.first.obs),
         }
+        if trajectory.carry is not None:
+            logs |= {"probe/carry": jnp.mean(trajectory.carry)}
         if transitions.aux:
             _, width, *_ = transitions.second.obs.shape
             logs |= {
