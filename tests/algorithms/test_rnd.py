@@ -104,7 +104,7 @@ def build(record, coefficient=1.0, proportion=1.0, epochs=1, num_minibatches=1):
 
 
 def sighted(state, transitions):
-    return state.obs_ema.absorb(transitions.second.obs, axis=(0, 1))
+    return state.obs_normalizer.absorb(transitions.second.obs, axis=(0, 1))
 
 
 def errors_of(env, state, transitions):
@@ -305,7 +305,7 @@ def test_the_normaliser_tracks_the_discounted_return_not_the_raw_error():
     after = env.update(state, key, transitions)
 
     _, trailed = env.accumulate(state, raw)
-    _, spread = after.return_ema.settled()
+    _, spread = after.reward_normalizer.settled()
     assert float(spread) == pytest.approx(float(jnp.var(trailed)), rel=1e-3)
     assert float(jnp.var(trailed)) > float(jnp.var(raw))
 
@@ -330,10 +330,10 @@ def test_observation_statistics_accumulate():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4)) + 5.0
     state = env.init(key, frame(3, obs[0]))
-    assert float(state.obs_ema.steps) == 0.0
+    assert float(state.obs_normalizer.steps) == 0.0
     after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
-    assert float(after.obs_ema.steps) == 1.0
-    centre, _ = after.obs_ema.settled()
+    assert float(after.obs_normalizer.steps) == 1.0
+    centre, _ = after.obs_normalizer.settled()
     assert float(jnp.mean(centre)) > 4.0
 
 

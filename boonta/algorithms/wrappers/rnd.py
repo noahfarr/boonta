@@ -23,8 +23,8 @@ class RNDState(WrapperState):
     critic_params: PyTree
     curiosity_state: optax.OptState
     intrinsic_returns: Array = struct.field(metadata={"axis": "data"})
-    obs_ema: EMA
-    return_ema: EMA
+    obs_normalizer: EMA
+    reward_normalizer: EMA
 
 
 @dataclass
@@ -47,10 +47,10 @@ class RND(Wrapper):
         random_network_params: PyTree,
         predictor_params: PyTree,
         obs: PyTree,
-        obs_ema: EMA,
+        obs_normalizer: EMA,
     ) -> Array:
         def step_fn(network_params: PyTree, step_obs: PyTree) -> Array:
-            whitened_obs = obs_ema.whiten(step_obs, self.observation_clip)
+            whitened_obs = obs_normalizer.whiten(step_obs, self.observation_clip)
             target = jax.lax.stop_gradient(
                 self.random_network.apply(random_network_params, whitened_obs)
             )
@@ -63,10 +63,10 @@ class RND(Wrapper):
         )
 
     def intrinsic_value(
-        self, critic_params: PyTree, obs: PyTree, obs_ema: EMA
+        self, critic_params: PyTree, obs: PyTree, obs_normalizer: EMA
     ) -> Array:
         def step_fn(network_params: PyTree, step_obs: PyTree) -> Array:
-            whitened_obs = obs_ema.whiten(step_obs, self.observation_clip)
+            whitened_obs = obs_normalizer.whiten(step_obs, self.observation_clip)
             return remove_feature_axis(
                 self.critic_network.apply(network_params, whitened_obs)
             )
@@ -86,7 +86,7 @@ class RND(Wrapper):
     def intrinsic_reward(
         self, state: RNDState, transitions: Transition, errors: Array
     ) -> Array:
-        return state.return_ema.scale(errors) * (1.0 - transitions.second.done)
+        return state.reward_normalizer.scale(errors) * (1.0 - transitions.second.done)
 
     def intrinsic_advantage_estimator(
         self, rewards: Array, values: Array, bootstrap: Array
@@ -136,8 +136,12 @@ class RND(Wrapper):
                 {"predictor": predictor_params, "critic": critic_params}
             ),
             intrinsic_returns=jnp.zeros_like(timestep.reward, jnp.float32),
-            obs_ema=EMA.blank(timestep.obs, axis=(0,), decay=self.statistics_decay),
-            return_ema=EMA.blank(jnp.zeros(()), axis=(), decay=self.statistics_decay),
+            obs_normalizer=EMA.blank(
+                timestep.obs, axis=(0,), decay=self.statistics_decay
+            ),
+            reward_normalizer=EMA.blank(
+                jnp.zeros(()), axis=(), decay=self.statistics_decay
+            ),
         )
 
     def update(self, state: RNDState, key: Key, transitions: Transition) -> RNDState:
@@ -147,23 +151,30 @@ class RND(Wrapper):
             f"the {num_envs} environments do not divide into "
             f"{self.num_minibatches} minibatches. Pick a divisor of {num_envs}."
         )
-        obs_ema = state.obs_ema.absorb(transitions.second.obs, axis=(0, 1))
+        obs_normalizer = state.obs_normalizer.absorb(
+            transitions.second.obs, axis=(0, 1)
+        )
         next_obs = transitions.second.obs
         obs = transitions.first.obs
 
         errors = jax.lax.stop_gradient(
             self.distillation_error(
-                state.random_network_params, state.predictor_params, next_obs, obs_ema
+                state.random_network_params,
+                state.predictor_params,
+                next_obs,
+                obs_normalizer,
             )
         )
         intrinsic_returns, running_returns = self.accumulate(state, errors)
-        return_ema = state.return_ema.absorb(running_returns, axis=(0, 1))
+        reward_normalizer = state.reward_normalizer.absorb(running_returns, axis=(0, 1))
         intrinsic_rewards = self.intrinsic_reward(state, transitions, errors)
-        intrinsic_values = self.intrinsic_value(state.critic_params, obs, obs_ema)
+        intrinsic_values = self.intrinsic_value(
+            state.critic_params, obs, obs_normalizer
+        )
         intrinsic_bootstrap, *_ = self.intrinsic_value(
             state.critic_params,
             jax.tree.map(lambda leaf: leaf[-1:], next_obs),
-            obs_ema,
+            obs_normalizer,
         )
         intrinsic_advantages, value_targets = self.intrinsic_advantage_estimator(
             intrinsic_rewards, intrinsic_values, intrinsic_bootstrap
@@ -181,13 +192,13 @@ class RND(Wrapper):
                 state.random_network_params,
                 curiosity_params["predictor"],
                 next_obs,
-                obs_ema,
+                obs_normalizer,
             )
             distillation_loss = jnp.sum(errors * loss_mask) / jnp.maximum(
                 jnp.sum(loss_mask), 1.0
             )
             predicted_values = self.intrinsic_value(
-                curiosity_params["critic"], obs, obs_ema
+                curiosity_params["critic"], obs, obs_normalizer
             )
             return distillation_loss + 0.5 * jnp.mean(
                 (predicted_values - value_targets) ** 2
@@ -238,7 +249,7 @@ class RND(Wrapper):
             {
                 "rnd/distillation_error": jnp.mean(errors),
                 "rnd/intrinsic_reward": jnp.mean(intrinsic_rewards),
-                "rnd/reward_scale": return_ema.spread(),
+                "rnd/reward_scale": reward_normalizer.spread(),
                 "rnd/intrinsic_advantage": jnp.mean(jnp.abs(intrinsic_advantages)),
                 "rnd/intrinsic_value": jnp.mean(intrinsic_values),
             }
@@ -270,6 +281,6 @@ class RND(Wrapper):
             critic_params=curiosity_params["critic"],
             curiosity_state=curiosity_state,
             intrinsic_returns=intrinsic_returns,
-            obs_ema=obs_ema,
-            return_ema=return_ema,
+            obs_normalizer=obs_normalizer,
+            reward_normalizer=reward_normalizer,
         )
