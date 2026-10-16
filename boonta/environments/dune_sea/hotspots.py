@@ -23,13 +23,15 @@ def layout(width: int, num_hotspots: int, nearest: int, farthest: int, seed: int
     distances = np.abs(rows - start[0]) + np.abs(columns - start[1])
     targets = np.round(np.linspace(nearest, farthest, num_hotspots)).astype(int)
     hotspots = []
+    allowed = (distances >= nearest) & (distances <= farthest)
+    assert num_hotspots <= allowed.sum(), (
+        f"only {allowed.sum()} cells lie {nearest} to {farthest} steps from the start "
+        f"of a {width}x{width} grid, too few for {num_hotspots} hotspots"
+    )
     for target in targets:
-        candidates = np.flatnonzero(distances == target)
-        candidates = candidates[~np.isin(candidates, hotspots)]
-        assert len(candidates), (
-            f"no free cell lies {target} steps from the start of a {width}x{width} grid"
-        )
-        hotspots.append(rng.choice(candidates))
+        free = allowed & ~np.isin(np.arange(width * width), hotspots)
+        gaps = np.where(free, np.abs(distances - target), np.inf)
+        hotspots.append(rng.choice(np.flatnonzero(gaps == gaps.min())))
     secrets = rng.integers(0, len(MOVES), num_hotspots)
     return start[0] * width + start[1], np.array(hotspots, np.int32), secrets.astype(np.int32)
 

@@ -142,3 +142,10 @@ def test_the_scorecard_weighs_each_hotspot_by_how_often_rho_reaches_it(confidenc
     best = reach(env).sum()
     assert abs(float(data["hotspots/best_return"]) - best) < 1e-5
     assert abs(float(data["hotspots/return"]) - share * best) < 1e-5
+
+
+def test_hotspots_fill_the_nearest_free_distance_once_the_requested_one_is_full():
+    env = Hotspots(width=9, num_hotspots=80, nearest=1, farthest=8)
+    hotspots = np.asarray(env.hotspots)
+    assert len(set(hotspots.tolist())) == 80
+    assert set(hotspots.tolist()) == set(range(81)) - {env.start}
