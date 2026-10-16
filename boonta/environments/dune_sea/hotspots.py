@@ -155,3 +155,37 @@ def reach(env) -> np.ndarray:
         arrived += occupancy[hotspots]
         occupancy[hotspots] = 0.0
     return arrived
+
+
+class Scorecard:
+    def __init__(self, name: str = "hotspots"):
+        self.name = name
+        self.reached = {}
+
+    def craft(self, key, algorithm, environment, state, logs):
+        from boonta.artisans.artifact import Metrics
+
+        game = getattr(environment, "unwrapped", environment)
+        if id(game) not in self.reached:
+            self.reached[id(game)] = jnp.asarray(reach(game))
+        reached = self.reached[id(game)]
+        num_hotspots, *_ = jnp.shape(game.hotspots)
+        empty = jnp.zeros(num_hotspots)
+        timestep = Timestep(
+            obs=jax.nn.one_hot(game.hotspots, game.num_cells),
+            action=empty.astype(jnp.int32),
+            reward=empty,
+            terminated=empty.astype(bool),
+            truncated=empty.astype(bool),
+        )
+        _, _, aux = algorithm.step(state.algorithm_state, key, timestep, 1.0)
+        logits = aux["logits"]
+        correct = jnp.take_along_axis(jax.nn.softmax(logits), game.secrets[:, None], axis=-1)[:, 0]
+        solved = jnp.argmax(logits, axis=-1) == game.secrets
+        data = {
+            f"{self.name}/return": jnp.sum(reached * correct),
+            f"{self.name}/greedy_return": jnp.sum(reached * solved),
+            f"{self.name}/best_return": jnp.sum(reached),
+        }
+        data |= {f"{self.name}/correct_{index}": correct[index] for index in range(num_hotspots)}
+        return Metrics(self.name, jax.device_get(data))

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from boonta.environments.dune_sea import ChainOfForks, Hotspots
-from boonta.environments.dune_sea.hotspots import reach
+from boonta.environments.dune_sea.hotspots import Scorecard, reach
 
 
 def optimum(env, survival):
@@ -122,3 +122,23 @@ def test_hotspots_render_the_agent_red_and_the_hotspots_green():
     np.testing.assert_array_equal(centre(env.start, across=0.4), [255, 0, 0])
     for hotspot in np.asarray(env.hotspots):
         np.testing.assert_array_equal(centre(hotspot), [0, 255, 0])
+
+
+class Oracle:
+    def __init__(self, env, confidence):
+        table = np.zeros((env.num_cells, 4), np.float32)
+        table[np.asarray(env.hotspots), np.asarray(env.secrets)] = confidence
+        self.table = jnp.asarray(table)
+
+    def step(self, state, key, timestep, temperature):
+        return state, None, {"logits": timestep.obs @ self.table}
+
+
+@pytest.mark.parametrize("confidence, share", [(50.0, 1.0), (0.0, 0.25)])
+def test_the_scorecard_weighs_each_hotspot_by_how_often_rho_reaches_it(confidence, share):
+    env = Hotspots(width=9, num_hotspots=4, nearest=2, farthest=7, horizon=60)
+    state = type("State", (), {"algorithm_state": None})()
+    data = Scorecard().craft(jax.random.key(0), Oracle(env, confidence), env, state, {}).data
+    best = reach(env).sum()
+    assert abs(float(data["hotspots/best_return"]) - best) < 1e-5
+    assert abs(float(data["hotspots/return"]) - share * best) < 1e-5
