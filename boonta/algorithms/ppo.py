@@ -40,6 +40,7 @@ class PPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimation
 
     def init(self, key: Key, timestep: Timestep) -> PPOState:
         params = self.network.init(key, timestep.obs, temperature=1.0)
@@ -201,7 +202,7 @@ class PPO:
         )
         _, value = self.network.apply(state.params, obs, temperature=1.0)
         value = remove_feature_axis(value)
-        advantages, returns = generalized_advantage_estimation(
+        advantages, returns = self.advantage_estimator(
             transitions,
             transitions.aux["value"],
             value,

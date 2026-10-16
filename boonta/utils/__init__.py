@@ -17,6 +17,7 @@ from .axis import (
     place,
     take,
 )
+from .ema import EMA
 from .huggingface import (
     load_config,
     load_gemma,
@@ -45,6 +46,7 @@ from .transition import Transition
 from .typing import Array, Key, PyTree
 
 __all__ = [
+    "EMA",
     "QuantizedArray",
     "Timestep",
     "Transition",

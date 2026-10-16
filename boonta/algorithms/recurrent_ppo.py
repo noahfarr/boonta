@@ -43,6 +43,7 @@ class RecurrentPPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimation
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPPOState:
         network_key, carry_key = jax.random.split(key)
@@ -195,7 +196,7 @@ class RecurrentPPO:
             temperature=1.0,
         )
         value = remove_time_axis(remove_feature_axis(values))
-        advantages, returns = generalized_advantage_estimation(
+        advantages, returns = self.advantage_estimator(
             transitions,
             transitions.aux["value"],
             value,

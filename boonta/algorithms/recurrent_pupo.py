@@ -47,6 +47,7 @@ class RecurrentPuPO:
     optimizer: optax.GradientTransformation
     importance_exponent: optax.Schedule = optax.constant_schedule(0.2)
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimation
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPuPOState:
         network_key, carry_key = jax.random.split(key)
@@ -211,7 +212,7 @@ class RecurrentPuPO:
 
         def vtrace(ratio: Array) -> tuple[Array, Array]:
             ratio = jnp.moveaxis(ratio, 0, 1)
-            return generalized_advantage_estimation(
+            return self.advantage_estimator(
                 transitions,
                 transitions.aux["value"],
                 bootstrap,

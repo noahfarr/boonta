@@ -11,6 +11,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
+from boonta.algorithms.wrappers import RND
 from dummies import publish
 from hangar import recipes
 
@@ -285,6 +286,23 @@ def test_every_recipe_builds_and_runs_one_update(
     for name, values in logs.items():
         values = np.asarray(values, dtype=np.float64)
         assert not np.isinf(values).any(), name
+    podracer.close(state)
+
+
+def test_the_ppo_recipe_explores_with_rnd_when_asked():
+    plain = configure("ppo", MINATAR, *SMALL)
+    HydraConfig.instance().set_config(plain)
+    assert not isinstance(recipes.make(plain).algorithm, RND)
+
+    cfg = configure("ppo", MINATAR, *SMALL, "intrinsic_reward=rnd")
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+    assert isinstance(podracer.algorithm, RND)
+
+    state = podracer.init(jax.random.key(0))
+    state, logs = podracer.train(state, jax.random.key(1), 1)
+    assert "rnd/distillation_error" in logs
+    assert np.isfinite(np.asarray(logs["rnd/distillation_error"], dtype=np.float64)).all()
     podracer.close(state)
 
 

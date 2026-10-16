@@ -140,4 +140,4 @@ Run one case with
 
 ## Wrappers
 
-[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that can start its copies from given `initial_params`, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both.
+[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that can start its copies from given `initial_params`, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both. `RND` adds a random network distillation bonus, scored by its own critic and added to the advantage through the `advantage_estimator` of `PPO`, `RecurrentPPO` or `RecurrentPuPO`. It wraps the algorithm directly, inside any other wrapper.
