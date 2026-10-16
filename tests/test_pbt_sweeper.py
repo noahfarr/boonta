@@ -219,7 +219,6 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
             "rollout.num_steps=4",
             "algorithm.num_minibatches=1",
             "training.num_epochs=2",
-            "evaluation.num_steps=8",
             "total_timesteps=128",
             "hydra.sweeper.members=2",
             "hydra.sweeper.seeds=1",

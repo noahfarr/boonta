@@ -17,7 +17,7 @@ uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 | `seed=3` | Seed of the run: 0 by default, the trial number in a multirun |
 | `total_timesteps=100_000_000` | Environment steps in total |
 | `training.num_epochs=50` | Train and log cycles the steps are split into |
-| `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
+| `evaluation.num_steps=1000` | Steps `boonta evaluate` runs for (0 uses the environment's time limit plus one) |
 | `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
 
 ### Several machines
@@ -83,7 +83,7 @@ Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `mult
 
 ```bash
 uv run boonta train -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/breakout \
-    logger=file evaluation.num_steps=1000
+    logger=file
 ```
 
 Each member starts from values drawn from the space: uniformly, on a log scale for `log_normal`, on a logit scale for `logit_normal`, and over the powers of two for `uniform_pow2`. `center` and `scale` are not used. Each generation launches every member's `seeds` runs through the launcher. Every run writes to `<sweep dir>/generation_<g>/member_<m>/seed_<s>`.
