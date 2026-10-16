@@ -11,6 +11,8 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import group_relative_advantage_estimator
+
 
 @struct.dataclass(frozen=True)
 class GRPOConfig:
@@ -36,6 +38,7 @@ class GRPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = group_relative_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> GRPOState:
         params = self.network.init(key, timestep.obs, temperature=1.0)
@@ -55,24 +58,7 @@ class GRPO:
 
     def update(self, state: GRPOState, key: Key, transitions: Transition) -> GRPOState:
         num_steps, num_envs = transitions.second.reward.shape
-        num_groups = num_envs // self.cfg.group_size
         batch_size = num_steps * num_envs
-
-        def group_relative_advantage_estimation(
-            transitions: Transition,
-        ) -> tuple[Array, Array]:
-            rewards = transitions.second.reward
-            dones = transitions.second.done
-
-            valid = (jnp.cumsum(dones, axis=0) - dones == 0).astype(rewards.dtype)
-            discounts = self.cfg.gamma ** jnp.arange(num_steps, dtype=rewards.dtype)
-            returns = discounts @ (rewards * valid)
-
-            groups = returns.reshape(num_groups, self.cfg.group_size)
-            mean = groups.mean(axis=1, keepdims=True)
-            std = groups.std(axis=1, keepdims=True)
-            advantages = ((groups - mean) / (std + 1e-8)).reshape(-1)
-            return jnp.broadcast_to(advantages, valid.shape), valid
 
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, tuple]:
             advantages = transitions.aux["advantages"]
@@ -141,7 +127,9 @@ class GRPO:
                 clip_fraction,
             )
 
-        advantages, valid = group_relative_advantage_estimation(transitions)
+        advantages, valid = self.advantage_estimator(
+            transitions, self.cfg.gamma, self.cfg.group_size
+        )
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "valid": valid}
         )

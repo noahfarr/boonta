@@ -14,6 +14,8 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import group_relative_advantage_estimator
+
 
 @struct.dataclass(frozen=True)
 class RecurrentGRPOConfig:
@@ -41,6 +43,7 @@ class RecurrentGRPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = group_relative_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentGRPOState:
         network_key, carry_key = jax.random.split(key)
@@ -92,23 +95,6 @@ class RecurrentGRPO:
         self, state: RecurrentGRPOState, key: Key, transitions: Transition
     ) -> RecurrentGRPOState:
         num_steps, num_envs = transitions.second.reward.shape
-        num_groups = num_envs // self.cfg.group_size
-
-        def group_relative_advantage_estimation(
-            trajectory: Transition,
-        ) -> tuple[Array, Array]:
-            rewards = trajectory.second.reward
-            dones = trajectory.second.done
-
-            valid = (jnp.cumsum(dones, axis=0) - dones == 0).astype(rewards.dtype)
-            discounts = self.cfg.gamma ** jnp.arange(num_steps, dtype=rewards.dtype)
-            returns = discounts @ (rewards * valid)
-
-            groups = returns.reshape(num_groups, self.cfg.group_size)
-            mean = groups.mean(axis=1, keepdims=True)
-            std = groups.std(axis=1, keepdims=True)
-            advantages = ((groups - mean) / (std + 1e-8)).reshape(-1)
-            return jnp.broadcast_to(advantages, valid.shape), valid
 
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
@@ -193,7 +179,9 @@ class RecurrentGRPO:
             )
 
         initial_carry = state.rollout_carry
-        advantages, valid = group_relative_advantage_estimation(transitions)
+        advantages, valid = self.advantage_estimator(
+            transitions, self.cfg.gamma, self.cfg.group_size
+        )
         trajectory = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "valid": valid}
         )

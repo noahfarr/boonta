@@ -7,7 +7,7 @@ import lox
 from flax import struct
 
 from boonta.algorithms import Algorithm
-from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.environments.wrappers import UED
 from boonta.environments.wrappers.ued import UEDState
 from boonta.podracers.podracer import Lap, Pit
@@ -250,7 +250,7 @@ class PLR(Pit):
         algorithm_state: PyTree,
     ) -> LevelBuffer:
         values = transitions.aux["value"]
-        advantages, _ = generalized_advantage_estimation(
+        advantages, _ = generalized_advantage_estimator(
             transitions, values, values[-1], self.gamma, self.gae_lambda
         )
         stats = self.score_episodes(

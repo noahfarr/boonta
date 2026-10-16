@@ -8,7 +8,7 @@ import pytest
 from flax import struct
 
 import zoo
-from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.algorithms.wrappers import RND
 from boonta.utils import Timestep, Transition
 from dummies import corridor
@@ -27,7 +27,7 @@ class ToyState:
 class Toy:
     record: list = None
     seen: list = None
-    advantage_estimator: callable = generalized_advantage_estimation
+    advantage_estimator: callable = generalized_advantage_estimator
 
     def init(self, key, timestep):
         return ToyState(step=jnp.array(0), params=jnp.zeros(2))
@@ -104,7 +104,7 @@ def build(record, coefficient=1.0, proportion=1.0, epochs=1, num_minibatches=1):
 
 
 def sighted(state, transitions):
-    return state.sight.absorb(transitions.second.obs, axis=(0, 1))
+    return state.obs_ema.absorb(transitions.second.obs, axis=(0, 1))
 
 
 def errors_of(env, state, transitions):
@@ -163,7 +163,7 @@ def test_zero_coefficient_leaves_the_advantage_untouched():
     state = env.init(key, frame(3, obs[0]))
     env.update(state, key, transitions)
     advantages, _ = record[0]
-    plain, _ = generalized_advantage_estimation(
+    plain, _ = generalized_advantage_estimator(
         transitions, jnp.zeros((2, 3)), jnp.zeros(3), GAMMA, LAMBDA
     )
     assert advantages == pytest.approx(plain, abs=1e-6)
@@ -175,7 +175,7 @@ def test_updating_does_not_rewire_the_wrapped_algorithm():
     obs = jax.random.normal(key, (2, 3, 4))
     state = env.init(key, frame(3, obs[0]))
     env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
-    assert env.algorithm.advantage_estimator is generalized_advantage_estimation
+    assert env.algorithm.advantage_estimator is generalized_advantage_estimator
 
 
 def test_no_bonus_is_paid_for_a_state_the_reset_handed_over():
@@ -220,7 +220,7 @@ def test_the_intrinsic_advantage_ignores_termination():
 
     def gae(terminated):
         second = transitions.second.replace(reward=bonus, terminated=terminated)
-        return generalized_advantage_estimation(
+        return generalized_advantage_estimator(
             transitions.replace(second=second),
             values,
             bootstrap,
@@ -305,7 +305,7 @@ def test_the_normaliser_tracks_the_discounted_return_not_the_raw_error():
     after = env.update(state, key, transitions)
 
     _, trailed = env.accumulate(state, raw)
-    _, spread = after.surprise.settled()
+    _, spread = after.return_ema.settled()
     assert float(spread) == pytest.approx(float(jnp.var(trailed)), rel=1e-3)
     assert float(jnp.var(trailed)) > float(jnp.var(raw))
 
@@ -330,10 +330,10 @@ def test_observation_statistics_accumulate():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4)) + 5.0
     state = env.init(key, frame(3, obs[0]))
-    assert float(state.sight.steps) == 0.0
+    assert float(state.obs_ema.steps) == 0.0
     after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
-    assert float(after.sight.steps) == 1.0
-    centre, _ = after.sight.settled()
+    assert float(after.obs_ema.steps) == 1.0
+    centre, _ = after.obs_ema.settled()
     assert float(jnp.mean(centre)) > 4.0
 
 

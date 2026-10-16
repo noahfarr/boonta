@@ -12,7 +12,7 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
-from .advantage_estimators import generalized_advantage_estimation
+from .advantage_estimators import generalized_advantage_estimator
 
 
 @struct.dataclass(frozen=True)
@@ -43,7 +43,7 @@ class RecurrentPPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
-    advantage_estimator: Callable = generalized_advantage_estimation
+    advantage_estimator: Callable = generalized_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPPOState:
         network_key, carry_key = jax.random.split(key)

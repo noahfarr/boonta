@@ -36,7 +36,7 @@ A field that holds one row per environment is marked `struct.field(metadata={"ax
 
 `transitions` is a `Transition(first, second, aux)`. `first` is the timestep the agent acted on. `second` is the timestep that followed, and it holds the action taken and the reward. `aux` is the dict `step` returned, such as `log_prob` and `value`. On `anakin` and `sebulba` every leaf has shape `(num_steps, num_envs, ...)`. On `quadinaros` the leading shape is the batch shape the dataset samples.
 
-On-policy advantages come from [`advantage_estimators.generalized_advantage_estimation`](advantage_estimators.py). It accumulates in fp32 whatever the critic's dtype.
+On-policy advantages come from [`advantage_estimators.generalized_advantage_estimator`](advantage_estimators.py). It accumulates in fp32 whatever the critic's dtype.
 
 ## Auxiliary losses
 
