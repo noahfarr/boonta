@@ -192,7 +192,7 @@ CASES = [
 def configure(algorithm, environment, *overrides):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         overrides = [f"algorithm={algorithm}", f"environment={environment}", *overrides]
-        return compose("config", overrides=overrides, return_hydra_config=True)
+        return compose("train", overrides=overrides, return_hydra_config=True)
 
 
 def test_every_recipe_has_a_smoke_case():

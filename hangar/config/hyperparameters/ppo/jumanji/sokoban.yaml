@@ -2,8 +2,7 @@
 
 total_timesteps: 100_000_000
 
-training:
-  num_epochs: 50
+num_epochs: 50
 
 algorithm:
   num_minibatches: 8

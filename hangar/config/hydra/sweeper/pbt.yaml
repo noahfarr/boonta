@@ -4,7 +4,7 @@ defaults:
 
 budget_variable:
   total_timesteps: ${total_timesteps}
-  training.num_epochs: ${training.num_epochs}
+  num_epochs: ${num_epochs}
 checkpoint: checkpoint
 overrides:
   - scoring=final

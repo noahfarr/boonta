@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 from hangar import resolvers  # noqa: F401
 
 
-@hydra.main(version_base=None, config_path=str(Path(__file__).parent / "config"), config_name="config")
+@hydra.main(version_base=None, config_path=str(Path(__file__).parent / "config"), config_name="train")
 def main(cfg):
     if cfg.num_processes > 1:
         jax.distributed.initialize(num_processes=cfg.num_processes)
@@ -27,10 +27,10 @@ def main(cfg):
     algorithm, environment = podracer.algorithm, podracer.environment
 
     num_updates = int(cfg.total_timesteps) // (
-        podracer.batch_size * cfg.training.num_epochs
+        podracer.batch_size * cfg.num_epochs
     )
     assert num_updates >= 1, (
-        f"total_timesteps ({cfg.total_timesteps}) over {cfg.training.num_epochs} "
+        f"total_timesteps ({cfg.total_timesteps}) over {cfg.num_epochs} "
         f"epochs is less than one update ({podracer.batch_size} steps) per epoch. "
         f"Increase total_timesteps or decrease num_envs, num_steps or num_epochs."
     )
@@ -61,7 +61,7 @@ def main(cfg):
     if jax.process_index() == 0:
         brief(cfg, state)
 
-    train_keys = jax.random.split(train_key, cfg.training.num_epochs)
+    train_keys = jax.random.split(train_key, cfg.num_epochs)
 
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
     scoring = instantiate(cfg.scoring)
@@ -86,7 +86,7 @@ def main(cfg):
             data = monitor.metrics(step=0)
             logger.log(data, steps=jnp.array([0, 0]))
 
-        for epoch in range(epoch, cfg.training.num_epochs):
+        for epoch in range(epoch, cfg.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
             data = reduce(logs)

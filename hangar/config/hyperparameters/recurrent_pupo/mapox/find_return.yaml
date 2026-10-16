@@ -2,8 +2,7 @@
 
 total_timesteps: 1_500_000_000
 
-training:
-  num_epochs: 100
+num_epochs: 100
 
 environment:
   num_envs: 2048

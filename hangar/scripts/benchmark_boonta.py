@@ -22,7 +22,7 @@ from hangar import recipes
 def compose(overrides):
     with hydra.initialize(version_base=None, config_path="../config"):
         cfg = hydra.compose(
-            config_name="config", overrides=list(overrides), return_hydra_config=True
+            config_name="train", overrides=list(overrides), return_hydra_config=True
         )
     HydraConfig.instance().set_config(cfg)
     return cfg

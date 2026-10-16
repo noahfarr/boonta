@@ -12,7 +12,7 @@ RUN = [
     "environment=gymnax/minatar/breakout",
     "environment.num_envs=64",
     "total_timesteps=40960",
-    "training.num_epochs=2",
+    "num_epochs=2",
 ]
 LEARNING = ("actor/", "critic/", "training/")
 

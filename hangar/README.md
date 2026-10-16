@@ -10,14 +10,13 @@
 uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; both read the same `config` and take the same overrides. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job; `boonta evaluate` writes there too, so set `hydra.run.dir=${checkpoint}/evaluation` to keep its videos and metrics beside the checkpoint.
+`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; the first reads `config/train.yaml` and the second reads `config/evaluate.yaml`, and both take the same algorithm, environment and curriculum overrides. Evaluation runs at least `num_episodes` full episodes, in rounds of `environment.num_envs` episodes, and logs one result at the checkpoint's step. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job; `boonta evaluate` writes there too, so set `hydra.run.dir=${checkpoint}/evaluation` to keep its videos and metrics beside the checkpoint.
 
 | Override | Effect |
 | --- | --- |
 | `seed=3` | Seed of the run: 0 by default, the trial number in a multirun |
 | `total_timesteps=100_000_000` | Environment steps in total |
-| `training.num_epochs=50` | Train and log cycles the steps are split into |
-| `evaluation.num_steps=1000` | Steps `boonta evaluate` runs for (0 uses the environment's time limit plus one) |
+| `num_epochs=50` | Train and log cycles the steps are split into |
 | `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
 
 ### Several machines
@@ -92,7 +91,7 @@ The plugin knows nothing about boonta. It takes three settings that say how to d
 
 | Setting | In hangar | Meaning |
 |---|---|---|
-| `budget_variable` | `{total_timesteps: ${total_timesteps}, training.num_epochs: ${training.num_epochs}}` | each key that sets a run's budget, with its value for the full run |
+| `budget_variable` | `{total_timesteps: ${total_timesteps}, num_epochs: ${num_epochs}}` | each key that sets a run's budget, with its value for the full run |
 | `checkpoint` | `checkpoint` | the key that receives the parent's run dir when a member resumes |
 | `overrides` | see below | overrides added to every job |
 
@@ -108,7 +107,7 @@ Settings live under `hydra.sweeper`:
 |---|---|---|
 | `members` | 4 | a small population; with `fraction` 0.25 one member copies per generation |
 | `seeds` | 4 | enough runs per member for the gate's pooled standard error |
-| `generations` | 5 | a few exploit steps per run; must divide `total_timesteps` and `training.num_epochs` (10 by default) |
+| `generations` | 5 | a few exploit steps per run; must divide `total_timesteps` and `num_epochs` (10 by default) |
 | `fraction` | 0.25 | Ray Tune's `quantile_fraction`; Jaderberg et al. (2017) used 20% |
 | `threshold` | 2.0 | about two standard errors, in the spirit of the paper's t-test selection |
 | `factors` | [0.8, 1.25] | Jaderberg et al. (2017) use 0.8 and 1.2; 1.25 undoes 0.8 |

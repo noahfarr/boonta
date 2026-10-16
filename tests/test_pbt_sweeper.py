@@ -49,8 +49,8 @@ class Launcher:
 def population(tmp_path, score, **settings):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         cfg = compose(
-            "config",
-            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1200", "training.num_epochs=6"],
+            "train",
+            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1200", "num_epochs=6"],
             return_hydra_config=True,
         )
     for name, value in settings.items():
@@ -153,14 +153,14 @@ def test_a_member_without_a_score_always_copies():
 
 def test_generations_must_divide_the_budget(tmp_path):
     built = population(tmp_path, lambda job: 0.0, generations=4)
-    with pytest.raises(ValueError, match=r"must divide \{'training.num_epochs': 6\}"):
+    with pytest.raises(ValueError, match=r"must divide \{'num_epochs': 6\}"):
         built.sweep([])
     assert built.launcher.batches == []
 
 
 def test_each_generation_resumes_from_the_one_before(tmp_path):
     built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=2, generations=3)
-    results = built.sweep(["algorithm=ppo", "total_timesteps=5", "training.num_epochs=7"])
+    results = built.sweep(["algorithm=ppo", "total_timesteps=5", "num_epochs=7"])
 
     batches = built.launcher.batches
     assert len(batches) == 3
@@ -170,7 +170,7 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
             member, seed = divmod(index, 2)
             assert job["algorithm"] == "ppo"
             assert job["total_timesteps"] == str(400 * (generation + 1))
-            assert job["training.num_epochs"] == str(2 * (generation + 1))
+            assert job["num_epochs"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
             assert job["+artisan@artisans.checkpoint"] == "checkpoint"
@@ -218,7 +218,7 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
             "environment.num_envs=8",
             "rollout.num_steps=4",
             "algorithm.num_minibatches=1",
-            "training.num_epochs=2",
+            "num_epochs=2",
             "total_timesteps=128",
             "hydra.sweeper.members=2",
             "hydra.sweeper.seeds=1",

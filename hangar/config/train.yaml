@@ -1,0 +1,31 @@
+total_timesteps: 5_000_000
+seed: ${trial:}
+num_processes: 1
+checkpoint: null
+
+num_epochs: 10
+
+score: training/episode_return
+
+loggers: {}
+artisans: {}
+
+defaults:
+  - _self_
+  - podracer: anakin
+  - algorithm: ppo
+  - environment/auto_reset: same_step
+  - environment: gymnax/minatar/breakout
+  - logger: dashboard
+  - artisan: null
+  - curriculum: default
+  - intrinsic_reward: null
+  - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
+  - scoring: best
+  - optional search_space: ${cascade:search_space,${algorithm},${environment}}
+
+hydra:
+  run:
+    dir: outputs/${oc.env:SLURM_JOB_ID,${now:%Y-%m-%d}/${now:%H-%M-%S}}-${oc.env:SLURM_ARRAY_TASK_ID,0}
+  sweep:
+    dir: sweeps/${hydra.runtime.choices.algorithm}/${hydra.runtime.choices.environment}/${now:%Y-%m-%d_%H-%M-%S}

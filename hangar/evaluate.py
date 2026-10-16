@@ -13,7 +13,7 @@ from hangar import resolvers  # noqa: F401
 @hydra.main(
     version_base=None,
     config_path=str(Path(__file__).parent / "config"),
-    config_name="config",
+    config_name="evaluate",
 )
 def main(cfg):
     from boonta.loggers import MultiLogger
@@ -34,7 +34,8 @@ def main(cfg):
             for v in (cfg.loggers or {}).values()
         ]
     )
-    num_steps = int(cfg.evaluation.num_steps) or environment.time_limit() + 1
+    num_steps = environment.time_limit() + 1
+    num_rounds = -(-int(cfg.num_episodes) // int(cfg.environment.num_envs))
 
     init_key, evaluate_key, craft_key = jax.random.split(jax.random.key(cfg.seed), 3)
     path = resolve_checkpoint(cfg.checkpoint)
@@ -42,14 +43,19 @@ def main(cfg):
     step = int(jax.device_get(state.algorithm_state.step))
 
     try:
-        _, logs = podracer.evaluate(state, evaluate_key, num_steps)
+        rounds = []
+        for round_key in jax.random.split(evaluate_key, num_rounds):
+            _, logs = podracer.evaluate(state, round_key, num_steps)
+            rounds.append(
+                jax.device_get({k: v for k, v in logs.items() if "/" in k})
+            )
         data = {
             k.replace("episode_statistics/", "evaluation/"): np.nanmean(
-                v.reshape(1, -1), axis=1, keepdims=True
+                np.concatenate([logs[k].reshape(-1) for logs in rounds]).reshape(1, -1),
+                axis=1,
+                keepdims=True,
             )
-            for k, v in jax.device_get(
-                {k: v for k, v in logs.items() if "/" in k}
-            ).items()
+            for k in rounds[0]
         }
         artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
         for key, artisan in zip(
