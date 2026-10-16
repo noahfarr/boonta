@@ -13,7 +13,7 @@ from boonta.utils import (Timestep, Transition, add_feature_axis,
                           remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
-from .action_value_estimators import q_lambda_action_value_estimator
+from .action_value_estimators import q_lambda
 
 
 @struct.dataclass(frozen=True)
@@ -40,7 +40,7 @@ class RecurrentPQN:
     exploration_schedule: optax.Schedule
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
-    action_value_estimator: Callable = q_lambda_action_value_estimator
+    action_value_estimator: Callable = q_lambda
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPQNState:
         network_key, carry_key = jax.random.split(key)

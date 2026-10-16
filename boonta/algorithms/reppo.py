@@ -11,7 +11,7 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
 from boonta.utils.typing import Array, Key, PyTree
 
-from .action_value_estimators import soft_lambda_action_value_estimator
+from .action_value_estimators import soft_td_lambda
 
 
 @struct.dataclass(frozen=True)
@@ -70,7 +70,7 @@ class REPPO:
     alpha_optimizer: optax.GradientTransformation
     lagrangian_optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
-    action_value_estimator: Callable = soft_lambda_action_value_estimator
+    action_value_estimator: Callable = soft_td_lambda
 
     def init(self, key: Key, timestep: Timestep) -> REPPOState:
         actor_key, critic_key, alpha_key, lagrangian_key = jax.random.split(key, 4)

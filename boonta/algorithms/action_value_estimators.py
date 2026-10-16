@@ -5,8 +5,8 @@ from boonta.utils import Transition
 from boonta.utils.typing import Array
 
 
-def q_lambda_action_value_estimator(
-    transitions: Transition, q_values: Array, gamma: float, q_lambda: float
+def q_lambda(
+    transitions: Transition, q_values: Array, gamma: float, lam: float
 ) -> Array:
     reward = transitions.second.reward
     terminated = transitions.second.terminated
@@ -17,7 +17,7 @@ def q_lambda_action_value_estimator(
         reward, terminated, truncated, q_values = x
         td_target = reward + gamma * (1.0 - terminated) * next_q_value
         delta = lambda_returns - next_q_value
-        lambda_returns = td_target + gamma * q_lambda * (1.0 - terminated) * delta
+        lambda_returns = td_target + gamma * lam * (1.0 - terminated) * delta
         q_value = jnp.max(q_values, axis=-1)
         lambda_returns = jnp.where(truncated, q_value, lambda_returns)
         return (lambda_returns, q_value), lambda_returns
@@ -32,7 +32,7 @@ def q_lambda_action_value_estimator(
     return target_q_value
 
 
-def soft_lambda_action_value_estimator(
+def soft_td_lambda(
     transitions: Transition, gamma: float, td_lambda: float
 ) -> Array:
     soft_reward = transitions.aux["soft_reward"]
