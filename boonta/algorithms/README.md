@@ -36,7 +36,7 @@ A field that holds one row per environment is marked `struct.field(metadata={"ax
 
 `transitions` is a `Transition(first, second, aux)`. `first` is the timestep the agent acted on. `second` is the timestep that followed, and it holds the action taken and the reward. `aux` is the dict `step` returned, such as `log_prob` and `value`. On `anakin` and `sebulba` every leaf has shape `(num_steps, num_envs, ...)`. On `quadinaros` the leading shape is the batch shape the dataset samples.
 
-On-policy advantages come from [`advantage_estimators.generalized_advantage_estimation`](advantage_estimators.py). It accumulates in fp32 whatever the critic's dtype.
+On-policy advantages come from [`advantage_estimators.generalized_advantage_estimator`](advantage_estimators.py). It accumulates in fp32 whatever the critic's dtype.
 
 ## Auxiliary losses
 
@@ -140,4 +140,4 @@ Run one case with
 
 ## Wrappers
 
-[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that can start its copies from given `initial_params`, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both.
+[`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that can start its copies from given `initial_params`, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both. `RND` adds a random network distillation bonus, scored by its own critic and added to the advantage through the `advantage_estimator` of `PPO`, `RecurrentPPO` or `RecurrentPuPO`. It wraps the algorithm directly, inside any other wrapper.

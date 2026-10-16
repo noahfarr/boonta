@@ -23,6 +23,7 @@ defaults:
   - logger: dashboard
   - artisan: null
   - curriculum: default
+  - intrinsic_reward: null
   - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
   - scoring: best
   - optional search_space: ${cascade:search_space,${algorithm},${environment}}

@@ -13,6 +13,8 @@ from boonta.utils import (Timestep, Transition, add_feature_axis,
                           remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
+from .action_value_estimators import q_lambda
+
 
 @struct.dataclass(frozen=True)
 class RecurrentPQNConfig:
@@ -38,6 +40,7 @@ class RecurrentPQN:
     exploration_schedule: optax.Schedule
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    action_value_estimator: Callable = q_lambda
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPQNState:
         network_key, carry_key = jax.random.split(key)
@@ -86,33 +89,6 @@ class RecurrentPQN:
     def update(
         self, state: RecurrentPQNState, key: Key, transitions: Transition
     ) -> RecurrentPQNState:
-        def q_lambda(trajectory: Transition, q_values: Array) -> Array:
-            gamma, q_lambda_ = self.cfg.gamma, self.cfg.q_lambda
-            reward = trajectory.second.reward
-            terminated = trajectory.second.terminated
-            truncated = trajectory.second.truncated
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple:
-                lambda_returns, next_q_value = carry
-                reward, terminated, truncated, q_values = x
-                td_target = reward + gamma * (1.0 - terminated) * next_q_value
-                delta = lambda_returns - next_q_value
-                lambda_returns = (
-                    td_target + gamma * q_lambda_ * (1.0 - terminated) * delta
-                )
-                q_value = jnp.max(q_values, axis=-1)
-                lambda_returns = jnp.where(truncated, q_value, lambda_returns)
-                return (lambda_returns, q_value), lambda_returns
-
-            next_q_value = jnp.max(q_values, axis=-1)
-            _, target_q_value = jax.lax.scan(
-                scan_fn,
-                (next_q_value, next_q_value),
-                (reward, terminated, truncated, trajectory.aux["q_values"]),
-                reverse=True,
-            )
-            return target_q_value
-
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, tuple[PyTree, Array]]:
@@ -177,7 +153,9 @@ class RecurrentPQN:
             temperature=1.0,
         )
         q_values = remove_time_axis(dist.preferences)
-        target_q_value = q_lambda(transitions, q_values)
+        target_q_value = self.action_value_estimator(
+            transitions, q_values, self.cfg.gamma, self.cfg.q_lambda
+        )
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )

@@ -12,7 +12,7 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
-from .advantage_estimators import generalized_advantage_estimation
+from .advantage_estimators import generalized_advantage_estimator
 
 
 @struct.dataclass(frozen=True)
@@ -47,6 +47,7 @@ class RecurrentPuPO:
     optimizer: optax.GradientTransformation
     importance_exponent: optax.Schedule = optax.constant_schedule(0.2)
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentPuPOState:
         network_key, carry_key = jax.random.split(key)
@@ -211,14 +212,14 @@ class RecurrentPuPO:
 
         def vtrace(ratio: Array) -> tuple[Array, Array]:
             ratio = jnp.moveaxis(ratio, 0, 1)
-            return generalized_advantage_estimation(
+            return self.advantage_estimator(
                 transitions,
                 transitions.aux["value"],
                 bootstrap,
                 self.cfg.gamma,
                 self.cfg.gae_lambda,
-                importance=jnp.minimum(ratio, self.cfg.advantage_clip),
-                trace=jnp.minimum(ratio, self.cfg.trace_clip),
+                rho=jnp.minimum(ratio, self.cfg.advantage_clip),
+                c=jnp.minimum(ratio, self.cfg.trace_clip),
             )
 
         def minibatch_fn(

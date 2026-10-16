@@ -11,6 +11,8 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
 from boonta.utils.typing import Array, Key, PyTree
 
+from .action_value_estimators import soft_td_lambda
+
 
 @struct.dataclass(frozen=True)
 class REPPOConfig:
@@ -68,6 +70,7 @@ class REPPO:
     alpha_optimizer: optax.GradientTransformation
     lagrangian_optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    action_value_estimator: Callable = soft_td_lambda
 
     def init(self, key: Key, timestep: Timestep) -> REPPOState:
         actor_key, critic_key, alpha_key, lagrangian_key = jax.random.split(key, 4)
@@ -126,31 +129,6 @@ class REPPO:
             num_steps, *_ = transitions.second.reward.shape
             keys = jax.random.split(key, num_steps)
             return jax.vmap(bootstrap_fn)(transitions.second, keys)
-
-        def lambda_returns(transitions: Transition) -> Array:
-            gamma, td_lambda = self.cfg.gamma, self.cfg.td_lambda
-            soft_reward = transitions.aux["soft_reward"]
-            value = transitions.aux["value"]
-            terminated = transitions.second.terminated
-            truncated = transitions.second.truncated
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple[tuple, Array]:
-                lambda_return, cut = carry
-                soft_reward, value, terminated, truncated = x
-                bootstrap = jnp.where(
-                    cut, value, td_lambda * lambda_return + (1.0 - td_lambda) * value
-                )
-                lambda_return = soft_reward + gamma * (1.0 - terminated) * bootstrap
-                return (lambda_return, truncated), lambda_return
-
-            last_value = jnp.take(value, -1, axis=0)
-            _, target_values = jax.lax.scan(
-                scan_fn,
-                (last_value, jnp.zeros_like(last_value, bool)),
-                (soft_reward, value, terminated, truncated),
-                reverse=True,
-            )
-            return target_values
 
         def critic_loss_fn(
             critic_params: PyTree, transitions: Transition
@@ -266,7 +244,9 @@ class REPPO:
             aux={**transitions.aux, "soft_reward": soft_reward, "value": value}
         )
 
-        target_values = lambda_returns(transitions)
+        target_values = self.action_value_estimator(
+            transitions, self.cfg.gamma, self.cfg.td_lambda
+        )
         transitions = transitions.replace(
             aux={**transitions.aux, "target_values": target_values}
         )

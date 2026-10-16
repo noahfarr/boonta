@@ -14,6 +14,8 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 
 from boonta.utils.typing import Array, Key, PyTree
 
+from .advantage_estimators import group_relative_advantage_estimator
+
 
 @struct.dataclass(frozen=True)
 class RecurrentGRPOConfig:
@@ -41,6 +43,7 @@ class RecurrentGRPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = group_relative_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> RecurrentGRPOState:
         network_key, carry_key = jax.random.split(key)
@@ -92,30 +95,12 @@ class RecurrentGRPO:
         self, state: RecurrentGRPOState, key: Key, transitions: Transition
     ) -> RecurrentGRPOState:
         num_steps, num_envs = transitions.second.reward.shape
-        num_groups = num_envs // self.cfg.group_size
-
-        def group_relative_advantage_estimation(
-            trajectory: Transition,
-        ) -> tuple[Array, Array]:
-            rewards = trajectory.second.reward
-            dones = trajectory.second.done
-
-            valid = (jnp.cumsum(dones, axis=0) - dones == 0).astype(rewards.dtype)
-            discounts = self.cfg.gamma ** jnp.arange(num_steps, dtype=rewards.dtype)
-            returns = discounts @ (rewards * valid)
-
-            groups = returns.reshape(num_groups, self.cfg.group_size)
-            mean = groups.mean(axis=1, keepdims=True)
-            std = groups.std(axis=1, keepdims=True)
-            advantages = ((groups - mean) / (std + 1e-8)).reshape(-1)
-            return jnp.broadcast_to(advantages, valid.shape), valid
 
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, tuple]:
             advantages = trajectory.aux["advantages"]
-            valid = trajectory.aux["valid"]
-            num_valid = jnp.maximum(valid.sum(), 1.0)
+            episode_mask = trajectory.aux["episode_mask"]
 
             timesteps = trajectory.first
             (_, dist), variables = self.network.apply(
@@ -130,15 +115,17 @@ class RecurrentGRPO:
             )
 
             log_probs = dist.log_prob(trajectory.second.action)
-            entropy = (dist.entropy() * valid).sum() / num_valid
+            entropy = (dist.entropy() * episode_mask).sum() / jnp.maximum(
+                episode_mask.sum(), 1.0
+            )
             ratio = jnp.exp(log_probs - trajectory.aux["log_prob"])
             approximate_kl = (
-                (trajectory.aux["log_prob"] - log_probs) * valid
-            ).sum() / num_valid
+                (trajectory.aux["log_prob"] - log_probs) * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
             clip_fraction = (
                 (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
-                * valid
-            ).sum() / num_valid
+                * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
             actor_loss = (
                 -(
                     jnp.minimum(
@@ -150,15 +137,15 @@ class RecurrentGRPO:
                         )
                         * advantages,
                     )
-                    * valid
+                    * episode_mask
                 ).sum()
-                / num_valid
+                / jnp.maximum(episode_mask.sum(), 1.0)
             )
 
             log_ratio = trajectory.aux["reference_log_prob"] - log_probs
             reference_kl = (
-                (jnp.exp(log_ratio) - log_ratio - 1.0) * valid
-            ).sum() / num_valid
+                (jnp.exp(log_ratio) - log_ratio - 1.0) * episode_mask
+            ).sum() / jnp.maximum(episode_mask.sum(), 1.0)
 
             loss = actor_loss + self.cfg.kl_coefficient * reference_kl
 
@@ -193,9 +180,15 @@ class RecurrentGRPO:
             )
 
         initial_carry = state.rollout_carry
-        advantages, valid = group_relative_advantage_estimation(transitions)
+        advantages, episode_mask = self.advantage_estimator(
+            transitions, self.cfg.gamma, self.cfg.group_size
+        )
         trajectory = transitions.replace(
-            aux={**transitions.aux, "advantages": advantages, "valid": valid}
+            aux={
+                **transitions.aux,
+                "advantages": advantages,
+                "episode_mask": episode_mask,
+            }
         )
 
         sequences = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), trajectory.first)
@@ -229,9 +222,10 @@ class RecurrentGRPO:
                 lambda leaf: jnp.take(leaf, indices, axis=0), initial_carry
             )
             advantages = minibatch.aux["advantages"]
-            valid = minibatch.aux["valid"]
-            num_valid = jnp.maximum(valid.sum(), 1.0)
-            advantage = (advantages * valid).sum() / num_valid
+            episode_mask = minibatch.aux["episode_mask"]
+            advantage = (advantages * episode_mask).sum() / jnp.maximum(
+                episode_mask.sum(), 1.0
+            )
 
             (_, aux), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True
