@@ -140,6 +140,8 @@ CASES = [
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
+    ("ppo", "dune_sea/hotspots", None, False),
+    ("ppo", "dune_sea/hotspots", None, prioritized_restarts),
     ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("ppo", MINATAR, None, prioritized_restarts),

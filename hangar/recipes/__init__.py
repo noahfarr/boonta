@@ -62,6 +62,7 @@ register = {
     ("ppo", "craftax", "craftax"): ppo_craftax.make,
     ("ppo", "craftax", "craftax_classic"): ppo_craftax_classic.make,
     ("ppo", "dune_sea", "chain_of_forks"): ppo_chain_of_forks.make,
+    ("ppo", "dune_sea", "hotspots"): ppo_chain_of_forks.make,
     ("ppo", "gymnasium", "gymnasium"): ppo_gymnasium.make,
     ("ppo", "gymnax", "bsuite"): ppo_deep_sea.make,
     ("ppo", "gymnax", "classic_control"): ppo_cartpole.make,
