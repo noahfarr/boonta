@@ -29,3 +29,7 @@ hydra:
     dir: outputs/${oc.env:SLURM_JOB_ID,${now:%Y-%m-%d}/${now:%H-%M-%S}}-${oc.env:SLURM_ARRAY_TASK_ID,0}
   sweep:
     dir: sweeps/${hydra.runtime.choices.algorithm}/${hydra.runtime.choices.environment}/${now:%Y-%m-%d_%H-%M-%S}
+  job_logging:
+    loggers:
+      absl:
+        level: WARNING

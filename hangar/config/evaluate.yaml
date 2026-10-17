@@ -2,26 +2,25 @@ num_episodes: 1000
 seed: ${trial:}
 checkpoint: null
 
-loggers:
-  dashboard:
-    total_timesteps: null
-    summary:
-      Total Timesteps: null
-      Episodes: ${num_episodes}
+loggers: {}
 artisans: {}
 
 defaults:
+  - _self_
   - podracer: anakin
   - algorithm: ppo
   - environment/auto_reset: same_step
   - environment: gymnax/minatar/breakout
-  - logger: [dashboard, xdg]
+  - logger: [dashboard_evaluate, xdg]
   - artisan: render
   - curriculum: default
   - intrinsic_reward: null
   - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
-  - _self_
 
 hydra:
   run:
     dir: outputs/${oc.env:SLURM_JOB_ID,${now:%Y-%m-%d}/${now:%H-%M-%S}}-${oc.env:SLURM_ARRAY_TASK_ID,0}
+  job_logging:
+    loggers:
+      absl:
+        level: WARNING
