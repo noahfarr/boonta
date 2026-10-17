@@ -1,6 +1,7 @@
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from .artifact import Video
@@ -32,7 +33,9 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            env_state = jax.tree.map(lambda leaf: leaf[0], environment_state)
+            env_state = jax.tree.map(
+                lambda leaf: jnp.take(leaf, 0, axis=0), environment_state
+            )
             return (algorithm_state, environment_state, timestep), env_state
 
         (_, environment_state, _), trajectory = jax.lax.scan(
@@ -44,12 +47,14 @@ class Render:
         return trajectory
 
     def craft(self, key, algorithm, environment, state, logs) -> Video:
-        rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        trajectory = rollout(state.algorithm_state, key)
+        trajectory = jax.jit(partial(self.rollout, algorithm, environment))(
+            state.algorithm_state, key
+        )
         frames = [
             np.asarray(
                 environment.render(
-                    jax.tree.map(lambda leaf: leaf[step], trajectory), **self.kwargs
+                    jax.tree.map(lambda leaf: jnp.take(leaf, step, axis=0), trajectory),
+                    **self.kwargs,
                 ),
                 dtype=np.uint8,
             )

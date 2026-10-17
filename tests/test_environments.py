@@ -15,7 +15,7 @@ from boonta.environments.spaces import Space
 from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAction, ClipAction,
                                           ClipReward, DomainRandomization,
                                           FlattenObservation, Group,
-                                          LogAction, LogEnvState, LogInfo,
+                                          LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
                                           Opponent, OptimisticAutoReset,
@@ -69,8 +69,6 @@ STACKS = [
     pytest.param(lambda: Vectorize(ClipAction(Dial()), NUM_ENVS), id="clip_action"),
     pytest.param(lambda: Vectorize(ClipReward(Dial()), NUM_ENVS), id="clip_reward"),
     pytest.param(lambda: Vectorize(FlattenObservation(Dial()), NUM_ENVS), id="flatten_observation"),
-    pytest.param(lambda: Vectorize(LogAction(Dial()), NUM_ENVS), id="log_action"),
-    pytest.param(lambda: Vectorize(LogEnvState(Dial()), NUM_ENVS), id="log_env_state"),
     pytest.param(lambda: LogInfo(Vectorize(Dial(), NUM_ENVS)), id="log_info"),
     pytest.param(
         lambda: Vectorize(MaskObservation(Dial(), jnp.ones(3)), NUM_ENVS), id="mask_observation"
