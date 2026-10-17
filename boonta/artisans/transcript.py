@@ -1,8 +1,12 @@
+from functools import partial
+
+import jax
 import numpy as np
 
 from boonta.utils import load_tokenizer
 
 from .artifact import Text
+from .rollout import rollout
 
 
 class Transcript:
@@ -13,7 +17,16 @@ class Transcript:
         self._num_examples = num_examples
 
     def craft(self, key, algorithm, environment, state, logs) -> Text:
-        actions = np.asarray(logs["action"])
+        play = jax.jit(
+            partial(
+                rollout,
+                algorithm,
+                environment,
+                num_steps=environment.time_limit() + 1,
+                record=lambda environment_state, action: action,
+            )
+        )
+        actions = np.asarray(play(state.algorithm_state, key))
         *_, num_envs = actions.shape
         transcript = "\n\n".join(
             f"{env}: {self._tokenizer.decode(actions[:, env].tolist())}"

@@ -9,8 +9,7 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.wrappers import (MCP, LogAction, Prompt,
-                                          RecordEpisodeStatistics)
+from boonta.environments.wrappers import MCP, Prompt, RecordEpisodeStatistics
 from boonta.networks import (ActorCritic, Categorical, Chunked, LoRA, Network,
                              Qwen3, Unembed)
 from boonta.networks.pretrained import init_fn
@@ -154,5 +153,4 @@ def make(cfg):
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    env = LogAction(env)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

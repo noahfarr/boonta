@@ -17,7 +17,7 @@ import zoo
 from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.artisans import Checkpoint, Render, Video
+from boonta.artisans import Checkpoint, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief
@@ -224,6 +224,29 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     frames, _, _, channels = video.data.shape
     assert (frames, channels) == (16, 3)
     assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1
+
+
+def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
+    monkeypatch,
+):
+    class Tokenizer:
+        def decode(self, tokens):
+            return " ".join(map(str, tokens))
+
+    monkeypatch.setattr("boonta.artisans.transcript.load_tokenizer", lambda repo_id: Tokenizer())
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 3
+
+    def step(state, key, timestep, temperature=1.0):
+        return state, jnp.arange(NUM_ENVS, dtype=jnp.int32) % 2, {}
+
+    algorithm = SimpleNamespace(step=step)
+    state = SimpleNamespace(algorithm_state=None)
+    text = Transcript("repo", num_examples=3).craft(
+        jax.random.key(0), algorithm, environment, state, {}
+    )
+
+    assert text.data == "0: 0 0 0 0\n\n1: 1 1 1 1\n\n2: 0 0 0 0"
 
 
 RUN = """

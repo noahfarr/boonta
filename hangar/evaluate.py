@@ -50,11 +50,7 @@ def main(cfg):
             )
         )
         logs = jax.tree.map(
-            lambda *values: np.nanmean(values).reshape(1, 1),
-            *(
-                {name: value for name, value in rollout.items() if "/" in name}
-                for rollout in rollouts
-            ),
+            lambda *values: np.nanmean(values).reshape(1, 1), *rollouts
         )
         data = {
             name.replace("episode_statistics/", "evaluation/"): value

@@ -91,7 +91,6 @@ def main(cfg):
                     value
                 ).reshape(1, 1)
                 for name, value in logs.items()
-                if "/" in name
             }
             monitor.stop()
 
