@@ -72,15 +72,6 @@ def main(cfg):
     artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
     scoring = instantiate(cfg.scoring)
 
-    def reduce(logs):
-        logs = jax.device_get({k: v for k, v in logs.items() if "/" in k})
-        return {
-            k.replace("episode_statistics/", "training/"): np.nanmean(
-                v.reshape(1, -1), axis=1, keepdims=True
-            )
-            for k, v in logs.items()
-        }
-
     def craft(state, logs, step):
         keys = jax.random.split(jax.random.fold_in(craft_key, step), max(len(artisans), 1))
         for key, artisan in zip(keys, artisans):
@@ -95,7 +86,13 @@ def main(cfg):
         for epoch in range(epoch, cfg.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
-            data = reduce(logs)
+            data = {
+                name.replace("episode_statistics/", "training/"): np.nanmean(
+                    value
+                ).reshape(1, 1)
+                for name, value in logs.items()
+                if "/" in name
+            }
             monitor.stop()
 
             steps = (
