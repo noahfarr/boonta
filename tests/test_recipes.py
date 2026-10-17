@@ -195,6 +195,12 @@ CASES = [
         False,
     ),
     (
+        "ppo",
+        "pynes/super_mario_bros",
+        installed("pynes") or supplied("BOONTA_SMB_ROM"),
+        False,
+    ),
+    (
         "recurrent_ppo",
         "pynes/super_mario_bros",
         installed("pynes") or supplied("BOONTA_SMB_ROM"),
