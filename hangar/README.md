@@ -10,14 +10,13 @@
 uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 ```
 
-`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; both read the same `config` and take the same overrides. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `training.num_epochs` epochs runs the same whole number of updates, as many as fit in `total_timesteps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job; `boonta evaluate` writes there too, so set `hydra.run.dir=${checkpoint}/evaluation` to keep its videos and metrics beside the checkpoint.
+`boonta train` runs `hangar/train.py` and `boonta evaluate checkpoint=<run or checkpoint directory>` runs `hangar/evaluate.py`; the first reads `config/train.yaml` and the second reads `config/evaluate.yaml`, and both take the same algorithm, environment and curriculum overrides. Evaluation runs at least `num_episodes` full episodes, in rollouts of `environment.num_envs` episodes, and logs one result at the checkpoint's step. Hydra resolves the config relative to the scripts, so they work from any directory, and an installed package gets the same command. A run trains one seed. Each of its `num_epochs` epochs runs the same whole number of updates, as many as fit in `num_steps` (an update is the podracer's `batch_size` steps), and the logged step count is exactly what ran. It writes to `outputs/<date>/<time>-<array id>/`, or to `outputs/<job id>-<array id>/` inside a SLURM job; `boonta evaluate` writes there too, so set `hydra.run.dir=${checkpoint}/evaluation` to keep its videos and metrics beside the checkpoint.
 
 | Override | Effect |
 | --- | --- |
 | `seed=3` | Seed of the run: 0 by default, the trial number in a multirun |
-| `total_timesteps=100_000_000` | Environment steps in total |
-| `training.num_epochs=50` | Train and log cycles the steps are split into |
-| `evaluation.num_steps=1000` | Evaluate for this many steps after every epoch (0 turns it off) |
+| `num_steps=100_000_000` | Environment steps in total |
+| `num_epochs=50` | Train and log cycles the steps are split into |
 | `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
 
 ### Several machines
@@ -83,7 +82,7 @@ Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `mult
 
 ```bash
 uv run boonta train -m hydra/sweeper=pbt algorithm=ppo environment=gymnax/minatar/breakout \
-    logger=file evaluation.num_steps=1000
+    logger=file
 ```
 
 Each member starts from values drawn from the space: uniformly, on a log scale for `log_normal`, on a logit scale for `logit_normal`, and over the powers of two for `uniform_pow2`. `center` and `scale` are not used. Each generation launches every member's `seeds` runs through the launcher. Every run writes to `<sweep dir>/generation_<g>/member_<m>/seed_<s>`.
@@ -92,15 +91,15 @@ The plugin knows nothing about boonta. It takes three settings that say how to d
 
 | Setting | In hangar | Meaning |
 |---|---|---|
-| `budget_variable` | `{total_timesteps: ${total_timesteps}, training.num_epochs: ${training.num_epochs}}` | each key that sets a run's budget, with its value for the full run |
+| `budget_variable` | `{num_steps: ${num_steps}, num_epochs: ${num_epochs}}` | each key that sets a run's budget, with its value for the full run |
 | `checkpoint` | `checkpoint` | the key that receives the parent's run dir when a member resumes |
 | `overrides` | see below | overrides added to every job |
 
-Generation `g` of `G` sets each budget key to its full-run value times `(g + 1) / G`, so `generations` must divide every value. In hangar a generation's run plans `(g + 1) / G` of the steps over `(g + 1) / G` of the epochs, which keeps the steps per epoch of the full run. A member resuming from its parent's checkpoint continues at the checkpoint's epoch and runs to the end of its plan. A learning-rate schedule built from `total_timesteps` is planned anew in every generation, so it restarts or jumps at each one.
+Generation `g` of `G` sets each budget key to its full-run value times `(g + 1) / G`, so `generations` must divide every value. In hangar a generation's run plans `(g + 1) / G` of the steps over `(g + 1) / G` of the epochs, which keeps the steps per epoch of the full run. A member resuming from its parent's checkpoint continues at the checkpoint's epoch and runs to the end of its plan. A learning-rate schedule built from `num_steps` is planned anew in every generation, so it restarts or jumps at each one.
 
 Hangar's `overrides` are `scoring=final`, `+artisan@artisans.checkpoint=checkpoint`, `+logger@loggers.orbax=orbax`, `++loggers.orbax.max_to_keep=1` and `++loggers.orbax.best=false`. So every run scores its last epoch and adds the `checkpoint` artisan and an `orbax` logger to whatever artisans and loggers it already has. The logger writes to its default `${hydra:runtime.output_dir}/checkpoints`, which is the run's own dir, and keeps only the latest checkpoint, the generation's last epoch. The next generation passes that run dir as `checkpoint=`, which resolves to `checkpoints/latest`. A command-line override of any key the sweeper sets is dropped from every job, and the budget keys take their full-run values from the command line. The checkpointer saves only `algorithm_state` by default, so a resumed run starts its environments afresh. On `anakin` with JAX environments, `++artisans.checkpoint.fields=[algorithm_state,environment_state,timestep]` also carries the environments, and adding `pit_state` carries a curriculum's own state, such as the league's pool and payoffs or PLR's level buffer. Sweep jobs are seeded by job number, so a member's generations still differ in their random keys. A member's fitness is the mean score of its seeds. The worst `fraction` of members, rounded up and at most half, each pick one of as many best members. A loser copies its pick when the gap in mean exceeds `threshold` pooled standard errors. A copier takes the winner's checkpoints seed by seed. It redraws each parameter from the space with probability `resample_probability`. Otherwise it multiplies a continuous or integer parameter by one of `factors` and clips it to `[min, max]`, and it moves a `uniform_pow2` parameter to the neighbouring power of two. Members that copy nothing keep their parameters. A member whose runs all scored nothing copies regardless of the gap. Selection and exploration follow Ray Tune's `PopulationBasedTraining` in synchronous mode. The seed-averaged gate, the clipping, rounding integers to the nearest value and the 1.25 factor are deliberate departures.
 
-Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `rollout.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper does not check this. A search over such a key fails in the second generation, when a member's checkpoint no longer fits its fresh state and the restore raises. Searching a budget key does nothing, since the sweeper sets those itself.
+Because members load each other's checkpoints, PBT can only change parameters that keep the shapes of the algorithm state: learning rates and loss coefficients, not `environment.num_envs`, `podracer.config.num_steps`, `replay.capacity` or anything under `network`, `cell`, `torso` or `stack`. The sweeper does not check this. A search over such a key fails in the second generation, when a member's checkpoint no longer fits its fresh state and the restore raises. Searching a budget key does nothing, since the sweeper sets those itself.
 
 Settings live under `hydra.sweeper`:
 
@@ -108,7 +107,7 @@ Settings live under `hydra.sweeper`:
 |---|---|---|
 | `members` | 4 | a small population; with `fraction` 0.25 one member copies per generation |
 | `seeds` | 4 | enough runs per member for the gate's pooled standard error |
-| `generations` | 5 | a few exploit steps per run; must divide `total_timesteps` and `training.num_epochs` (10 by default) |
+| `generations` | 5 | a few exploit steps per run; must divide `num_steps` and `num_epochs` (10 by default) |
 | `fraction` | 0.25 | Ray Tune's `quantile_fraction`; Jaderberg et al. (2017) used 20% |
 | `threshold` | 2.0 | about two standard errors, in the spirit of the paper's t-test selection |
 | `factors` | [0.8, 1.25] | Jaderberg et al. (2017) use 0.8 and 1.2; 1.25 undoes 0.8 |

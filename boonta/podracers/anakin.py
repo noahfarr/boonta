@@ -15,7 +15,6 @@ from .podracer import Lap, Pit
 
 @struct.dataclass(frozen=True)
 class AnakinConfig:
-    num_envs: int
     num_steps: int
     mesh: Mesh = struct.field(pytree_node=False)
 
@@ -61,7 +60,7 @@ class Anakin:
 
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step
-            + self.config.num_envs * self.environment.num_agents
+            + self.environment.num_envs * self.environment.num_agents
         )
         state = self.lap(
             lap_key,
@@ -93,7 +92,9 @@ class Anakin:
     @property
     def batch_size(self) -> int:
         return (
-            self.config.num_envs * self.config.num_steps * self.environment.num_agents
+            self.environment.num_envs
+            * self.config.num_steps
+            * self.environment.num_agents
         )
 
     def train(self, state: AnakinState, key: Key, num_updates: int) -> PyTree:

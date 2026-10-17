@@ -1,5 +1,5 @@
 # @package search_space
-total_timesteps:
+num_steps:
   distribution: log_normal
   min: 5e7
   max: 2e9
@@ -11,7 +11,7 @@ environment.num_envs:
   max: 65536
   center: 16384
   scale: 8.33
-rollout.num_steps:
+podracer.config.num_steps:
   distribution: uniform_pow2
   min: 2
   max: 32

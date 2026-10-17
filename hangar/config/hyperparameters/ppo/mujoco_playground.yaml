@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 60_000_000
+num_steps: 60_000_000
 
 algorithm:
   gamma: 0.995
@@ -12,8 +12,9 @@ algorithm:
   clip_value_loss: True
   entropy_coefficient: 0.0
 
-rollout:
-  num_steps: 16
+podracer:
+  config:
+    num_steps: 16
 
 environment:
   num_envs: 4096

@@ -102,7 +102,7 @@ The steps below follow `BC`, the smallest algorithm, in [`bc.py`](bc.py).
 
 2. Export the class in [`__init__.py`](__init__.py).
 
-3. Add `hangar/config/algorithm/<name>.yaml`. It is a `# @package _global_` file. `algorithm._target_` names the config dataclass, and the file also sets the batch keys the podracer reads (`rollout.num_steps`, `environment.num_envs`) and `optimizer`. An offline algorithm picks its dataset and podracer here, as [`bc.yaml`](../../hangar/config/algorithm/bc.yaml) does:
+3. Add `hangar/config/algorithm/<name>.yaml`. It is a `# @package _global_` file. `algorithm._target_` names the config dataclass, and the file also sets the batch keys the podracer reads (`podracer.config.num_steps`, `environment.num_envs`) and `optimizer`. An offline algorithm picks its dataset and podracer here, as [`bc.yaml`](../../hangar/config/algorithm/bc.yaml) does:
 
    ```yaml
    # @package _global_

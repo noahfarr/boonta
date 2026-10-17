@@ -1,12 +1,13 @@
 # @package _global_
 
-total_timesteps: 245_760_000
+num_steps: 245_760_000
 
 environment:
   num_envs: 32
 
-rollout:
-  num_steps: 256
+podracer:
+  config:
+    num_steps: 256
 
 cell:
   _target_: flax.linen.OptimizedLSTMCell

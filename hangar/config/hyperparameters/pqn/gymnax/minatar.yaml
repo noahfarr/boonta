@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 80_000_000
+num_steps: 80_000_000
 
 algorithm:
   num_minibatches: 16

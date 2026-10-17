@@ -9,8 +9,9 @@ algorithm:
   kl_coefficient: 0.04
   gamma: 0.99
 
-rollout:
-  num_steps: 256
+podracer:
+  config:
+    num_steps: 256
 
 environment:
   num_envs: 512

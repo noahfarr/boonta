@@ -267,7 +267,7 @@ def build(
     initialize=skill_initialize,
     **extras,
 ):
-    config = anakin.AnakinConfig(num_envs=num_envs, num_steps=4, mesh=mesh(2))
+    config = anakin.AnakinConfig(num_steps=4, mesh=mesh(2))
     algorithm, environment, pit, lap = psro.make(
         oracle or SkillAlgorithm(optimizer=optax.sgd(1.0)),
         MarginEnvironment(num_envs=num_envs),
@@ -434,7 +434,7 @@ def test_the_oracle_is_handed_its_own_seat():
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 1)
 
-    shape = (config.num_steps, config.num_envs)
+    shape = (config.num_steps, podracer.environment.num_envs)
     assert set(seen) == {(shape, shape, shape)}
     podracer.close(state)
 

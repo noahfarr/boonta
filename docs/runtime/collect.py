@@ -31,7 +31,7 @@ def train(pilot, track, num_steps, seed=0):
 
 
 def record(racer, state, size, seed):
-    steps = -(-size // racer.config.num_envs)
+    steps = -(-size // racer.environment.num_envs)
 
     @jax.jit
     @lox.spool

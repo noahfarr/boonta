@@ -1,15 +1,11 @@
-total_timesteps: 5_000_000
+num_steps: 5_000_000
 seed: ${trial:}
 num_processes: 1
 checkpoint: null
 
-training:
-  num_epochs: 10
+num_epochs: 10
 
-evaluation:
-  num_steps: 0
-
-score: ${eval:'"evaluation" if ${evaluation.num_steps} else "training"'}/episode_return
+score: training/episode_return
 
 loggers: {}
 artisans: {}

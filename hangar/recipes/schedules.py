@@ -5,7 +5,7 @@ def learning_rate(cfg, batch_size: int):
     rate = cfg.optimizer.lr
     if not cfg.optimizer.get("anneal"):
         return rate
-    updates = int(cfg.total_timesteps) // batch_size
+    updates = int(cfg.num_steps) // batch_size
     return optax.cosine_decay_schedule(
         rate,
         updates

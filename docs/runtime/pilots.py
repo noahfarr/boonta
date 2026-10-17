@@ -310,7 +310,7 @@ def policy(pilot, algorithm):
 def anakin(pilot, track, h):
     algorithm = PILOTS[pilot](track, h)
     environment = wrap(game(track), h["num_envs"])
-    config = AnakinConfig(num_envs=h["num_envs"], num_steps=h["num_steps"], mesh=mesh(1))
+    config = AnakinConfig(num_steps=h["num_steps"], mesh=mesh(1))
     return Anakin(config, algorithm, environment)
 
 
@@ -318,7 +318,6 @@ def sebulba(pilot, track, h):
     algorithm = PILOTS[pilot](track, h)
     environment = wrap(game(track), h["num_envs"])
     config = SebulbaConfig(
-        num_envs=h["num_envs"],
         num_steps=h["num_steps"],
         learner=mesh(1),
         actor=mesh(1),
@@ -329,7 +328,5 @@ def sebulba(pilot, track, h):
 def quadinaros(pilot, track, h, transitions):
     algorithm = PILOTS[pilot](track, h)
     environment = wrap(game(track), h["num_envs"])
-    config = QuadinarosConfig(
-        num_envs=h["num_envs"], batch_shape=(h["batch_size"],), mesh=mesh(1)
-    )
+    config = QuadinarosConfig(batch_shape=(h["batch_size"],), mesh=mesh(1))
     return Quadinaros(config, algorithm, environment, Bundled(transitions))

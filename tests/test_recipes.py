@@ -17,7 +17,7 @@ from hangar import recipes
 
 ROOT = Path(__file__).parents[1]
 CONFIG = ROOT / "hangar/config"
-SMALL = ["environment.num_envs=32", "++rollout.num_steps=4", "++replay.capacity=1024"]
+SMALL = ["environment.num_envs=32", "++replay.capacity=1024"]
 
 
 def installed(*modules):
@@ -192,7 +192,13 @@ CASES = [
 def configure(algorithm, environment, *overrides):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         overrides = [f"algorithm={algorithm}", f"environment={environment}", *overrides]
-        return compose("config", overrides=overrides, return_hydra_config=True)
+        return compose("train", overrides=overrides, return_hydra_config=True)
+
+
+def shrink(cfg):
+    if "num_steps" in cfg.podracer.config:
+        cfg.podracer.config.num_steps = 4
+    return cfg
 
 
 def test_every_recipe_has_a_smoke_case():
@@ -223,7 +229,7 @@ def test_no_library_module_imports_the_application(path):
 
 
 def test_hyperparameters_cascade_to_everything_below_them():
-    assert configure("ppo", "gymnax/minatar/asterix").total_timesteps == 20_000_000
+    assert configure("ppo", "gymnax/minatar/asterix").num_steps == 20_000_000
     assert configure("ppo", "isaaclab/classic/ant").algorithm.num_minibatches == 4
     assert configure("ppo", "isaaclab/classic/ant").optimizer.lr == 5e-4
 
@@ -277,7 +283,7 @@ def test_every_recipe_builds_and_runs_one_update(
 ):
     monkeypatch.setenv("MINARI_DATASETS_PATH", str(tmp_path))
     overrides = SMALL + (extra(tmp_path) if extra else [])
-    cfg = configure(algorithm, environment, *overrides)
+    cfg = shrink(configure(algorithm, environment, *overrides))
     HydraConfig.instance().set_config(cfg)
     podracer = recipes.make(cfg)
 
@@ -290,11 +296,11 @@ def test_every_recipe_builds_and_runs_one_update(
 
 
 def test_the_ppo_recipe_explores_with_rnd_when_asked():
-    plain = configure("ppo", MINATAR, *SMALL)
+    plain = shrink(configure("ppo", MINATAR, *SMALL))
     HydraConfig.instance().set_config(plain)
     assert not isinstance(recipes.make(plain).algorithm, RND)
 
-    cfg = configure("ppo", MINATAR, *SMALL, "intrinsic_reward=rnd")
+    cfg = shrink(configure("ppo", MINATAR, *SMALL, "intrinsic_reward=rnd"))
     HydraConfig.instance().set_config(cfg)
     podracer = recipes.make(cfg)
     assert isinstance(podracer.algorithm, RND)
@@ -338,7 +344,7 @@ def test_an_annealed_learning_rate_decays_over_every_gradient_step():
 
     cfg = OmegaConf.create(
         {
-            "total_timesteps": 100,
+            "num_steps": 100,
             "optimizer": {"lr": 1.0, "anneal": True, "alpha": 0.25},
             "algorithm": {"update_epochs": 2, "num_minibatches": 3},
         }

@@ -20,14 +20,13 @@ NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 
 
 def on_anakin(algorithm=None, environment=None, **hooks):
-    config = anakin.AnakinConfig(num_envs=NUM_ENVS, num_steps=NUM_STEPS, mesh=mesh(2))
+    config = anakin.AnakinConfig(num_steps=NUM_STEPS, mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
     return anakin.make(config, algorithm or Probe(), environment, **hooks)
 
 
 def on_sebulba(algorithm=None, environment=None, **hooks):
     config = sebulba.SebulbaConfig(
-        num_envs=NUM_ENVS,
         num_steps=NUM_STEPS,
         learner=mesh(ACTORS),
         actor=mesh(ACTORS, start=ACTORS),
@@ -37,9 +36,7 @@ def on_sebulba(algorithm=None, environment=None, **hooks):
 
 
 def on_quadinaros(algorithm=None, environment=None, dataset=None, **hooks):
-    config = quadinaros.QuadinarosConfig(
-        num_envs=NUM_ENVS, batch_shape=(16,), mesh=mesh(2)
-    )
+    config = quadinaros.QuadinarosConfig(batch_shape=(16,), mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
     dataset = dataset or Episodes(flatten(demonstrations(Dial(), jax.random.key(0), 16)))
     return quadinaros.make(config, algorithm or Probe(), environment, dataset, **hooks)

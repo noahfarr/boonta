@@ -1,20 +1,17 @@
 # @package _global_
 
-total_timesteps: 1_000_000_000
+num_steps: 1_000_000_000
 
-training:
-  num_epochs: 635
+num_epochs: 635
 
 environment:
   num_envs: 1024
 
 podracer:
   config:
+    num_steps: 128
     mesh:
       count: 1
-
-rollout:
-  num_steps: 128
 
 cell:
   features: 256

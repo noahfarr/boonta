@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 50_000_000
+num_steps: 50_000_000
 
 algorithm:
   gamma: 0.995
@@ -10,8 +10,9 @@ algorithm:
   entropy_coefficient: 0.01
   normalize_advantage: True
 
-rollout:
-  num_steps: 32
+podracer:
+  config:
+    num_steps: 32
 
 environment:
   num_envs: 1024

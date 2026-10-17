@@ -2,7 +2,6 @@ _target_: boonta.podracers.quadinaros.make
 _partial_: true
 config:
   _target_: boonta.podracers.quadinaros.QuadinarosConfig
-  num_envs: ${environment.num_envs}
   batch_shape:
     - ${algorithm.batch_size}
   mesh:

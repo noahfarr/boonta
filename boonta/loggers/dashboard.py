@@ -185,7 +185,10 @@ class DashboardLogger:
         dynamic_summary = {
             k.split("/", 1)[1]: v for k, v in data.items() if k.startswith("summary/")
         }
-        items = [*self.summary.items(), *dynamic_summary.items()]
+        items = [
+            *((k, v) for k, v in self.summary.items() if v is not None),
+            *dynamic_summary.items(),
+        ]
         if data:
             items.append(("Step", f"{int(step):_}"))
         left = Table(box=None, expand=True)

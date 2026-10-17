@@ -28,7 +28,7 @@ Pick one with `podracer=sebulba` on the command line. Offline algorithms such as
 - `sebulba`: the same, times the number of actor devices.
 - `quadinaros`: the product of `batch_shape`.
 
-`hangar/main.py` splits `total_timesteps` into `training.num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
+`hangar/main.py` splits `num_steps` into `num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
 
 The podracer counts steps into `algorithm_state.step`. The online podracers add `num_envs × num_agents` after every environment step. `quadinaros` adds `batch_size` after every update.
 
@@ -58,7 +58,7 @@ Each hook must fire in all those places. `evaluate` restarts the environment at 
 
 Each actor device owns its own environments and steps them in its own thread. `num_envs` is per actor, so an update trains on `actors × num_envs` environments. The learner takes one rollout from every actor, in actor order, and joins them along the environment axis.
 
-The lag is fixed at one update. After every update the learner puts its `algorithm_state` in every actor's queue, and each actor takes from its queue before every rollout except the second. So rollout *k* is collected with the parameters of update *k*−2 while the learner trains update *k*−1. Nothing depends on thread timing, and a run is reproducible at a fixed seed. The queues are rebuilt at every `train` call, so changing `training.num_epochs` changes results.
+The lag is fixed at one update. After every update the learner puts its `algorithm_state` in every actor's queue, and each actor takes from its queue before every rollout except the second. So rollout *k* is collected with the parameters of update *k*−2 while the learner trains update *k*−1. Nothing depends on thread timing, and a run is reproducible at a fixed seed. The queues are rebuilt at every `train` call, so changing `num_epochs` changes results.
 
 The state is `SebulbaState(actors, algorithm_state, pit_state)`. `algorithm_state` and `pit_state` exist once, as the learner's. Each `ActorState` holds only the actor's timestep, environment state, recurrent carry and `lap_state`, so every actor keeps its own lap state across rollouts. `pit.update` runs on the learner after every update, and the learner sends the new `pit_state` to the actors along with `algorithm_state`, with the same lag. The `pit` call and `lap` run on the actor, and what they write into `algorithm_state` or `pit_state` is dropped after the rollout, except the step count. `evaluate` runs on the first actor. `sebulba` rejects `Population`, and so the league's `Roster`.
 

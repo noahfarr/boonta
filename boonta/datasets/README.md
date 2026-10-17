@@ -9,7 +9,7 @@ A dataset is a fixed set of recorded transitions that the [`quadinaros`](../podr
 | `sample(state, key, batch_shape)` | inside the jitted training scan | returns a batch as a `Transition` |
 | `close()` | at the end of the run | stops any background work |
 
-The state rides inside the podracer state and is split across devices along `data`. So mark the fields of a state dataclass with `metadata={"axis": "data"}`. `sample` must be pure JAX, because it runs inside `jax.jit`. `update` runs outside it, just before each `train` call's jitted scan, so one state lasts one epoch. Raising `training.num_epochs` refreshes it more often.
+The state rides inside the podracer state and is split across devices along `data`. So mark the fields of a state dataclass with `metadata={"axis": "data"}`. `sample` must be pure JAX, because it runs inside `jax.jit`. `update` runs outside it, just before each `train` call's jitted scan, so one state lasts one epoch. Raising `num_epochs` refreshes it more often.
 
 A batch is a `Transition(first, second)`, the same shape online algorithms see. `first` is the timestep acted on, with `first.terminated` set at episode starts. `second` holds the action taken, the reward and how the step ended.
 

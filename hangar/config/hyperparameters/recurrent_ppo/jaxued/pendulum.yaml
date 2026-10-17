@@ -1,12 +1,13 @@
 # @package _global_
 
-total_timesteps: 57_344_000
+num_steps: 57_344_000
 
 environment:
   num_envs: 32
 
-rollout:
-  num_steps: 512
+podracer:
+  config:
+    num_steps: 512
 
 cell:
   _target_: flax.linen.GRUCell
