@@ -22,7 +22,7 @@ class Render:
         self.kwargs = kwargs or {}
 
     def craft(self, key, algorithm, environment, state, logs) -> Video:
-        play = jax.jit(
+        trajectory = jax.jit(
             partial(
                 rollout,
                 algorithm,
@@ -32,8 +32,7 @@ class Render:
                     lambda leaf: jnp.take(leaf, 0, axis=0), environment_state
                 ),
             )
-        )
-        trajectory = play(state.algorithm_state, key)
+        )(state.algorithm_state, key)
         frames = [
             np.asarray(
                 environment.render(

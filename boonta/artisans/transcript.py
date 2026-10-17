@@ -17,16 +17,17 @@ class Transcript:
         self._num_examples = num_examples
 
     def craft(self, key, algorithm, environment, state, logs) -> Text:
-        play = jax.jit(
-            partial(
-                rollout,
-                algorithm,
-                environment,
-                num_steps=environment.time_limit() + 1,
-                record=lambda environment_state, action: action,
-            )
+        actions = np.asarray(
+            jax.jit(
+                partial(
+                    rollout,
+                    algorithm,
+                    environment,
+                    num_steps=environment.time_limit() + 1,
+                    record=lambda environment_state, action: action,
+                )
+            )(state.algorithm_state, key)
         )
-        actions = np.asarray(play(state.algorithm_state, key))
         *_, num_envs = actions.shape
         transcript = "\n\n".join(
             f"{env}: {self._tokenizer.decode(actions[:, env].tolist())}"
