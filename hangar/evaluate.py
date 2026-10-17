@@ -43,24 +43,25 @@ def main(cfg):
     step = int(jax.device_get(state.algorithm_state.step))
 
     try:
-        _, logs = zip(
+        _, rollouts = zip(
             *(
                 podracer.evaluate(state, rollout_key, num_steps)
                 for rollout_key in jax.random.split(evaluate_key, num_rollouts)
             )
         )
+        logs = jax.tree.map(
+            lambda *values: np.nanmean(values).reshape(1, 1), *rollouts
+        )
         data = {
-            name.replace("episode_statistics/", "evaluation/"): np.nanmean(
-                [rollout[name] for rollout in logs]
-            ).reshape(1, 1)
-            for name in logs[0]
+            name.replace("episode_statistics/", "evaluation/"): value
+            for name, value in logs.items()
         }
         artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
         for key, artisan in zip(
             jax.random.split(craft_key, max(len(artisans), 1)), artisans
         ):
             logger.log_artifact(
-                artisan.craft(key, algorithm, environment, state, logs[-1]),
+                artisan.craft(key, algorithm, environment, state, rollouts[-1]),
                 step,
             )
         logger.log(data, steps=jnp.array([step, step]))
