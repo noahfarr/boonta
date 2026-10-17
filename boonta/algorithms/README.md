@@ -6,9 +6,11 @@ An algorithm decides what to do and learns from what happened. It never touches 
 | --- | --- | --- |
 | `init(key, timestep)` | once, with the first timestep | the algorithm state |
 | `step(state, key, timestep, temperature)` | every environment step | `(state, action, aux)` |
-| `update(state, key, transitions)` | once per batch | the new state |
+| `update(state, key, trajectory)` | once per batch | the new state |
 
 Everything is pure JAX, so all three run inside `jax.jit`.
+
+A `Trajectory` holds a rollout: `trajectory.transitions` stacks its steps as `(time, envs, ...)`, and `trajectory.carry` is the recurrent carry the rollout started from, or `None` for feed-forward algorithms and offline batches.
 
 ## What an algorithm receives
 
@@ -60,7 +62,7 @@ def energy(weight):
 
 ## Recurrent algorithms
 
-Recurrent algorithms (`recurrent_*.py`) keep two carries. `carry` is the live one that `step` advances. `rollout_carry` is the carry the current rollout started from. `update` replays the rollout through the network from `rollout_carry`, then sets `rollout_carry` to `carry`, where the next rollout starts. See the end of `RecurrentPPO.update` in [`recurrent_ppo.py`](recurrent_ppo.py).
+Recurrent algorithms (`recurrent_*.py`) keep their hidden state in `carry`, which `step` advances. The podracer reads `carry` before each rollout and hands it to `update` as `trajectory.carry`, so `update` replays the rollout through the network from where it started while `state.carry` stays where the next rollout begins. A population exposes its copies' carries as one `carry`, and splits `trajectory.carry` among them in `update`.
 
 ## Add an algorithm
 

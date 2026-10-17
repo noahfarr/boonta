@@ -9,7 +9,7 @@ from boonta.algorithms import Algorithm
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset, ArchiveAutoResetState, pick, unwrap)
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, PyTree, Trajectory
 from boonta.utils.typing import Environment
 
 
@@ -115,8 +115,9 @@ class Neyman(Pit):
         )
 
     def update(
-        self, state: NeymanState, key: Key, transitions: Transition, algorithm_state: PyTree
+        self, state: NeymanState, key: Key, trajectory: Trajectory, algorithm_state: PyTree
     ) -> NeymanState:
+        transitions = trajectory.transitions
         archive_size = self.environment.archive.archive_size
         first, second = transitions.first, transitions.second
         num_steps, num_envs = jnp.shape(second.done)

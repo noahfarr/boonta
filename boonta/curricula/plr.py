@@ -11,7 +11,7 @@ from boonta.algorithms.advantage_estimators import generalized_advantage_estimat
 from boonta.environments.wrappers import UED
 from boonta.environments.wrappers.ued import UEDState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, PyTree, Trajectory, Transition
 from boonta.utils.typing import Environment
 
 
@@ -246,9 +246,10 @@ class PLR(Pit):
         self,
         buffer: LevelBuffer,
         key: Key,
-        transitions: Transition,
+        trajectory: Trajectory,
         algorithm_state: PyTree,
     ) -> LevelBuffer:
+        transitions = trajectory.transitions
         values = transitions.aux["value"]
         advantages, _ = generalized_advantage_estimation(
             transitions, values, values[-1], self.gamma, self.gae_lambda

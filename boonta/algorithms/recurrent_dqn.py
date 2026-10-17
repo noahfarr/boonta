@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import (Timestep, Transition, add_feature_axis,
+from boonta.utils import (Timestep, Trajectory, Transition, add_feature_axis,
                           add_time_axis, canonicalize_dtype,
                           conditional_update, remove_batch_axis,
                           remove_feature_axis, remove_time_axis)
@@ -94,8 +94,9 @@ class RecurrentDQN:
         return state.replace(carry=carry), action, {}
 
     def update(
-        self, state: RecurrentDQNState, key: Key, transitions: Transition
+        self, state: RecurrentDQNState, key: Key, trajectory: Trajectory
     ) -> RecurrentDQNState:
+        transitions = trajectory.transitions
         def loss_fn(
             params: PyTree,
             state: RecurrentDQNState,

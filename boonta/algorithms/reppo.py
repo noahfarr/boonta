@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
+from boonta.utils import Timestep, Trajectory, Transition, canonicalize_dtype, flatten
 from boonta.utils.typing import Array, Key, PyTree
 
 
@@ -100,8 +100,9 @@ class REPPO:
         return state, action, {}
 
     def update(
-        self, state: REPPOState, key: Key, transitions: Transition
+        self, state: REPPOState, key: Key, trajectory: Trajectory
     ) -> REPPOState:
+        transitions = trajectory.transitions
         def bootstrap(
             state: REPPOState, transitions: Transition, key: Key
         ) -> tuple[Array, Array]:

@@ -10,7 +10,7 @@ from boonta.algorithms import Algorithm
 from boonta.environments.wrappers import UED
 from boonta.environments.wrappers.ued import UEDState
 from boonta.podracers.podracer import Lap, Pit
-from boonta.utils import Array, Key, PyTree, Transition
+from boonta.utils import Array, Key, PyTree, Trajectory, Transition
 from boonta.utils.typing import Environment
 
 
@@ -83,9 +83,10 @@ class SGS(Pit):
         self,
         pool: TaskPool,
         key: Key,
-        transitions: Transition,
+        trajectory: Trajectory,
         algorithm_state: PyTree,
     ) -> TaskPool:
+        transitions = trajectory.transitions
         episodes, successes = self.count_outcomes(transitions)
         pool = self.record(pool, episodes, successes)
         self.report(pool, episodes, successes)

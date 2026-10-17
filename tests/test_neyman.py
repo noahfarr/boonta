@@ -13,7 +13,7 @@ from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoResetState,
 )
 from boonta.podracers import anakin
-from boonta.utils import Timestep, Transition, mesh
+from boonta.utils import Timestep, Trajectory, Transition, mesh
 
 ARCHIVE_SIZE = 8
 
@@ -50,7 +50,9 @@ def test_each_finished_episode_counts_its_discounted_return_at_the_cell_it_start
     done = jnp.array([[False, False], [True, False], [False, True]])
     cell = jnp.array([[3, 5], [6, 5], [6, 1]])
     rho = jnp.array([[False, True], [False, True], [False, False]])
-    state = pit.update(state, jax.random.key(1), episodes(reward, done, cell, rho), None)
+    state = pit.update(
+        state, jax.random.key(1), Trajectory(transitions=episodes(reward, done, cell, rho)), None
+    )
     np.testing.assert_allclose(state.cells.episodes[3], 1.0)
     np.testing.assert_allclose(state.cells.returns[3], 1.0 + 0.5 * 2.0)
     np.testing.assert_allclose(state.cells.lengths[3], 2.0)
@@ -70,7 +72,7 @@ def test_a_truncated_episode_leaves_no_outcome():
         jnp.zeros((2, 1), bool),
         truncated=jnp.array([[False], [True]]),
     )
-    state = pit.update(state, jax.random.key(1), transitions, None)
+    state = pit.update(state, jax.random.key(1), Trajectory(transitions=transitions), None)
     assert float(jnp.sum(state.cells.episodes)) == 0.0
 
 

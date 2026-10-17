@@ -10,6 +10,7 @@ from flax import struct
 
 from boonta.utils import (
     Timestep,
+    Trajectory,
     Transition,
     add_feature_axis,
     canonicalize_dtype,
@@ -63,7 +64,8 @@ class PQN:
         action = dist.sample(seed=key)
         return state, action, {"q_values": dist.preferences}
 
-    def update(self, state: PQNState, key: Key, transitions: Transition) -> PQNState:
+    def update(self, state: PQNState, key: Key, trajectory: Trajectory) -> PQNState:
+        transitions = trajectory.transitions
         def q_lambda(transitions: Transition, q_values: Array) -> Array:
             gamma, q_lambda_ = self.cfg.gamma, self.cfg.q_lambda
             reward = transitions.second.reward

@@ -14,7 +14,7 @@ from jax import export
 
 from boonta.environments.wrappers import SameStepAutoReset
 from boonta.podracers.sebulba import ActorState
-from boonta.utils import Timestep, Transition, take
+from boonta.utils import Timestep, Trajectory, Transition, take
 
 import pilots
 from menu import COMBOS, DATASETS, PILOTS, PODRACERS, TRACKS
@@ -234,8 +234,9 @@ def build_sebulba(directory, combo):
         before = rollout_state.algorithm_state.step
         (rollout_state, transitions), logs = unroll(rollout_state, key)
         num_laps = rollout_state.algorithm_state.step - before
+        trajectory = Trajectory(transitions=transitions, carry=actor_state.carry)
         actor_state = ActorState.alight(rollout_state)
-        return actor_state, transitions, num_laps, logs
+        return actor_state, trajectory, num_laps, logs
 
     transitions_shape = jax.eval_shape(
         lambda algorithm_state, actor_state: rollout_body(
@@ -252,26 +253,26 @@ def build_sebulba(directory, combo):
         actor_state = jax.tree.unflatten(
             actor_def, args[num_algorithm : num_algorithm + num_actor]
         )
-        actor_state, transitions, num_laps, logs = rollout_body(
+        actor_state, trajectory, num_laps, logs = rollout_body(
             algorithm_state, actor_state, wrap(args[-1])
         )
         return (
             *jax.tree.leaves(actor_state),
-            *jax.tree.leaves(transitions),
+            *jax.tree.leaves(trajectory),
             jnp.asarray(num_laps, jnp.int32).reshape(1),
             summary(logs),
         )
 
     def update_call(*args):
         algorithm_state = jax.tree.unflatten(algorithm_def, args[:num_algorithm])
-        transitions = jax.tree.unflatten(
+        trajectory = jax.tree.unflatten(
             transition_def, args[num_algorithm : num_algorithm + num_transitions]
         )
         num_laps, key = args[-2], args[-1]
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step + num_laps[0].astype(algorithm_state.step.dtype)
         )
-        algorithm_state, _ = update(algorithm_state, wrap(key), transitions)
+        (algorithm_state, _), _ = update(algorithm_state, None, wrap(key), trajectory)
         return tuple(jax.tree.leaves(algorithm_state))
 
     laps = jax.ShapeDtypeStruct((1,), jnp.int32)

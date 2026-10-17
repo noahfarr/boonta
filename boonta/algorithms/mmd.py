@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
+from boonta.utils import Timestep, Trajectory, Transition, canonicalize_dtype, flatten, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimation
@@ -71,7 +71,8 @@ class MMD:
             {"log_prob": log_prob, "value": remove_feature_axis(value)},
         )
 
-    def update(self, state: MMDState, key: Key, transitions: Transition) -> MMDState:
+    def update(self, state: MMDState, key: Key, trajectory: Trajectory) -> MMDState:
+        transitions = trajectory.transitions
         def loss_fn(
             params: PyTree,
             magnet_params: PyTree,

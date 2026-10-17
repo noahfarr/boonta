@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import (Timestep, Transition, canonicalize_dtype,
+from boonta.utils import (Timestep, Trajectory, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
@@ -32,7 +32,6 @@ class RecurrentPPOConfig:
 class RecurrentPPOState:
     step: Array
     carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     optimizer_state: optax.OptState
 
@@ -65,7 +64,6 @@ class RecurrentPPO:
         return RecurrentPPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             carry=carry,
-            rollout_carry=carry,
             params=params,
             optimizer_state=optimizer_state,
         )
@@ -93,8 +91,14 @@ class RecurrentPPO:
         return state.replace(carry=carry), action, aux
 
     def update(
-        self, state: RecurrentPPOState, key: Key, transitions: Transition
+        self, state: RecurrentPPOState, key: Key, trajectory: Trajectory
     ) -> RecurrentPPOState:
+        transitions, carry = trajectory.transitions, trajectory.carry
+        assert carry is not None, (
+            f"{type(self).__name__} replays the rollout from the carry it started "
+            f"from, but the trajectory holds none"
+        )
+
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, tuple]:
@@ -208,7 +212,7 @@ class RecurrentPPO:
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "returns": returns}
         )
-        initial_carry = state.rollout_carry
+        initial_carry = carry
 
         def minibatch_fn(
             state: RecurrentPPOState, indices: Array
@@ -277,4 +281,4 @@ class RecurrentPPO:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

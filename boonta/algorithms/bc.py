@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype
+from boonta.utils import Timestep, Trajectory, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
 
@@ -46,7 +46,8 @@ class BC:
         dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
         return state, dist.sample(seed=key), {}
 
-    def update(self, state: BCState, key: Key, transitions: Transition) -> BCState:
+    def update(self, state: BCState, key: Key, trajectory: Trajectory) -> BCState:
+        transitions = trajectory.transitions
         del key
 
         def loss_fn(params: PyTree) -> tuple[Array, tuple[PyTree, Array, Array]]:

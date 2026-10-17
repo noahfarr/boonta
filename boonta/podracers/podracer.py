@@ -1,6 +1,6 @@
 from typing import Protocol, Self, TypeVar
 
-from boonta.utils import Key, PyTree, Timestep, Transition
+from boonta.utils import Key, PyTree, Timestep, Trajectory
 from boonta.utils.typing import EnvState
 
 State = TypeVar("State")
@@ -35,7 +35,7 @@ class Lap:
 
 class Pit(Lap):
     def update(
-        self, state: PyTree, key: Key, transitions: Transition, algorithm_state: PyTree
+        self, state: PyTree, key: Key, trajectory: Trajectory, algorithm_state: PyTree
     ) -> PyTree:
         return state
 

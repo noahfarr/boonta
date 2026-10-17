@@ -43,9 +43,9 @@ class TrackedAlgorithm(AlgorithmWrapper):
             state, key, timestep, temperature
         )
 
-    def update(self, state, key, transitions):
+    def update(self, state, key, trajectory):
         return px.track(name="algorithm/update")(self.algorithm.update)(
-            state, key, transitions
+            state, key, trajectory
         )
 
 
@@ -76,9 +76,9 @@ class TrackedPit(Pit):
     def init(self, key, state):
         return self.pit.init(key, state)
 
-    def update(self, state, key, transitions, algorithm_state):
+    def update(self, state, key, trajectory, algorithm_state):
         return px.track(name="pit/update")(self.pit.update)(
-            state, key, transitions, algorithm_state
+            state, key, trajectory, algorithm_state
         )
 
     def __call__(self, key, state):

@@ -12,7 +12,7 @@ from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import ActorCritic, Network
 from boonta.podracers import anakin
-from boonta.utils import Timestep, Transition, mesh
+from boonta.utils import Timestep, Trajectory, Transition, mesh
 from dummies import Dial
 
 
@@ -217,7 +217,7 @@ def played(theta, cut=1):
 def test_the_cut_that_opens_a_rollout_is_never_scored():
     empty = buffer([-jnp.inf, -jnp.inf], [0, 0], 0, 0, jnp.arange(4.0) * 10, True)
     state = pit(buffer_size=2, num_envs=2).update(
-        empty, jax.random.key(0), played(3, cut=2), None
+        empty, jax.random.key(0), Trajectory(transitions=played(3, cut=2)), None
     )
     assert int(state.num_levels) == 1
     assert float(state.levels[0]) == 30.0

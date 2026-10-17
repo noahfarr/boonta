@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import (Timestep, Transition, add_feature_axis,
+from boonta.utils import (Timestep, Trajectory, Transition, add_feature_axis,
                           canonicalize_dtype, remove_feature_axis,
                           remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
@@ -26,7 +26,6 @@ class RecurrentPQNConfig:
 class RecurrentPQNState:
     step: Array
     carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     optimizer_state: optax.OptState
 
@@ -60,7 +59,6 @@ class RecurrentPQN:
         return RecurrentPQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             carry=carry,
-            rollout_carry=carry,
             params=params,
             optimizer_state=optimizer_state,
         )
@@ -84,8 +82,14 @@ class RecurrentPQN:
         return state.replace(carry=carry), action, aux
 
     def update(
-        self, state: RecurrentPQNState, key: Key, transitions: Transition
+        self, state: RecurrentPQNState, key: Key, trajectory: Trajectory
     ) -> RecurrentPQNState:
+        transitions, carry = trajectory.transitions, trajectory.carry
+        assert carry is not None, (
+            f"{type(self).__name__} replays the rollout from the carry it started "
+            f"from, but the trajectory holds none"
+        )
+
         def q_lambda(trajectory: Transition, q_values: Array) -> Array:
             gamma, q_lambda_ = self.cfg.gamma, self.cfg.q_lambda
             reward = trajectory.second.reward
@@ -181,7 +185,7 @@ class RecurrentPQN:
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )
-        initial_carry = state.rollout_carry
+        initial_carry = carry
 
         def minibatch_fn(
             state: RecurrentPQNState, indices: Array
@@ -236,4 +240,4 @@ class RecurrentPQN:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

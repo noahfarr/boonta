@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import (Timestep, Transition, canonicalize_dtype,
+from boonta.utils import (Timestep, Trajectory, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
@@ -37,7 +37,6 @@ class RecurrentPuPOState:
     params: PyTree
     optimizer_state: optax.OptState
     carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
 
 
 @dataclass
@@ -69,7 +68,6 @@ class RecurrentPuPO:
             params=params,
             optimizer_state=self.optimizer.init(params["params"]),
             carry=carry,
-            rollout_carry=carry,
         )
 
     def step(
@@ -98,8 +96,14 @@ class RecurrentPuPO:
         return state.replace(carry=carry), action, aux
 
     def update(
-        self, state: RecurrentPuPOState, key: Key, transitions: Transition
+        self, state: RecurrentPuPOState, key: Key, trajectory: Trajectory
     ) -> RecurrentPuPOState:
+        transitions, carry = trajectory.transitions, trajectory.carry
+        assert carry is not None, (
+            f"{type(self).__name__} replays the rollout from the carry it started "
+            f"from, but the trajectory holds none"
+        )
+
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
         ) -> tuple[Array, tuple]:
@@ -205,7 +209,7 @@ class RecurrentPuPO:
         )
         bootstrap = remove_time_axis(remove_feature_axis(values))
 
-        initial_carry = state.rollout_carry
+        initial_carry = carry
 
         beta = self.importance_exponent(state.step)
 
@@ -307,4 +311,4 @@ class RecurrentPuPO:
         )
         ratio = jnp.ones((num_envs, num_steps, *num_agents))
         (state, _), _ = jax.lax.scan(minibatch_fn, (state, ratio), keys)
-        return state.replace(rollout_carry=state.carry)
+        return state

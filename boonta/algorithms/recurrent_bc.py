@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, remove_time_axis
+from boonta.utils import Timestep, Trajectory, canonicalize_dtype, remove_time_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 
@@ -74,8 +74,9 @@ class RecurrentBC:
         return state.replace(carry=carry), action, {}
 
     def update(
-        self, state: RecurrentBCState, key: Key, transitions: Transition
+        self, state: RecurrentBCState, key: Key, trajectory: Trajectory
     ) -> RecurrentBCState:
+        transitions = trajectory.transitions
         timesteps = transitions.first
         batch_size, *_ = jax.tree.leaves(timesteps.obs)[0].shape
         carry = self.network.initialize_carry(key, (batch_size, 1))

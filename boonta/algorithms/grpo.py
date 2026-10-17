@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype
+from boonta.utils import Timestep, Trajectory, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
 
@@ -53,7 +53,8 @@ class GRPO:
         action, log_prob = dist.sample_and_log_prob(seed=key)
         return state, action, {"log_prob": log_prob}
 
-    def update(self, state: GRPOState, key: Key, transitions: Transition) -> GRPOState:
+    def update(self, state: GRPOState, key: Key, trajectory: Trajectory) -> GRPOState:
+        transitions = trajectory.transitions
         num_steps, num_envs = transitions.second.reward.shape
         num_groups = num_envs // self.cfg.group_size
         batch_size = num_steps * num_envs
