@@ -1,6 +1,7 @@
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from .artifact import Video
@@ -28,7 +29,7 @@ class Render:
                 environment,
                 num_steps=self.max_frames,
                 record=lambda environment_state, action: jax.tree.map(
-                    lambda leaf: leaf[0], environment_state
+                    lambda leaf: jnp.take(leaf, 0, axis=0), environment_state
                 ),
             )
         )
@@ -36,7 +37,8 @@ class Render:
         frames = [
             np.asarray(
                 environment.render(
-                    jax.tree.map(lambda leaf: leaf[step], trajectory), **self.kwargs
+                    jax.tree.map(lambda leaf: jnp.take(leaf, step, axis=0), trajectory),
+                    **self.kwargs,
                 ),
                 dtype=np.uint8,
             )
