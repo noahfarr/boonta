@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 104_857_600
+num_steps: 104_857_600
 
 num_epochs: 20
 
@@ -12,8 +12,9 @@ environment:
     params:
       max_steps_in_episode: 100000
 
-rollout:
-  num_steps: 64
+podracer:
+  config:
+    num_steps: 64
 
 num_layers: 2
 

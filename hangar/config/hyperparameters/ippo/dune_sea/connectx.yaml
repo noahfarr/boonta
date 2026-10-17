@@ -1,12 +1,13 @@
 # @package _global_
 
-total_timesteps: 20_000_000
+num_steps: 20_000_000
 
 environment:
   num_envs: 1024
 
-rollout:
-  num_steps: 32
+podracer:
+  config:
+    num_steps: 32
 
 algorithm:
   num_minibatches: 8

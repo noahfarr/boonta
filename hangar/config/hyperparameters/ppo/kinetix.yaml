@@ -9,8 +9,9 @@ algorithm:
   gamma: 0.995
   gae_lambda: 0.9
 
-rollout:
-  num_steps: 256
+podracer:
+  config:
+    num_steps: 256
 
 environment:
   num_envs: 2048

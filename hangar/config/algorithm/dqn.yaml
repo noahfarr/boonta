@@ -9,8 +9,9 @@ algorithm:
   gamma: 0.99
   tau: 0.005
 
-rollout:
-  num_steps: 1
+podracer:
+  config:
+    num_steps: 1
 
 environment:
   num_envs: 128

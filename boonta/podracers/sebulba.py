@@ -20,7 +20,6 @@ from .podracer import Lap, Pit
 
 @struct.dataclass(frozen=True)
 class SebulbaConfig:
-    num_envs: int
     num_steps: int
     learner: Mesh = struct.field(pytree_node=False)
     actor: Mesh = struct.field(pytree_node=False)
@@ -103,7 +102,7 @@ class Sebulba:
 
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step
-            + self.config.num_envs * self.environment.num_agents
+            + self.environment.num_envs * self.environment.num_agents
         )
         state = self.lap(
             lap_key,
@@ -196,7 +195,7 @@ class Sebulba:
     def batch_size(self) -> int:
         return (
             self.config.actor.size
-            * self.config.num_envs
+            * self.environment.num_envs
             * self.config.num_steps
             * self.environment.num_agents
         )
@@ -353,7 +352,7 @@ def make(
     podracer = Sebulba(config, algorithm, environment, pit, lap)
 
     assert (
-        config.num_envs % config.learner.size == 0
+        environment.num_envs % config.learner.size == 0
     ), "num_envs must be divisible by the number of learner devices"
     assert not (
         isinstance(algorithm, Population)

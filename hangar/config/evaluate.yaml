@@ -2,10 +2,12 @@ num_episodes: 1000
 seed: ${trial:}
 checkpoint: null
 
-total_timesteps: null
-num_epochs: null
-
-loggers: {}
+loggers:
+  dashboard:
+    total_timesteps: null
+    summary:
+      Total Timesteps: null
+      Episodes: ${num_episodes}
 artisans: {}
 
 defaults:

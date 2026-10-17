@@ -26,15 +26,12 @@ def main(cfg):
     podracer = recipes.make(cfg)
     algorithm, environment = podracer.algorithm, podracer.environment
 
-    num_updates = int(cfg.total_timesteps) // (
-        podracer.batch_size * cfg.num_epochs
-    )
+    num_updates = int(cfg.num_steps) // (podracer.batch_size * cfg.num_epochs)
     assert num_updates >= 1, (
-        f"total_timesteps ({cfg.total_timesteps}) over {cfg.num_epochs} "
+        f"num_steps ({cfg.num_steps}) over {cfg.num_epochs} "
         f"epochs is less than one update ({podracer.batch_size} steps) per epoch. "
-        f"Increase total_timesteps or decrease num_envs, num_steps or num_epochs."
+        f"Increase num_steps or decrease num_envs, podracer.config.num_steps or num_epochs."
     )
-    num_steps = num_updates * podracer.batch_size
 
     config = OmegaConf.to_container(cfg, resolve=True)
 
@@ -52,10 +49,13 @@ def main(cfg):
 
     state = load_checkpoint(resolve_checkpoint(cfg.checkpoint), podracer.init(init_key))
 
-    epoch, remainder = divmod(int(jax.device_get(state.algorithm_state.step)), num_steps)
+    epoch, remainder = divmod(
+        int(jax.device_get(state.algorithm_state.step)),
+        num_updates * podracer.batch_size,
+    )
     assert remainder == 0, (
         f"the checkpoint stopped at step {int(state.algorithm_state.step)}, which is not "
-        f"an epoch boundary of this run ({num_steps} steps per epoch)"
+        f"an epoch boundary of this run ({num_updates * podracer.batch_size} steps per epoch)"
     )
 
     if jax.process_index() == 0:
@@ -92,7 +92,11 @@ def main(cfg):
             data = reduce(logs)
             monitor.stop()
 
-            steps = np.array([epoch, epoch + 1], dtype=np.int64) * num_steps
+            steps = (
+                np.array([epoch, epoch + 1], dtype=np.int64)
+                * num_updates
+                * podracer.batch_size
+            )
             craft(state, logs, int(steps.max()))
 
             data |= monitor.metrics(step=int(steps.max()))

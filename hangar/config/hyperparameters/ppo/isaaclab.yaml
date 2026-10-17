@@ -11,11 +11,12 @@ algorithm:
   gae_lambda: 0.95
   normalize_advantage: True
 
-rollout:
-  num_steps: 24
+podracer:
+  config:
+    num_steps: 24
 
 optimizer:
   lr: 1.0e-3
   max_grad_norm: 1.0
 
-total_timesteps: 150_000_000
+num_steps: 150_000_000

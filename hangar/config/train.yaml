@@ -1,4 +1,4 @@
-total_timesteps: 5_000_000
+num_steps: 5_000_000
 seed: ${trial:}
 num_processes: 1
 checkpoint: null

@@ -7,10 +7,11 @@ defaults:
 algorithm:
   entropy_coefficient: 0.0
 
-rollout:
-  num_steps: 32
+podracer:
+  config:
+    num_steps: 32
 
 optimizer:
   lr: 5.0e-4
 
-total_timesteps: 131_000_000
+num_steps: 131_000_000

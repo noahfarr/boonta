@@ -110,7 +110,7 @@ def benchmark(overrides, num_updates, seed):
     podracer = instantiate(cfg.podracer)(**components)
     algorithm, environment = podracer.algorithm, podracer.environment
 
-    num_envs = podracer.config.num_envs
+    num_envs = podracer.environment.num_envs
     num_steps = podracer.config.num_steps
     num_agents = getattr(environment, "num_agents", 1)
     batch_size = num_envs * num_steps * num_agents

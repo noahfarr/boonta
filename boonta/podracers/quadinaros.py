@@ -18,7 +18,6 @@ from .podracer import Lap, Pit
 
 @struct.dataclass(frozen=True)
 class QuadinarosConfig:
-    num_envs: int
     batch_shape: tuple[int, ...]
     mesh: Mesh = struct.field(pytree_node=False)
 
@@ -78,7 +77,7 @@ class Quadinaros:
 
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step
-            + self.config.num_envs * self.environment.num_agents
+            + self.environment.num_envs * self.environment.num_agents
         )
         state = self.lap(
             lap_key,

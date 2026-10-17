@@ -4,7 +4,8 @@ defaults:
   - ppo/isaaclab
   - _self_
 
-rollout:
-  num_steps: 16
+podracer:
+  config:
+    num_steps: 16
 
-total_timesteps: 10_000_000
+num_steps: 10_000_000

@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 1_000_000_000
+num_steps: 1_000_000_000
 
 num_epochs: 635
 
@@ -9,11 +9,9 @@ environment:
 
 podracer:
   config:
+    num_steps: 128
     mesh:
       count: 1
-
-rollout:
-  num_steps: 128
 
 cell:
   features: 256

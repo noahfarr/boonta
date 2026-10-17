@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 budget_variable:
-  total_timesteps: ${total_timesteps}
+  num_steps: ${num_steps}
   num_epochs: ${num_epochs}
 checkpoint: checkpoint
 overrides:

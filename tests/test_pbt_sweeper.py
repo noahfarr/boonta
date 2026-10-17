@@ -50,7 +50,7 @@ def population(tmp_path, score, **settings):
     with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
         cfg = compose(
             "train",
-            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "total_timesteps=1200", "num_epochs=6"],
+            overrides=["hydra/sweeper=pbt", f"hydra.sweep.dir={tmp_path}", "num_steps=1200", "num_epochs=6"],
             return_hydra_config=True,
         )
     for name, value in settings.items():
@@ -160,7 +160,7 @@ def test_generations_must_divide_the_budget(tmp_path):
 
 def test_each_generation_resumes_from_the_one_before(tmp_path):
     built = population(tmp_path, lambda job: float(job["optimizer.lr"]) * 1000, members=4, seeds=2, generations=3)
-    results = built.sweep(["algorithm=ppo", "total_timesteps=5", "num_epochs=7"])
+    results = built.sweep(["algorithm=ppo", "num_steps=5", "num_epochs=7"])
 
     batches = built.launcher.batches
     assert len(batches) == 3
@@ -169,7 +169,7 @@ def test_each_generation_resumes_from_the_one_before(tmp_path):
         for index, job in enumerate(batch):
             member, seed = divmod(index, 2)
             assert job["algorithm"] == "ppo"
-            assert job["total_timesteps"] == str(400 * (generation + 1))
+            assert job["num_steps"] == str(400 * (generation + 1))
             assert job["num_epochs"] == str(2 * (generation + 1))
             assert job["scoring"] == "final"
             assert job["hydra.sweep.subdir"] == f"generation_{generation}/member_{member}/seed_{seed}"
@@ -216,10 +216,10 @@ def test_pbt_trains_ppo_and_resumes_each_member(tmp_path):
             "environment=gymnax/minatar/breakout",
             "logger=file",
             "environment.num_envs=8",
-            "rollout.num_steps=4",
+            "podracer.config.num_steps=4",
             "algorithm.num_minibatches=1",
             "num_epochs=2",
-            "total_timesteps=128",
+            "num_steps=128",
             "hydra.sweeper.members=2",
             "hydra.sweeper.seeds=1",
             "hydra.sweeper.generations=2",

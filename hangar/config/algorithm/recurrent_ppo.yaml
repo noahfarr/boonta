@@ -17,8 +17,9 @@ algorithm:
   gae_lambda: 0.95
   normalize_advantage: False
 
-rollout:
-  num_steps: 128
+podracer:
+  config:
+    num_steps: 128
 
 environment:
   num_envs: 64

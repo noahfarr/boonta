@@ -28,7 +28,7 @@ Pick one with `podracer=sebulba` on the command line. Offline algorithms such as
 - `sebulba`: the same, times the number of actor devices.
 - `quadinaros`: the product of `batch_shape`.
 
-`hangar/main.py` splits `total_timesteps` into `num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
+`hangar/main.py` splits `num_steps` into `num_epochs` epochs of the same whole number of updates, and logs `updates × batch_size`. It never asks a podracer to round a step budget.
 
 The podracer counts steps into `algorithm_state.step`. The online podracers add `num_envs × num_agents` after every environment step. `quadinaros` adds `batch_size` after every update.
 
