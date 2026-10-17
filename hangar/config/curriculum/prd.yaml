@@ -17,6 +17,7 @@ curriculum:
   selector:
     _target_: boonta.curricula.prd.Selector
     k: 4.0
+    gate: false
     successor:
       _target_: boonta.curricula.prd.SuccessorRepresentation
       gamma: ${eval:'1 - 1 / ${rollout.num_steps} if "${curriculum.restart_at}" == "rollout" else ${algorithm.gamma}'}

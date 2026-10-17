@@ -418,3 +418,23 @@ def test_the_xdg_logger_opens_each_image_it_is_given(tmp_path, monkeypatch):
 
     assert popen.call_count == 2
     assert sorted(path.name for path in tmp_path.iterdir()) == ["plot-1.png", "plot-2.png"]
+
+
+def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
+    from boonta.artisans import Concentration
+    from boonta.curricula.prd import GainState, SelectorState
+
+    counts = jnp.array([[50.0, 50.0], [4950.0, 4950.0]])
+    gain = GainState(
+        action_counts=counts,
+        advantage_sums=jnp.array([[50.0, -50.0], [0.0, 0.0]]),
+        square_sums=counts,
+        probability_sums=jnp.zeros_like(counts),
+        cell_visits=jnp.sum(counts, axis=-1),
+        scale=jnp.zeros(()),
+    )
+    ledger = SelectorState(successor=None, reach=jnp.array([1.0, 99.0]), gain=gain)
+    data = Concentration().craft(None, None, None, SimpleNamespace(pit_state=ledger), {}).data
+    assert data["concentration/steps_for_half"] == pytest.approx(0.005)
+    assert data["concentration/steps_for_ninety"] == pytest.approx(0.009)
+    assert data["concentration/index"] == pytest.approx(0.99)

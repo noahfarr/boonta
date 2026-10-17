@@ -420,7 +420,7 @@ class ArchiveAutoReset(AutoReset):
         )
         lox.log(
             {
-                "archive/placed": jnp.sum(block_mask, dtype=jnp.float32),
+                "archive/placed": jnp.sum(block_mask & (assigned_slots >= 0), dtype=jnp.float32),
                 "archive/num_cells": jnp.sum(
                     state.archive_state.mask, dtype=jnp.float32
                 ),
@@ -431,7 +431,7 @@ class ArchiveAutoReset(AutoReset):
         )
         return state.replace(
             assigned_slots=jnp.where(block_mask, assigned_slots, -1),
-            due_mask=block_mask & preempt,
+            due_mask=block_mask & (assigned_slots >= 0) & preempt,
             window_weights=jnp.ones(self.num_envs, jnp.float32) if weights is None else weights,
             slot_weights=state.slot_weights if slot_weights is None else slot_weights,
         )

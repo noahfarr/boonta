@@ -22,8 +22,10 @@ from boonta.curricula.prd import (
     SuccessorRepresentation,
     TopK,
     UniformFootprint,
+    UniformGain,
     UniformRelevance,
     WaterFilling,
+    signal,
 )
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
@@ -431,3 +433,44 @@ def test_importance_weights_undo_the_restarts_so_the_batch_starts_from_rho():
     mixture = 0.5 * relevance + 0.5 * jnp.zeros(8).at[slots].add(0.25)
     np.testing.assert_allclose(weights[4:], relevance[slots] / mixture[slots], rtol=1e-6)
     np.testing.assert_allclose(weights[:4], relevance[jnp.asarray([0, 0, 1, 2])] / mixture[jnp.asarray([0, 0, 1, 2])], rtol=1e-6)
+
+
+def gains(counts, sums, squares):
+    counts, sums, squares = (jnp.asarray(value, jnp.float32)[None] for value in (counts, sums, squares))
+    return prd.GainState(
+        action_counts=counts,
+        advantage_sums=sums,
+        square_sums=squares,
+        probability_sums=jnp.zeros_like(counts),
+        cell_visits=jnp.sum(counts, axis=-1),
+        scale=jnp.zeros((), jnp.float32),
+    )
+
+
+def test_the_signal_is_the_spread_of_action_means_when_advantages_are_exact():
+    counts = [10.0, 30.0]
+    state = gains(counts, [10.0 * 2.0, 30.0 * -2.0 / 3.0], [10.0 * 4.0, 30.0 * 4.0 / 9.0])
+    grand = (20.0 - 20.0) / 40.0
+    expected = (10.0 * (2.0 - grand) ** 2 + 30.0 * (-2.0 / 3.0 - grand) ** 2) / 40.0
+    np.testing.assert_allclose(float(signal(state)[0]), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("gap, expected", [(0.0, 0.0), (1.0, 0.25)])
+def test_the_signal_removes_what_sampling_noise_alone_would_spread(gap, expected):
+    generator = np.random.default_rng(0)
+    samples = [generator.normal(mean, 3.0, 20_000) for mean in (gap / 2.0, -gap / 2.0)]
+    state = gains(
+        [len(sample) for sample in samples],
+        [sample.sum() for sample in samples],
+        [(sample**2).sum() for sample in samples],
+    )
+    assert abs(float(signal(state)[0]) - expected) < 0.01
+
+
+def test_a_gated_selector_leaves_every_environment_at_rho_when_every_cell_is_worth_the_same():
+    gated = replace(
+        selector(SuccessorFootprint(), UniformRelevance(), gain=UniformGain()), gate=True
+    )
+    _, archive_auto_reset_state, _, _ = train(gated)
+    assert not bool(jnp.any(archive_auto_reset_state.assigned_slots >= 0))
+    assert not bool(jnp.any(archive_auto_reset_state.due_mask))

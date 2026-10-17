@@ -222,9 +222,34 @@ def piled(size: int, bins: Array, value: Array, lanes: int = 256) -> Array:
 class GainState:
     action_counts: Array
     advantage_sums: Array
+    square_sums: Array
     probability_sums: Array
     cell_visits: Array
     scale: Array
+
+
+def signal(state: GainState) -> Array:
+    present_mask = state.action_counts > 0.0
+    visits = jnp.sum(state.action_counts, axis=-1)
+    groups = jnp.sum(present_mask, axis=-1)
+    action_means = jnp.where(
+        present_mask, state.advantage_sums / jnp.maximum(state.action_counts, 1e-12), 0.0
+    )
+    cell_means = jnp.sum(state.advantage_sums, axis=-1) / jnp.maximum(visits, 1e-12)
+    between = jnp.sum(
+        jnp.where(present_mask, state.action_counts * (action_means - cell_means[:, None]) ** 2, 0.0),
+        axis=-1,
+    )
+    within = jnp.sum(
+        jnp.where(
+            present_mask,
+            state.square_sums - state.advantage_sums**2 / jnp.maximum(state.action_counts, 1e-12),
+            0.0,
+        ),
+        axis=-1,
+    )
+    noise = within / jnp.maximum(visits - groups, 1.0)
+    return jnp.maximum(between - jnp.maximum(groups - 1, 0) * noise, 0.0) / jnp.maximum(visits, 1e-12)
 
 
 @dataclass
@@ -257,6 +282,7 @@ class Advantage:
         return GainState(
             action_counts=table,
             advantage_sums=table,
+            square_sums=table,
             probability_sums=table,
             cell_visits=jnp.zeros(archive_size, jnp.float32),
             scale=jnp.zeros((), jnp.float32),
@@ -304,6 +330,7 @@ class Advantage:
         state = state.replace(
             action_counts=decay * state.action_counts + visit_counts,
             advantage_sums=decay * state.advantage_sums + tally(advantages),
+            square_sums=decay * state.square_sums + tally(advantages**2),
             probability_sums=decay * state.probability_sums + tally(action_probs),
             cell_visits=decay * state.cell_visits + jnp.sum(visit_counts, axis=-1),
         )
@@ -396,6 +423,7 @@ class ModelAdvantage(Advantage):
         return ModelState(
             action_counts=table,
             advantage_sums=table,
+            square_sums=table,
             probability_sums=table,
             cell_visits=column,
             scale=jnp.zeros((), jnp.float32),
@@ -752,6 +780,7 @@ class Selector:
     allocation: Marginal | WaterFilling | Uniform | TopK | Softmax | Blend | Importance = Marginal()
     k: float = 4.0
     rate: float = 0.2
+    gate: bool = False
 
     def __post_init__(self):
         assert self.k >= 1.0, f"k must be at least 1, got {self.k}"
@@ -822,15 +851,34 @@ class Selector:
         self.log_relative_efficiency(
             state, worth, eligible_mask, selected_slots, wrapper.num_envs
         )
+        if self.gate:
+            value_per_step, start_value_per_step = self.per_step(state, worth)
+            admitted_mask = value_per_step[selected_slots] > start_value_per_step
+            lox.log({"mu/admitted": jnp.mean(admitted_mask.astype(jnp.float32))})
+            selected_slots = jnp.where(admitted_mask, selected_slots, -1)
         return selected_slots
+
+    def per_step(self, state: SelectorState, worth: Array) -> tuple[Array, Array]:
+        archive_size, *_ = jnp.shape(state.reach)
+        episode_lengths = self.footprint.pour(
+            self.successor, state.successor, jnp.ones(archive_size)
+        )
+        value_per_step = self.value(state, worth) / jnp.maximum(episode_lengths, 1e-30)
+        start_value_per_step = jnp.sum(state.reach * worth) / jnp.maximum(
+            jnp.sum(state.reach), 1e-30
+        )
+        return value_per_step, start_value_per_step
 
     def window_weights(self, state: SelectorState, wrapper, archive_auto_reset_state, selected_slots) -> Array:
         num_placed, *_ = jnp.shape(selected_slots)
         num_envs = wrapper.num_envs
         archive_size, *_ = jnp.shape(state.reach)
         relevance = state.reach / jnp.maximum(jnp.sum(state.reach), 1e-30)
-        restart_share = jnp.zeros(archive_size).at[selected_slots].add(1.0) / max(num_placed, 1)
-        placed_fraction = num_placed / num_envs
+        placed = jnp.sum(selected_slots >= 0)
+        restart_share = jnp.zeros(archive_size).at[
+            jnp.where(selected_slots >= 0, selected_slots, archive_size)
+        ].add(1.0, mode="drop") / jnp.maximum(placed, 1)
+        placed_fraction = placed / num_envs
         mixture = (1.0 - placed_fraction) * relevance + placed_fraction * restart_share
         block_mask = jnp.arange(num_envs) >= num_envs - num_placed
         start_slots = jnp.where(
@@ -922,12 +970,8 @@ class Selector:
         def ratio(numerator, denominator):
             return jnp.where(denominator > 0.0, numerator / denominator, 1.0)
 
-        episode_lengths = self.footprint.pour(
-            self.successor, state.successor, jnp.ones(archive_size)
-        )
-        value_per_step = self.value(state, worth) / jnp.maximum(episode_lengths, 1e-30)
+        value_per_step, start_value_per_step = self.per_step(state, worth)
         best_value_per_step = jnp.max(jnp.where(eligible_mask, value_per_step, 0.0))
-        start_value_per_step = jnp.sum(start_visits * worth) / jnp.maximum(start_steps, 1e-30)
         numerator = improvement_from(mixed_visits, saturated=False)
         denominator = improvement_from(rho_only_visits, saturated=False)
         lox.log(

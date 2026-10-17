@@ -1,6 +1,7 @@
 from .artifact import Artifact, Checkpoint, Image, Metrics, Text, Video
 from .artisan import Artisan
 from .checkpointer import Checkpointer
+from .concentration import Concentration
 from .gauntlet import Gauntlet
 from .plot import Plot
 from .render import Render
@@ -12,6 +13,7 @@ __all__ = [
     "Artisan",
     "Checkpoint",
     "Checkpointer",
+    "Concentration",
     "Gauntlet",
     "Image",
     "Metrics",
