@@ -35,7 +35,9 @@ class DashboardLogger:
     ):
         if jax.process_index() != 0:
             return
-        self.summary = summary or {}
+        self.summary = {**(summary or {})}
+        if total_timesteps:
+            self.summary["Total Timesteps"] = total_timesteps
         self.max_rows = max_rows
         self.generations = {}
         self._metrics = {}
@@ -185,10 +187,7 @@ class DashboardLogger:
         dynamic_summary = {
             k.split("/", 1)[1]: v for k, v in data.items() if k.startswith("summary/")
         }
-        items = [
-            *((k, v) for k, v in self.summary.items() if v is not None),
-            *dynamic_summary.items(),
-        ]
+        items = [*self.summary.items(), *dynamic_summary.items()]
         if data:
             items.append(("Step", f"{int(step):_}"))
         left = Table(box=None, expand=True)

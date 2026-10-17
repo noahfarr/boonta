@@ -37,7 +37,13 @@ def main(cfg):
 
     logger = MultiLogger(
         [
-            instantiate(v, cfg=config, _recursive_=False, _convert_="all")
+            instantiate(
+                v,
+                cfg=config,
+                total_timesteps=int(cfg.num_steps),
+                _recursive_=False,
+                _convert_="all",
+            )
             for v in (cfg.loggers or {}).values()
         ]
     )

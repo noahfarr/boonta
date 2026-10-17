@@ -11,7 +11,7 @@ defaults:
   - algorithm: ppo
   - environment/auto_reset: same_step
   - environment: gymnax/minatar/breakout
-  - logger: [dashboard_evaluate, xdg]
+  - logger: [dashboard, xdg]
   - artisan: render
   - curriculum: default
   - intrinsic_reward: null
