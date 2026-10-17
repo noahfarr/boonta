@@ -1,5 +1,6 @@
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 from optax.contrib._muon import MuonDimensionNumbers
@@ -56,5 +57,7 @@ def make(cfg):
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = LogInfo(env, keys=super_mario_bros.KEYS)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    env = TransformReward(env, fn=lambda reward: reward / cfg.reward_scale)
+    env = TransformReward(
+        env, fn=jnp.sign if cfg.clip_reward else lambda reward: reward / cfg.reward_scale
+    )
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
