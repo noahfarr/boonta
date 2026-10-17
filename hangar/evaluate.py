@@ -54,7 +54,6 @@ def main(cfg):
                 [rollout[name] for rollout in logs]
             ).reshape(1, 1)
             for name in logs[0]
-            if "/" in name
         }
         artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
         for key, artisan in zip(
