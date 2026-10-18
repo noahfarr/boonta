@@ -44,7 +44,7 @@ def register_targets(lib, targets):
 
 
 from . import (ale, bluffjax, brax, craftax, dune_sea, gymnasium, gymnax,
-               isaaclab, isaaclab_arena, jaxmarl, jaxued, jumanji, kinetix,
+               isaaclab, isaaclab_arena, jaxmarl, jaxtari, jaxued, jumanji, kinetix,
                libero, mapox, mujoco_playground, peanut_gb, pynes,
                xland_minigrid)
 
@@ -59,6 +59,7 @@ registry = {
     "isaaclab": isaaclab.make,
     "isaaclab_arena": isaaclab_arena.make,
     "jaxmarl": jaxmarl.make,
+    "jaxtari": jaxtari.make,
     "jaxued": jaxued.make,
     "jumanji": jumanji.make,
     "kinetix": kinetix.make,

@@ -39,7 +39,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 - Grid worlds and open-ended: [Jumanji](https://github.com/instadeepai/jumanji) · [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) · [Craftax](https://github.com/MichaelTMatthews/Craftax)
 - Levels: [Kinetix](https://github.com/FLAIROx/Kinetix) · [JaxUED](https://github.com/DramaCow/jaxued)
 - Multi-agent: [JaxMARL](https://github.com/FLAIROx/JaxMARL) · [Mapox](https://github.com/gabe00122/mapox) · [BluffJAX](https://github.com/AryamanReddi99/bluffjax) · [ConnectX](https://www.kaggle.com/competitions/connectx)
-- Games: [Atari](https://github.com/Farama-Foundation/Arcade-Learning-Environment) · Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) · Super Mario Bros. · Wordle
+- Games: [Atari](https://github.com/Farama-Foundation/Arcade-Learning-Environment) · [JAXtari](https://github.com/k4ntz/JAXtari) · Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) · Super Mario Bros. · Wordle
 - Anything else: [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments
 
 **Curricula**

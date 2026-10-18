@@ -156,6 +156,7 @@ CASES = [
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
     ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
+    ("ppo", "jaxtari/pong", installed("jaxtari"), False),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
     ("ippo", "dune_sea/connectx", None, False),
     ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
