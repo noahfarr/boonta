@@ -1,4 +1,5 @@
 namespace: jaxtari
 suite: jaxtari
 env_id: pong
-kwargs: {}
+kwargs:
+  native_downscaling: true
