@@ -4,6 +4,7 @@ import glob
 import gzip
 import json
 import tempfile
+import time
 
 import hydra
 import jax
@@ -38,10 +39,12 @@ def durations(directory):
     return totals
 
 
-def profile(overrides, num_updates, seed, directory):
+def profile(overrides, num_updates, seed, directory, warmups):
     cfg = compose(overrides)
     podracer = recipes.make(cfg)
-    init_key, *warm_keys, trace_key = jax.random.split(jax.random.key(seed), 4)
+    init_key, *warm_keys, trace_key = jax.random.split(
+        jax.random.key(seed), warmups + 2
+    )
 
     def train(state, key):
         state, _ = jax.block_until_ready(podracer.train(state, key, num_updates))
@@ -52,8 +55,10 @@ def profile(overrides, num_updates, seed, directory):
     options.host_tracer_level = 1
 
     state = podracer.init(init_key)
-    for key in warm_keys:
+    for index, key in enumerate(warm_keys):
+        start = time.monotonic()
         state = train(state, key)
+        print(f"warm-up {index}: {time.monotonic() - start:.1f} s")
     with jax.profiler.trace(directory, profiler_options=options):
         state = train(state, trace_key)
     podracer.close(state)
@@ -65,11 +70,12 @@ if __name__ == "__main__":
     parser.add_argument("overrides", nargs="*")
     parser.add_argument("--num-updates", type=int, default=2)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--top", type=int, default=25)
     parser.add_argument("--directory", default=None)
     args = parser.parse_args()
     directory = args.directory or tempfile.mkdtemp(prefix="boonta-profile-")
-    totals = profile(args.overrides, args.num_updates, args.seed, directory)
+    totals = profile(args.overrides, args.num_updates, args.seed, directory, args.warmups)
     print(f"trace: {directory}")
     total = sum(totals.values())
     for name, duration in totals.most_common(args.top):
