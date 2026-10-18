@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 
 from boonta.utils import Array, Key, Timestep
@@ -13,6 +14,9 @@ class Jaxtari(Environment):
 
     def init(self, key: Key) -> tuple:
         obs, state = self._env.reset(key)
+        state = jax.tree.map(
+            lambda leaf: jnp.asarray(leaf, jnp.result_type(leaf)), state
+        )
         action_space = self.action_space()
         timestep = Timestep(
             obs=obs,
