@@ -4,8 +4,10 @@ px.enable_device_profiling()
 px.enable_barriers()
 
 import argparse
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import hydra
 import jax
@@ -191,7 +193,16 @@ def benchmark(overrides, num_updates, seed):
         clock.append(time.monotonic() - start)
         return state
 
-    state, stats = px.profile(race)(state)
+    options = jax.profiler.ProfileOptions()
+    options.python_tracer_level = 0
+    options.host_tracer_level = 1
+    with tempfile.TemporaryDirectory() as directory:
+        with jax.profiler.trace(directory, profiler_options=options):
+            state = race(state)
+        stats = px.Profile(
+            host=px.ProfileResult.from_events(px.parse_perfetto_trace(Path(directory))),
+            device=px.ProfileResult.from_events(px.parse_device_trace(Path(directory))),
+        )
     (train_time,) = clock
     podracer.close(state)
 
