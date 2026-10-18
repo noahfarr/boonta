@@ -127,6 +127,10 @@ conflicts = [
       { extra = "mapox" },
       { extra = "isaaclab" },
     ],
+    [
+      { extra = "jaxtari" },
+      { extra = "isaaclab" },
+    ],
 ]
 override-dependencies = [
     "jax[cpu]>=0.10.2,<0.11; sys_platform == 'darwin'",
