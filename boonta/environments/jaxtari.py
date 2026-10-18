@@ -61,7 +61,6 @@ def make(
     first_fire=True,
     noop_max=30,
     max_frames_per_episode=108_000,
-    native_downscaling=False,
     mods=None,
 ):
     import jaxtari
@@ -80,7 +79,6 @@ def make(
         do_pixel_resize=True,
         pixel_resize_shape=(84, 84),
         grayscale=True,
-        use_native_downscaling=native_downscaling,
         frame_stack_size=frame_stack_size,
         frame_skip=frame_skip,
         clip_reward=clip_reward,
