@@ -13,6 +13,13 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
 
+def patches(x, size=6):
+    *batch, height, width, channels = x.shape
+    x = x.reshape(*batch, height // size, size, width // size, size, channels)
+    x = jnp.moveaxis(x, -4, -3)
+    return x.reshape(*batch, height // size, width // size, size * size * channels)
+
+
 class SpatialPool(nn.Module):
     maps: int = 8
 
@@ -43,7 +50,8 @@ def make(cfg):
 
     if network_cfg.get("encoder", "nature") == "spatial_pool":
         layers = [
-            conv(32, (6, 6), strides=(6, 6)),
+            patches,
+            nn.Dense(32, dtype=dtype),
             nn.relu,
             nn.Conv(64, (3, 3), strides=(2, 2), padding="SAME", dtype=dtype),
             nn.relu,
