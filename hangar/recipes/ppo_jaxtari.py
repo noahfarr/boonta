@@ -10,10 +10,6 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
 
-def frames(obs):
-    return jnp.moveaxis(obs[..., 0], -3, -1).astype(jnp.float32) / 255.0
-
-
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
@@ -23,7 +19,8 @@ def make(cfg):
         feature_extractor=FeatureExtractor(
             observation_extractor=nn.Sequential(
                 [
-                    frames,
+                    lambda obs: jnp.moveaxis(obs[..., 0], -3, -1).astype(jnp.float32)
+                    / 255.0,
                     nn.Conv(32, (8, 8), strides=(4, 4), padding="VALID"),
                     nn.relu,
                     nn.Conv(64, (4, 4), strides=(2, 2), padding="VALID"),
