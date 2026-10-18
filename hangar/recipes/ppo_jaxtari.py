@@ -1,3 +1,5 @@
+from functools import partial
+
 import flax.linen as nn
 import jax.numpy as jnp
 import optax
@@ -15,20 +17,23 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 
+    dtype = (cfg.get("network") or {}).get("dtype")
+    conv = partial(nn.Conv, padding="VALID", dtype=dtype)
+
     network = Network(
         feature_extractor=FeatureExtractor(
             observation_extractor=nn.Sequential(
                 [
                     lambda obs: jnp.moveaxis(obs[..., 0], -3, -1).astype(jnp.float32)
                     / 255.0,
-                    nn.Conv(32, (8, 8), strides=(4, 4), padding="VALID"),
+                    conv(32, (8, 8), strides=(4, 4)),
                     nn.relu,
-                    nn.Conv(64, (4, 4), strides=(2, 2), padding="VALID"),
+                    conv(64, (4, 4), strides=(2, 2)),
                     nn.relu,
-                    nn.Conv(64, (3, 3), strides=(1, 1), padding="VALID"),
+                    conv(64, (3, 3), strides=(1, 1)),
                     nn.relu,
                     Flatten(start_dim=-3),
-                    nn.Dense(512),
+                    nn.Dense(512, dtype=dtype),
                     nn.relu,
                 ]
             ),
