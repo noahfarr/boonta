@@ -41,7 +41,7 @@ def durations(directory):
 def profile(overrides, num_updates, seed, directory):
     cfg = compose(overrides)
     podracer = recipes.make(cfg)
-    init_key, warm_key, trace_key = jax.random.split(jax.random.key(seed), 3)
+    init_key, *warm_keys, trace_key = jax.random.split(jax.random.key(seed), 4)
 
     def train(state, key):
         state, _ = jax.block_until_ready(podracer.train(state, key, num_updates))
@@ -51,7 +51,9 @@ def profile(overrides, num_updates, seed, directory):
     options.python_tracer_level = 0
     options.host_tracer_level = 1
 
-    state = train(podracer.init(init_key), warm_key)
+    state = podracer.init(init_key)
+    for key in warm_keys:
+        state = train(state, key)
     with jax.profiler.trace(directory, profiler_options=options):
         state = train(state, trace_key)
     podracer.close(state)
