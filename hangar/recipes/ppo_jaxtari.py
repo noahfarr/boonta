@@ -1,6 +1,7 @@
 from functools import partial
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
@@ -12,13 +13,56 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
 
+class SpatialPool(nn.Module):
+    maps: int = 8
+
+    @nn.compact
+    def __call__(self, x):
+        *batch, height, width, channels = x.shape
+        positions = height * width
+
+        def init(key, shape):
+            average = jnp.full((positions, 1), 1 / positions)
+            noise = jax.random.normal(key, (positions, self.maps - 1)) / positions
+            return jnp.concatenate([average, noise], axis=-1)
+
+        pool = self.param("pool", init, (positions, self.maps))
+        x = x.reshape(*batch, positions, channels)
+        x = jnp.einsum("...pc,pk->...ck", x, pool.astype(x.dtype))
+        return x.reshape(*batch, channels * self.maps)
+
+
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 
-    dtype = (cfg.get("network") or {}).get("dtype")
+    network_cfg = cfg.get("network") or {}
+    dtype = network_cfg.get("dtype")
     conv = partial(nn.Conv, padding="VALID", dtype=dtype)
+
+    if network_cfg.get("encoder", "nature") == "spatial_pool":
+        layers = [
+            conv(32, (6, 6), strides=(6, 6)),
+            nn.relu,
+            nn.Conv(64, (3, 3), strides=(2, 2), padding="SAME", dtype=dtype),
+            nn.relu,
+            SpatialPool(network_cfg.get("maps", 8)),
+            nn.Dense(512, dtype=dtype),
+            nn.relu,
+        ]
+    else:
+        layers = [
+            conv(32, (8, 8), strides=(4, 4)),
+            nn.relu,
+            conv(64, (4, 4), strides=(2, 2)),
+            nn.relu,
+            conv(64, (3, 3), strides=(1, 1)),
+            nn.relu,
+            Flatten(start_dim=-3),
+            nn.Dense(512, dtype=dtype),
+            nn.relu,
+        ]
 
     network = Network(
         feature_extractor=FeatureExtractor(
@@ -26,15 +70,7 @@ def make(cfg):
                 [
                     lambda obs: jnp.moveaxis(obs[..., 0], -3, -1).astype(jnp.float32)
                     / 255.0,
-                    conv(32, (8, 8), strides=(4, 4)),
-                    nn.relu,
-                    conv(64, (4, 4), strides=(2, 2)),
-                    nn.relu,
-                    conv(64, (3, 3), strides=(1, 1)),
-                    nn.relu,
-                    Flatten(start_dim=-3),
-                    nn.Dense(512, dtype=dtype),
-                    nn.relu,
+                    *layers,
                 ]
             ),
         ),
