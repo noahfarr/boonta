@@ -48,14 +48,20 @@ def make(cfg):
     dtype = network_cfg.get("dtype")
     conv = partial(nn.Conv, padding="VALID", dtype=dtype)
 
-    if network_cfg.get("encoder", "nature") == "spatial_pool":
+    encoder = network_cfg.get("encoder", "nature")
+    if encoder in ("spatial_pool", "patch"):
+        pool = (
+            SpatialPool(network_cfg.get("maps", 8))
+            if encoder == "spatial_pool"
+            else Flatten(start_dim=-3)
+        )
         layers = [
             patches,
             nn.Dense(32, dtype=dtype),
             nn.relu,
             nn.Conv(64, (3, 3), strides=(2, 2), padding="SAME", dtype=dtype),
             nn.relu,
-            SpatialPool(network_cfg.get("maps", 8)),
+            pool,
             nn.Dense(512, dtype=dtype),
             nn.relu,
         ]
