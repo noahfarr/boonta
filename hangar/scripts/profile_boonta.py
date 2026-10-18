@@ -47,8 +47,12 @@ def profile(overrides, num_updates, seed, directory):
         state, _ = jax.block_until_ready(podracer.train(state, key, num_updates))
         return state
 
+    options = jax.profiler.ProfileOptions()
+    options.python_tracer_level = 0
+    options.host_tracer_level = 1
+
     state = train(podracer.init(init_key), warm_key)
-    with jax.profiler.trace(directory, create_perfetto_trace=True):
+    with jax.profiler.trace(directory, profiler_options=options):
         state = train(state, trace_key)
     podracer.close(state)
     return durations(directory)
