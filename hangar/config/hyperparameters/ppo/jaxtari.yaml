@@ -15,6 +15,9 @@ podracer:
   config:
     num_steps: 32
 
+network:
+  dtype: bfloat16
+
 environment:
   num_envs: 4096
 
