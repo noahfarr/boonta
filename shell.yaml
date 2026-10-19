@@ -1,8 +1,0 @@
-resources:
-  resource_pool: 42_Compute
-  slots: 1
-bind_mounts:
-  - host_path: /pfss/mlde/workspaces/mlde_wsp_RAI_WS
-    container_path: /pfss/mlde/workspaces/mlde_wsp_RAI_WS
-    propagation: rprivate
-    read_only: false
