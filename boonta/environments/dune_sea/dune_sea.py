@@ -64,11 +64,7 @@ def carve_caves(key: Key, height: int, width: int, rock_fill: float, smooth_pass
     return jax.lax.fori_loop(0, smooth_passes, smooth_rock, rock)
 
 
-def flood_region(open_mask: Array, seed_cell: Array) -> Array:
-    height, width = open_mask.shape
-    reached = jnp.zeros_like(open_mask).at[seed_cell // width, seed_cell % width].set(True)
-    reached = reached & open_mask
-
+def grow_within(reached: Array, open_mask: Array) -> Array:
     def grow_region(carry):
         reached, _ = carry
         grown = (
@@ -80,8 +76,14 @@ def flood_region(open_mask: Array, seed_cell: Array) -> Array:
         ) & open_mask
         return grown, jnp.any(grown != reached)
 
-    reached, _ = jax.lax.while_loop(lambda carry: carry[1], grow_region, (reached, True))
+    reached, _ = jax.lax.while_loop(lambda carry: carry[1], grow_region, (reached & open_mask, True))
     return reached
+
+
+def flood_region(open_mask: Array, seed_cell: Array) -> Array:
+    width = open_mask.shape[1]
+    seed = jnp.zeros_like(open_mask).at[seed_cell // width, seed_cell % width].set(True)
+    return grow_within(seed, open_mask)
 
 
 def connect_caves(key: Key, cells: Array, min_open: int) -> Array:
@@ -90,7 +92,10 @@ def connect_caves(key: Key, cells: Array, min_open: int) -> Array:
     seeds = jax.random.choice(key, open_mask.size, (FLOOD_SEEDS,), p=weights)
     regions = jax.vmap(lambda seed: flood_region(open_mask, seed))(seeds)
     largest = regions[jnp.argmax(regions.sum(axis=(1, 2)))]
-    connected = jnp.where(largest | ~open_mask, cells, ROCK)
+    is_water = cells == WATER
+    pocket = open_mask & ~largest
+    flooded = grow_within(is_water, pocket | is_water)
+    connected = jnp.where(pocket, jnp.where(flooded, WATER, ROCK), cells)
     return jnp.where(largest.sum() >= min_open, connected, jnp.full_like(cells, SAND))
 
 
@@ -182,8 +187,9 @@ class DuneSea(Environment):
         return self._num_agents
 
     def generate_map(self, key: Key) -> Array:
-        cave_key, oasis_key, flora_key, flood_key = jax.random.split(key, 4)
+        cave_key, first_flood_key, oasis_key, flora_key, flood_key = jax.random.split(key, 5)
         cells = carve_caves(cave_key, self.height, self.width, self.rock_fill, self.smooth_passes)
+        cells = connect_caves(first_flood_key, cells, self._num_agents)
         cells = dig_oases(oasis_key, cells, self.num_oases, self.oasis_radius)
         cells = scatter_flora(flora_key, cells, self.flora_fill)
         return connect_caves(flood_key, cells, self._num_agents)

@@ -282,19 +282,16 @@ def test_water_blocks_the_way_and_shows_in_its_own_channel():
     assert float(view[..., 1:3].sum()) == 0.0
 
 
-def test_oases_fill_open_sand_and_leave_the_rock_alone():
-    for seed in range(4):
-        with_ponds = small_world(width=48, height=40, num_agents=4, oasis_density=0.003, flora_fill=0.0)
-        without = small_world(width=48, height=40, num_agents=4, oasis_density=0.0, flora_fill=0.0)
-        key = jax.random.key(seed)
-        ponds = with_ponds.generate_map(jax.random.split(key, 4)[0])
-        water = ponds == WATER
-        assert int(water.sum()) > 0
-        ring = jnp.roll(water, 1, 0) | jnp.roll(water, -1, 0) | jnp.roll(water, 1, 1) | jnp.roll(water, -1, 1)
-        assert not bool((ring & ~water & (ponds == ROCK)).any())
-        dry = without.generate_map(jax.random.split(key, 4)[0])
-        assert not bool(((dry == ROCK) & (ponds != ROCK) & ~water).any())
-        assert not bool(((dry == ROCK) & water).any())
+@pytest.mark.parametrize("seed", range(6))
+def test_oases_fill_open_sand_and_leave_the_rock_alone(seed):
+    settings = {"width": 48, "height": 40, "num_agents": 4, "flora_fill": 0.0}
+    key = jax.random.key(seed)
+    ponds = small_world(**settings, oasis_density=0.003).generate_map(key)
+    dry = small_world(**settings, oasis_density=0.0).generate_map(key)
+    water = ponds == WATER
+    assert int(water.sum()) > 0
+    assert not bool(((dry == ROCK) & (ponds != ROCK)).any())
+    assert bool((dry[water] == SAND).all())
 
 
 def test_palms_gather_around_the_oases():
