@@ -250,3 +250,6 @@ hangar/config/hydra/launcher/determined/42.yaml
 # Local Determined shell config
 determined_config.yaml
 
+
+# Third-party art that may not be redistributed (Glionox desert tileset)
+boonta/environments/dune_sea/assets/
