@@ -8,6 +8,8 @@ import numpy as np
 from boonta.utils import Array
 
 TILESET_DIRECTORY = Path(__file__).parent / "assets" / "glionox_desert"
+WATER_DIRECTORY = Path(__file__).parent / "assets" / "glionox_forest"
+PLAIN_WATER_TILE = (3, 9)
 TILE_PIXELS = 16
 OVERHANG_ROWS = 6
 DETAIL_OFFSET = 6
@@ -31,10 +33,14 @@ def tileset_available() -> bool:
     return (TILESET_DIRECTORY / "sand.png").exists() and (TILESET_DIRECTORY / "sandstone.png").exists()
 
 
-def read_sheet(name: str) -> np.ndarray:
+def water_available() -> bool:
+    return (WATER_DIRECTORY / "water.png").exists()
+
+
+def read_sheet(name: str, directory: Path = TILESET_DIRECTORY) -> np.ndarray:
     from PIL import Image
 
-    return np.asarray(Image.open(TILESET_DIRECTORY / name).convert("RGBA")).astype(np.float32)
+    return np.asarray(Image.open(directory / name).convert("RGBA")).astype(np.float32)
 
 
 def cut_tile(sheet: np.ndarray, row: int, col: int) -> np.ndarray:
@@ -69,12 +75,14 @@ def reachable_masks() -> list[int]:
     return sorted(masks)
 
 
-def overhang_tiles(sheet: np.ndarray) -> np.ndarray:
+def overhang_tiles(sheet: np.ndarray, layered: bool = True) -> np.ndarray:
     table = np.zeros((256, TILE_PIXELS, TILE_PIXELS, 4), np.float32)
     filled = set()
     for row in range(OVERHANG_ROWS):
         for col in range(SHEET_COLUMNS):
-            tile = stack_layers(cut_tile(sheet, row + DETAIL_OFFSET, col), cut_tile(sheet, row, col))
+            tile = cut_tile(sheet, row, col)
+            if layered:
+                tile = stack_layers(cut_tile(sheet, row + DETAIL_OFFSET, col), tile)
             mask = visual_mask(tile)
             centre_covered = (tile[6:10, 6:10, 3] > 0).mean() > 0.9
             if mask == FULL_MASK and centre_covered:
@@ -120,6 +128,11 @@ DETAIL_SPRITES = (
 SPRITE_HEIGHT = 112
 SPRITE_WIDTH = 48
 DETAIL_CHANCE = 0.06
+PALM_SPRITES = 12
+REED_SPRITES = ("decor_reed1.png", "decor_reed2.png", "decor_reed3.png", "decor_reed4.png")
+LILYPAD_SPRITES = tuple(f"decor_lilypad{index}.png" for index in range(1, 9))
+LILYPAD_CHANCE = 0.12
+WATER_COLOR = np.array([95, 132, 128], np.float32)
 
 
 def anchor_sprite(sprite: np.ndarray) -> np.ndarray:
@@ -137,7 +150,21 @@ def load_tileset() -> dict:
     flora = [anchor_sprite(read_sheet(name)) for name, weight in FLORA_SPRITES for _ in range(weight)]
     details = [np.zeros((TILE_PIXELS, TILE_PIXELS, 4), np.float32)]
     details += [read_sheet(name) for name in DETAIL_SPRITES]
+    water = {
+        "water": jnp.asarray(np.broadcast_to(WATER_COLOR, (TILE_PIXELS, TILE_PIXELS, 3)).copy()),
+        "shore": jnp.asarray(overhang_tiles(read_sheet("sand_to_water.png"), layered=False)),
+        "reeds": jnp.zeros((0, SPRITE_HEIGHT, SPRITE_WIDTH, 4)),
+        "lilypads": jnp.zeros((1, TILE_PIXELS, TILE_PIXELS, 4)),
+    }
+    if water_available():
+        water["water"] = jnp.asarray(cut_tile(read_sheet("water.png", WATER_DIRECTORY), *PLAIN_WATER_TILE)[..., :3])
+        reeds = [anchor_sprite(read_sheet(name, WATER_DIRECTORY)) for name in REED_SPRITES]
+        water["reeds"] = jnp.asarray(np.stack(reeds))
+        pads = [np.zeros((TILE_PIXELS, TILE_PIXELS, 4), np.float32)]
+        pads += [read_sheet(name, WATER_DIRECTORY) for name in LILYPAD_SPRITES]
+        water["lilypads"] = jnp.asarray(np.stack(pads))
     return {
+        **water,
         "sand": jnp.asarray(fill_tiles(read_sheet("sand.png"))[..., :3]),
         "rock": jnp.asarray(fill_tiles(rock_sheet)[..., :3]),
         "overhang": jnp.asarray(overhang_tiles(rock_sheet)),
@@ -169,10 +196,30 @@ def tile_frame(tiles: Array) -> Array:
     return tiles.transpose(0, 2, 1, 3, 4).reshape(height * TILE_PIXELS, width * TILE_PIXELS, -1)
 
 
+def fold_overhang(canvas: Array, original: Array, pad_top: int, pad_side: int) -> Array:
+    changed = jnp.any(canvas != original, axis=-1, keepdims=True)
+    if pad_top:
+        canvas = canvas.at[-pad_top:].set(
+            jnp.where(changed[:pad_top], canvas[:pad_top], canvas[-pad_top:])
+        )
+        changed = changed.at[-pad_top:].set(changed[:pad_top] | changed[-pad_top:])
+    if pad_side:
+        width = canvas.shape[1] - 2 * pad_side
+        left, right = slice(0, pad_side), slice(pad_side + width, None)
+        wrapped_left, wrapped_right = slice(width, width + pad_side), slice(pad_side, 2 * pad_side)
+        canvas = canvas.at[:, wrapped_left].set(
+            jnp.where(changed[:, left], canvas[:, left], canvas[:, wrapped_left])
+        )
+        canvas = canvas.at[:, wrapped_right].set(
+            jnp.where(changed[:, right], canvas[:, right], canvas[:, wrapped_right])
+        )
+    return canvas
+
+
 def draw_objects(frame: Array, rows: Array, cols: Array, sprite_ids: Array, count: Array, bank: Array) -> Array:
     sprite_height, sprite_width = bank.shape[1:3]
     pad_top, pad_side = sprite_height - TILE_PIXELS, (sprite_width - TILE_PIXELS) // 2
-    canvas = jnp.pad(frame, ((pad_top, 0), (pad_side, pad_side), (0, 0)))
+    original = jnp.pad(frame, ((pad_top, 0), (pad_side, pad_side), (0, 0)), mode="wrap")
 
     def draw_object(index, canvas):
         top, left = rows[index] * TILE_PIXELS, cols[index] * TILE_PIXELS
@@ -180,13 +227,14 @@ def draw_objects(frame: Array, rows: Array, cols: Array, sprite_ids: Array, coun
         patch = jax.lax.dynamic_slice(canvas, (top, left, 0), (sprite_height, sprite_width, 3))
         return jax.lax.dynamic_update_slice(canvas, blend_over(patch, sprite), (top, left, 0))
 
-    canvas = jax.lax.fori_loop(0, count, draw_object, canvas)
+    canvas = jax.lax.fori_loop(0, count, draw_object, original)
+    canvas = fold_overhang(canvas, original, pad_top, pad_side)
     height, width = frame.shape[:2]
     return canvas[pad_top:, pad_side : pad_side + width]
 
 
 def paint_scenery(cells: Array, is_patch: Array, variety: Array, tileset: dict) -> Array:
-    is_rock = cells == 1
+    is_rock, is_water = cells == 1, cells == 3
     is_patch = is_patch & ~is_rock
     fill_variant = (variety % tileset["sand"].shape[0]).astype(jnp.int32)
     ground = tileset["sand"][fill_variant]
@@ -199,5 +247,11 @@ def paint_scenery(cells: Array, is_patch: Array, variety: Array, tileset: dict) 
     ground = blend_over(ground, tileset["details"][jnp.where(has_detail, detail_kind, 0)])
     ground = blend_over(ground, tileset["overhang"][neighbour_mask(is_rock)])
     tiles = jnp.where(is_rock[..., None, None, None], tileset["rock"][fill_variant], ground)
+    num_pads = tileset["lilypads"].shape[0] - 1
+    pad_roll = ((variety >> 12) % 1000).astype(jnp.float32) / 1000.0
+    pad_kind = jnp.where((pad_roll < LILYPAD_CHANCE) & (num_pads > 0), 1 + (variety >> 2) % max(num_pads, 1), 0)
+    pond = blend_over(jnp.broadcast_to(tileset["water"], tiles.shape), tileset["lilypads"][pad_kind.astype(jnp.int32)])
+    pond = blend_over(pond, tileset["shore"][neighbour_mask(~is_water)])
+    tiles = jnp.where(is_water[..., None, None, None], pond, tiles)
     return tile_frame(tiles)
 

@@ -19,16 +19,19 @@ MOVE_HEADING = np.array([-1, 0, 2, 3, 1, -1, -1])
 TURN_OFFSET = np.array([0, 0, 0, 0, 0, 3, 1])
 VIEW_RADIUS = 3
 VIEW_SIZE = 2 * VIEW_RADIUS + 1
-SAND, ROCK, FLORA = 0, 1, 2
+SAND, ROCK, FLORA, WATER = 0, 1, 2, 3
 FLORA_COLOR = np.array([96, 128, 64], np.uint8)
+WATER_FILL_COLOR = np.array([95, 132, 128], np.uint8)
+OASIS_REACH = 3
+OASIS_CLEARANCE = 3
+OASIS_PALM_CHANCE = 0.18
+REED_CHANCE = 0.35
 PATCH_FILL = 0.42
 CAVE_THRESHOLD = 5
 FLOOD_SEEDS = 4
 GROUND_COLOR = np.array([233, 214, 175], np.uint8)
 ROCK_COLOR = np.array([120, 82, 58], np.uint8)
-AGENT_COLOR = np.array([38, 70, 83], np.uint8)
 HIGHLIGHT_COLOR = np.array([231, 111, 81], np.uint8)
-PANEL_COLOR = np.array([40, 34, 30], np.uint8)
 
 
 def view_offsets() -> np.ndarray:
@@ -91,11 +94,43 @@ def connect_caves(key: Key, cells: Array, min_open: int) -> Array:
     return jnp.where(largest.sum() >= min_open, connected, jnp.full_like(cells, SAND))
 
 
+def spread_mask(mask: Array, steps: int) -> Array:
+    def grow(_, mask):
+        return mask | jnp.roll(mask, 1, 0) | jnp.roll(mask, -1, 0) | jnp.roll(mask, 1, 1) | jnp.roll(mask, -1, 1)
+
+    return jax.lax.fori_loop(0, steps, grow, mask)
+
+
+def dig_oases(key: Key, cells: Array, num_oases: int, max_radius: float) -> Array:
+    if num_oases == 0:
+        return cells
+    height, width = cells.shape
+    centre_key, size_key, edge_key = jax.random.split(key, 3)
+    is_rock = cells == ROCK
+    is_clear = ~spread_mask(is_rock, OASIS_CLEARANCE)
+    weights = is_clear.ravel() / jnp.maximum(is_clear.sum(), 1)
+    centres = jax.random.choice(centre_key, height * width, (num_oases,), replace=False, p=weights)
+    centre_rows = (centres // width)[:, None, None]
+    centre_cols = (centres % width)[:, None, None]
+    radii = jax.random.uniform(size_key, (num_oases, 1, 1), minval=1.5, maxval=max_radius)
+    rows = jnp.arange(height)[None, :, None]
+    cols = jnp.arange(width)[None, None, :]
+    row_gap = jnp.minimum(jnp.abs(rows - centre_rows), height - jnp.abs(rows - centre_rows))
+    col_gap = jnp.minimum(jnp.abs(cols - centre_cols), width - jnp.abs(cols - centre_cols))
+    wobble = jax.random.uniform(edge_key, (height, width), minval=-0.7, maxval=0.7)
+    is_pond = (jnp.sqrt(row_gap**2 + col_gap**2) + wobble < radii).any(axis=0)
+    is_water = is_pond & ~spread_mask(is_rock, 1) & (cells == SAND) & is_clear.any()
+    return jnp.where(is_water, WATER, cells)
+
+
 def scatter_flora(key: Key, cells: Array, flora_fill: float) -> Array:
     cluster_key, plant_key = jax.random.split(key)
     clusters = carve_caves(cluster_key, *cells.shape, 0.5, 2).astype(jnp.float32)
-    chance = flora_fill * (0.4 + 1.2 * clusters)
-    planted = jax.random.bernoulli(plant_key, chance) & (cells == SAND)
+    is_water = cells == WATER
+    shoreline = spread_mask(is_water, 1)
+    near_water = spread_mask(is_water, OASIS_REACH) & ~shoreline
+    chance = flora_fill * (0.4 + 1.2 * clusters) + OASIS_PALM_CHANCE * near_water
+    planted = jax.random.bernoulli(plant_key, chance) & (cells == SAND) & ~shoreline
     return jnp.where(planted, FLORA, cells)
 
 
@@ -126,6 +161,8 @@ class DuneSea(Environment):
         rock_fill: float = 0.45,
         smooth_passes: int = 4,
         flora_fill: float = 0.03,
+        oasis_density: float = 0.0012,
+        oasis_radius: float = 3.5,
     ):
         if num_agents > width * height:
             raise ValueError("dune_sea: more agents than cells")
@@ -136,6 +173,8 @@ class DuneSea(Environment):
         self.rock_fill = rock_fill
         self.smooth_passes = smooth_passes
         self.flora_fill = flora_fill
+        self.num_oases = int(round(oasis_density * width * height))
+        self.oasis_radius = oasis_radius
         self.agent_sprites = wanderer_sprites()
 
     @property
@@ -143,8 +182,9 @@ class DuneSea(Environment):
         return self._num_agents
 
     def generate_map(self, key: Key) -> Array:
-        cave_key, flora_key, flood_key = jax.random.split(key, 3)
+        cave_key, oasis_key, flora_key, flood_key = jax.random.split(key, 4)
         cells = carve_caves(cave_key, self.height, self.width, self.rock_fill, self.smooth_passes)
+        cells = dig_oases(oasis_key, cells, self.num_oases, self.oasis_radius)
         cells = scatter_flora(flora_key, cells, self.flora_fill)
         return connect_caves(flood_key, cells, self._num_agents)
 
@@ -249,11 +289,12 @@ class DuneSea(Environment):
         cells = state.cells[view_y, view_x]
         rock = (cells == ROCK).astype(jnp.float32)
         flora = (cells == FLORA).astype(jnp.float32)
-        return jnp.stack([occupancy[view_y, view_x], rock, flora], axis=-1)
+        water = (cells == WATER).astype(jnp.float32)
+        return jnp.stack([occupancy[view_y, view_x], rock, flora, water], axis=-1)
 
     def observation_space(self) -> Space:
         return Space(
-            shape=(self._num_agents, VIEW_SIZE, VIEW_SIZE, 3),
+            shape=(self._num_agents, VIEW_SIZE, VIEW_SIZE, 4),
             dtype=jnp.float32,
             low=0.0,
             high=1.0,
@@ -274,41 +315,49 @@ class DuneSea(Environment):
         rows = jnp.arange(TILE_PIXELS)[:, None]
         cols = jnp.arange(TILE_PIXELS)[None, :]
         edge = (rows == 0) | (cols == 0)
-        cell_colors = jnp.stack([GROUND_COLOR, ROCK_COLOR, FLORA_COLOR]).astype(jnp.float32)
+        cell_colors = jnp.stack([GROUND_COLOR, ROCK_COLOR, FLORA_COLOR, WATER_FILL_COLOR]).astype(jnp.float32)
         tiles = cell_colors[state.cells][:, :, None, None, :]
         edge_shade = jnp.where(edge, 0.93, 1.0)[None, None, :, :, None]
         tiles = jnp.broadcast_to(tiles * edge_shade, (self.height, self.width, TILE_PIXELS, TILE_PIXELS, 3))
         frame = tiles.transpose(0, 2, 1, 3, 4).reshape(self.height * TILE_PIXELS, self.width * TILE_PIXELS, 3)
         return frame, variety
 
-    def sprite_bank(self) -> tuple[Array, int]:
+    def sprite_bank(self) -> tuple[Array, int, int]:
         agents = self.agent_sprites.reshape(-1, *self.agent_sprites.shape[2:])
         if not tileset_available():
-            return jnp.asarray(agents), 0
-        flora = load_tileset()["flora"]
-        anchored = np.stack([anchor_sprite(sprite) for sprite in agents])
-        return jnp.concatenate([flora, jnp.asarray(anchored)]), flora.shape[0]
+            return jnp.asarray(agents), 0, 0
+        tileset = load_tileset()
+        anchored = jnp.asarray(np.stack([anchor_sprite(sprite) for sprite in agents]))
+        bank = jnp.concatenate([tileset["flora"], tileset["reeds"], anchored])
+        return bank, tileset["flora"].shape[0], tileset["reeds"].shape[0]
 
     def render(self, state: DuneSeaState, scale: int = TILE_PIXELS) -> Array:
         frame, variety = self.paint_ground(state)
-        bank, num_flora = self.sprite_bank()
+        bank, num_flora, num_reeds = self.sprite_bank()
         num_cells = self.width * self.height
         num_poses = self.agent_sprites.shape[1]
         robes = jnp.arange(self._num_agents) % self.agent_sprites.shape[0]
-        agent_ids = num_flora + robes * num_poses + state.direction
+        agent_ids = num_flora + num_reeds + robes * num_poses + state.direction
         agent_rows, agent_cols = state.position[:, 1], state.position[:, 0]
+        rows, cols, ids = agent_rows, agent_cols, agent_ids
+        present = jnp.ones(self._num_agents, bool)
         if num_flora:
-            is_flora = (state.cells == FLORA).ravel()
-            flora_rows = jnp.arange(num_cells) // self.width
-            flora_cols = jnp.arange(num_cells) % self.width
+            cell_rows = jnp.arange(num_cells) // self.width
+            cell_cols = jnp.arange(num_cells) % self.width
             flora_ids = ((variety.ravel() >> 20) % num_flora).astype(jnp.int32)
-            rows = jnp.concatenate([flora_rows, agent_rows])
-            cols = jnp.concatenate([flora_cols, agent_cols])
-            ids = jnp.concatenate([flora_ids, agent_ids])
-            present = jnp.concatenate([is_flora, jnp.ones(self._num_agents, bool)])
-        else:
-            rows, cols, ids = agent_rows, agent_cols, agent_ids
-            present = jnp.ones(self._num_agents, bool)
+            rows = jnp.concatenate([cell_rows, rows])
+            cols = jnp.concatenate([cell_cols, cols])
+            ids = jnp.concatenate([flora_ids, ids])
+            present = jnp.concatenate([(state.cells == FLORA).ravel(), present])
+        if num_reeds:
+            shore = spread_mask(state.cells == WATER, 1) & (state.cells == SAND)
+            reed_roll = ((variety >> 16) % 1000).astype(jnp.float32) / 1000.0
+            has_reed = (shore & (reed_roll < REED_CHANCE)).ravel()
+            reed_ids = num_flora + ((variety.ravel() >> 24) % num_reeds).astype(jnp.int32)
+            rows = jnp.concatenate([cell_rows, rows])
+            cols = jnp.concatenate([cell_cols, cols])
+            ids = jnp.concatenate([reed_ids, ids])
+            present = jnp.concatenate([has_reed, present])
         order = jnp.argsort(jnp.where(present, rows, num_cells + 1), stable=True)
         frame = draw_objects(frame, rows[order], cols[order], ids[order], present.sum(), bank)
         if scale != TILE_PIXELS:

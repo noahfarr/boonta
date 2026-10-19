@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from boonta.environments.dune_sea import NCA, DuneSea, measure_liveliness, render_field
-from boonta.environments.dune_sea.dune_sea import (BACKWARD, FLORA, FORWARD, NOOP, ROCK, SAND, STEP_LEFT,
+from boonta.environments.dune_sea.dune_sea import (BACKWARD, FLORA, FORWARD, NOOP, ROCK, SAND, WATER, STEP_LEFT,
                                                    STEP_RIGHT, STEP_X, STEP_Y, TURN_LEFT, TURN_RIGHT,
                                                    VIEW_RADIUS, flood_region)
 from boonta.environments.dune_sea.nca import gather_neighbourhood
@@ -195,9 +195,9 @@ def test_agents_spawn_on_sand_that_is_all_one_region(seed):
 
 
 def test_the_fill_sets_how_rocky_the_map_is():
-    open_map, _ = small_world(rock_fill=0.0, flora_fill=0.0).init(jax.random.key(0))
+    open_map, _ = small_world(rock_fill=0.0, flora_fill=0.0, oasis_density=0.0).init(jax.random.key(0))
     assert int(open_map.cells.sum()) == 0
-    solid_map, _ = small_world(rock_fill=1.0, flora_fill=0.0).init(jax.random.key(0))
+    solid_map, _ = small_world(rock_fill=1.0, flora_fill=0.0, oasis_density=0.0).init(jax.random.key(0))
     assert int(solid_map.cells.sum()) == 0
 
 
@@ -266,5 +266,41 @@ def test_flora_blocks_the_way_and_shows_in_its_own_channel():
 def test_flora_grows_on_sand_only_and_can_be_switched_off():
     lush, _ = small_world(width=32, height=24, flora_fill=0.2).init(jax.random.key(1))
     assert int((lush.cells == FLORA).sum()) > 0
-    bare, _ = small_world(width=32, height=24, flora_fill=0.0).init(jax.random.key(1))
+    bare, _ = small_world(width=32, height=24, flora_fill=0.0, oasis_density=0.0).init(jax.random.key(1))
     assert int((bare.cells == FLORA).sum()) == 0
+
+
+def test_water_blocks_the_way_and_shows_in_its_own_channel():
+    env = small_world()
+    state, _ = env.init(jax.random.key(0))
+    state = seat_agents(state, [[5, 5], [0, 0], [9, 7]], [EAST, 0, 0])
+    state = state.replace(cells=state.cells.at[5, 6].set(WATER))
+    after, _ = play_actions(env, state, [FORWARD, NOOP, NOOP])
+    assert after.position[0].tolist() == [5, 5]
+    view = env.observe(state)[0]
+    assert float(view[VIEW_RADIUS - 1, VIEW_RADIUS, 3]) == 1.0
+    assert float(view[..., 1:3].sum()) == 0.0
+
+
+def test_oases_fill_open_sand_and_leave_the_rock_alone():
+    for seed in range(4):
+        with_ponds = small_world(width=48, height=40, num_agents=4, oasis_density=0.003, flora_fill=0.0)
+        without = small_world(width=48, height=40, num_agents=4, oasis_density=0.0, flora_fill=0.0)
+        key = jax.random.key(seed)
+        ponds = with_ponds.generate_map(jax.random.split(key, 4)[0])
+        water = ponds == WATER
+        assert int(water.sum()) > 0
+        ring = jnp.roll(water, 1, 0) | jnp.roll(water, -1, 0) | jnp.roll(water, 1, 1) | jnp.roll(water, -1, 1)
+        assert not bool((ring & ~water & (ponds == ROCK)).any())
+        dry = without.generate_map(jax.random.split(key, 4)[0])
+        assert not bool(((dry == ROCK) & (ponds != ROCK) & ~water).any())
+        assert not bool(((dry == ROCK) & water).any())
+
+
+def test_palms_gather_around_the_oases():
+    env = small_world(width=48, height=40, num_agents=4, oasis_density=0.003, flora_fill=0.0)
+    state, _ = env.init(jax.random.key(2))
+    assert int((state.cells == WATER).sum()) > 0
+    assert int((state.cells == FLORA).sum()) > 0
+    x, y = state.position[:, 0], state.position[:, 1]
+    assert bool((state.cells[y, x] == SAND).all())
