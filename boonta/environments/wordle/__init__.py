@@ -77,9 +77,7 @@ class Wordle(Environment):
         self.yellow_reward = yellow_reward
         self.green_reward = green_reward
 
-    def init(
-        self, key: Key
-    ) -> tuple[EnvState, Timestep]:
+    def init(self, key: Key) -> tuple[EnvState, Timestep]:
         num_answers, *_ = self.answer_pool.shape
         index = jax.random.randint(key, (), 0, num_answers)
         state = EnvState(

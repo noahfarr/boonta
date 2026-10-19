@@ -1,15 +1,4 @@
-from . import wordle
-from .chain_of_forks import ChainOfForks, ChainOfForksState
-from .connectx import ConnectX, ConnectXState
-from .t_maze import TMaze, TMazeState
-from .wordle import Wordle
-
-registry = {
-    "chain_of_forks": ChainOfForks,
-    "connectx": ConnectX,
-    "t_maze": TMaze,
-    "wordle": wordle.make,
-}
+registry = {}
 
 
 def make(env_id: str, **kwargs):
@@ -17,12 +6,5 @@ def make(env_id: str, **kwargs):
 
 
 __all__ = [
-    "ChainOfForks",
-    "ChainOfForksState",
-    "ConnectX",
-    "ConnectXState",
-    "TMaze",
-    "TMazeState",
-    "Wordle",
     "make",
 ]
