@@ -9,7 +9,7 @@ from ..environment import Environment
 from ..spaces import Space
 from .sprites import wanderer_sprites
 from .tileset import (TILE_PIXELS, anchor_sprite, draw_objects, load_tileset, paint_scenery,
-                      tileset_available)
+                      sprite_groups, tileset_available)
 
 NOOP, FORWARD, BACKWARD, STEP_LEFT, STEP_RIGHT, TURN_LEFT, TURN_RIGHT = range(7)
 NUM_ACTIONS = 7
@@ -24,7 +24,16 @@ FLORA_COLOR = np.array([96, 128, 64], np.uint8)
 WATER_FILL_COLOR = np.array([95, 132, 128], np.uint8)
 OASIS_REACH = 3
 OASIS_CLEARANCE = 3
-OASIS_PALM_CHANCE = 0.18
+OASIS_PALM_CHANCE = 0.28
+OASIS_FALLOFF = 1.3
+OASIS_WETNESS_PULL = 2.5
+SHORE_ROUGHNESS = 1.1
+SHORE_FEATURE_SIZE = 1.5
+TERRAIN_FEATURE_SIZE = 9.0
+ROCK_VARIATION = 0.09
+GROVE_FEATURE_SIZE = 3.0
+BOULDER_CHANCE = 0.04
+LONE_PALM_PERCENT = 8
 REED_CHANCE = 0.35
 PATCH_FILL = 0.42
 CAVE_THRESHOLD = 5
@@ -55,7 +64,27 @@ def count_neighbours(grid: Array) -> Array:
     )
 
 
-def carve_caves(key: Key, height: int, width: int, rock_fill: float, smooth_passes: int) -> Array:
+def smooth_field(key: Key, height: int, width: int, feature_size: float) -> Array:
+    freq_y = np.fft.fftfreq(height)[:, None]
+    freq_x = np.fft.rfftfreq(width)[None, :]
+    falloff = np.exp(-2.0 * (np.pi * feature_size / 2.0) ** 2 * (freq_x**2 + freq_y**2))
+    real_part, imag_part = jax.random.normal(key, (2, height, width // 2 + 1))
+    field = jnp.fft.irfft2((real_part + 1j * imag_part) * jnp.asarray(falloff), s=(height, width))
+    return (field - field.mean()) / (field.std() + 1e-6)
+
+
+def distance_to(mask: Array, max_distance: int) -> Array:
+    def grow_ring(step, carry):
+        reached, distance = carry
+        grown = spread_mask(reached, 1)
+        return grown, jnp.where(grown & ~reached, step + 1, distance)
+
+    start = jnp.where(mask, 0, max_distance)
+    _, distance = jax.lax.fori_loop(0, max_distance - 1, grow_ring, (mask, start))
+    return distance
+
+
+def carve_caves(key: Key, height: int, width: int, rock_fill, smooth_passes: int) -> Array:
     rock = jax.random.bernoulli(key, rock_fill, (height, width)).astype(jnp.int32)
 
     def smooth_rock(_, rock):
@@ -106,14 +135,15 @@ def spread_mask(mask: Array, steps: int) -> Array:
     return jax.lax.fori_loop(0, steps, grow, mask)
 
 
-def dig_oases(key: Key, cells: Array, num_oases: int, max_radius: float) -> Array:
+def dig_oases(key: Key, cells: Array, wetness: Array, num_oases: int, max_radius: float) -> Array:
     if num_oases == 0:
         return cells
     height, width = cells.shape
     centre_key, size_key, edge_key = jax.random.split(key, 3)
     is_rock = cells == ROCK
     is_clear = ~spread_mask(is_rock, OASIS_CLEARANCE)
-    weights = is_clear.ravel() / jnp.maximum(is_clear.sum(), 1)
+    weights = is_clear.ravel() * jnp.exp(OASIS_WETNESS_PULL * wetness.ravel())
+    weights = weights / jnp.maximum(weights.sum(), 1e-6)
     centres = jax.random.choice(centre_key, height * width, (num_oases,), replace=False, p=weights)
     centre_rows = (centres // width)[:, None, None]
     centre_cols = (centres % width)[:, None, None]
@@ -122,20 +152,24 @@ def dig_oases(key: Key, cells: Array, num_oases: int, max_radius: float) -> Arra
     cols = jnp.arange(width)[None, None, :]
     row_gap = jnp.minimum(jnp.abs(rows - centre_rows), height - jnp.abs(rows - centre_rows))
     col_gap = jnp.minimum(jnp.abs(cols - centre_cols), width - jnp.abs(cols - centre_cols))
-    wobble = jax.random.uniform(edge_key, (height, width), minval=-0.7, maxval=0.7)
-    is_pond = (jnp.sqrt(row_gap**2 + col_gap**2) + wobble < radii).any(axis=0)
+    shoreline = SHORE_ROUGHNESS * smooth_field(edge_key, height, width, SHORE_FEATURE_SIZE)
+    is_pond = (jnp.sqrt(row_gap**2 + col_gap**2) + shoreline < radii).any(axis=0)
     is_water = is_pond & ~spread_mask(is_rock, 1) & (cells == SAND) & is_clear.any()
     return jnp.where(is_water, WATER, cells)
 
 
-def scatter_flora(key: Key, cells: Array, flora_fill: float) -> Array:
+def scatter_flora(key: Key, cells: Array, wetness: Array, flora_fill: float) -> Array:
     cluster_key, plant_key = jax.random.split(key)
-    clusters = carve_caves(cluster_key, *cells.shape, 0.5, 2).astype(jnp.float32)
-    is_water = cells == WATER
-    shoreline = spread_mask(is_water, 1)
-    near_water = spread_mask(is_water, OASIS_REACH) & ~shoreline
-    chance = flora_fill * (0.4 + 1.2 * clusters) + OASIS_PALM_CHANCE * near_water
-    planted = jax.random.bernoulli(plant_key, chance) & (cells == SAND) & ~shoreline
+    groves = jax.nn.sigmoid(2.0 * smooth_field(cluster_key, *cells.shape, GROVE_FEATURE_SIZE))
+    water_distance = distance_to(cells == WATER, OASIS_REACH + 4).astype(jnp.float32)
+    rock_distance = distance_to(cells == ROCK, 3)
+    oasis_palms = OASIS_PALM_CHANCE * jnp.exp(-(water_distance - 2.0) / OASIS_FALLOFF)
+    oasis_palms = jnp.where(water_distance >= 2, oasis_palms, 0.0)
+    dryness = jax.nn.sigmoid(-1.5 * wetness)
+    desert_plants = flora_fill * dryness * (0.3 + 1.4 * groves)
+    boulders = BOULDER_CHANCE * (rock_distance == 1)
+    chance = jnp.clip(oasis_palms + desert_plants + boulders, 0.0, 0.9)
+    planted = jax.random.bernoulli(plant_key, chance) & (cells == SAND) & (water_distance >= 2)
     return jnp.where(planted, FLORA, cells)
 
 
@@ -163,7 +197,7 @@ class DuneSea(Environment):
         height: int = 16,
         num_agents: int = 4,
         time_limit: int = 256,
-        rock_fill: float = 0.45,
+        rock_fill: float = 0.39,
         smooth_passes: int = 4,
         flora_fill: float = 0.03,
         oasis_density: float = 0.0012,
@@ -187,11 +221,15 @@ class DuneSea(Environment):
         return self._num_agents
 
     def generate_map(self, key: Key) -> Array:
-        cave_key, first_flood_key, oasis_key, flora_key, flood_key = jax.random.split(key, 5)
-        cells = carve_caves(cave_key, self.height, self.width, self.rock_fill, self.smooth_passes)
-        cells = connect_caves(first_flood_key, cells, self._num_agents)
-        cells = dig_oases(oasis_key, cells, self.num_oases, self.oasis_radius)
-        cells = scatter_flora(flora_key, cells, self.flora_fill)
+        keys = jax.random.split(key, 7)
+        ruggedness = smooth_field(keys[0], self.height, self.width, TERRAIN_FEATURE_SIZE)
+        wetness = smooth_field(keys[1], self.height, self.width, TERRAIN_FEATURE_SIZE)
+        fill = jnp.clip(self.rock_fill + ROCK_VARIATION * ruggedness, 0.0, 1.0)
+        cells = carve_caves(keys[2], self.height, self.width, fill, self.smooth_passes)
+        cells = connect_caves(keys[3], cells, self._num_agents)
+        cells = dig_oases(keys[4], cells, wetness, self.num_oases, self.oasis_radius)
+        cells = scatter_flora(keys[5], cells, wetness, self.flora_fill)
+        flood_key = keys[6]
         return connect_caves(flood_key, cells, self._num_agents)
 
     def init(self, key: Key) -> tuple[DuneSeaState, Timestep]:
@@ -328,6 +366,19 @@ class DuneSea(Environment):
         frame = tiles.transpose(0, 2, 1, 3, 4).reshape(self.height * TILE_PIXELS, self.width * TILE_PIXELS, 3)
         return frame, variety
 
+    def choose_flora(self, cells: Array, variety: Array) -> Array:
+        groups = sprite_groups()["flora"]
+        pick = (variety >> 20).astype(jnp.int32)
+        palm = pick % groups["palm"]
+        cactus = groups["palm"] + pick % groups["cactus"]
+        boulder = groups["palm"] + groups["cactus"] + pick % groups["boulder"]
+        lone_palm = ((variety >> 10) % 100) < LONE_PALM_PERCENT
+        water_distance = distance_to(cells == WATER, OASIS_REACH + 4)
+        rock_distance = distance_to(cells == ROCK, 3)
+        dry_choice = jnp.where(lone_palm, palm, cactus)
+        dry_choice = jnp.where(rock_distance <= 1, boulder, dry_choice)
+        return jnp.where(water_distance <= OASIS_REACH + 2, palm, dry_choice)
+
     def sprite_bank(self) -> tuple[Array, int, int]:
         agents = self.agent_sprites.reshape(-1, *self.agent_sprites.shape[2:])
         if not tileset_available():
@@ -350,7 +401,7 @@ class DuneSea(Environment):
         if num_flora:
             cell_rows = jnp.arange(num_cells) // self.width
             cell_cols = jnp.arange(num_cells) % self.width
-            flora_ids = ((variety.ravel() >> 20) % num_flora).astype(jnp.int32)
+            flora_ids = self.choose_flora(state.cells, variety).ravel()
             rows = jnp.concatenate([cell_rows, rows])
             cols = jnp.concatenate([cell_cols, cols])
             ids = jnp.concatenate([flora_ids, ids])

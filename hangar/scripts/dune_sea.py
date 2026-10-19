@@ -213,7 +213,7 @@ def main():
     parser.add_argument("--window-width", type=int, default=1280)
     parser.add_argument("--window-height", type=int, default=800)
     parser.add_argument("--fps", type=float, default=8.0)
-    parser.add_argument("--rock-fill", type=float, default=0.45)
+    parser.add_argument("--rock-fill", type=float, default=0.39)
     parser.add_argument("--smooth-passes", type=int, default=4)
     parser.add_argument("--flora-fill", type=float, default=0.03)
     parser.add_argument("--oasis-density", type=float, default=0.0012)

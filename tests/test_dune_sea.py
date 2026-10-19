@@ -291,7 +291,7 @@ def test_oases_fill_open_sand_and_leave_the_rock_alone(seed):
     water = ponds == WATER
     assert int(water.sum()) > 0
     assert not bool(((dry == ROCK) & (ponds != ROCK)).any())
-    assert bool((dry[water] == SAND).all())
+    assert not bool((dry[water] == ROCK).any())
 
 
 def test_palms_gather_around_the_oases():

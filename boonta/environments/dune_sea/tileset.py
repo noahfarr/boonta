@@ -96,43 +96,43 @@ def overhang_tiles(sheet: np.ndarray, layered: bool = True) -> np.ndarray:
     return table
 
 
-FLORA_SPRITES = (
-    ("tree_palm1.png", 3),
-    ("tree_palm2.png", 3),
-    ("tree_palm3.png", 3),
-    ("tree_palm4.png", 3),
-    ("decor_cactus1.png", 2),
-    ("decor_cactus2.png", 2),
-    ("decor_cactus3.png", 1),
-    ("decor_cactus4.png", 1),
-    ("decor_cactus5.png", 1),
-    ("decor_cactus2_pink.png", 1),
-    ("decor_cactus4_white.png", 1),
-    ("decor_stone_large1.png", 2),
-    ("decor_stone_large2.png", 2),
+PALM_SPRITES = ("tree_palm1.png", "tree_palm2.png", "tree_palm3.png", "tree_palm4.png")
+CACTUS_SPRITES = (
+    "decor_cactus1.png",
+    "decor_cactus2.png",
+    "decor_cactus3.png",
+    "decor_cactus4.png",
+    "decor_cactus5.png",
+    "decor_cactus2_pink.png",
+    "decor_cactus4_white.png",
 )
-DETAIL_SPRITES = (
-    "decor_stone_small1.png",
-    "decor_stone_small2.png",
-    "decor_stone_small3.png",
-    "decor_stone_small4.png",
+BOULDER_SPRITES = ("decor_stone_large1.png", "decor_stone_large2.png", "decor_stone_medium1.png", "decor_stone_medium2.png")
+STONE_DETAILS = ("decor_stone_small1.png", "decor_stone_small2.png", "decor_stone_small3.png", "decor_stone_small4.png")
+DRY_DETAILS = (
     "decor_dead_bush1.png",
     "decor_dead_bush2.png",
     "decor_dead_bush3.png",
     "decor_dead_bush4.png",
     "decor_dead_bush_small.png",
-    "decor_cactus_small1.png",
-    "decor_cactus_small2.png",
-    "decor_cactus_small1_pink.png",
 )
+GREEN_DETAILS = ("decor_cactus_small1.png", "decor_cactus_small2.png", "decor_cactus_small1_pink.png")
 SPRITE_HEIGHT = 112
 SPRITE_WIDTH = 48
 DETAIL_CHANCE = 0.06
-PALM_SPRITES = 12
 REED_SPRITES = ("decor_reed1.png", "decor_reed2.png", "decor_reed3.png", "decor_reed4.png")
 LILYPAD_SPRITES = tuple(f"decor_lilypad{index}.png" for index in range(1, 9))
 LILYPAD_CHANCE = 0.12
 WATER_COLOR = np.array([95, 132, 128], np.float32)
+
+
+def pad_detail(sprite: np.ndarray) -> np.ndarray:
+    return sprite[-TILE_PIXELS:, :TILE_PIXELS]
+
+
+def sprite_groups() -> dict:
+    counts = {"palm": len(PALM_SPRITES), "cactus": len(CACTUS_SPRITES), "boulder": len(BOULDER_SPRITES)}
+    details = {"stone": len(STONE_DETAILS), "dry": len(DRY_DETAILS), "green": len(GREEN_DETAILS)}
+    return {"flora": counts, "details": details}
 
 
 def anchor_sprite(sprite: np.ndarray) -> np.ndarray:
@@ -144,35 +144,55 @@ def anchor_sprite(sprite: np.ndarray) -> np.ndarray:
 
 
 @cache
-def load_tileset() -> dict:
+def read_tileset() -> dict:
     rock_sheet = read_sheet("dry_dirt.png")
     patch_sheet = read_sheet("sandstone.png")
-    flora = [anchor_sprite(read_sheet(name)) for name, weight in FLORA_SPRITES for _ in range(weight)]
+    flora = [anchor_sprite(read_sheet(name)) for name in PALM_SPRITES + CACTUS_SPRITES + BOULDER_SPRITES]
     details = [np.zeros((TILE_PIXELS, TILE_PIXELS, 4), np.float32)]
-    details += [read_sheet(name) for name in DETAIL_SPRITES]
+    details += [pad_detail(read_sheet(name)) for name in STONE_DETAILS + DRY_DETAILS + GREEN_DETAILS]
     water = {
-        "water": jnp.asarray(np.broadcast_to(WATER_COLOR, (TILE_PIXELS, TILE_PIXELS, 3)).copy()),
-        "shore": jnp.asarray(overhang_tiles(read_sheet("sand_to_water.png"), layered=False)),
-        "reeds": jnp.zeros((0, SPRITE_HEIGHT, SPRITE_WIDTH, 4)),
-        "lilypads": jnp.zeros((1, TILE_PIXELS, TILE_PIXELS, 4)),
+        "water": np.asarray(np.broadcast_to(WATER_COLOR, (TILE_PIXELS, TILE_PIXELS, 3)).copy()),
+        "shore": np.asarray(overhang_tiles(read_sheet("sand_to_water.png"), layered=False)),
+        "reeds": np.zeros((0, SPRITE_HEIGHT, SPRITE_WIDTH, 4)),
+        "lilypads": np.zeros((1, TILE_PIXELS, TILE_PIXELS, 4)),
     }
     if water_available():
-        water["water"] = jnp.asarray(cut_tile(read_sheet("water.png", WATER_DIRECTORY), *PLAIN_WATER_TILE)[..., :3])
+        water["water"] = np.asarray(cut_tile(read_sheet("water.png", WATER_DIRECTORY), *PLAIN_WATER_TILE)[..., :3])
         reeds = [anchor_sprite(read_sheet(name, WATER_DIRECTORY)) for name in REED_SPRITES]
-        water["reeds"] = jnp.asarray(np.stack(reeds))
+        water["reeds"] = np.asarray(np.stack(reeds))
         pads = [np.zeros((TILE_PIXELS, TILE_PIXELS, 4), np.float32)]
         pads += [read_sheet(name, WATER_DIRECTORY) for name in LILYPAD_SPRITES]
-        water["lilypads"] = jnp.asarray(np.stack(pads))
+        water["lilypads"] = np.asarray(np.stack(pads))
     return {
         **water,
-        "sand": jnp.asarray(fill_tiles(read_sheet("sand.png"))[..., :3]),
-        "rock": jnp.asarray(fill_tiles(rock_sheet)[..., :3]),
-        "overhang": jnp.asarray(overhang_tiles(rock_sheet)),
-        "patch": jnp.asarray(fill_tiles(patch_sheet)[..., :3]),
-        "patch_edges": jnp.asarray(overhang_tiles(patch_sheet)),
-        "flora": jnp.asarray(np.stack(flora)),
-        "details": jnp.asarray(np.stack(details)),
+        "sand": np.asarray(fill_tiles(read_sheet("sand.png"))[..., :3]),
+        "rock": np.asarray(fill_tiles(rock_sheet)[..., :3]),
+        "overhang": np.asarray(overhang_tiles(rock_sheet)),
+        "patch": np.asarray(fill_tiles(patch_sheet)[..., :3]),
+        "patch_edges": np.asarray(overhang_tiles(patch_sheet)),
+        "flora": np.asarray(np.stack(flora)),
+        "details": np.asarray(np.stack(details)),
     }
+
+
+def load_tileset() -> dict:
+    return {name: jnp.asarray(value) for name, value in read_tileset().items()}
+
+
+def distance_steps(mask: Array, max_distance: int) -> Array:
+    def grow_ring(step, carry):
+        reached, distance = carry
+        grown = (
+            reached
+            | jnp.roll(reached, 1, 0)
+            | jnp.roll(reached, -1, 0)
+            | jnp.roll(reached, 1, 1)
+            | jnp.roll(reached, -1, 1)
+        )
+        return grown, jnp.where(grown & ~reached, step + 1, distance)
+
+    _, distance = jax.lax.fori_loop(0, max_distance - 1, grow_ring, (mask, jnp.where(mask, 0, max_distance)))
+    return distance
 
 
 def neighbour_mask(is_rock: Array) -> Array:
@@ -240,10 +260,19 @@ def paint_scenery(cells: Array, is_patch: Array, variety: Array, tileset: dict) 
     ground = tileset["sand"][fill_variant]
     ground = blend_over(ground, tileset["patch_edges"][neighbour_mask(is_patch)])
     ground = jnp.where(is_patch[..., None, None, None], tileset["patch"][fill_variant], ground)
+    water_distance = distance_steps(cells == 3, 8)
+    rock_distance = distance_steps(is_rock, 3)
+    groups = sprite_groups()["details"]
+    first_dry = 1 + groups["stone"]
+    first_green = first_dry + groups["dry"]
+    pick = (variety >> 4).astype(jnp.int32)
+    stone_kind = 1 + pick % groups["stone"]
+    dry_kind = first_dry + pick % groups["dry"]
+    green_kind = first_green + pick % groups["green"]
+    detail_kind = jnp.where(rock_distance <= 2, stone_kind, jnp.where(water_distance <= 6, green_kind, dry_kind))
+    detail_chance = jnp.where(rock_distance <= 2, 2.0 * DETAIL_CHANCE, DETAIL_CHANCE)
     detail_roll = ((variety >> 8) % 1000).astype(jnp.float32) / 1000.0
-    num_details = tileset["details"].shape[0] - 1
-    detail_kind = 1 + ((variety >> 4) % num_details).astype(jnp.int32)
-    has_detail = (detail_roll < DETAIL_CHANCE) & (cells == 0)
+    has_detail = (detail_roll < detail_chance) & (cells == 0)
     ground = blend_over(ground, tileset["details"][jnp.where(has_detail, detail_kind, 0)])
     ground = blend_over(ground, tileset["overhang"][neighbour_mask(is_rock)])
     tiles = jnp.where(is_rock[..., None, None, None], tileset["rock"][fill_variant], ground)
