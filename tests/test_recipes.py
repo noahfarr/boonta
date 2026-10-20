@@ -160,6 +160,7 @@ CASES = [
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
     ("ippo", "dune_sea/commons", None, False),
     ("ippo", "dune_sea/hide_and_seek", None, False),
+    ("ippo", "dune_sea/hide_and_seek_sight", None, False),
     ("recurrent_ippo", "dune_sea/hide_and_seek", None, False),
     ("recurrent_ippo", "dune_sea/commons", None, False),
     ("ippo", "dune_sea/connectx", None, False),

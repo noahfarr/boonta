@@ -1,0 +1,10 @@
+namespace: dune_sea
+suite: hide_and_seek
+env_id: hide_and_seek_sight
+num_envs: 1024
+kwargs:
+  height: 24
+  width: 24
+  num_hiders: 2
+  num_seekers: 2
+  view_size: 7

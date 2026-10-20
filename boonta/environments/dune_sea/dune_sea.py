@@ -38,6 +38,7 @@ class DuneSea(Environment):
         thieves: Sequence[bool] | None = None,
         energy_cost: float = ENERGY_COST,
         catch_amount: float = CATCH_AMOUNT,
+        sight_drain: float = 0.0,
     ):
         self.height = height
         self.width = width
@@ -47,6 +48,7 @@ class DuneSea(Environment):
         self.generator = generator
         self.energy_cost = energy_cost
         self.catch_amount = catch_amount
+        self.sight_drain = sight_drain
         self.teams = jnp.asarray(teams if teams is not None else [0] * num_agents, jnp.int32)
         self.eaters = jnp.asarray(eaters if eaters is not None else [True] * num_agents, bool)
         self.thieves = jnp.asarray(thieves if thieves is not None else [False] * num_agents, bool)
@@ -106,7 +108,13 @@ class DuneSea(Environment):
             at_facing = alive & (indices != agent_index) & jnp.all(positions == facing_position, axis=-1)
             victim = jnp.argmax(at_facing)
             remaining = state.agent.energy[victim] - loss[victim]
-            can_steal = interacting & self.thieves[agent_index] & at_facing.any() & (remaining > 0)
+            can_steal = (
+                interacting
+                & (self.catch_amount > 0)
+                & self.thieves[agent_index]
+                & at_facing.any()
+                & (remaining > 0)
+            )
             stolen = jnp.where(can_steal, jnp.minimum(self.catch_amount, remaining), 0.0)
 
             can_mine = interacting & ~can_steal & (wall[y, x] > 0)
@@ -151,6 +159,8 @@ class DuneSea(Environment):
         positions = self.move(state, action, turn_order)
         cells, energy_change, inventory_change = self.interact(state, action, positions, turn_order)
 
+        if self.sight_drain > 0:
+            energy_change = energy_change + self.sight(state, positions, cells.wall)
         upkeep = jnp.where(alive, self.energy_cost, 0.0)
         energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
@@ -171,6 +181,25 @@ class DuneSea(Environment):
             info={},
         )
         return state, timestep
+
+    def sight(self, state: DuneSeaState, positions: Array, wall: Array) -> Array:
+        radius = self.view_size // 2
+        alive = state.agent.energy > 0
+        padded = jnp.pad(wall, radius, constant_values=1.0)
+
+        def seen_from(position):
+            visible = self.visibility(padded, position)
+            relative = positions - position
+            inside = (jnp.abs(relative) <= radius).all(-1)
+            rows = jnp.clip(relative[:, 0] + radius, 0, 2 * radius)
+            columns = jnp.clip(relative[:, 1] + radius, 0, 2 * radius)
+            return inside & visible[rows, columns]
+
+        sees = jax.vmap(seen_from)(positions)
+        sees = sees & (self.thieves & alive)[:, None] & (~self.thieves & alive)[None, :]
+        watchers = sees.sum(0)
+        drained = jnp.minimum(self.sight_drain, state.agent.energy / jnp.maximum(watchers, 1))
+        return (sees * drained[None, :]).sum(1) - drained * watchers
 
     def visibility(self, padded_wall: Array, position: Array) -> Array:
         radius = self.view_size // 2

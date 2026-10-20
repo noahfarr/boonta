@@ -365,3 +365,76 @@ def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
     assert state.agent.energy[0] == 0
     assert bool(timestep.terminated.all())
 
+
+def sighted(cells, agent, **kwargs):
+    roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
+    return world("dune_sea", cells, agent, sight_drain=0.1, catch_amount=0.0, **roles, **kwargs)
+
+
+def test_a_seeker_that_sees_a_hider_takes_energy_from_it_every_step():
+    env, state = sighted(Cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 2]], [0, 0], energy=[0.8, 0.5]))
+
+    state, timestep = step(env, state, NOOP, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.8 - 0.1 - ENERGY_COST)
+    assert state.agent.energy[1] == pytest.approx(0.5 + 0.1 - ENERGY_COST)
+    assert timestep.reward[0] == pytest.approx(-0.1 - ENERGY_COST)
+
+
+def test_a_wall_between_them_stops_the_drain():
+    cells = Cell(EMPTY.at[1, 1].set(1.0), EMPTY, EMPTY)
+    env, state = sighted(cells, agents([[1, 0], [1, 2]], [0, 0], energy=[0.8, 0.5]))
+
+    state, _ = step(env, state, NOOP, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.8 - ENERGY_COST)
+    assert state.agent.energy[1] == pytest.approx(0.5 - ENERGY_COST)
+
+
+def test_a_hider_outside_the_view_is_not_drained():
+    env = dune_sea.make(
+        "dune_sea",
+        height=12,
+        width=12,
+        num_agents=2,
+        view_size=5,
+        teams=[0, 1],
+        eaters=[True, False],
+        thieves=[False, True],
+        sight_drain=0.1,
+        generator=lambda key, height, width, num_agents: (
+            Cell(jnp.zeros((12, 12)), jnp.zeros((12, 12)), jnp.zeros((12, 12))),
+            agents([[1, 0], [1, 9]], [0, 0], energy=[0.8, 0.5]),
+        ),
+    )
+    state, _ = env.init(KEY)
+
+    state, _ = step(env, state, NOOP, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.8 - ENERGY_COST)
+
+
+def test_the_drain_is_limited_to_what_the_hider_has_and_split_between_watchers():
+    cells = Cell(EMPTY, EMPTY, EMPTY)
+    roles = dict(teams=[0, 1, 1], eaters=[True, False, False], thieves=[False, True, True])
+    env, state = world(
+        "dune_sea",
+        cells,
+        agents([[1, 1], [1, 0], [1, 2]], [0, 0, 0], energy=[0.05, 0.5, 0.5]),
+        sight_drain=0.1,
+        catch_amount=0.0,
+        **roles,
+    )
+
+    state, _ = step(env, state, NOOP, NOOP, NOOP)
+
+    assert state.agent.energy[0] == 0
+    gains = state.agent.energy[1:] - 0.5 + ENERGY_COST
+    assert float(gains.sum()) == pytest.approx(0.05, abs=1e-5)
+
+
+def test_the_sight_variant_is_registered_with_the_catch_off():
+    env = dune_sea.make("hide_and_seek_sight")
+
+    assert env.sight_drain > 0 and env.catch_amount == 0
+

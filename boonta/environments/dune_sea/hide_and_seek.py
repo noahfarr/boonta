@@ -28,6 +28,7 @@ class HideAndSeek(Commons):
         energy_cost: float = ENERGY_COST,
         catch_amount: float = 1.0,
         initial_dirt: int = INITIAL_DIRT,
+        sight_drain: float = 0.0,
     ):
         hiders, seekers = [True] * num_hiders, [True] * num_seekers
         is_hider = jnp.arange(num_hiders + num_seekers) < num_hiders
@@ -51,6 +52,7 @@ class HideAndSeek(Commons):
             thieves=[False] * num_hiders + seekers,
             energy_cost=energy_cost,
             catch_amount=catch_amount,
+            sight_drain=sight_drain,
         )
         self.preparation_steps = preparation_steps
 
