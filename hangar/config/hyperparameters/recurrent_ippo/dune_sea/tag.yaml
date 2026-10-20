@@ -1,5 +1,12 @@
 # @package _global_
 
+cell:
+  _target_: boonta.networks.MinGRUCell
+  features: 128
+
+torso:
+  _target_: boonta.networks.SSM
+
 num_steps: 1_000_000_000
 
 environment:
