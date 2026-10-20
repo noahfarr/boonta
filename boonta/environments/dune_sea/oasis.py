@@ -77,6 +77,7 @@ class Oasis(DuneSea):
         time_limit: int = 800,
         generator: Generator = cave_generator,
         num_oases: int = 3,
+        spare_ponds: int = 3,
         reserve: float = OASIS_RESERVE,
         drink_rate: float = DRINK_RATE,
         beacon_slots: int = 3,
@@ -90,8 +91,14 @@ class Oasis(DuneSea):
             oasis = cells.oasis
             for pond_key in jax.random.split(jax.random.fold_in(key, 11), num_oases):
                 oasis = spawn_pond(pond_key, cells.wall, oasis, reserve)
+            taken, spare = oasis, jnp.zeros_like(oasis)
+            for number, pond_key in enumerate(jax.random.split(jax.random.fold_in(key, 13), spare_ponds), start=1):
+                pond = spawn_pond(pond_key, cells.wall, taken, 1.0)
+                fresh = (pond > 0) & (taken == 0)
+                spare = jnp.where(fresh, float(number), spare)
+                taken = jnp.where(fresh, 1.0, taken)
             bush = jnp.where(dilate(oasis > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
-            return cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush), agent
+            return cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, spare=spare), agent
 
         super().__init__(
             height,
@@ -123,12 +130,15 @@ class Oasis(DuneSea):
         oasis = jnp.where(oasis < 1e-4, 0.0, oasis)
 
         dried = (oasis > 0).sum() < self.min_live_cells
-        replacement = spawn_pond(jax.random.fold_in(key, 7), cells.wall, oasis, self.reserve)
-        oasis = jnp.where(dried, replacement, oasis)
+        waiting = cells.spare > 0
+        next_pond = jnp.where(waiting, cells.spare, jnp.inf).min()
+        rising = waiting & (cells.spare == next_pond) & dried
+        oasis = jnp.where(rising & (cells.wall == 0) & (oasis == 0), self.reserve, oasis)
+        spare = jnp.where(rising, 0.0, cells.spare)
 
         bush = jnp.where(dilate(oasis > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
         state = state.replace(
-            cells=cells.replace(oasis=oasis, bush=bush), agent=state.agent.replace(energy=energy)
+            cells=cells.replace(oasis=oasis, bush=bush, spare=spare), agent=state.agent.replace(energy=energy)
         )
         timestep = timestep.replace(
             obs=self.observe(state),

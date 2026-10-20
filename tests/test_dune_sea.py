@@ -17,7 +17,7 @@ from boonta.environments.dune_sea.state import (MATURE_ENERGY, MAX_PLANT_ENERGY,
 
 def make_cell(wall, goal, energy, bush=None, oasis=None):
     blank = jnp.zeros_like(wall)
-    return StateCell(wall, goal, energy, blank if bush is None else bush, blank if oasis is None else oasis)
+    return StateCell(wall, goal, energy, blank if bush is None else bush, blank if oasis is None else oasis, blank)
 
 
 SIZE = 3
