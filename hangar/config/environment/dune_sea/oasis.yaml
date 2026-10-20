@@ -10,7 +10,7 @@ kwargs:
   height: 64
   width: 64
   num_agents: 16
-  num_oases: 3
+  num_oases: 2
   beacon_slots: 3
   view_size: 7
 auto_reset:

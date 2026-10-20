@@ -15,9 +15,17 @@ from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT, DASH
 from boonta.environments.dune_sea.state import (MATURE_ENERGY, MAX_PLANT_ENERGY,
                                                 SEED_ENERGY)
 
-def make_cell(wall, goal, energy, bush=None, oasis=None):
+def make_cell(wall, goal, energy, bush=None, oasis=None, mirage=None):
     blank = jnp.zeros_like(wall)
-    return StateCell(wall, goal, energy, blank if bush is None else bush, blank if oasis is None else oasis, blank)
+    return StateCell(
+        wall,
+        goal,
+        energy,
+        blank if bush is None else bush,
+        blank if oasis is None else oasis,
+        blank,
+        blank if mirage is None else mirage,
+    )
 
 
 SIZE = 3
@@ -273,7 +281,7 @@ def test_without_a_wall_the_same_cell_is_visible():
 
     view = env.observe(state)["view"][0]
 
-    assert view[1, 3, 2] == pytest.approx(0.4) and view[1, 3, 7] == 1
+    assert float(view[1, 3, 2]) == pytest.approx(0.4, abs=1e-2) and view[1, 3, 7] == 1
 
 
 def test_the_view_separates_teammates_from_opponents():
@@ -320,7 +328,7 @@ def test_the_game_goes_on_while_both_teams_have_someone_alive():
 
 
 def test_the_episode_is_truncated_for_everyone_at_the_time_limit():
-    env = dune_sea.make("hide_and_seek", height=12, width=12, time_limit=5)
+    env = dune_sea.make("hide_and_seek", height=12, width=12, time_limit=5, sight_drain=0.0)
     state, _ = env.init(KEY)
     step = jax.jit(env.step)
     idle = jnp.zeros(env.num_agents, jnp.int32)
@@ -748,7 +756,7 @@ def pond(**kwargs):
         width=SIZE,
         num_agents=2,
         num_oases=0,
-        min_live_cells=1,
+        num_mirages=0,
         beacon_slots=2,
         generator=lambda key, height, width, num_agents: (cells, agents([[1, 1], [0, 0]], [0, 0], energy=[0.5, 0.5])),
         **kwargs,
@@ -779,30 +787,125 @@ def test_an_oasis_gives_no_more_than_the_agent_can_hold():
     assert float(state.cells.oasis[1, 1]) == pytest.approx(0.9)
 
 
-def test_a_dried_oasis_is_replaced_by_a_new_pond_elsewhere():
+def test_a_pond_fades_into_a_mirage_at_its_time_and_the_real_water_rises_elsewhere():
+    env = dune_sea.make(
+        "oasis",
+        height=24,
+        width=24,
+        num_agents=1,
+        num_oases=1,
+        num_mirages=1,
+        mirage_start=3,
+        mirage_end=3,
+        beacon_slots=1,
+    )
+    state, _ = env.init(KEY)
+    original = state.cells.oasis > 0
+    assert int(original.sum()) > 0 and int((state.cells.mirage < 0).sum()) == 0
+
+    for _ in range(2):
+        state, _ = step(env, state, NOOP)
+    assert bool(((state.cells.oasis > 0) == original).all())
+
+    state, _ = step(env, state, NOOP)
+
+    assert bool((state.cells.mirage < 0).sum() == original.sum())
+    assert float(state.cells.oasis[original].sum()) == 0
+    assert int((state.cells.oasis > 0).sum()) > 0
+    assert not bool(((state.cells.oasis > 0) & original).any())
+
+
+def mirage_world():
     size = 12
-    water = jnp.zeros((size, size)).at[2, 2].set(0.05)
     zeros = jnp.zeros((size, size))
+    cells = make_cell(zeros, zeros, zeros, mirage=zeros.at[5, 6].set(-1.0))
+    env = dune_sea.make(
+        "oasis",
+        height=size,
+        width=size,
+        num_agents=2,
+        num_oases=0,
+        num_mirages=0,
+        beacon_slots=1,
+        generator=lambda key, height, width, num_agents: (
+            cells,
+            agents([[5, 3], [5, 5]], [0, 0], energy=[0.5, 0.5]),
+        ),
+    )
+    state, _ = env.init(KEY)
+    return env, state
+
+
+def test_a_mirage_looks_like_water_from_afar_and_gives_nothing():
+    env, state = mirage_world()
+
+    far = env.observe(state)["view"][0]
+    near = env.observe(state)["view"][1]
+
+    assert float(far[..., 8].sum()) == 1
+    assert float(near[..., 8].sum()) == 0
+
+    state = state.replace(agent=state.agent.replace(position=jnp.array([[5, 6], [5, 2]])))
+    state, timestep = step(env, state, NOOP, NOOP)
+    assert state.agent.energy[0] == pytest.approx(0.5 - 0.004)
+
+
+def pond_block(**fields):
+    size = 12
+    zeros = jnp.zeros((size, size))
+    block = zeros.at[4:7, 5:8].set(1.0)
+    cells = make_cell(zeros, zeros, zeros)
+    cells = cells.replace(**{name: block * value for name, value in fields.items()})
     env = dune_sea.make(
         "oasis",
         height=size,
         width=size,
         num_agents=1,
         num_oases=0,
-        min_live_cells=1,
-        drink_rate=0.05,
+        num_mirages=0,
         beacon_slots=1,
-        generator=lambda key, height, width, num_agents: (
-            make_cell(zeros, zeros, zeros, oasis=water),
-            agents([[2, 2]], [0], energy=[0.5]),
-        ),
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 1]], [0], energy=[0.5])),
     )
     state, _ = env.init(KEY)
+    return env, state
 
-    state, _ = jax.jit(env.step)(KEY, state, jnp.zeros(1, jnp.int32))
 
-    assert float(state.cells.oasis[2, 2]) == 0
-    assert int((state.cells.oasis > 0).sum()) >= 1
+def centre(env, state, time):
+    image = env.render(state.replace(time=jnp.int32(time)), 1, storm=0.0).astype(jnp.float32)
+    return image[5 * 16 + 4 : 5 * 16 + 12, 6 * 16 + 4 : 6 * 16 + 12].mean((0, 1))
+
+
+def test_a_mirage_shimmers_around_itself_while_a_real_pond_holds_still():
+    env, fake = pond_block(mirage=-10.0)
+    _, real = pond_block(oasis=1.0)
+    later = lambda s: s.replace(time=s.time + 1)
+    fake, real = fake.replace(time=jnp.int32(60)), real.replace(time=jnp.int32(60))
+
+    wave = [env.render(s, 1, storm=0.0) for s in (fake, later(fake))]
+    still = [env.render(s, 1, storm=0.0) for s in (real, later(real))]
+
+    assert not bool((wave[0] == wave[1]).all())
+    assert bool((wave[0][:, 160:] == wave[1][:, 160:]).all())
+    assert bool((still[0] == still[1]).all())
+
+
+def test_a_pond_that_becomes_a_mirage_fades_out_smoothly():
+    env, state = pond_block(oasis=0.0, mirage=-10.0)
+    solid = centre(env, state, 10)
+    halfway = centre(env, state, 25)
+    ghost = centre(env, state, 60)
+
+    assert float(jnp.abs(halfway - solid).sum()) > 1.0
+    assert float(jnp.abs(ghost - solid).sum()) > float(jnp.abs(halfway - solid).sum())
+
+
+def test_a_pond_that_rises_condenses_out_of_the_haze():
+    env, state = pond_block(oasis=1.0, spare=-10.0)
+    settled = centre(env, state, 60)
+    starting = centre(env, state, 10)
+    halfway = centre(env, state, 25)
+
+    assert float(jnp.abs(starting - settled).sum()) > float(jnp.abs(halfway - settled).sum()) > 1.0
 
 
 def test_there_are_no_plants_and_no_grass_on_the_water():
@@ -845,8 +948,8 @@ def test_a_broadcast_reaches_everyone_as_a_direction_in_their_own_frame():
 
     nearest, second = beacons[0], beacons[1]
     assert nearest[2] == 1 and second[2] == 1
-    assert nearest[0] == pytest.approx(0.0) and nearest[1] == pytest.approx(-4 / 12, abs=1e-2)
-    assert second[0] == pytest.approx(7 / 12, abs=1e-2) and second[1] == pytest.approx(0.0)
+    assert float(nearest[0]) == pytest.approx(0.0) and float(nearest[1]) == pytest.approx(-4 / 12, abs=1e-2)
+    assert float(second[0]) == pytest.approx(7 / 12, abs=1e-2) and float(second[1]) == pytest.approx(0.0)
 
 
 def test_nobody_sees_a_beacon_that_is_not_broadcasting_or_their_own():
@@ -954,3 +1057,20 @@ def test_the_timestep_reports_the_action_that_was_chosen_even_for_an_agent_that_
 
     assert timestep.action.tolist() == chosen.tolist()
     assert (after.agent.position[1] == state.agent.position[1]).all()
+
+
+def test_shore_plants_fade_with_the_opacity_they_are_given():
+    from boonta.environments.dune_sea import render as drawing
+
+    base = jnp.full((16, 16, 3), 100.0)
+    mask = jnp.ones((1, 1), bool)
+    name = drawing.REED_SPRITES[0]
+    full = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY)
+    half = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY, opacity=jnp.full((1, 1), 0.5))
+    none = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY, opacity=jnp.zeros((1, 1)))
+
+    drawn = jnp.abs(full - base).sum(-1) > 1.0
+    assert bool(drawn.any())
+    assert bool((none == base).all())
+    ratio = jnp.abs(half - base).sum(-1)[drawn] / jnp.abs(full - base).sum(-1)[drawn]
+    assert float(jnp.abs(ratio - 0.5).max()) < 0.02

@@ -23,6 +23,13 @@ FOREST_DIRECTORY = DIRECTORY.parent / "glionox_forest"
 WATER_TILE = (3, 9)
 WET_SAND = (0.80, 0.76, 0.66)
 WATER_BLUR = 6
+SHIMMER_REACH = 2
+FADE_STEPS = 30.0
+GHOST_OPACITY = 0.45
+RISE_OPACITY = 0.15
+SHIMMER_AMPLITUDE = 2.0
+SHIMMER_FREQUENCY = 0.45
+SHIMMER_SPEED = 0.7
 EDGE_ROUGHNESS = 0.2
 DAMP_START = 0.12
 REED_SPRITES = tuple(f"decor_reed{i}.png" for i in range(1, 9))
@@ -150,6 +157,19 @@ def paint_water(image: Array, water: Array, wall: Array) -> tuple[Array, Array]:
     damp = jnp.clip((field - DAMP_START) / (0.5 - DAMP_START), 0.0, 1.0) * (~lake & ~on_rock)
     image = image * (1.0 - damp[..., None] * (1.0 - jnp.array(WET_SAND, jnp.float32)))
     return jnp.where(lake[..., None], colour, image), lake
+
+
+def near_maximum(field: Array, reach: int) -> Array:
+    height, width = field.shape
+    padded = jnp.pad(field, reach)
+    return functools.reduce(
+        jnp.maximum,
+        [
+            padded[dy : dy + height, dx : dx + width]
+            for dy in range(2 * reach + 1)
+            for dx in range(2 * reach + 1)
+        ],
+    )
 
 
 def count_neighbours(mask: Array) -> Array:
@@ -294,6 +314,7 @@ def paint_sprite(
     directory: Path = DIRECTORY,
     levels: tuple[int, ...] | None = None,
     rows: tuple[int, int] | None = None,
+    opacity: Array | None = None,
 ) -> Array:
     height, width = mask.shape
     canvas = jnp.zeros((height * TILE, width * TILE, 4), jnp.float32)
@@ -309,7 +330,11 @@ def paint_sprite(
         shift = level * TILE
         layer = jnp.concatenate([layer[shift:], jnp.zeros((shift, *layer.shape[1:]))])
         canvas = layer_over(canvas, layer)
-    return layer_over(image, canvas)
+    drawn = layer_over(image, canvas)
+    if opacity is None:
+        return drawn
+    pixels = jnp.repeat(jnp.repeat(opacity, TILE, axis=0), TILE, axis=1)[..., None]
+    return image + (drawn - image) * pixels
 
 
 def layer_over(lower: Array, upper: Array) -> Array:
@@ -382,7 +407,9 @@ def palm_sites(water: Array, land: Array, rolls: Array) -> Array:
     return jnp.zeros(none, bool).at[order].set(keep).reshape(height, width)
 
 
-def paint_palms(image: Array, sites: Array, rolls: Array, behind_only: bool = False) -> Array:
+def paint_palms(
+    image: Array, sites: Array, rolls: Array, behind_only: bool = False, opacity: Array | None = None
+) -> Array:
     height, width = sites.shape
     bank = jnp.asarray(palm_bank())
     score = jnp.where(sites, rolls[1], -1.0)
@@ -403,7 +430,10 @@ def paint_palms(image: Array, sites: Array, rolls: Array, behind_only: bool = Fa
         blended = region * (1.0 - alpha) + sprite[..., :3] * alpha
         return jax.lax.dynamic_update_slice(canvas, blended, (top, left, 0)), None
 
-    items = (rows[order], columns[order], variants[order], (values[order] >= 0).astype(jnp.float32))
+    presence = (values >= 0).astype(jnp.float32)
+    if opacity is not None:
+        presence = presence * opacity.reshape(-1)[flat]
+    items = (rows[order], columns[order], variants[order], presence[order])
     drawn, _ = jax.lax.scan(draw, drawn, items)
     return drawn[PALM_HEIGHT:, PALM_WIDTH // 2 : -PALM_WIDTH // 2]
 
@@ -432,6 +462,40 @@ def paint_scenery(image: Array, state: "DuneSeaState", water: Array) -> Array:
 def drift(layer: Array, phase: Array, speed: float) -> Array:
     shift = jnp.round(phase * speed * jnp.array(WIND)).astype(jnp.int32)
     return jnp.roll(layer, (shift[0], shift[1]), axis=(0, 1))
+
+
+def shimmer(image: Array, haze: Array, phase: Array) -> Array:
+    height, width = haze.shape
+    padded = jnp.pad(haze, SHIMMER_REACH)
+    near = functools.reduce(
+        jnp.maximum,
+        [
+            padded[dy : dy + height, dx : dx + width]
+            for dy in range(2 * SHIMMER_REACH + 1)
+            for dx in range(2 * SHIMMER_REACH + 1)
+        ],
+    )
+    strength = jnp.repeat(jnp.repeat(near, TILE, axis=0), TILE, axis=1)
+    rows = jnp.arange(height * TILE)[:, None]
+    columns = jnp.arange(width * TILE)[None, :]
+    sway = jnp.round(strength * SHIMMER_AMPLITUDE * jnp.sin(rows * SHIMMER_FREQUENCY + phase * SHIMMER_SPEED))
+    source = jnp.clip(columns + sway.astype(jnp.int32), 0, width * TILE - 1)
+    wavy = jnp.take_along_axis(image, jnp.broadcast_to(source[..., None], image.shape), axis=1)
+    return jnp.where((strength > 0)[..., None], wavy, image)
+
+
+def water_phases(state: "DuneSeaState", phase: Array) -> tuple[Array, Array]:
+    fake = state.cells.mirage < 0
+    risen = (state.cells.spare < 0) & (state.cells.oasis > 0)
+    fading = jnp.clip((phase + state.cells.mirage) / FADE_STEPS, 0.0, 1.0)
+    rising = jnp.clip((phase + state.cells.spare) / FADE_STEPS, 0.0, 1.0)
+    opacity = jnp.where(
+        fake,
+        1.0 - (1.0 - GHOST_OPACITY) * fading,
+        jnp.where(risen, RISE_OPACITY + (1.0 - RISE_OPACITY) * rising, 1.0),
+    )
+    haze = jnp.where(fake, fading, jnp.where(risen, 1.0 - rising, 0.0))
+    return opacity, haze
 
 
 def tint(image: Array, alpha: Array) -> Array:
@@ -529,24 +593,32 @@ def render(
     mountain = choose_fill(fill_tiles(MOUNTAIN_SHEET).astype(np.float32), height, width)
     deep = (neighbour_mask(wall) == 255)[..., None, None, None]
     mountain = jnp.where(deep, choose_fill(fill_tiles(DEEP_ROCK_SHEET).astype(np.float32), height, width), mountain)
-    water = (state.cells.oasis > 0) & ~wall
+    mirage = state.cells.mirage < 0
+    water = ((state.cells.oasis > 0) | mirage) & ~wall
     neighbours = count_neighbours(water)
     wet = ~water & ~wall & (neighbours > 0)
     image = to_image(jnp.where(wall[..., None, None, None], mountain, ground))
-    image, lake = paint_water(image, water, wall)
     phase = state.time.astype(jnp.float32) - 1.0 + blend
+    opacity, haze = water_phases(state, phase)
+    dry = image
+    image, lake = paint_water(image, water, wall)
+    solid = jnp.repeat(jnp.repeat(opacity, TILE, axis=0), TILE, axis=1)[..., None]
+    image = jnp.where(lake[..., None], dry * (1.0 - solid) + image * solid, image)
     if storm:
         image = paint_ground_storm(image, phase, storm)
     image = paint_scenery(image, state, water)
     rolls = jnp.asarray(scenery_rolls(height, width))
+    pond_opacity = jnp.where(water, opacity, 0.0)
+    shore_opacity = near_maximum(pond_opacity, 1)
+    belt_opacity = near_maximum(pond_opacity, BELT_REACH)
     reed_here = wet & (state.cells.bush == 0) & (rolls[1] < REED_CHANCE)
     reed_kind = jnp.floor(rolls[0] * len(REED_SPRITES)).astype(jnp.int32) % len(REED_SPRITES)
     lily_here = water & (neighbours >= 7) & (rolls[0] > 1.0 - LILYPAD_CHANCE)
     lily_kind = jnp.floor(rolls[1] * len(LILYPAD_SPRITES)).astype(jnp.int32) % len(LILYPAD_SPRITES)
     for index, name in enumerate(LILYPAD_SPRITES):
-        image = paint_sprite(image, name, lily_here & (lily_kind == index), directory=FOREST_DIRECTORY)
+        image = paint_sprite(image, name, lily_here & (lily_kind == index), directory=FOREST_DIRECTORY, opacity=opacity)
     for index, name in enumerate(REED_SPRITES):
-        image = paint_sprite(image, name, reed_here & (reed_kind == index), directory=FOREST_DIRECTORY)
+        image = paint_sprite(image, name, reed_here & (reed_kind == index), directory=FOREST_DIRECTORY, opacity=shore_opacity)
     belt = jnp.zeros((height, width), jnp.float32)
     close = jnp.zeros((height, width), jnp.float32)
     padded_belt = jnp.pad(water.astype(jnp.float32), BELT_REACH)
@@ -560,9 +632,11 @@ def render(
     tufts = (belt > 0) & ~water & ~wall & ~reed_here & (state.cells.bush == 0) & (rolls[0] < tuft_chance)
     tuft_kind = jnp.floor(rolls[1] * len(GRASS_SPRITES) * 3.0).astype(jnp.int32) % len(GRASS_SPRITES)
     for index, name in enumerate(GRASS_SPRITES):
-        image = paint_sprite(image, name, tufts & (tuft_kind == index), directory=FOREST_DIRECTORY)
+        image = paint_sprite(image, name, tufts & (tuft_kind == index), directory=FOREST_DIRECTORY, opacity=belt_opacity)
     sites = palm_sites(water, ~water & ~wall & (state.cells.bush == 0), rolls)
-    image = paint_palms(image, sites, rolls)
+    palm_opacity = near_maximum(pond_opacity, PALM_REACH)
+    image = paint_palms(image, sites, rolls, opacity=palm_opacity)
+    image = shimmer(image, haze, phase)
     rows, columns = jnp.meshgrid(jnp.arange(height), jnp.arange(width), indexing="ij")
     image = paint_sprite(image, GOAL_SPRITE, state.cells.goal > 0)
     energy = state.cells.energy
@@ -577,7 +651,7 @@ def render(
     if fov is not None:
         image = paint_fov(image, fov, teams)
     image = paint_agents(image, state, teams, offsets)
-    image = paint_palms(image, sites, rolls, behind_only=True)
+    image = paint_palms(image, sites, rolls, behind_only=True, opacity=palm_opacity)
     for index, name in enumerate(BUSH_SPRITES):
         here = bush & (variety == index)
         image = paint_sprite(image, name, here & ~occupied, BUSH_ALPHA)

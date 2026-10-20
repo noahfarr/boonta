@@ -313,7 +313,10 @@ class DuneSea(Environment):
                 facing = jnp.stack([present(shown & (turned == k)) for k in range(FACING_CHANNELS)], axis=-1)
                 view = jnp.concatenate([view, facing * visible[..., None]], axis=-1)
             if self.observe_oasis:
-                water = window(jnp.pad(jnp.clip(state.cells.oasis, 0.0, 1.0), radius))
+                real = state.cells.oasis > 0
+                seen = jnp.pad(real | (state.cells.mirage < 0), radius).astype(jnp.float32)
+                close = (jnp.abs(local[:, None] - radius) <= 1) & (jnp.abs(local[None, :] - radius) <= 1)
+                water = jnp.where(close, window(jnp.pad(real, radius).astype(jnp.float32)), window(seen))
                 view = jnp.concatenate([view, (water * visible)[..., None]], axis=-1)
             rotations = jnp.stack([jnp.rot90(view, k, axes=(0, 1)) for k in range(4)])
             return rotations[(direction + 1) % 4]

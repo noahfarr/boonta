@@ -9,9 +9,10 @@ from .dune_sea import DuneSea
 from .generators import Generator, cave_generator
 from .state import MAX_ENERGY, DuneSeaState
 
-OASIS_RESERVE = 1.5
+OASIS_RESERVE = 0.8
 DRINK_RATE = 0.05
-POND_CELLS = 10
+MIRAGE_START = 200
+MIRAGE_END = 600
 MIN_RADIUS = 1.7
 MAX_RADIUS = 3.1
 EDGE_JITTER = 0.9
@@ -76,29 +77,37 @@ class Oasis(DuneSea):
         view_size: int = 7,
         time_limit: int = 800,
         generator: Generator = cave_generator,
-        num_oases: int = 3,
-        spare_ponds: int = 3,
+        num_oases: int = 2,
+        num_mirages: int = 1,
+        mirage_start: int = MIRAGE_START,
+        mirage_end: int = MIRAGE_END,
         reserve: float = OASIS_RESERVE,
         drink_rate: float = DRINK_RATE,
         beacon_slots: int = 3,
         energy_cost: float = ENERGY_COST,
-        min_live_cells: int | None = None,
     ):
         base_generator = generator
 
         def generate(key, height, width, num_agents):
             cells, agent = base_generator(key, height, width, num_agents)
-            oasis = cells.oasis
-            for pond_key in jax.random.split(jax.random.fold_in(key, 11), num_oases):
-                oasis = spawn_pond(pond_key, cells.wall, oasis, reserve)
-            taken, spare = oasis, jnp.zeros_like(oasis)
-            for number, pond_key in enumerate(jax.random.split(jax.random.fold_in(key, 13), spare_ponds), start=1):
+            oasis, ponds = cells.oasis, jnp.zeros_like(cells.oasis)
+            for number, pond_key in enumerate(jax.random.split(jax.random.fold_in(key, 11), num_oases), start=1):
+                grown = spawn_pond(pond_key, cells.wall, oasis, reserve)
+                ponds = jnp.where((grown > 0) & (oasis == 0), float(number), ponds)
+                oasis = grown
+            taken, spare = oasis, cells.spare
+            for number, pond_key in enumerate(jax.random.split(jax.random.fold_in(key, 13), num_mirages), start=1):
                 pond = spawn_pond(pond_key, cells.wall, taken, 1.0)
                 fresh = (pond > 0) & (taken == 0)
                 spare = jnp.where(fresh, float(number), spare)
                 taken = jnp.where(fresh, 1.0, taken)
+            fades = jnp.sort(jax.random.randint(jax.random.fold_in(key, 17), (num_mirages,), mirage_start, mirage_end + 1))
+            mirage = cells.mirage
+            for number in range(1, num_mirages + 1):
+                mirage = jnp.where(ponds == number, fades[number - 1].astype(jnp.float32), mirage)
             bush = jnp.where(dilate(oasis > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
-            return cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, spare=spare), agent
+            cells = cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, spare=spare, mirage=mirage)
+            return cells, agent
 
         super().__init__(
             height,
@@ -113,7 +122,6 @@ class Oasis(DuneSea):
         )
         self.reserve = reserve
         self.drink_rate = drink_rate
-        self.min_live_cells = POND_CELLS * (num_oases - 1) + 1 if min_live_cells is None else min_live_cells
 
     def step(
         self, key: Key, state: DuneSeaState, action: Array
@@ -129,16 +137,21 @@ class Oasis(DuneSea):
         oasis = cells.oasis.at[y, x].add(-drunk)
         oasis = jnp.where(oasis < 1e-4, 0.0, oasis)
 
-        dried = (oasis > 0).sum() < self.min_live_cells
+        fading = (cells.mirage > 0) & (cells.mirage <= state.time)
+        oasis = jnp.where(fading, 0.0, oasis)
+        mirage = jnp.where(fading, -state.time.astype(jnp.float32), cells.mirage)
+
         waiting = cells.spare > 0
         next_pond = jnp.where(waiting, cells.spare, jnp.inf).min()
-        rising = waiting & (cells.spare == next_pond) & dried
+        rising = waiting & (cells.spare == next_pond) & fading.any()
         oasis = jnp.where(rising & (cells.wall == 0) & (oasis == 0), self.reserve, oasis)
-        spare = jnp.where(rising, 0.0, cells.spare)
+        spare = jnp.where(rising, -state.time.astype(jnp.float32), cells.spare)
 
-        bush = jnp.where(dilate(oasis > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
+        looks_wet = (oasis > 0) | (mirage < 0)
+        bush = jnp.where(dilate(looks_wet, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
         state = state.replace(
-            cells=cells.replace(oasis=oasis, bush=bush, spare=spare), agent=state.agent.replace(energy=energy)
+            cells=cells.replace(oasis=oasis, bush=bush, spare=spare, mirage=mirage),
+            agent=state.agent.replace(energy=energy),
         )
         timestep = timestep.replace(
             obs=self.observe(state),

@@ -17,6 +17,7 @@ class Cell:
     bush: Array
     oasis: Array
     spare: Array
+    mirage: Array
 
 
 @struct.dataclass

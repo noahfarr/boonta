@@ -83,6 +83,7 @@ def uniform_generator(
         bush=jnp.zeros((height, width), jnp.float32),
         oasis=jnp.zeros((height, width), jnp.float32),
         spare=jnp.zeros((height, width), jnp.float32),
+        mirage=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent
 
@@ -107,5 +108,6 @@ def cave_generator(
         bush=bush.astype(jnp.float32),
         oasis=jnp.zeros((height, width), jnp.float32),
         spare=jnp.zeros((height, width), jnp.float32),
+        mirage=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent
