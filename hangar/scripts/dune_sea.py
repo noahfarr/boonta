@@ -221,7 +221,7 @@ def main():
         "space autoplay, +/- speed, r reset, esc quit. "
         "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )
-    parser.add_argument("--env", choices=("dune_sea", "commons", "hide_and_seek"), default="commons")
+    parser.add_argument("--env", choices=("dune_sea", "hide_and_seek", "tag", "oasis"), default="hide_and_seek")
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--height", type=int, default=48)
     parser.add_argument("--agents", type=int, default=8)

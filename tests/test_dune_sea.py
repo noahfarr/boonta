@@ -1,9 +1,12 @@
+import functools
+
 import jax
 import jax.numpy as jnp
 import pytest
 
 from boonta.environments import dune_sea
 from boonta.environments.dune_sea import Agent
+from boonta.environments.dune_sea.commons import Commons
 from boonta.environments.dune_sea import Cell as StateCell
 from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT, DASH,
                                                     ENERGY_COST, FORWARD,
@@ -35,8 +38,8 @@ def agents(positions, directions, energy=0.5, inventory=0):
 
 def world(name, cells, agent, **kwargs):
     count = agent.position.shape[0]
-    env = dune_sea.make(
-        name,
+    make = name if isinstance(name, type) else functools.partial(dune_sea.make, name)
+    env = make(
         height=SIZE,
         width=SIZE,
         num_agents=count,
@@ -128,7 +131,7 @@ def test_noop_and_broadcast_leave_the_agent_where_it_is_and_cost_energy():
 
 def test_commons_plants_ripen_up_to_a_cap():
     cells = make_cell(EMPTY, EMPTY, plant(0, 0, 0.1).at[2, 2].set(MAX_PLANT_ENERGY - 0.001))
-    env, state = world("commons", cells, agents([[1, 1]], [0]), growth_steps=100)
+    env, state = world(Commons, cells, agents([[1, 1]], [0]), growth_steps=100)
 
     state, _ = step(env, state, NOOP)
 
@@ -140,7 +143,7 @@ def test_commons_plants_ripen_up_to_a_cap():
 
 def test_commons_ripe_plant_regrows_from_a_seed_after_harvest():
     cells = make_cell(EMPTY, EMPTY, plant(1, 2, MAX_PLANT_ENERGY))
-    env, state = world("commons", cells, agents([[1, 1]], [0]))
+    env, state = world(Commons, cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
 
@@ -150,7 +153,7 @@ def test_commons_ripe_plant_regrows_from_a_seed_after_harvest():
 
 def test_commons_plant_harvested_before_it_matures_is_gone():
     cells = make_cell(EMPTY, EMPTY, plant(1, 2, MATURE_ENERGY - 0.1))
-    env, state = world("commons", cells, agents([[1, 1]], [0]))
+    env, state = world(Commons, cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
 
@@ -286,23 +289,6 @@ def test_the_view_separates_teammates_from_opponents():
     assert view[3, 2, 3] == 1
 
 
-def test_seekers_are_frozen_while_hiders_prepare():
-    env = dune_sea.make("hide_and_seek", height=12, width=12, preparation_steps=3)
-    state, _ = env.init(KEY)
-    start = state.agent
-    seekers = env.thieves
-    actions = jnp.stack([jnp.array(FORWARD), jnp.array(TURN_LEFT)])[jnp.arange(env.num_agents) % 2]
-
-    for _ in range(3):
-        state, _ = jax.jit(env.step)(KEY, state, actions)
-    assert (state.agent.position[seekers] == start.position[seekers]).all()
-    assert (state.agent.direction[seekers] == start.direction[seekers]).all()
-    assert (state.agent.direction[~seekers] != start.direction[~seekers]).any()
-
-    state, _ = jax.jit(env.step)(KEY, state, jnp.full(env.num_agents, TURN_LEFT, jnp.int32))
-    assert (state.agent.direction[seekers] != start.direction[seekers]).all()
-
-
 def test_hide_and_seek_gives_each_role_its_powers():
     env = dune_sea.make("hide_and_seek", num_hiders=2, num_seekers=3)
 
@@ -313,7 +299,7 @@ def test_hide_and_seek_gives_each_role_its_powers():
 
 
 def test_the_game_ends_for_everyone_when_a_team_is_eliminated():
-    env = dune_sea.make("hide_and_seek", height=12, width=12, preparation_steps=0)
+    env = dune_sea.make("hide_and_seek", height=12, width=12)
     state, _ = env.init(KEY)
     energy = jnp.where(env.thieves, 0.5, 0.0)
     state = state.replace(agent=state.agent.replace(energy=energy))
@@ -365,7 +351,6 @@ def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
         width=12,
         num_hiders=1,
         num_seekers=1,
-        preparation_steps=0,
         catch_amount=1.0,
         sight_drain=0.0,
     )

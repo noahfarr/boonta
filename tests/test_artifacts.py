@@ -406,7 +406,7 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
 
 TRAINED_WITH = [
     "algorithm=ippo",
-    "environment=dune_sea/commons",
+    "environment=dune_sea/oasis",
     "environment.kwargs.num_agents=8",
     "logger=[dashboard,orbax]",
     "artisan=checkpoint",
@@ -421,7 +421,7 @@ def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_
 
     assert command == (
         "uv run boonta evaluate checkpoint=/runs/a algorithm=ippo "
-        "environment=dune_sea/commons environment.kwargs.num_agents=8"
+        "environment=dune_sea/oasis environment.kwargs.num_agents=8"
     )
 
 

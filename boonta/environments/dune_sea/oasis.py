@@ -37,9 +37,11 @@ def spawn_pond(key: Key, wall: Array, oasis: Array, reserve: float) -> Array:
     height, width = wall.shape
     center_key, radius_key, edge_key = jax.random.split(key, 3)
     open_ground = wall == 0
-    room = sum(
-        (dilate(wall > 0, reach, outside=1.0) == 0).astype(jnp.int32) for reach in range(1, CLEARANCE + 1)
-    )
+    crowded = (wall > 0).astype(jnp.float32)
+    room = jnp.zeros((height, width), jnp.int32)
+    for _ in range(CLEARANCE):
+        crowded = dilate(crowded, 1, outside=1.0)
+        room = room + (crowded == 0).astype(jnp.int32)
     far = dilate(oasis > 0, POND_SPACING) == 0
     room = jnp.where(far & open_ground, room, -1)
     free = ((room == room.max()) & open_ground).reshape(-1).astype(jnp.float32)
