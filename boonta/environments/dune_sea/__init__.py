@@ -1,11 +1,13 @@
 from .commons import Commons
 from .dune_sea import DuneSea
+from .hide_and_seek import HideAndSeek
 from .generators import Generator, cave_generator, uniform_generator
 from .state import Agent, Cell, DuneSeaState
 
 registry = {
     "dune_sea": DuneSea,
     "commons": Commons,
+    "hide_and_seek": HideAndSeek,
 }
 
 
@@ -19,6 +21,7 @@ __all__ = [
     "Commons",
     "DuneSea",
     "DuneSeaState",
+    "HideAndSeek",
     "Generator",
     "cave_generator",
     "make",

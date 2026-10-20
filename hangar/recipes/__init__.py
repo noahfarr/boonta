@@ -53,6 +53,7 @@ register = {
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
     ("ippo", "bluffjax", "bluffjax"): ippo_bluffjax.make,
     ("ippo", "dune_sea", "commons"): ippo_commons.make,
+    ("ippo", "dune_sea", "hide_and_seek"): ippo_commons.make,
     ("ippo", "dune_sea", "connectx"): ippo_connectx.make,
     ("ippo", "jaxmarl", "smax"): ippo_smax.make,
     ("ippo", "mapox", "mapox"): ippo_mapox.make,

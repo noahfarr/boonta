@@ -20,7 +20,7 @@ from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
-from hangar.brief import brief
+from hangar.brief import brief, debrief, evaluation_command
 
 NUM_ENVS, NUM_STEPS = 8, 4
 online = partial(zoo.online, devices=2)
@@ -402,3 +402,50 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     assert axes.opponents is None
     assert axes.weights.kernel == root
     assert axes.step is False
+
+
+TRAINED_WITH = [
+    "algorithm=ippo",
+    "environment=dune_sea/commons",
+    "environment.kwargs.num_agents=8",
+    "logger=[dashboard,orbax]",
+    "artisan=checkpoint",
+    "seed=3",
+    "num_steps=1_000",
+    "hydra/launcher=submitit",
+]
+
+
+def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_trains():
+    command = evaluation_command("/runs/a", TRAINED_WITH)
+
+    assert command == (
+        "uv run boonta evaluate checkpoint=/runs/a algorithm=ippo "
+        "environment=dune_sea/commons environment.kwargs.num_agents=8"
+    )
+
+
+def test_the_evaluation_command_quotes_what_the_shell_would_expand():
+    command = evaluation_command("/runs/with space", ["network.sizes=[1,2]"])
+
+    assert command == "uv run boonta evaluate 'checkpoint=/runs/with space' 'network.sizes=[1,2]'"
+
+
+def test_debrief_prints_the_evaluation_command_of_a_run_that_saved_a_checkpoint(capsys, tmp_path):
+    (tmp_path / "checkpoints").mkdir()
+
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 20_000_000, 3.5, 4000.0)
+
+    printed = capsys.readouterr().out
+    for shown in ("20,000,000", "training/return", "3.5", "1h 06m 40s", "saved"):
+        assert shown in printed
+    assert f"uv run boonta evaluate checkpoint={tmp_path} algorithm=ippo" in printed
+
+
+def test_debrief_says_so_when_no_checkpoint_was_saved(capsys, tmp_path):
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 1_000, float("-inf"), 30.0)
+
+    printed = capsys.readouterr().out
+    assert "not saved" in printed and "n/a" in printed
+    assert "boonta evaluate" not in printed
+    assert "logger=[dashboard,orbax] artisan=checkpoint" in printed

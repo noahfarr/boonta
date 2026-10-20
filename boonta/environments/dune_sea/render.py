@@ -9,6 +9,7 @@ import numpy as np
 from boonta.utils import Array
 
 from .sprites import wanderer_sprites
+from .state import MATURE_ENERGY, MAX_ENERGY
 
 if TYPE_CHECKING:
     from .state import DuneSeaState
@@ -35,9 +36,16 @@ REGION_SLICES = (
     (slice(0, 2), slice(0, 2)),
 )
 ENERGY_SPRITE = "decor_cactus_small1.png"
+RIPE_SPRITE = "decor_cactus_small1_pink.png"
 GOAL_SPRITE = "decor_cactus1_pink.png"
 ROW_STRIDE, COLUMN_STRIDE = 7, 13
 POSE_OF_DIRECTION = jnp.array([1, 2, 3, 0])
+BAR_INNER = 12
+BAR_HEIGHT = 4
+BAR_FULL = jnp.array([90, 200, 80], dtype=jnp.float32)
+BAR_HALF = jnp.array([235, 190, 50], dtype=jnp.float32)
+BAR_LOW = jnp.array([215, 60, 50], dtype=jnp.float32)
+BAR_EMPTY = jnp.array([60, 50, 45], dtype=jnp.float32)
 
 
 def read_image(name: str) -> np.ndarray:
@@ -168,6 +176,14 @@ def agent_bank() -> np.ndarray:
     return wanderer_sprites()
 
 
+def energy_bar(energy: Array) -> Array:
+    fraction = jnp.clip(energy / MAX_ENERGY, 0.0, 1.0)
+    filled = jnp.arange(BAR_INNER) < jnp.round(fraction * BAR_INNER)
+    color = jnp.where(fraction > 0.5, BAR_FULL, jnp.where(fraction > 0.25, BAR_HALF, BAR_LOW))
+    inner = jnp.where(filled[None, :, None], color, BAR_EMPTY)
+    return jnp.pad(jnp.broadcast_to(inner, (BAR_HEIGHT - 2, BAR_INNER, 3)), ((1, 1), (1, 1), (0, 0)))
+
+
 def paint_agents(image: Array, state: "DuneSeaState") -> Array:
     bank = jnp.asarray(agent_bank())
     coords = (jnp.arange(TILE) + 0.5) / TILE
@@ -177,14 +193,23 @@ def paint_agents(image: Array, state: "DuneSeaState") -> Array:
     robes = jnp.arange(num_agents) % bank.shape[0]
 
     def draw(image, agent):
-        position, direction, broadcast, robe = agent
+        position, direction, broadcast, robe, energy = agent
         y, x = position
         region = jax.lax.dynamic_slice(image, (y * TILE, x * TILE, 0), (TILE, TILE, 3))
         region = jnp.where((ring & broadcast)[..., None], BROADCAST_COLOR, region)
         region = layer_over(region, bank[robe, POSE_OF_DIRECTION[direction]])
-        return jax.lax.dynamic_update_slice(image, region, (y * TILE, x * TILE, 0)), None
+        drawn = jax.lax.dynamic_update_slice(image, region, (y * TILE, x * TILE, 0))
+        top, left = jnp.maximum(y * TILE - BAR_HEIGHT, 0), x * TILE + 1
+        drawn = jax.lax.dynamic_update_slice(drawn, energy_bar(energy), (top, left, 0))
+        return jnp.where(energy > 0, drawn, image), None
 
-    agents = (state.agent.position, state.agent.direction, state.agent.broadcast, robes)
+    agents = (
+        state.agent.position,
+        state.agent.direction,
+        state.agent.broadcast,
+        robes,
+        state.agent.energy,
+    )
     image, _ = jax.lax.scan(draw, image, agents)
     return image
 
@@ -197,7 +222,9 @@ def render(state: "DuneSeaState", scale: int = 2) -> Array:
     mountain = choose_fill(fill_tiles(MOUNTAIN_SHEET).astype(np.float32), height, width)
     image = to_image(jnp.where(wall[..., None, None, None], mountain, ground))
     image = paint_sprite(image, GOAL_SPRITE, state.cells.goal > 0)
-    image = paint_sprite(image, ENERGY_SPRITE, state.cells.energy > 0)
+    energy = state.cells.energy
+    image = paint_sprite(image, ENERGY_SPRITE, (energy > 0) & (energy < MATURE_ENERGY))
+    image = paint_sprite(image, RIPE_SPRITE, energy >= MATURE_ENERGY)
     image = paint_agents(image, state)
     image = jnp.repeat(jnp.repeat(image, scale, axis=0), scale, axis=1)
     return jnp.clip(image, 0, 255).astype(jnp.uint8)

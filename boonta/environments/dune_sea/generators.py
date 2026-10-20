@@ -5,7 +5,8 @@ import jax.numpy as jnp
 
 from boonta.utils import Array, Key
 
-from .state import MAX_ENERGY, Agent, Cell
+from .state import (ENERGY_GAIN, MAX_ENERGY, MAX_PLANT_ENERGY, SEED_ENERGY,
+                    Agent, Cell)
 
 WALL_DENSITY = 0.2
 ENERGY_DENSITY = 0.1
@@ -76,7 +77,7 @@ def uniform_generator(
     cells = Cell(
         wall=wall.astype(jnp.float32),
         goal=goal.astype(jnp.float32),
-        energy=energy.astype(jnp.float32),
+        energy=energy.astype(jnp.float32) * ENERGY_GAIN,
     )
     return cells, agent
 
@@ -84,15 +85,18 @@ def uniform_generator(
 def cave_generator(
     key: Key, height: int, width: int, num_agents: int
 ) -> tuple[Cell, Agent]:
-    cave_key, agent_key, energy_key = jax.random.split(key, 3)
+    cave_key, agent_key, energy_key, stage_key = jax.random.split(key, 4)
     noise = jax.random.bernoulli(cave_key, CAVE_FILL, (height, width))
     wall = smooth_cave(noise, CAVE_ROUNDS)
     agent = place_agents(agent_key, ~wall, num_agents)
     energy = jax.random.bernoulli(energy_key, CAVE_ENERGY_DENSITY, (height, width))
     energy = energy & ~wall & ~occupied_cells(agent, height, width)
+    stage = jax.random.uniform(
+        stage_key, (height, width), minval=SEED_ENERGY, maxval=MAX_PLANT_ENERGY
+    )
     cells = Cell(
         wall=wall.astype(jnp.float32),
         goal=jnp.zeros((height, width), jnp.float32),
-        energy=energy.astype(jnp.float32),
+        energy=jnp.where(energy, stage, 0.0),
     )
     return cells, agent

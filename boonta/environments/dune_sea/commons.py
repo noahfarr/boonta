@@ -1,20 +1,12 @@
-import jax
 import jax.numpy as jnp
 
 from boonta.utils import Array, Key, Timestep
 
 from .dune_sea import DuneSea
 from .generators import Generator, cave_generator
-from .state import DuneSeaState
+from .state import MATURE_ENERGY, MAX_PLANT_ENERGY, SEED_ENERGY, DuneSeaState
 
-BASE_SPAWN_RATE = 0.002
-
-
-def neighbour_count(grid: Array) -> Array:
-    padded = jnp.pad(grid, 1)
-    return (
-        padded[:-2, 1:-1] + padded[2:, 1:-1] + padded[1:-1, :-2] + padded[1:-1, 2:]
-    )
+GROWTH_STEPS = 100
 
 
 class Commons(DuneSea):
@@ -27,20 +19,22 @@ class Commons(DuneSea):
         view_size: int = 7,
         time_limit: int = 512,
         generator: Generator = cave_generator,
-        spawn_rate: float = BASE_SPAWN_RATE,
+        growth_steps: int = GROWTH_STEPS,
+        **roles,
     ):
-        super().__init__(height, width, num_agents, view_size, time_limit, generator)
-        self.spawn_rate = spawn_rate
+        super().__init__(height, width, num_agents, view_size, time_limit, generator, **roles)
+        self.growth = (MAX_PLANT_ENERGY - SEED_ENERGY) / growth_steps
 
     def step(
         self, key: Key, state: DuneSeaState, action: Array
     ) -> tuple[DuneSeaState, Timestep]:
+        previous = state.cells.energy
         state, timestep = super().step(key, state, action)
-        cells = state.cells
-        adjacent_energy = neighbour_count(cells.energy)
-        spawn_chance = jnp.clip(self.spawn_rate * 2.0**adjacent_energy, 0.0, 1.0)
-        spawn_roll = jax.random.bernoulli(key, spawn_chance)
-        can_spawn = (cells.energy == 0) & (cells.wall == 0)
-        new_energy = jnp.where(spawn_roll & can_spawn, 1.0, cells.energy)
-        state = state.replace(cells=cells.replace(energy=new_energy))
+        energy = state.cells.energy
+        harvested = (previous > 0) & (energy == 0)
+        replanted = harvested & (previous >= MATURE_ENERGY)
+        grown = jnp.minimum(energy + self.growth, MAX_PLANT_ENERGY)
+        energy = jnp.where(energy > 0, grown, energy)
+        energy = jnp.where(replanted, SEED_ENERGY, energy)
+        state = state.replace(cells=state.cells.replace(energy=energy))
         return state, timestep.replace(obs=self.observe(state))

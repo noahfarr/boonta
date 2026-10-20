@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import jax
 import jax.numpy as jnp
 
@@ -10,16 +12,15 @@ from .render import render
 from .state import MAX_ENERGY, Agent, Cell, DuneSeaState
 
 ENERGY_COST = 0.01
-ENERGY_GAIN = 0.25
-NOOP, FORWARD, BACKWARD, LEFT, RIGHT, TURN_LEFT, TURN_RIGHT, INTERACT, BROADCAST = range(9)
-NUM_ACTIONS = 9
+CATCH_AMOUNT = 0.5
+NOOP, FORWARD, BACKWARD, LEFT, RIGHT, TURN_LEFT, TURN_RIGHT, INTERACT, BROADCAST, PLACE = range(10)
+NUM_ACTIONS = 10
 DIRECTIONS = jnp.array([[0, 1], [1, 0], [0, -1], [-1, 0]], dtype=jnp.int32)
-MOVE_OFFSET = jnp.array([0, 0, 2, 3, 1, 0, 0, 0, 0], dtype=jnp.int32)
-STEP_SIZE = jnp.array([0, 1, 1, 1, 1, 0, 0, 0, 0], dtype=jnp.int32)
-TURN_OFFSET = jnp.array([0, 0, 0, 0, 0, 3, 1, 0, 0], dtype=jnp.int32)
+MOVE_OFFSET = jnp.array([0, 0, 2, 3, 1, 0, 0, 0, 0, 0], dtype=jnp.int32)
+STEP_SIZE = jnp.array([0, 1, 1, 1, 1, 0, 0, 0, 0, 0], dtype=jnp.int32)
+TURN_OFFSET = jnp.array([0, 0, 0, 0, 0, 3, 1, 0, 0, 0], dtype=jnp.int32)
 
-
-NUM_CHANNELS = len(Cell.__dataclass_fields__) + 2
+NUM_CHANNELS = 7
 
 
 class DuneSea(Environment):
@@ -32,6 +33,9 @@ class DuneSea(Environment):
         view_size: int = 7,
         time_limit: int = 256,
         generator: Generator = uniform_generator,
+        teams: Sequence[int] | None = None,
+        eaters: Sequence[bool] | None = None,
+        thieves: Sequence[bool] | None = None,
     ):
         self.height = height
         self.width = width
@@ -39,6 +43,9 @@ class DuneSea(Environment):
         self.view_size = view_size
         self._time_limit = time_limit
         self.generator = generator
+        self.teams = jnp.asarray(teams if teams is not None else [0] * num_agents, jnp.int32)
+        self.eaters = jnp.asarray(eaters if eaters is not None else [True] * num_agents, bool)
+        self.thieves = jnp.asarray(thieves if thieves is not None else [False] * num_agents, bool)
 
     def init(self, key: Key) -> tuple[DuneSeaState, Timestep]:
         cells, agent = self.generator(key, self.height, self.width, self.num_agents)
@@ -53,96 +60,156 @@ class DuneSea(Environment):
         )
         return state, timestep
 
-    def step(
-        self, key: Key, state: DuneSeaState, action: Array
-    ) -> tuple[DuneSeaState, Timestep]:
-        action = jnp.asarray(action, jnp.int32)
+    def move(self, state: DuneSeaState, action: Array, turn_order: Array) -> Array:
         grid_size = jnp.array([self.height, self.width])
-        direction = state.agent.direction
+        alive = state.agent.energy > 0
 
-        def move(positions, agent_index):
+        def move_one(positions, agent_index):
             position = positions[agent_index]
             agent_action = action[agent_index]
             move_direction = DIRECTIONS[
-                (direction[agent_index] + MOVE_OFFSET[agent_action]) % 4
+                (state.agent.direction[agent_index] + MOVE_OFFSET[agent_action]) % 4
             ]
             target_position = position + STEP_SIZE[agent_action] * move_direction
             in_bounds = jnp.all((target_position >= 0) & (target_position < grid_size))
             y, x = jnp.clip(target_position, 0, grid_size - 1)
-            occupied = jnp.any(jnp.all(positions == target_position, axis=-1))
+            occupied = jnp.any(jnp.all(positions == target_position, axis=-1) & alive)
             can_move = in_bounds & (state.cells.wall[y, x] == 0) & ~occupied
             position = jnp.where(can_move, target_position, position)
             return positions.at[agent_index].set(position), None
 
-        turn_order = jax.random.permutation(key, self.num_agents)
-        positions, _ = jax.lax.scan(move, state.agent.position, turn_order)
+        positions, _ = jax.lax.scan(move_one, state.agent.position, turn_order)
+        return positions
 
-        def mine(wall, agent_index):
-            target_position = positions[agent_index] + DIRECTIONS[direction[agent_index]]
-            in_bounds = jnp.all((target_position >= 0) & (target_position < grid_size))
-            y, x = jnp.clip(target_position, 0, grid_size - 1)
-            can_mine = (action[agent_index] == INTERACT) & in_bounds & (wall[y, x] > 0)
-            return wall.at[y, x].set(jnp.where(can_mine, 0.0, wall[y, x])), can_mine
+    def interact(
+        self,
+        state: DuneSeaState,
+        action: Array,
+        positions: Array,
+        turn_order: Array,
+    ) -> tuple[Cell, Array, Array]:
+        grid_size = jnp.array([self.height, self.width])
+        alive = state.agent.energy > 0
+        indices = jnp.arange(self.num_agents)
 
-        wall, mined_in_turn_order = jax.lax.scan(mine, state.cells.wall, turn_order)
-        mined = jnp.zeros(self.num_agents, bool).at[turn_order].set(mined_in_turn_order)
+        def interact_one(carry, agent_index):
+            wall, energy_grid, loss = carry
+            facing_position = positions[agent_index] + DIRECTIONS[state.agent.direction[agent_index]]
+            in_bounds = jnp.all((facing_position >= 0) & (facing_position < grid_size))
+            y, x = jnp.clip(facing_position, 0, grid_size - 1)
+            interacting = (action[agent_index] == INTERACT) & in_bounds
 
-        y, x = positions[:, 0], positions[:, 1]
-        can_collect = (action == INTERACT) & ~mined & (state.cells.energy[y, x] > 0)
-        energy = jnp.where(
-            can_collect, state.agent.energy + ENERGY_GAIN, state.agent.energy
-        )
-        energy = jnp.clip(energy - ENERGY_COST, 0.0, MAX_ENERGY)
-        energy_delta = energy - state.agent.energy
-        cells = state.cells.replace(
-            wall=wall,
-            energy=state.cells.energy.at[y, x].set(
-                jnp.where(can_collect, 0.0, state.cells.energy[y, x])
+            at_facing = alive & (indices != agent_index) & jnp.all(positions == facing_position, axis=-1)
+            victim = jnp.argmax(at_facing)
+            remaining = state.agent.energy[victim] - loss[victim]
+            can_steal = interacting & self.thieves[agent_index] & at_facing.any() & (remaining > 0)
+            stolen = jnp.where(can_steal, jnp.minimum(CATCH_AMOUNT, remaining), 0.0)
+
+            can_mine = interacting & ~can_steal & (wall[y, x] > 0)
+            can_collect = (
+                interacting
+                & ~can_steal
+                & ~can_mine
+                & self.eaters[agent_index]
+                & (energy_grid[y, x] > 0)
             )
-        )
+            can_place = (
+                (action[agent_index] == PLACE)
+                & in_bounds
+                & (state.agent.inventory[agent_index] > 0)
+                & (wall[y, x] == 0)
+                & (energy_grid[y, x] == 0)
+                & (state.cells.goal[y, x] == 0)
+                & ~at_facing.any()
+            )
+            gain = stolen + jnp.where(can_collect, energy_grid[y, x], 0.0)
+            wall = wall.at[y, x].set(jnp.where(can_mine, 0.0, jnp.where(can_place, 1.0, wall[y, x])))
+            energy_grid = energy_grid.at[y, x].set(jnp.where(can_collect, 0.0, energy_grid[y, x]))
+            loss = loss.at[victim].add(stolen)
+            return (wall, energy_grid, loss), (can_mine, can_place, gain)
 
+        (wall, energy_grid, loss), (mined, placed, gain) = jax.lax.scan(
+            interact_one,
+            (state.cells.wall, state.cells.energy, jnp.zeros(self.num_agents, jnp.float32)),
+            turn_order,
+        )
+        in_agent_order = lambda values: jnp.zeros_like(values).at[turn_order].set(values)
+        energy_change = in_agent_order(gain) - loss
+        inventory_change = in_agent_order(mined).astype(jnp.int32) - in_agent_order(placed).astype(jnp.int32)
+        return state.cells.replace(wall=wall, energy=energy_grid), energy_change, inventory_change
+
+    def step(
+        self, key: Key, state: DuneSeaState, action: Array
+    ) -> tuple[DuneSeaState, Timestep]:
+        alive = state.agent.energy > 0
+        action = jnp.where(alive, jnp.asarray(action, jnp.int32), NOOP)
+        turn_order = jax.random.permutation(key, self.num_agents)
+        positions = self.move(state, action, turn_order)
+        cells, energy_change, inventory_change = self.interact(state, action, positions, turn_order)
+
+        upkeep = jnp.where(alive, ENERGY_COST, 0.0)
+        energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
             position=positions,
-            direction=(direction + TURN_OFFSET[action]) % 4,
+            direction=(state.agent.direction + TURN_OFFSET[action]) % 4,
             energy=energy,
             broadcast=action == BROADCAST,
-            inventory=state.agent.inventory + mined.astype(jnp.int32),
+            inventory=state.agent.inventory + inventory_change,
         )
+        reward = energy - state.agent.energy
         state = state.replace(cells=cells, agent=agent, time=state.time + 1)
         timestep = Timestep(
             obs=self.observe(state),
             action=action,
-            reward=energy_delta,
+            reward=reward,
             terminated=state.agent.energy <= 0.0,
             truncated=jnp.full(self.num_agents, state.time >= self._time_limit),
             info={},
         )
         return state, timestep
 
+    def visibility(self, padded_wall: Array, position: Array) -> Array:
+        radius = self.view_size // 2
+        offsets = jnp.arange(-radius, radius + 1)
+        dy, dx = jnp.meshgrid(offsets, offsets, indexing="ij")
+        fractions = jnp.arange(1, 2 * radius + 1) / (2 * radius + 1)
+        sample_y = jnp.round(position[0] + dy[..., None] * fractions).astype(jnp.int32)
+        sample_x = jnp.round(position[1] + dx[..., None] * fractions).astype(jnp.int32)
+        at_target = (sample_y == position[0] + dy[..., None]) & (sample_x == position[1] + dx[..., None])
+        at_origin = (sample_y == position[0]) & (sample_x == position[1])
+        solid = padded_wall[sample_y + radius, sample_x + radius] > 0
+        return ~jnp.any(solid & ~at_target & ~at_origin, axis=-1)
+
     def observe(self, state: DuneSeaState) -> dict[str, Array]:
         radius = self.view_size // 2
         y, x = state.agent.position[:, 0], state.agent.position[:, 1]
-        agents = jnp.zeros((self.height, self.width), jnp.float32).at[y, x].set(1.0)
-        wall = jnp.pad(state.cells.wall, radius, constant_values=1.0)
-        broadcasts = jnp.zeros((self.height, self.width), jnp.float32)
-        broadcasts = broadcasts.at[y, x].set(state.agent.broadcast.astype(jnp.float32))
-        others = [state.cells.goal, state.cells.energy, agents, broadcasts]
-        grid = jnp.stack([wall] + [jnp.pad(plane, radius) for plane in others], axis=-1)
+        alive = state.agent.energy > 0
+        empty = jnp.zeros((self.height, self.width), jnp.float32)
+        broadcasts = empty.at[y, x].add((state.agent.broadcast & alive).astype(jnp.float32))
+        padded_wall = jnp.pad(state.cells.wall, radius, constant_values=1.0)
+        shared = [padded_wall] + [jnp.pad(plane, radius) for plane in (state.cells.goal, state.cells.energy)]
+        shared.append(jnp.pad(broadcasts, radius))
 
-        def egocentric_view(position, direction):
-            view = jax.lax.dynamic_slice(
-                grid,
-                (position[0], position[1], 0),
-                (self.view_size, self.view_size, NUM_CHANNELS),
+        def egocentric_view(position, direction, team):
+            allies = empty.at[y, x].add((alive & (self.teams == team)).astype(jnp.float32))
+            others = empty.at[y, x].add((alive & (self.teams != team)).astype(jnp.float32))
+            grid = jnp.stack(
+                [*shared[:3], jnp.pad(allies, radius), jnp.pad(others, radius), shared[3]], axis=-1
             )
+            view = jax.lax.dynamic_slice(
+                grid, (position[0], position[1], 0), (self.view_size, self.view_size, NUM_CHANNELS - 1)
+            )
+            visible = self.visibility(padded_wall, position)
+            view = jnp.concatenate([view * visible[..., None], visible[..., None]], axis=-1)
             rotations = jnp.stack([jnp.rot90(view, k, axes=(0, 1)) for k in range(4)])
             return rotations[(direction + 1) % 4]
 
-        views = jax.vmap(egocentric_view)(state.agent.position, state.agent.direction)
+        views = jax.vmap(egocentric_view)(state.agent.position, state.agent.direction, self.teams)
         return {
             "view": views,
             "energy": state.agent.energy / MAX_ENERGY,
             "inventory": state.agent.inventory.astype(jnp.float32),
+            "team": self.teams.astype(jnp.float32),
         }
 
     def observation_space(self) -> dict[str, Space]:
@@ -159,6 +226,7 @@ class DuneSea(Environment):
             "inventory": Space(
                 shape=(self.num_agents,), dtype=jnp.float32, low=0.0, high=jnp.inf
             ),
+            "team": Space(shape=(self.num_agents,), dtype=jnp.float32, low=0.0, high=1.0),
         }
 
     def action_space(self) -> Space:

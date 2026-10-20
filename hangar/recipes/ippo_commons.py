@@ -5,9 +5,7 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.ppo import PPO
-from boonta.environments.wrappers import (Group,
-                                          RecordMultiAgentEpisodeStatistics,
-                                          Vectorize)
+from boonta.environments.wrappers import RecordMultiAgentEpisodeStatistics
 from boonta.networks import ActorCritic, Categorical, Network
 from boonta.networks.layers import Flatten
 
@@ -20,6 +18,7 @@ class ViewAndEnergy(nn.Module):
         view = Flatten(start_dim=-3)(obs["view"].astype(jnp.float32))
         energy = obs["energy"].astype(jnp.float32)[..., None]
         inventory = jnp.log1p(obs["inventory"].astype(jnp.float32))[..., None]
+        team = obs["team"].astype(jnp.float32)[..., None]
         return nn.Sequential(
             [
                 nn.Dense(self.features),
@@ -27,17 +26,14 @@ class ViewAndEnergy(nn.Module):
                 nn.Dense(self.features),
                 nn.relu,
             ]
-        )(jnp.concatenate([view, energy, inventory], axis=-1))
+        )(jnp.concatenate([view, energy, inventory, team], axis=-1))
 
 
 def make(cfg):
     env = environments.make(**cfg.environment)
 
     num_actions = env.action_space().num_actions
-    time_limit = env.time_limit()
-
-    env = Vectorize(env, num_envs=cfg.environment.num_envs)
-    env = Group(env, num_steps=time_limit)
+    env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=ViewAndEnergy(),

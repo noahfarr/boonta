@@ -15,6 +15,7 @@ from boonta.environments.dune_sea.dune_sea import (  # noqa: E402
     INTERACT,
     LEFT,
     NOOP,
+    PLACE,
     NUM_ACTIONS,
     RIGHT,
     TURN_LEFT,
@@ -41,6 +42,7 @@ CONTROL_KEYS = {
     pr.KeyboardKey.KEY_X: INTERACT,
     pr.KeyboardKey.KEY_B: BROADCAST,
     pr.KeyboardKey.KEY_N: NOOP,
+    pr.KeyboardKey.KEY_P: PLACE,
 }
 
 
@@ -52,8 +54,12 @@ class Viewer:
             kwargs={
                 "width": args.width,
                 "height": args.height,
-                "num_agents": args.agents,
                 "time_limit": args.time_limit,
+                **(
+                    {"num_hiders": args.agents // 2, "num_seekers": args.agents - args.agents // 2}
+                    if args.env == "hide_and_seek"
+                    else {"num_agents": args.agents}
+                ),
             },
         )
         self.window_size = (args.window_width, args.window_height)
@@ -189,11 +195,11 @@ class Viewer:
 def main():
     parser = argparse.ArgumentParser(
         description="Walk agent 0 around a dune_sea grid world. "
-        "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, n wait, "
+        "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, p place, n wait, "
         "space autoplay, +/- speed, r reset, esc quit. "
         "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )
-    parser.add_argument("--env", choices=("dune_sea", "commons"), default="commons")
+    parser.add_argument("--env", choices=("dune_sea", "commons", "hide_and_seek"), default="commons")
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--height", type=int, default=48)
     parser.add_argument("--agents", type=int, default=8)
