@@ -22,6 +22,7 @@ TURN_OFFSET = jnp.array([0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0], dtype=jnp.int32)
 FACING_CHANNELS = 4
 
 NUM_CHANNELS = 8
+OBSERVATION_DTYPE = jnp.bfloat16
 
 
 class DuneSea(Environment):
@@ -321,12 +322,12 @@ class DuneSea(Environment):
         observation = {
             "view": views,
             "energy": state.agent.energy / MAX_ENERGY,
-            "inventory": state.agent.inventory.astype(jnp.float32),
-            "team": self.teams.astype(jnp.float32),
+            "inventory": state.agent.inventory,
+            "team": self.teams,
         }
         if self.beacon_slots > 0:
             observation["beacons"] = self.beacons(state)
-        return observation
+        return jax.tree.map(lambda leaf: leaf.astype(OBSERVATION_DTYPE), observation)
 
     def beacons(self, state: DuneSeaState) -> Array:
         alive = state.agent.energy > 0
@@ -353,19 +354,19 @@ class DuneSea(Environment):
         return {
             "view": Space(
                 shape=(self.num_agents, self.view_size, self.view_size, self.num_channels),
-                dtype=jnp.float32,
+                dtype=OBSERVATION_DTYPE,
                 low=0.0,
                 high=1.0,
             ),
             "energy": Space(
-                shape=(self.num_agents,), dtype=jnp.float32, low=0.0, high=1.0
+                shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=1.0
             ),
             "inventory": Space(
-                shape=(self.num_agents,), dtype=jnp.float32, low=0.0, high=jnp.inf
+                shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=jnp.inf
             ),
-            "team": Space(shape=(self.num_agents,), dtype=jnp.float32, low=0.0, high=1.0),
+            "team": Space(shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=1.0),
             **(
-                {"beacons": Space(shape=(self.num_agents, self.beacon_slots, 3), dtype=jnp.float32, low=-1.0, high=1.0)}
+                {"beacons": Space(shape=(self.num_agents, self.beacon_slots, 3), dtype=OBSERVATION_DTYPE, low=-1.0, high=1.0)}
                 if self.beacon_slots > 0
                 else {}
             ),

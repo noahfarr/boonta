@@ -1,5 +1,8 @@
 # @package _global_
 
+network:
+  dtype: bfloat16
+
 num_steps: 100_000_000
 
 environment:

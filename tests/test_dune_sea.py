@@ -845,8 +845,8 @@ def test_a_broadcast_reaches_everyone_as_a_direction_in_their_own_frame():
 
     nearest, second = beacons[0], beacons[1]
     assert nearest[2] == 1 and second[2] == 1
-    assert nearest[0] == pytest.approx(0.0) and nearest[1] == pytest.approx(-4 / 12)
-    assert second[0] == pytest.approx(7 / 12) and second[1] == pytest.approx(0.0)
+    assert nearest[0] == pytest.approx(0.0) and nearest[1] == pytest.approx(-4 / 12, abs=1e-2)
+    assert second[0] == pytest.approx(7 / 12, abs=1e-2) and second[1] == pytest.approx(0.0)
 
 
 def test_nobody_sees_a_beacon_that_is_not_broadcasting_or_their_own():
