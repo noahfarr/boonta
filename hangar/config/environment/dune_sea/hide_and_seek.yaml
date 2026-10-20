@@ -1,3 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
 namespace: dune_sea
 suite: hide_and_seek
 env_id: hide_and_seek
@@ -8,3 +12,5 @@ kwargs:
   num_hiders: 10
   num_seekers: 10
   view_size: 7
+auto_reset:
+  ratio: 8

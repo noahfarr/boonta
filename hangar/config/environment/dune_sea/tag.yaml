@@ -1,3 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
 namespace: dune_sea
 suite: tag
 env_id: tag
@@ -7,3 +11,5 @@ kwargs:
   width: 40
   num_agents: 12
   view_size: 7
+auto_reset:
+  ratio: 8

@@ -6,7 +6,7 @@ from .commons import GROWTH_STEPS, Commons
 from .generators import Generator, cave_generator
 from .state import DuneSeaState
 
-ENERGY_COST = 0.003
+ENERGY_COST = 0.0015
 INITIAL_DIRT = 4
 SIGHT_DRAIN = 0.05
 

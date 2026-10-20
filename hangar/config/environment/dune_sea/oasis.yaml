@@ -1,3 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
 namespace: dune_sea
 suite: oasis
 env_id: oasis
@@ -9,3 +13,5 @@ kwargs:
   num_oases: 3
   beacon_slots: 3
   view_size: 7
+auto_reset:
+  ratio: 8
