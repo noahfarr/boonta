@@ -353,7 +353,16 @@ def test_hiders_start_with_dirt_and_seekers_with_none():
 
 
 def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
-    env = dune_sea.make("hide_and_seek", height=12, width=12, num_hiders=1, num_seekers=1, preparation_steps=0)
+    env = dune_sea.make(
+        "hide_and_seek",
+        height=12,
+        width=12,
+        num_hiders=1,
+        num_seekers=1,
+        preparation_steps=0,
+        catch_amount=1.0,
+        sight_drain=0.0,
+    )
     state, _ = env.init(KEY)
     position = jnp.array([[5, 5], [5, 6]])
     state = state.replace(
@@ -433,8 +442,8 @@ def test_the_drain_is_limited_to_what_the_hider_has_and_split_between_watchers()
     assert float(gains.sum()) == pytest.approx(0.05, abs=1e-5)
 
 
-def test_the_sight_variant_is_registered_with_the_catch_off():
-    env = dune_sea.make("hide_and_seek_sight")
+def test_hide_and_seek_is_played_by_sight_and_not_by_touch():
+    env = dune_sea.make("hide_and_seek")
 
     assert env.sight_drain > 0 and env.catch_amount == 0
 

@@ -10,6 +10,7 @@ from .state import DuneSeaState
 PREPARATION_STEPS = 40
 ENERGY_COST = 0.003
 INITIAL_DIRT = 4
+SIGHT_DRAIN = 0.01
 
 
 class HideAndSeek(Commons):
@@ -26,9 +27,9 @@ class HideAndSeek(Commons):
         growth_steps: int = GROWTH_STEPS,
         preparation_steps: int = PREPARATION_STEPS,
         energy_cost: float = ENERGY_COST,
-        catch_amount: float = 1.0,
+        catch_amount: float = 0.0,
         initial_dirt: int = INITIAL_DIRT,
-        sight_drain: float = 0.0,
+        sight_drain: float = SIGHT_DRAIN,
     ):
         hiders, seekers = [True] * num_hiders, [True] * num_seekers
         is_hider = jnp.arange(num_hiders + num_seekers) < num_hiders
