@@ -5,9 +5,9 @@ import jax.numpy as jnp
 
 from boonta.utils import Array, Key, Timestep
 
-from .dune_sea import DuneSea
-from .generators import Generator, cave_generator
-from .state import MAX_ENERGY, DuneSeaState
+from .dune_sea import DIRECTIONS, INTERACT, DuneSea
+from .generators import Generator, cave_generator, place_agents
+from .state import MAX_ENERGY, MIRAGE_STEPS, DuneSeaState
 
 OASIS_RESERVE = 0.8
 DRINK_RATE = 0.05
@@ -107,6 +107,14 @@ class Oasis(DuneSea):
                 mirage = jnp.where(ponds == number, fades[number - 1].astype(jnp.float32), mirage)
             bush = jnp.where(dilate(oasis > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
             cells = cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, spare=spare, mirage=mirage)
+            row, column = agent.position[:, 0], agent.position[:, 1]
+            standing = oasis[row, column] > 0
+            crowded = jnp.zeros_like(oasis).at[row, column].set(1.0)
+            moved = place_agents(jax.random.fold_in(key, 19), (cells.wall == 0) & (oasis == 0) & (crowded == 0), num_agents)
+            agent = agent.replace(
+                position=jnp.where(standing[:, None], moved.position, agent.position),
+                direction=jnp.where(standing, moved.direction, agent.direction),
+            )
             return cells, agent
 
         super().__init__(
@@ -129,17 +137,24 @@ class Oasis(DuneSea):
         thirsty = state.agent.energy > 0
         state, timestep = super().step(key, state, action)
         cells = state.cells
-        y, x = state.agent.position[:, 0], state.agent.position[:, 1]
+        facing = state.agent.position + DIRECTIONS[state.agent.direction]
+        inside = ((facing >= 0) & (facing < jnp.array([self.height, self.width]))).all(-1)
+        y = jnp.clip(facing[:, 0], 0, self.height - 1)
+        x = jnp.clip(facing[:, 1], 0, self.width - 1)
 
-        offered = jnp.where(thirsty, jnp.minimum(self.drink_rate, cells.oasis[y, x]), 0.0)
-        energy = jnp.clip(state.agent.energy + offered, 0.0, MAX_ENERGY)
-        drunk = energy - state.agent.energy
-        oasis = cells.oasis.at[y, x].add(-drunk)
+        drinking = thirsty & inside & (timestep.action == INTERACT)
+        wanted = jnp.where(drinking, jnp.minimum(self.drink_rate, MAX_ENERGY - state.agent.energy), 0.0)
+        demand = jnp.zeros_like(cells.oasis).at[y, x].add(wanted)
+        share = jnp.minimum(1.0, cells.oasis / jnp.maximum(demand, 1e-9))
+        drunk = wanted * share[y, x]
+        energy = jnp.clip(state.agent.energy + drunk, 0.0, MAX_ENERGY)
+        oasis = cells.oasis - jnp.zeros_like(cells.oasis).at[y, x].add(drunk)
         oasis = jnp.where(oasis < 1e-4, 0.0, oasis)
 
         fading = (cells.mirage > 0) & (cells.mirage <= state.time)
+        expiring = (cells.mirage < 0) & (state.time + cells.mirage >= MIRAGE_STEPS)
         oasis = jnp.where(fading, 0.0, oasis)
-        mirage = jnp.where(fading, -state.time.astype(jnp.float32), cells.mirage)
+        mirage = jnp.where(fading, -state.time.astype(jnp.float32), jnp.where(expiring, 0.0, cells.mirage))
 
         waiting = cells.spare > 0
         next_pond = jnp.where(waiting, cells.spare, jnp.inf).min()

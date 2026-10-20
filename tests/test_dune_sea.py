@@ -13,7 +13,7 @@ from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT, DASH
                                                     INTERACT, NOOP, PLACE,
                                                     TURN_LEFT)
 from boonta.environments.dune_sea.state import (MATURE_ENERGY, MAX_PLANT_ENERGY,
-                                                SEED_ENERGY)
+                                                MIRAGE_STEPS, SEED_ENERGY)
 
 def make_cell(wall, goal, energy, bush=None, oasis=None, mirage=None):
     blank = jnp.zeros_like(wall)
@@ -758,17 +758,17 @@ def pond(**kwargs):
         num_oases=0,
         num_mirages=0,
         beacon_slots=2,
-        generator=lambda key, height, width, num_agents: (cells, agents([[1, 1], [0, 0]], [0, 0], energy=[0.5, 0.5])),
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 0], [0, 0]], [0, 0], energy=[0.5, 0.5])),
         **kwargs,
     )
     return env
 
 
-def test_standing_in_an_oasis_refills_energy_and_drains_its_reserve():
+def test_facing_an_oasis_and_interacting_refills_energy_and_drains_its_reserve():
     env = pond(reserve=1.0, drink_rate=0.1, energy_cost=0.01)
     state, _ = env.init(KEY)
 
-    state, timestep = step(env, state, NOOP, NOOP)
+    state, timestep = step(env, state, INTERACT, NOOP)
 
     assert state.agent.energy[0] == pytest.approx(0.5 - 0.01 + 0.1)
     assert state.agent.energy[1] == pytest.approx(0.5 - 0.01)
@@ -776,12 +776,89 @@ def test_standing_in_an_oasis_refills_energy_and_drains_its_reserve():
     assert float(state.cells.oasis[1, 1]) == pytest.approx(0.9)
 
 
+def test_water_cannot_be_walked_on():
+    env = pond()
+    state, _ = env.init(KEY)
+
+    state, _ = step(env, state, FORWARD, NOOP)
+
+    assert state.agent.position[0].tolist() == [1, 0]
+
+
+def test_agents_drinking_from_the_same_cell_share_what_is_left():
+    water = EMPTY.at[1, 1].set(0.1)
+    cells = make_cell(EMPTY, EMPTY, EMPTY, oasis=water)
+    env = dune_sea.make(
+        "oasis",
+        height=SIZE,
+        width=SIZE,
+        num_agents=2,
+        num_oases=0,
+        num_mirages=0,
+        drink_rate=0.1,
+        energy_cost=0.0,
+        beacon_slots=2,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 0], [0, 1]], [0, 1], energy=[0.5, 0.5])),
+    )
+    state, _ = env.init(KEY)
+
+    state, _ = step(env, state, INTERACT, INTERACT)
+
+    assert state.agent.energy.tolist() == pytest.approx([0.55, 0.55])
+    assert float(state.cells.oasis[1, 1]) == 0
+
+
+def test_an_agent_that_starts_in_the_water_is_moved_onto_land():
+    water = EMPTY.at[1, 1].set(1.0)
+    cells = make_cell(EMPTY, EMPTY, EMPTY, oasis=water)
+    env = dune_sea.make(
+        "oasis",
+        height=SIZE,
+        width=SIZE,
+        num_agents=2,
+        num_oases=0,
+        num_mirages=0,
+        beacon_slots=2,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 1], [0, 0]], [0, 0], energy=[0.5, 0.5])),
+    )
+
+    state, _ = env.init(KEY)
+
+    row, column = state.agent.position[0]
+    assert float(state.cells.oasis[row, column]) == 0
+    assert state.agent.position[1].tolist() == [0, 0]
+
+
+def test_a_mirage_disappears_for_good_after_its_lifetime():
+    env = dune_sea.make(
+        "oasis",
+        height=24,
+        width=24,
+        num_agents=1,
+        num_oases=1,
+        num_mirages=1,
+        mirage_start=3,
+        mirage_end=3,
+        beacon_slots=1,
+    )
+    state, _ = env.init(KEY)
+    stepper = jax.jit(env.step)
+    for _ in range(3):
+        state, _ = stepper(KEY, state, jnp.zeros(1, jnp.int32))
+    assert int((state.cells.mirage < 0).sum()) > 0
+
+    for _ in range(MIRAGE_STEPS):
+        state, _ = stepper(KEY, state, jnp.zeros(1, jnp.int32))
+
+    assert int((state.cells.mirage != 0).sum()) == 0
+
+
 def test_an_oasis_gives_no_more_than_the_agent_can_hold():
     env = pond(reserve=1.0, drink_rate=0.5, energy_cost=0.0)
     state, _ = env.init(KEY)
     state = state.replace(agent=state.agent.replace(energy=jnp.array([0.9, 0.5])))
 
-    state, _ = step(env, state, NOOP, NOOP)
+    state, _ = step(env, state, INTERACT, NOOP)
 
     assert state.agent.energy[0] == pytest.approx(1.0)
     assert float(state.cells.oasis[1, 1]) == pytest.approx(0.9)
@@ -850,8 +927,7 @@ def test_a_mirage_looks_like_water_from_afar_and_gives_nothing():
     assert state.agent.energy[0] == pytest.approx(0.5 - 0.004)
 
 
-def pond_block(**fields):
-    size = 12
+def pond_block(size=12, **fields):
     zeros = jnp.zeros((size, size))
     block = zeros.at[4:7, 5:8].set(1.0)
     cells = make_cell(zeros, zeros, zeros)
@@ -876,8 +952,8 @@ def centre(env, state, time):
 
 
 def test_a_mirage_shimmers_around_itself_while_a_real_pond_holds_still():
-    env, fake = pond_block(mirage=-10.0)
-    _, real = pond_block(oasis=1.0)
+    env, fake = pond_block(size=40, mirage=-10.0)
+    _, real = pond_block(size=40, oasis=1.0)
     later = lambda s: s.replace(time=s.time + 1)
     fake, real = fake.replace(time=jnp.int32(60)), real.replace(time=jnp.int32(60))
 
@@ -885,7 +961,7 @@ def test_a_mirage_shimmers_around_itself_while_a_real_pond_holds_still():
     still = [env.render(s, 1, storm=0.0) for s in (real, later(real))]
 
     assert not bool((wave[0] == wave[1]).all())
-    assert bool((wave[0][:, 160:] == wave[1][:, 160:]).all())
+    assert bool((wave[0][:, 320:] == wave[1][:, 320:]).all())
     assert bool((still[0] == still[1]).all())
 
 
@@ -897,6 +973,20 @@ def test_a_pond_that_becomes_a_mirage_fades_out_smoothly():
 
     assert float(jnp.abs(halfway - solid).sum()) > 1.0
     assert float(jnp.abs(ghost - solid).sum()) > float(jnp.abs(halfway - solid).sum())
+
+
+def test_a_fading_pond_leaves_no_solid_water_around_its_edges():
+    env, state = pond_block(oasis=0.0, mirage=-10.0)
+    _, bare = pond_block(oasis=0.0)
+    time = 10 + 59
+
+    fading = env.render(state.replace(time=jnp.int32(time)), 1, storm=0.0).astype(jnp.int32)
+    ground = env.render(bare.replace(time=jnp.int32(time)), 1, storm=0.0).astype(jnp.int32)
+
+    difference = jnp.abs(fading - ground).sum(-1)
+    ring = jnp.ones(difference.shape, bool).at[4 * 16 + 4 : 7 * 16 - 4, 5 * 16 + 4 : 8 * 16 - 4].set(False)
+    ring = ring.at[:3 * 16].set(False).at[8 * 16:].set(False).at[:, : 3 * 16].set(False).at[:, 10 * 16 :].set(False)
+    assert int(difference[ring].max()) < 45
 
 
 def test_a_pond_that_rises_condenses_out_of_the_haze():
@@ -924,7 +1014,7 @@ def test_the_view_shows_where_the_water_is():
     view = env.observe(state)["view"][0]
 
     assert view.shape[-1] == 9
-    assert view[3, 3, 8] == 1
+    assert view[2, 3, 8] == 1
 
 
 def test_a_broadcast_reaches_everyone_as_a_direction_in_their_own_frame():

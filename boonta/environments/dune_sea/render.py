@@ -10,7 +10,7 @@ import numpy as np
 from boonta.utils import Array
 
 from .sprites import team_sprites, wanderer_sprites
-from .state import MATURE_ENERGY, MAX_ENERGY
+from .state import MATURE_ENERGY, MAX_ENERGY, MIRAGE_STEPS
 
 if TYPE_CHECKING:
     from .state import DuneSeaState
@@ -25,7 +25,6 @@ WET_SAND = (0.80, 0.76, 0.66)
 WATER_BLUR = 6
 SHIMMER_REACH = 2
 FADE_STEPS = 30.0
-GHOST_OPACITY = 0.45
 RISE_OPACITY = 0.15
 SHIMMER_AMPLITUDE = 2.0
 SHIMMER_FREQUENCY = 0.45
@@ -145,18 +144,20 @@ def blur(field: Array, reach: int) -> Array:
     return total / (len(offsets) ** 2)
 
 
-def paint_water(image: Array, water: Array, wall: Array) -> tuple[Array, Array]:
+def paint_water(image: Array, water: Array, wall: Array, opacity: Array) -> tuple[Array, Array]:
     height, width = water.shape
     pixels = lambda mask: jnp.repeat(jnp.repeat(mask.astype(jnp.float32), TILE, axis=0), TILE, axis=1)
     smooth = blur(pixels(water), WATER_BLUR)
+    solid = blur(pixels(jnp.where(water, opacity, 0.0)), WATER_BLUR) / jnp.maximum(smooth, 1e-3)
     near_edge = jnp.clip(smooth * 4.0, 0.0, 1.0) * jnp.clip((1.0 - smooth) * 4.0, 0.0, 1.0)
     field = smooth + EDGE_ROUGHNESS * near_edge * jnp.asarray(edge_noise(height * TILE, width * TILE))
     on_rock = pixels(wall) > 0
     lake = (field > 0.5) & ~on_rock
     colour = jnp.tile(jnp.asarray(water_tile()), (height, width, 1))
-    damp = jnp.clip((field - DAMP_START) / (0.5 - DAMP_START), 0.0, 1.0) * (~lake & ~on_rock)
-    image = image * (1.0 - damp[..., None] * (1.0 - jnp.array(WET_SAND, jnp.float32)))
-    return jnp.where(lake[..., None], colour, image), lake
+    damp = jnp.clip((field - DAMP_START) / (0.5 - DAMP_START), 0.0, 1.0) * (~lake & ~on_rock) * solid
+    wet = image * (1.0 - damp[..., None] * (1.0 - jnp.array(WET_SAND, jnp.float32)))
+    filled = image + (colour - image) * solid[..., None]
+    return jnp.where(lake[..., None], filled, wet), lake
 
 
 def near_maximum(field: Array, reach: int) -> Array:
@@ -487,14 +488,14 @@ def shimmer(image: Array, haze: Array, phase: Array) -> Array:
 def water_phases(state: "DuneSeaState", phase: Array) -> tuple[Array, Array]:
     fake = state.cells.mirage < 0
     risen = (state.cells.spare < 0) & (state.cells.oasis > 0)
-    fading = jnp.clip((phase + state.cells.mirage) / FADE_STEPS, 0.0, 1.0)
+    lifetime = jnp.clip((phase + state.cells.mirage) / MIRAGE_STEPS, 0.0, 1.0)
     rising = jnp.clip((phase + state.cells.spare) / FADE_STEPS, 0.0, 1.0)
     opacity = jnp.where(
         fake,
-        1.0 - (1.0 - GHOST_OPACITY) * fading,
+        1.0 - lifetime,
         jnp.where(risen, RISE_OPACITY + (1.0 - RISE_OPACITY) * rising, 1.0),
     )
-    haze = jnp.where(fake, fading, jnp.where(risen, 1.0 - rising, 0.0))
+    haze = jnp.where(fake, jnp.sin(jnp.pi * lifetime), jnp.where(risen, 1.0 - rising, 0.0))
     return opacity, haze
 
 
@@ -600,10 +601,7 @@ def render(
     image = to_image(jnp.where(wall[..., None, None, None], mountain, ground))
     phase = state.time.astype(jnp.float32) - 1.0 + blend
     opacity, haze = water_phases(state, phase)
-    dry = image
-    image, lake = paint_water(image, water, wall)
-    solid = jnp.repeat(jnp.repeat(opacity, TILE, axis=0), TILE, axis=1)[..., None]
-    image = jnp.where(lake[..., None], dry * (1.0 - solid) + image * solid, image)
+    image, lake = paint_water(image, water, wall, opacity)
     if storm:
         image = paint_ground_storm(image, phase, storm)
     image = paint_scenery(image, state, water)

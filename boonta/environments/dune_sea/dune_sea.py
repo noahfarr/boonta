@@ -96,7 +96,7 @@ class DuneSea(Environment):
                 in_bounds = jnp.all((cell >= 0) & (cell < grid_size))
                 y, x = jnp.clip(cell, 0, grid_size - 1)
                 occupied = jnp.any(jnp.all(positions == cell, axis=-1) & alive)
-                return in_bounds & (state.cells.wall[y, x] == 0) & ~occupied
+                return in_bounds & (state.cells.wall[y, x] == 0) & (state.cells.oasis[y, x] <= 0) & ~occupied
 
             first = position + move_direction
             second = position + 2 * move_direction
@@ -164,6 +164,7 @@ class DuneSea(Environment):
                 & in_bounds
                 & (state.agent.inventory[agent_index] > 0)
                 & (wall[y, x] == 0)
+                & (state.cells.oasis[y, x] <= 0)
                 & (energy_grid[y, x] == 0)
                 & (state.cells.goal[y, x] == 0)
                 & (bush[y, x] == 0)
