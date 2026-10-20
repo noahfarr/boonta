@@ -1,3 +1,4 @@
+import functools
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,6 +18,32 @@ if TYPE_CHECKING:
 DIRECTORY = Path(__file__).parent / "assets" / "glionox_desert"
 TILE = 16
 PATCH_SHEET = "sandstone.png"
+SHORE_SHEET = "sand_to_water.png"
+FOREST_DIRECTORY = DIRECTORY.parent / "glionox_forest"
+WATER_TILE = (3, 9)
+WET_SAND = (0.80, 0.76, 0.66)
+WATER_BLUR = 6
+EDGE_ROUGHNESS = 0.2
+DAMP_START = 0.12
+REED_SPRITES = tuple(f"decor_reed{i}.png" for i in range(1, 9))
+LILYPAD_SPRITES = tuple(f"decor_lilypad{i}.png" for i in range(1, 9))
+GRASS_SPRITES = tuple(f"decor_grass{i}.png" for i in range(1, 5))
+REED_CHANCE = 0.34
+LILYPAD_CHANCE = 0.12
+STORM_COLOR = (232, 198, 142)
+WIND = (1.4, 5.0)
+DUST_FAR = 0.11
+DUST_NEAR = 0.22
+HIGH_HAZE = 0.07
+HIGH_STREAKS = 0.10
+SHADOW_STRENGTH = 0.20
+SHADOW_OFFSET = (12, 8)
+PALM_SPRITES = tuple(f"tree_palm{i}.png" for i in range(1, 5))
+PALM_HEIGHT, PALM_WIDTH = 112, 48
+PALMS_PER_POND = 3
+BELT_REACH = 4
+PALM_REACH = 2
+MAX_PALMS = 48
 DEEP_ROCK_SHEET = "slate.png"
 PATCH_FEATURE = 7.0
 PATCH_COVERAGE = 0.30
@@ -80,6 +107,63 @@ def fill_tiles(sheet: str) -> np.ndarray:
 
 
 @cache
+def palm_bank() -> np.ndarray:
+    return np.stack([read_image(name).astype(np.float32) for name in PALM_SPRITES])
+
+
+@cache
+def water_tile() -> np.ndarray:
+    sheet = read_image("water.png", FOREST_DIRECTORY).astype(np.float32)
+    tile = cut_tile(sheet, *WATER_TILE)[..., :3]
+    return tile * 0.55 + np.array([50.0, 130.0, 210.0], np.float32) * 0.45
+
+
+@cache
+def edge_noise(height: int, width: int) -> np.ndarray:
+    generator = np.random.default_rng(41)
+    frequency_y = np.fft.fftfreq(height)[:, None]
+    frequency_x = np.fft.rfftfreq(width)[None, :]
+    falloff = np.exp(-2.0 * np.pi**2 * (3.2**2) * (frequency_x**2 + frequency_y**2))
+    spectrum = generator.normal(size=(height, width // 2 + 1)) + 1j * generator.normal(size=(height, width // 2 + 1))
+    values = np.fft.irfft2(spectrum * falloff, s=(height, width))
+    return ((values - values.mean()) / (values.std() + 1e-9)).astype(np.float32)
+
+
+def blur(field: Array, reach: int) -> Array:
+    offsets = range(-reach, reach + 1, 2)
+    total = jnp.zeros_like(field)
+    for dy in offsets:
+        for dx in offsets:
+            total = total + jnp.roll(field, (dy, dx), axis=(0, 1))
+    return total / (len(offsets) ** 2)
+
+
+def paint_water(image: Array, water: Array, wall: Array) -> tuple[Array, Array]:
+    height, width = water.shape
+    pixels = lambda mask: jnp.repeat(jnp.repeat(mask.astype(jnp.float32), TILE, axis=0), TILE, axis=1)
+    smooth = blur(pixels(water), WATER_BLUR)
+    near_edge = jnp.clip(smooth * 4.0, 0.0, 1.0) * jnp.clip((1.0 - smooth) * 4.0, 0.0, 1.0)
+    field = smooth + EDGE_ROUGHNESS * near_edge * jnp.asarray(edge_noise(height * TILE, width * TILE))
+    on_rock = pixels(wall) > 0
+    lake = (field > 0.5) & ~on_rock
+    colour = jnp.tile(jnp.asarray(water_tile()), (height, width, 1))
+    damp = jnp.clip((field - DAMP_START) / (0.5 - DAMP_START), 0.0, 1.0) * (~lake & ~on_rock)
+    image = image * (1.0 - damp[..., None] * (1.0 - jnp.array(WET_SAND, jnp.float32)))
+    return jnp.where(lake[..., None], colour, image), lake
+
+
+def count_neighbours(mask: Array) -> Array:
+    height, width = mask.shape
+    padded = jnp.pad(mask.astype(jnp.float32), 1)
+    return sum(
+        padded[dy : dy + height, dx : dx + width]
+        for dy in range(3)
+        for dx in range(3)
+        if (dy, dx) != (1, 1)
+    )
+
+
+@cache
 def sprite_tiles(name: str, directory: Path = DIRECTORY) -> np.ndarray:
     image = read_image(name, directory)
     num_tiles = image.shape[0] // TILE
@@ -96,6 +180,27 @@ def smooth_noise(height: int, width: int, feature: float, seed: int) -> np.ndarr
     spectrum = generator.normal(size=(height, width // 2 + 1)) + 1j * generator.normal(size=(height, width // 2 + 1))
     field = np.fft.irfft2(spectrum * falloff, s=(height, width))
     return ((field - field.mean()) / (field.std() + 1e-9)).astype(np.float32)
+
+
+@cache
+def storm_fields(height: int, width: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def field(feature_y: float, feature_x: float, seed: int) -> np.ndarray:
+        generator = np.random.default_rng(seed)
+        frequency_y = np.fft.fftfreq(height)[:, None]
+        frequency_x = np.fft.rfftfreq(width)[None, :]
+        falloff = np.exp(-2.0 * np.pi**2 * ((feature_y * frequency_y) ** 2 + (feature_x * frequency_x) ** 2))
+        spectrum = generator.normal(size=(height, width // 2 + 1)) + 1j * generator.normal(size=(height, width // 2 + 1))
+        values = np.fft.irfft2(spectrum * falloff, s=(height, width))
+        return (values - values.mean()) / (values.std() + 1e-9)
+
+    def along_the_wind(values: np.ndarray) -> np.ndarray:
+        slope = WIND[0] / WIND[1]
+        return np.stack([np.roll(values[:, x], int(round(slope * x))) for x in range(width)], axis=1)
+
+    far = np.clip(along_the_wind(field(1.1, 10.0, 21)) - 1.0, 0.0, 1.0)
+    near = np.clip(along_the_wind(field(0.9, 16.0, 23)) - 1.1, 0.0, 1.0)
+    cloud = 0.5 + 0.5 * np.tanh(field(30.0, 80.0, 22))
+    return far.astype(np.float32), near.astype(np.float32), cloud.astype(np.float32)
 
 
 @cache
@@ -132,13 +237,15 @@ def reachable_masks() -> list[int]:
 
 
 @cache
-def mountain_edges(sheet: str) -> np.ndarray:
+def mountain_edges(sheet: str, layered: bool = True) -> np.ndarray:
     image = read_image(sheet).astype(np.float32)
     table = np.zeros((256, TILE, TILE, 4), np.float32)
     filled = set()
     for row in range(OVERHANG_ROWS):
         for col in range(SHEET_COLUMNS):
-            tile = stack_layers(cut_tile(image, row + DETAIL_OFFSET, col), cut_tile(image, row, col))
+            tile = cut_tile(image, row, col)
+            if layered:
+                tile = stack_layers(cut_tile(image, row + DETAIL_OFFSET, col), tile)
             mask = visual_mask(tile)
             centre_covered = (tile[6:10, 6:10, 3] > 0).mean() > 0.9
             if mask == FULL_MASK and centre_covered:
@@ -238,12 +345,75 @@ def energy_bar(energy: Array, frame: Array | None = None) -> Array:
     return jnp.where(inside[..., None], bar, frame)
 
 
-def paint_scenery(image: Array, state: "DuneSeaState") -> Array:
+def pond_labels(water: Array, iterations: int = 12) -> Array:
+    height, width = water.shape
+    none = height * width
+    labels = jnp.where(water, jnp.arange(none).reshape(height, width), none)
+    for _ in range(iterations):
+        padded = jnp.pad(labels, 1, constant_values=none)
+        smallest = functools.reduce(
+            jnp.minimum,
+            [padded[dy : dy + height, dx : dx + width] for dy in range(3) for dx in range(3)],
+        )
+        labels = jnp.where(water, smallest, none)
+    return labels
+
+
+def palm_sites(water: Array, land: Array, rolls: Array) -> Array:
+    height, width = water.shape
+    none = height * width
+    labels = pond_labels(water)
+    padded = jnp.pad(labels, PALM_REACH, constant_values=none)
+    nearest = functools.reduce(
+        jnp.minimum,
+        [
+            padded[dy : dy + height, dx : dx + width]
+            for dy in range(2 * PALM_REACH + 1)
+            for dx in range(2 * PALM_REACH + 1)
+        ],
+    )
+    pond = jnp.where(land & (nearest < none), nearest, none).reshape(-1)
+    order = jnp.argsort(pond.astype(jnp.float32) * 2.0 + (1.0 - rolls[1].reshape(-1)))
+    ordered = pond[order]
+    position = jnp.arange(none)
+    starts = jnp.concatenate([jnp.array([True]), ordered[1:] != ordered[:-1]])
+    rank = position - jax.lax.cummax(jnp.where(starts, position, 0))
+    keep = (ordered < none) & (rank < PALMS_PER_POND + ordered % 2)
+    return jnp.zeros(none, bool).at[order].set(keep).reshape(height, width)
+
+
+def paint_palms(image: Array, sites: Array, rolls: Array, behind_only: bool = False) -> Array:
+    height, width = sites.shape
+    bank = jnp.asarray(palm_bank())
+    score = jnp.where(sites, rolls[1], -1.0)
+    values, flat = jax.lax.top_k(score.reshape(-1), min(MAX_PALMS, height * width))
+    rows, columns = flat // width, flat % width
+    order = jnp.argsort(rows)
+    variants = jnp.floor(rolls[0].reshape(-1)[flat] * len(PALM_SPRITES)).astype(jnp.int32) % len(PALM_SPRITES)
+    drawn = jnp.pad(image, ((PALM_HEIGHT, 0), (PALM_WIDTH // 2, PALM_WIDTH // 2), (0, 0)))
+
+    def draw(canvas, item):
+        row, column, variant, active = item
+        top, left = (row + 1) * TILE, column * TILE + TILE // 2
+        region = jax.lax.dynamic_slice(canvas, (top, left, 0), (PALM_HEIGHT, PALM_WIDTH, 3))
+        sprite = bank[variant]
+        alpha = sprite[..., 3:] / 255.0 * active
+        if behind_only:
+            alpha = alpha * (jnp.arange(PALM_HEIGHT) < PALM_HEIGHT - TILE)[:, None, None]
+        blended = region * (1.0 - alpha) + sprite[..., :3] * alpha
+        return jax.lax.dynamic_update_slice(canvas, blended, (top, left, 0)), None
+
+    items = (rows[order], columns[order], variants[order], (values[order] >= 0).astype(jnp.float32))
+    drawn, _ = jax.lax.scan(draw, drawn, items)
+    return drawn[PALM_HEIGHT:, PALM_WIDTH // 2 : -PALM_WIDTH // 2]
+
+
+def paint_scenery(image: Array, state: "DuneSeaState", water: Array) -> Array:
     height, width = state.cells.wall.shape
     wall = state.cells.wall > 0
     rolls = jnp.asarray(scenery_rolls(height, width))
     near_rock = ~wall & (neighbour_mask(wall) > 0)
-    free = ~wall & (state.cells.bush == 0) & (state.cells.energy == 0) & (state.cells.goal == 0)
+    free = ~wall & ~water & (state.cells.bush == 0) & (state.cells.energy == 0) & (state.cells.goal == 0)
     stone_chance = jnp.where(near_rock, 0.12, 0.012)
     brush_chance, cactus_chance = 0.022, 0.006
     roll, pick = rolls[0], rolls[1]
@@ -259,7 +429,31 @@ def paint_scenery(image: Array, state: "DuneSeaState") -> Array:
     return image
 
 
-def paint_agents(image: Array, state: "DuneSeaState", teams: Array | None = None) -> Array:
+def drift(layer: Array, phase: Array, speed: float) -> Array:
+    shift = jnp.round(phase * speed * jnp.array(WIND)).astype(jnp.int32)
+    return jnp.roll(layer, (shift[0], shift[1]), axis=(0, 1))
+
+
+def tint(image: Array, alpha: Array) -> Array:
+    return image * (1.0 - alpha[..., None]) + jnp.array(STORM_COLOR, jnp.float32) * alpha[..., None]
+
+
+def paint_ground_storm(image: Array, phase: Array, strength: float) -> Array:
+    far, near, cloud = (jnp.asarray(layer) for layer in storm_fields(*image.shape[:2]))
+    overhead = drift(cloud, phase, 0.4)
+    shadow = jnp.roll(overhead, SHADOW_OFFSET, axis=(0, 1))
+    image = image * (1.0 - strength * SHADOW_STRENGTH * jnp.clip((shadow - 0.55) / 0.35, 0.0, 1.0)[..., None])
+    return tint(image, strength * (DUST_FAR * drift(far, phase, 0.7) + DUST_NEAR * drift(near, phase, 1.0)))
+
+
+def paint_high_storm(image: Array, phase: Array, strength: float) -> Array:
+    _, near, cloud = (jnp.asarray(layer) for layer in storm_fields(*image.shape[:2]))
+    return tint(image, strength * (HIGH_HAZE * drift(cloud, phase, 0.4) + HIGH_STREAKS * drift(near, phase, 1.6)))
+
+
+def paint_agents(
+    image: Array, state: "DuneSeaState", teams: Array | None = None, offsets: Array | None = None
+) -> Array:
     marked = teams is not None and bool(np.asarray(teams).any())
     bank = jnp.asarray(team_bank() if marked else agent_bank())
     coords = (jnp.arange(TILE) + 0.5) / TILE
@@ -275,17 +469,19 @@ def paint_agents(image: Array, state: "DuneSeaState", teams: Array | None = None
     base = ((columns - 7.5) / 7.2) ** 2 + ((rows - 13.0) / 2.3) ** 2
     marker = (base >= 0.3) & (base <= 1.25)
     teams = jnp.zeros(num_agents, jnp.int32) if teams is None else jnp.asarray(teams, jnp.int32)
+    offsets = jnp.zeros((num_agents, 2), jnp.int32) if offsets is None else offsets
+    limit = jnp.array(image.shape[:2]) - TILE
 
     def draw(image, agent):
-        position, direction, broadcast, robe, energy, team = agent
-        y, x = position
-        region = jax.lax.dynamic_slice(image, (y * TILE, x * TILE, 0), (TILE, TILE, 3))
+        position, direction, broadcast, robe, energy, team, offset = agent
+        y, x = jnp.clip(position * TILE + offset, 0, limit)
+        region = jax.lax.dynamic_slice(image, (y, x, 0), (TILE, TILE, 3))
         if marked:
             region = jnp.where(marker[..., None], TEAM_COLORS[team % len(TEAM_COLORS)], region)
         region = jnp.where((ring & broadcast)[..., None], BROADCAST_COLOR, region)
         region = layer_over(region, bank[robe, POSE_OF_DIRECTION[direction]])
-        drawn = jax.lax.dynamic_update_slice(image, region, (y * TILE, x * TILE, 0))
-        top, left = jnp.maximum(y * TILE - BAR_HEIGHT, 0), x * TILE + 1
+        drawn = jax.lax.dynamic_update_slice(image, region, (y, x, 0))
+        top, left = jnp.maximum(y - BAR_HEIGHT, 0), jnp.minimum(x + 1, image.shape[1] - BAR_INNER - 2)
         frame = TEAM_COLORS[team % len(TEAM_COLORS)] if marked else None
         drawn = jax.lax.dynamic_update_slice(drawn, energy_bar(energy, frame), (top, left, 0))
         return jnp.where(energy > 0, drawn, image), None
@@ -297,6 +493,7 @@ def paint_agents(image: Array, state: "DuneSeaState", teams: Array | None = None
         robes,
         state.agent.energy,
         teams,
+        offsets,
     )
     image, _ = jax.lax.scan(draw, image, agents)
     return image
@@ -313,7 +510,13 @@ def paint_fov(image: Array, fov: Array, teams: Array | None) -> Array:
 
 
 def render(
-    state: "DuneSeaState", scale: int = 2, teams: Array | None = None, fov: Array | None = None
+    state: "DuneSeaState",
+    scale: int = 2,
+    teams: Array | None = None,
+    fov: Array | None = None,
+    storm: float = 1.0,
+    offsets: Array | None = None,
+    blend: float = 1.0,
 ) -> Array:
     height, width = state.cells.wall.shape
     wall = state.cells.wall > 0
@@ -326,8 +529,40 @@ def render(
     mountain = choose_fill(fill_tiles(MOUNTAIN_SHEET).astype(np.float32), height, width)
     deep = (neighbour_mask(wall) == 255)[..., None, None, None]
     mountain = jnp.where(deep, choose_fill(fill_tiles(DEEP_ROCK_SHEET).astype(np.float32), height, width), mountain)
+    water = (state.cells.oasis > 0) & ~wall
+    neighbours = count_neighbours(water)
+    wet = ~water & ~wall & (neighbours > 0)
     image = to_image(jnp.where(wall[..., None, None, None], mountain, ground))
-    image = paint_scenery(image, state)
+    image, lake = paint_water(image, water, wall)
+    phase = state.time.astype(jnp.float32) - 1.0 + blend
+    if storm:
+        image = paint_ground_storm(image, phase, storm)
+    image = paint_scenery(image, state, water)
+    rolls = jnp.asarray(scenery_rolls(height, width))
+    reed_here = wet & (state.cells.bush == 0) & (rolls[1] < REED_CHANCE)
+    reed_kind = jnp.floor(rolls[0] * len(REED_SPRITES)).astype(jnp.int32) % len(REED_SPRITES)
+    lily_here = water & (neighbours >= 7) & (rolls[0] > 1.0 - LILYPAD_CHANCE)
+    lily_kind = jnp.floor(rolls[1] * len(LILYPAD_SPRITES)).astype(jnp.int32) % len(LILYPAD_SPRITES)
+    for index, name in enumerate(LILYPAD_SPRITES):
+        image = paint_sprite(image, name, lily_here & (lily_kind == index), directory=FOREST_DIRECTORY)
+    for index, name in enumerate(REED_SPRITES):
+        image = paint_sprite(image, name, reed_here & (reed_kind == index), directory=FOREST_DIRECTORY)
+    belt = jnp.zeros((height, width), jnp.float32)
+    close = jnp.zeros((height, width), jnp.float32)
+    padded_belt = jnp.pad(water.astype(jnp.float32), BELT_REACH)
+    for dy in range(2 * BELT_REACH + 1):
+        for dx in range(2 * BELT_REACH + 1):
+            shifted = padded_belt[dy : dy + height, dx : dx + width]
+            belt = jnp.maximum(belt, shifted)
+            if abs(dy - BELT_REACH) <= 2 and abs(dx - BELT_REACH) <= 2:
+                close = jnp.maximum(close, shifted)
+    tuft_chance = jnp.where(close > 0, 0.5, 0.2)
+    tufts = (belt > 0) & ~water & ~wall & ~reed_here & (state.cells.bush == 0) & (rolls[0] < tuft_chance)
+    tuft_kind = jnp.floor(rolls[1] * len(GRASS_SPRITES) * 3.0).astype(jnp.int32) % len(GRASS_SPRITES)
+    for index, name in enumerate(GRASS_SPRITES):
+        image = paint_sprite(image, name, tufts & (tuft_kind == index), directory=FOREST_DIRECTORY)
+    sites = palm_sites(water, ~water & ~wall & (state.cells.bush == 0), rolls)
+    image = paint_palms(image, sites, rolls)
     rows, columns = jnp.meshgrid(jnp.arange(height), jnp.arange(width), indexing="ij")
     image = paint_sprite(image, GOAL_SPRITE, state.cells.goal > 0)
     energy = state.cells.energy
@@ -341,10 +576,13 @@ def render(
         image = paint_sprite(image, name, bush & occupied & (variety == index), BUSH_ALPHA)
     if fov is not None:
         image = paint_fov(image, fov, teams)
-    image = paint_agents(image, state, teams)
+    image = paint_agents(image, state, teams, offsets)
+    image = paint_palms(image, sites, rolls, behind_only=True)
     for index, name in enumerate(BUSH_SPRITES):
         here = bush & (variety == index)
         image = paint_sprite(image, name, here & ~occupied, BUSH_ALPHA)
         image = paint_sprite(image, name, here & occupied, BUSH_ALPHA, levels=(0,), rows=BUSH_FOREGROUND_ROWS)
+    if storm:
+        image = paint_high_storm(image, phase, storm)
     image = jnp.repeat(jnp.repeat(image, scale, axis=0), scale, axis=1)
     return jnp.clip(image, 0, 255).astype(jnp.uint8)

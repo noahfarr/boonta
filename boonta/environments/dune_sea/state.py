@@ -15,6 +15,7 @@ class Cell:
     goal: Array
     energy: Array
     bush: Array
+    oasis: Array
 
 
 @struct.dataclass

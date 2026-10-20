@@ -1,0 +1,9 @@
+namespace: dune_sea
+suite: tag
+env_id: tag
+num_envs: 1024
+kwargs:
+  height: 40
+  width: 40
+  num_agents: 12
+  view_size: 7

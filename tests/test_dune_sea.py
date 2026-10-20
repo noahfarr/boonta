@@ -5,15 +5,16 @@ import pytest
 from boonta.environments import dune_sea
 from boonta.environments.dune_sea import Agent
 from boonta.environments.dune_sea import Cell as StateCell
-from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT,
+from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT, DASH,
                                                     ENERGY_COST, FORWARD,
                                                     INTERACT, NOOP, PLACE,
                                                     TURN_LEFT)
 from boonta.environments.dune_sea.state import (MATURE_ENERGY, MAX_PLANT_ENERGY,
                                                 SEED_ENERGY)
 
-def make_cell(wall, goal, energy, bush=None):
-    return StateCell(wall, goal, energy, jnp.zeros_like(wall) if bush is None else bush)
+def make_cell(wall, goal, energy, bush=None, oasis=None):
+    blank = jnp.zeros_like(wall)
+    return StateCell(wall, goal, energy, blank if bush is None else bush, blank if oasis is None else oasis)
 
 
 SIZE = 3
@@ -590,4 +591,369 @@ def test_the_cave_generator_grows_bushes_on_open_ground_only():
 
     assert 0.03 < float(bush.mean()) < 0.4
     assert float((bush * wall).sum()) == 0
+
+
+def tagging(cells, agent, **kwargs):
+    count = agent.position.shape[0]
+    return world(
+        "dune_sea",
+        cells,
+        agent,
+        thieves=[True] * count,
+        catch_amount=0.3,
+        tag_from_behind=True,
+        **kwargs,
+    )
+
+
+def test_a_tag_lands_only_on_an_agent_that_is_facing_away():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    for victim_direction, lands in ((0, True), (2, False), (1, False), (3, False)):
+        env, state = tagging(cells, agents([[1, 0], [1, 1]], [0, victim_direction], energy=[0.5, 0.5]))
+
+        state, _ = step(env, state, INTERACT, NOOP)
+
+        assert (float(state.agent.energy[1]) < 0.5 - ENERGY_COST - 0.1) == lands
+        assert (float(state.agent.energy[0]) > 0.5 + 0.1) == lands
+
+
+def test_a_tag_moves_energy_from_the_tagged_agent_to_the_tagger():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    env, state = tagging(cells, agents([[1, 0], [1, 1]], [0, 0], energy=[0.4, 0.8]))
+
+    state, timestep = step(env, state, INTERACT, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.4 + 0.3 - ENERGY_COST)
+    assert state.agent.energy[1] == pytest.approx(0.8 - 0.3 - ENERGY_COST)
+    assert timestep.reward[0] == pytest.approx(0.3 - ENERGY_COST)
+
+
+def test_a_dash_moves_two_cells_and_costs_extra_energy():
+    env, state = world("dune_sea", make_cell(EMPTY, EMPTY, EMPTY), agents([[1, 0]], [0]), dash_cost=0.05)
+
+    state, timestep = step(env, state, DASH)
+
+    assert state.agent.position[0].tolist() == [1, 2]
+    assert state.agent.energy[0] == pytest.approx(0.5 - ENERGY_COST - 0.05)
+    assert timestep.reward[0] == pytest.approx(-ENERGY_COST - 0.05)
+
+
+def test_a_dash_stops_before_a_wall_and_still_pays():
+    wall = EMPTY.at[1, 2].set(1.0)
+    env, state = world("dune_sea", make_cell(wall, EMPTY, EMPTY), agents([[1, 0]], [0]), dash_cost=0.05)
+
+    state, _ = step(env, state, DASH)
+
+    assert state.agent.position[0].tolist() == [1, 1]
+    assert state.agent.energy[0] == pytest.approx(0.5 - ENERGY_COST - 0.05)
+
+
+def test_a_dash_cannot_jump_over_another_agent():
+    env, state = world(
+        "dune_sea", make_cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 1]], [0, 0]), dash_cost=0.05
+    )
+
+    state, _ = step(env, state, DASH, NOOP)
+
+    assert state.agent.position[0].tolist() == [1, 0]
+
+
+def test_the_dash_action_exists_only_when_a_dash_cost_is_set():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    plain, state = world("dune_sea", cells, agents([[1, 0]], [0]))
+    fast, _ = world("dune_sea", cells, agents([[1, 0]], [0]), dash_cost=0.05)
+
+    assert plain.action_space().num_actions == 10 and fast.action_space().num_actions == 11
+    after, _ = step(plain, state, DASH)
+    assert after.agent.position[0].tolist() == [1, 0]
+
+
+def test_the_view_shows_which_way_the_others_face_relative_to_the_viewer():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    env, state = world(
+        "dune_sea", cells, agents([[1, 1], [1, 2], [0, 1]], [0, 0, 2]), observe_facing=True
+    )
+
+    view = env.observe(state)["view"][0]
+
+    assert view.shape[-1] == 12
+    assert view[2, 3, 8] == 1 and view[2, 3, 10] == 0
+    assert view[3, 2, 10] == 1 and view[3, 2, 8] == 0
+    assert view[3, 3, 8] == 1
+
+
+def test_tag_defaults_make_every_agent_a_tagger_who_starts_half_charged():
+    env = dune_sea.make("tag")
+    state, timestep = env.init(KEY)
+
+    assert env.thieves.all() and env.tag_from_behind and env.dash_cost > 0
+    assert float(state.agent.energy.max()) == pytest.approx(0.5)
+    assert timestep.obs["view"].shape[-1] == 12
+
+
+def test_a_tag_game_ends_when_one_agent_is_left():
+    env = dune_sea.make("tag", height=16, width=16, num_agents=4)
+    state, _ = env.init(KEY)
+    state = state.replace(agent=state.agent.replace(energy=jnp.array([0.5, 0.0, 0.0, 0.0])))
+
+    state, timestep = jax.jit(env.step)(KEY, state, jnp.zeros(4, jnp.int32))
+
+    assert bool(timestep.terminated.all())
+
+
+def test_a_dash_that_ends_right_behind_an_agent_tags_it():
+    env, state = tagging(
+        make_cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 2]], [0, 0], energy=[0.4, 0.8]), dash_cost=0.05
+    )
+
+    state, _ = step(env, state, DASH, NOOP)
+
+    assert state.agent.position[0].tolist() == [1, 1]
+    assert state.agent.energy[0] > 0.4 + 0.2
+    assert state.agent.energy[1] < 0.8 - 0.2
+
+
+def test_a_dash_that_ends_in_front_of_or_beside_its_target_does_not_tag():
+    for victim_direction in (2, 1):
+        env, state = tagging(
+            make_cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 2]], [0, victim_direction], energy=[0.4, 0.8]), dash_cost=0.05
+        )
+
+        state, _ = step(env, state, DASH, NOOP)
+
+        assert state.agent.energy[1] == pytest.approx(0.8 - ENERGY_COST)
+
+
+def test_a_dash_chase_catches_a_target_that_runs_straight():
+    from boonta.environments.dune_sea.dune_sea import FORWARD
+
+    big = jnp.zeros((3, 12))
+    env = dune_sea.make(
+        "dune_sea",
+        height=3,
+        width=12,
+        num_agents=2,
+        thieves=[True, True],
+        catch_amount=0.3,
+        tag_from_behind=True,
+        dash_cost=0.01,
+        generator=lambda key, height, width, num_agents: (
+            make_cell(big, big, big),
+            agents([[1, 0], [1, 3]], [0, 0], energy=[0.4, 0.8]),
+        ),
+    )
+    state, _ = env.init(KEY)
+    tagged_at = None
+    for tick in range(8):
+        key = jax.random.fold_in(KEY, tick)
+        state, _ = jax.jit(env.step)(key, state, jnp.array([DASH, FORWARD], jnp.int32))
+        if float(state.agent.energy[1]) < 0.8 - 0.2 - 0.003 * (tick + 1):
+            tagged_at = tick
+            break
+
+    assert tagged_at is not None
+
+
+def pond(**kwargs):
+    water = EMPTY.at[1, 1].set(1.0)
+    cells = make_cell(EMPTY, EMPTY, EMPTY, oasis=water)
+    env = dune_sea.make(
+        "oasis",
+        height=SIZE,
+        width=SIZE,
+        num_agents=2,
+        num_oases=0,
+        min_live_cells=1,
+        beacon_slots=2,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 1], [0, 0]], [0, 0], energy=[0.5, 0.5])),
+        **kwargs,
+    )
+    return env
+
+
+def test_standing_in_an_oasis_refills_energy_and_drains_its_reserve():
+    env = pond(reserve=1.0, drink_rate=0.1, energy_cost=0.01)
+    state, _ = env.init(KEY)
+
+    state, timestep = step(env, state, NOOP, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.5 - 0.01 + 0.1)
+    assert state.agent.energy[1] == pytest.approx(0.5 - 0.01)
+    assert timestep.reward[0] == pytest.approx(0.1 - 0.01)
+    assert float(state.cells.oasis[1, 1]) == pytest.approx(0.9)
+
+
+def test_an_oasis_gives_no_more_than_the_agent_can_hold():
+    env = pond(reserve=1.0, drink_rate=0.5, energy_cost=0.0)
+    state, _ = env.init(KEY)
+    state = state.replace(agent=state.agent.replace(energy=jnp.array([0.9, 0.5])))
+
+    state, _ = step(env, state, NOOP, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(1.0)
+    assert float(state.cells.oasis[1, 1]) == pytest.approx(0.9)
+
+
+def test_a_dried_oasis_is_replaced_by_a_new_pond_elsewhere():
+    size = 12
+    water = jnp.zeros((size, size)).at[2, 2].set(0.05)
+    zeros = jnp.zeros((size, size))
+    env = dune_sea.make(
+        "oasis",
+        height=size,
+        width=size,
+        num_agents=1,
+        num_oases=0,
+        min_live_cells=1,
+        drink_rate=0.05,
+        beacon_slots=1,
+        generator=lambda key, height, width, num_agents: (
+            make_cell(zeros, zeros, zeros, oasis=water),
+            agents([[2, 2]], [0], energy=[0.5]),
+        ),
+    )
+    state, _ = env.init(KEY)
+
+    state, _ = jax.jit(env.step)(KEY, state, jnp.zeros(1, jnp.int32))
+
+    assert float(state.cells.oasis[2, 2]) == 0
+    assert int((state.cells.oasis > 0).sum()) >= 1
+
+
+def test_there_are_no_plants_and_no_grass_on_the_water():
+    env = dune_sea.make("oasis")
+    state, _ = env.init(KEY)
+
+    assert float(state.cells.energy.sum()) == 0
+    assert float((state.cells.bush * (state.cells.oasis > 0)).sum()) == 0
+    assert float((state.cells.wall * (state.cells.oasis > 0)).sum()) == 0
+
+
+def test_the_view_shows_where_the_water_is():
+    env = pond()
+    state, _ = env.init(KEY)
+
+    view = env.observe(state)["view"][0]
+
+    assert view.shape[-1] == 9
+    assert view[3, 3, 8] == 1
+
+
+def test_a_broadcast_reaches_everyone_as_a_direction_in_their_own_frame():
+    cells = make_cell(jnp.zeros((12, 12)), jnp.zeros((12, 12)), jnp.zeros((12, 12)))
+    env = dune_sea.make(
+        "oasis",
+        height=12,
+        width=12,
+        num_agents=3,
+        num_oases=1,
+        beacon_slots=2,
+        generator=lambda key, height, width, num_agents: (
+            cells,
+            agents([[5, 2], [5, 9], [1, 2]], [0, 0, 0], energy=[0.5, 0.5, 0.5]),
+        ),
+    )
+    state, _ = env.init(KEY)
+    state = state.replace(agent=state.agent.replace(broadcast=jnp.array([False, True, True])))
+
+    beacons = env.observe(state)["beacons"][0]
+
+    nearest, second = beacons[0], beacons[1]
+    assert nearest[2] == 1 and second[2] == 1
+    assert nearest[0] == pytest.approx(0.0) and nearest[1] == pytest.approx(-4 / 12)
+    assert second[0] == pytest.approx(7 / 12) and second[1] == pytest.approx(0.0)
+
+
+def test_nobody_sees_a_beacon_that_is_not_broadcasting_or_their_own():
+    cells = make_cell(jnp.zeros((12, 12)), jnp.zeros((12, 12)), jnp.zeros((12, 12)))
+    env = dune_sea.make(
+        "oasis",
+        height=12,
+        width=12,
+        num_agents=2,
+        num_oases=1,
+        beacon_slots=2,
+        generator=lambda key, height, width, num_agents: (cells, agents([[5, 2], [5, 9]], [0, 0], energy=[0.5, 0.5])),
+    )
+    state, _ = env.init(KEY)
+
+    quiet = env.observe(state)["beacons"]
+    assert float(quiet.sum()) == 0
+
+    state = state.replace(agent=state.agent.replace(broadcast=jnp.array([True, False])))
+    own = env.observe(state)["beacons"]
+    assert float(own[0].sum()) == 0 and float(own[1][0][2]) == 1
+
+
+def test_a_blended_render_slides_agents_between_their_two_positions():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    env, after = world("dune_sea", cells, agents([[1, 2]], [0]))
+    before = after.replace(agent=after.agent.replace(position=jnp.array([[1, 1]])))
+
+    start = env.render(after, 1, storm=0.0, previous=before, blend=0.0)
+    middle = env.render(after, 1, storm=0.0, previous=before, blend=0.5)
+    end = env.render(after, 1, storm=0.0, previous=before, blend=1.0)
+
+    assert bool((start == env.render(before, 1, storm=0.0)).all())
+    assert bool((end == env.render(after, 1, storm=0.0)).all())
+    assert bool((middle != start).any()) and bool((middle != end).any())
+
+
+def test_an_agent_that_jumps_far_is_not_dragged_across_the_map():
+    size = 8
+    cells = make_cell(jnp.zeros((size, size)), jnp.zeros((size, size)), jnp.zeros((size, size)))
+    env = dune_sea.make(
+        "dune_sea",
+        height=size,
+        width=size,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 6]], [0])),
+    )
+    after, _ = env.init(KEY)
+    before = after.replace(agent=after.agent.replace(position=jnp.array([[1, 0]])))
+
+    drawn = env.render(after, 1, storm=0.0, previous=before, blend=0.0)
+
+    assert bool((drawn == env.render(after, 1, storm=0.0)).all())
+
+
+def test_the_sandstorm_moves_with_time_and_can_be_switched_off():
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
+    env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
+    later = state.replace(time=jnp.int32(25))
+
+    assert bool((env.render(state, 1) != env.render(later, 1)).any())
+    assert bool((env.render(state, 1, storm=0.0) == env.render(later, 1, storm=0.0)).all())
+    assert bool((env.render(state, 1) != env.render(state, 1, storm=0.0)).any())
+
+
+def test_an_agent_behind_a_palm_is_hidden_by_its_trunk_and_one_in_front_is_not():
+    import numpy as np
+
+    from boonta.environments.dune_sea import render as drawing
+
+    env = dune_sea.make("oasis", num_agents=2)
+    state, _ = env.init(KEY)
+    water = (state.cells.oasis > 0) & (state.cells.wall == 0)
+    land = ~water & (state.cells.wall == 0) & (state.cells.bush == 0)
+    sites = np.asarray(drawing.palm_sites(water, land, jnp.asarray(drawing.scenery_rolls(64, 64))))
+    row, column = np.argwhere(sites)[0]
+    tile = drawing.TILE
+
+    def trunk_pixels(agent_row, agent_column, left, right):
+        placed = state.replace(
+            agent=state.agent.replace(
+                position=jnp.array([[agent_row, agent_column], [0, 0]]), energy=jnp.ones(2)
+            )
+        )
+        away = placed.replace(agent=placed.agent.replace(position=jnp.array([[0, 0], [0, 1]])))
+        with_agent = np.asarray(env.render(placed, 1, storm=0.0))
+        without = np.asarray(env.render(away, 1, storm=0.0))
+        block = (slice(agent_row * tile, (agent_row + 1) * tile), slice(agent_column * tile + left, agent_column * tile + right))
+        return with_agent[block], without[block]
+
+    behind, behind_alone = trunk_pixels(row - 2, column, 6, 10)
+    in_front, in_front_alone = trunk_pixels(row, column + 1, 0, tile)
+
+    assert (behind == behind_alone).all()
+    assert not (in_front == in_front_alone).all()
 

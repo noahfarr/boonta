@@ -1,0 +1,11 @@
+namespace: dune_sea
+suite: oasis
+env_id: oasis
+num_envs: 1024
+kwargs:
+  height: 64
+  width: 64
+  num_agents: 16
+  num_oases: 3
+  beacon_slots: 3
+  view_size: 7

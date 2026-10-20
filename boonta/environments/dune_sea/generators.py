@@ -81,6 +81,7 @@ def uniform_generator(
         goal=goal.astype(jnp.float32),
         energy=energy.astype(jnp.float32) * ENERGY_GAIN,
         bush=jnp.zeros((height, width), jnp.float32),
+        oasis=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent
 
@@ -103,5 +104,6 @@ def cave_generator(
         goal=jnp.zeros((height, width), jnp.float32),
         energy=jnp.where(energy, stage, 0.0),
         bush=bush.astype(jnp.float32),
+        oasis=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent

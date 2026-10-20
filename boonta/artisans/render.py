@@ -13,11 +13,13 @@ class Render:
         name: str = "render",
         max_frames: int = 256,
         fps: int = 16,
+        smooth: int = 1,
         kwargs: dict | None = None,
     ):
         self.name = name
         self.max_frames = max_frames
         self.fps = fps
+        self.smooth = smooth
         self.kwargs = kwargs or {}
 
     def rollout(self, algorithm, environment, algorithm_state, key):
@@ -50,14 +52,22 @@ class Render:
         trajectory = jax.jit(partial(self.rollout, algorithm, environment))(
             state.algorithm_state, key
         )
-        frames = [
-            np.asarray(
-                environment.render(
-                    jax.tree.map(lambda leaf: jnp.take(leaf, step, axis=0), trajectory),
-                    **self.kwargs,
-                ),
-                dtype=np.uint8,
+        def state_at(step):
+            return jax.tree.map(lambda leaf: jnp.take(leaf, step, axis=0), trajectory)
+
+        def draw(step, extra):
+            return np.asarray(
+                environment.render(state_at(step), **self.kwargs, **extra), dtype=np.uint8
             )
-            for step in range(self.max_frames)
-        ]
-        return Video(self.name, np.stack(frames), fps=self.fps)
+
+        frames = []
+        for step in range(self.max_frames):
+            if self.smooth > 1 and step > 0:
+                previous = state_at(step - 1)
+                frames.extend(
+                    draw(step, {"previous": previous, "blend": sub / self.smooth})
+                    for sub in range(1, self.smooth + 1)
+                )
+            else:
+                frames.extend(draw(step, {}) for _ in range(max(self.smooth, 1)))
+        return Video(self.name, np.stack(frames), fps=self.fps * max(self.smooth, 1))

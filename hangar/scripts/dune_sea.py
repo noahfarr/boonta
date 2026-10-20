@@ -23,6 +23,7 @@ from boonta.environments.dune_sea.dune_sea import (  # noqa: E402
 )
 
 TILE_SIZE = 16
+STEP_ANIMATION_SECONDS = 0.12
 MIN_ZOOM = 0.25
 MAX_ZOOM = 8.0
 ZOOM_STEP = 1.15
@@ -72,24 +73,37 @@ class Viewer:
         self.init_env = jax.jit(self.env.init)
         self.step_env = jax.jit(self.env.step)
         self.show_fov = False
-        self.paint_plain = jax.jit(lambda state: self.env.render(state, 1))
-        self.paint_fov = jax.jit(lambda state: self.env.render(state, 1, show_fov=True))
+        self.previous = None
+        self.moved_at = 0.0
+        self.paint_plain = jax.jit(lambda state, previous, blend: self.env.render(state, 1, previous=previous, blend=blend))
+        self.paint_fov = jax.jit(
+            lambda state, previous, blend: self.env.render(state, 1, show_fov=True, previous=previous, blend=blend)
+        )
         self.camera = pr.Camera2D(pr.Vector2(0, 0), pr.Vector2(0, 0), 0.0, float(args.zoom))
         self.reset_world()
 
+    def blend(self) -> float:
+        if self.previous is None:
+            return 1.0
+        return min((pr.get_time() - self.moved_at) / STEP_ANIMATION_SECONDS, 1.0)
+
     def paint_state(self, state):
-        return (self.paint_fov if self.show_fov else self.paint_plain)(state)
+        previous = state if self.previous is None else self.previous
+        return (self.paint_fov if self.show_fov else self.paint_plain)(state, previous, self.blend())
 
     def next_key(self) -> jax.Array:
         self.key, used_key = jax.random.split(self.key)
         return used_key
 
     def reset_world(self):
+        self.previous = None
         self.state, self.timestep = self.init_env(self.next_key())
         self.episode_steps = 0
         self.frame_dirty = True
 
     def advance_world(self, controlled_action: int | None):
+        self.previous = self.state
+        self.moved_at = pr.get_time()
         actions = jax.random.randint(self.next_key(), (self.env.num_agents,), 0, NUM_ACTIONS)
         if controlled_action is not None:
             actions = actions.at[0].set(controlled_action)
@@ -164,7 +178,7 @@ class Viewer:
         self.frame_dirty = False
 
     def draw_frame(self, texture):
-        if self.frame_dirty:
+        if self.frame_dirty or self.blend() < 1.0:
             self.upload_frame(texture)
 
         pr.begin_drawing()

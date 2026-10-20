@@ -74,7 +74,8 @@ def main(cfg):
     scoring = instantiate(cfg.scoring)
 
     def craft(state, logs, step):
-        keys = jax.random.split(jax.random.fold_in(craft_key, step), max(len(artisans), 1))
+        seed = step & 0xFFFFFFFF
+        keys = jax.random.split(jax.random.fold_in(craft_key, seed), max(len(artisans), 1))
         for key, artisan in zip(keys, artisans):
             logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
 

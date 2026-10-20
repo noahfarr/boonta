@@ -10,7 +10,7 @@ from .state import DuneSeaState
 PREPARATION_STEPS = 40
 ENERGY_COST = 0.003
 INITIAL_DIRT = 4
-SIGHT_DRAIN = 0.01
+SIGHT_DRAIN = 0.05
 
 
 class HideAndSeek(Commons):

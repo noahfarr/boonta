@@ -449,3 +449,37 @@ def test_debrief_says_so_when_no_checkpoint_was_saved(capsys, tmp_path):
     assert "not saved" in printed and "n/a" in printed
     assert "boonta evaluate" not in printed
     assert "logger=[dashboard,orbax] artisan=checkpoint" in printed
+
+
+def test_the_wandb_logger_keeps_a_host_copy_of_the_checkpoint_it_will_upload(monkeypatch):
+    import sys
+    import types
+
+    import jax.numpy as jnp
+
+    monkeypatch.setitem(sys.modules, "wandb", types.ModuleType("wandb"))
+    monkeypatch.delitem(sys.modules, "boonta.loggers.wandb", raising=False)
+
+    from boonta.artisans import Checkpoint
+    from boonta.loggers.wandb import WandbLogger
+
+    logger = object.__new__(WandbLogger)
+    logger.runs, logger.checkpoint = {}, None
+    weights = jnp.arange(4.0)
+
+    logger.log_artifact(Checkpoint("model", {"weights": weights}, 1.0), step=1)
+    weights.delete()
+
+    assert logger.checkpoint.data["weights"].tolist() == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
+    import jax
+
+    key = jax.random.key(0)
+    step = 4_303_355_904
+
+    folded = jax.random.fold_in(key, step & 0xFFFFFFFF)
+
+    assert folded.shape == key.shape
+

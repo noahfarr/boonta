@@ -19,6 +19,7 @@ class ViewAndEnergy(nn.Module):
         energy = obs["energy"].astype(jnp.float32)[..., None]
         inventory = jnp.log1p(obs["inventory"].astype(jnp.float32))[..., None]
         team = obs["team"].astype(jnp.float32)[..., None]
+        beacons = [Flatten(start_dim=-2)(obs["beacons"].astype(jnp.float32))] if "beacons" in obs else []
         return nn.Sequential(
             [
                 nn.Dense(self.features),
@@ -26,7 +27,7 @@ class ViewAndEnergy(nn.Module):
                 nn.Dense(self.features),
                 nn.relu,
             ]
-        )(jnp.concatenate([view, energy, inventory, team], axis=-1))
+        )(jnp.concatenate([view, energy, inventory, team, *beacons], axis=-1))
 
 
 def make(cfg):
