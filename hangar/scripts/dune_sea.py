@@ -7,15 +7,16 @@ import jax  # noqa: E402
 import numpy as np  # noqa: E402
 import pyray as pr  # noqa: E402
 
-from boonta.environments.dune_sea import DuneSea  # noqa: E402
+from boonta import environments  # noqa: E402
 from boonta.environments.dune_sea.dune_sea import (  # noqa: E402
     BACKWARD,
+    BROADCAST,
     FORWARD,
-    HIGHLIGHT_COLOR,
+    INTERACT,
+    LEFT,
     NOOP,
     NUM_ACTIONS,
-    STEP_LEFT,
-    STEP_RIGHT,
+    RIGHT,
     TURN_LEFT,
     TURN_RIGHT,
 )
@@ -29,26 +30,31 @@ PAN_BUTTONS = (
     pr.MouseButton.MOUSE_BUTTON_RIGHT,
     pr.MouseButton.MOUSE_BUTTON_MIDDLE,
 )
-HIGHLIGHT = pr.Color(*(int(channel) for channel in HIGHLIGHT_COLOR), 255)
+HIGHLIGHT = pr.Color(231, 111, 81, 255)
 CONTROL_KEYS = {
     pr.KeyboardKey.KEY_W: FORWARD,
     pr.KeyboardKey.KEY_S: BACKWARD,
-    pr.KeyboardKey.KEY_A: STEP_LEFT,
-    pr.KeyboardKey.KEY_D: STEP_RIGHT,
+    pr.KeyboardKey.KEY_A: LEFT,
+    pr.KeyboardKey.KEY_D: RIGHT,
     pr.KeyboardKey.KEY_Q: TURN_LEFT,
     pr.KeyboardKey.KEY_E: TURN_RIGHT,
+    pr.KeyboardKey.KEY_X: INTERACT,
+    pr.KeyboardKey.KEY_B: BROADCAST,
+    pr.KeyboardKey.KEY_N: NOOP,
 }
+
+
 class Viewer:
     def __init__(self, args):
-        self.env = DuneSea(
-            width=args.width,
-            height=args.height,
-            num_agents=args.agents,
-            time_limit=args.time_limit,
-            rock_fill=args.rock_fill,
-            smooth_passes=args.smooth_passes,
-            flora_fill=args.flora_fill,
-            oasis_density=args.oasis_density,
+        self.env = environments.make(
+            "dune_sea",
+            args.env,
+            kwargs={
+                "width": args.width,
+                "height": args.height,
+                "num_agents": args.agents,
+                "time_limit": args.time_limit,
+            },
         )
         self.window_size = (args.window_width, args.window_height)
         self.start_zoom = args.zoom
@@ -59,7 +65,7 @@ class Viewer:
         self.key = jax.random.key(args.seed)
         self.init_env = jax.jit(self.env.init)
         self.step_env = jax.jit(self.env.step)
-        self.paint_state = jax.jit(lambda state: self.env.render(state, TILE_SIZE))
+        self.paint_state = jax.jit(lambda state: self.env.render(state, 1))
         self.camera = pr.Camera2D(pr.Vector2(0, 0), pr.Vector2(0, 0), 0.0, float(args.zoom))
         self.reset_world()
 
@@ -79,15 +85,13 @@ class Viewer:
         self.state, self.timestep = self.step_env(self.next_key(), self.state, actions)
         self.episode_steps += 1
         self.frame_dirty = True
-        if bool(self.timestep.truncated.all()):
+        if bool(self.timestep.truncated.all() | self.timestep.terminated.all()):
             self.reset_world()
 
     def handle_keys(self):
         for key, action in CONTROL_KEYS.items():
             if pr.is_key_pressed(key):
                 self.advance_world(action)
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_N):
-            self.advance_world(NOOP)
         if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
             self.autoplay = not self.autoplay
         if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
@@ -112,7 +116,7 @@ class Viewer:
     def follow_agent(self):
         self.camera.zoom = self.start_zoom
         self.camera.offset.x, self.camera.offset.y = pr.get_screen_width() / 2, pr.get_screen_height() / 2
-        x, y = (int(value) for value in self.state.position[0])
+        y, x = (int(value) for value in self.state.agent.position[0])
         self.camera.target.x, self.camera.target.y = (x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE
 
     def handle_mouse(self):
@@ -138,17 +142,6 @@ class Viewer:
             self.clock -= interval
             self.advance_world(None)
 
-    def visible_copies(self) -> list[tuple[int, int]]:
-        world_width = self.env.width * TILE_SIZE
-        world_height = self.env.height * TILE_SIZE
-        corner = pr.get_screen_to_world_2d(pr.Vector2(0, 0), self.camera)
-        far = pr.get_screen_to_world_2d(
-            pr.Vector2(pr.get_screen_width(), pr.get_screen_height()), self.camera
-        )
-        columns = range(int(np.floor(corner.x / world_width)), int(np.floor(far.x / world_width)) + 1)
-        rows = range(int(np.floor(corner.y / world_height)), int(np.floor(far.y / world_height)) + 1)
-        return [(column * world_width, row * world_height) for row in rows for column in columns]
-
     def upload_frame(self, texture):
         frame = np.asarray(self.paint_state(self.state))
         alpha = np.full(frame.shape[:2] + (1,), 255, np.uint8)
@@ -163,19 +156,13 @@ class Viewer:
         pr.begin_drawing()
         pr.clear_background(pr.BLACK)
         pr.begin_mode_2d(self.camera)
-        controlled = self.state.position[0]
-        for left, top in self.visible_copies():
-            pr.draw_texture_ex(texture, pr.Vector2(left, top), 0.0, 1.0, pr.WHITE)
-            pr.draw_rectangle_lines_ex(
-                pr.Rectangle(
-                    left + int(controlled[0]) * TILE_SIZE,
-                    top + int(controlled[1]) * TILE_SIZE,
-                    TILE_SIZE,
-                    TILE_SIZE,
-                ),
-                max(2.0 / self.camera.zoom, 1.0),
-                HIGHLIGHT,
-            )
+        y, x = (int(value) for value in self.state.agent.position[0])
+        pr.draw_texture_ex(texture, pr.Vector2(0, 0), 0.0, 1.0, pr.WHITE)
+        pr.draw_rectangle_lines_ex(
+            pr.Rectangle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE),
+            max(2.0 / self.camera.zoom, 1.0),
+            HIGHLIGHT,
+        )
         pr.end_mode_2d()
         pr.end_drawing()
 
@@ -201,22 +188,20 @@ class Viewer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Walk agent 0 around the dune_sea grid world. "
-        "w/s forward/back, a/d step left/right, q/e turn, n wait, space autoplay, "
-        "+/- speed, r reset, esc quit. Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
+        description="Walk agent 0 around a dune_sea grid world. "
+        "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, n wait, "
+        "space autoplay, +/- speed, r reset, esc quit. "
+        "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )
-    parser.add_argument("--width", type=int, default=128)
-    parser.add_argument("--height", type=int, default=96)
-    parser.add_argument("--agents", type=int, default=32)
+    parser.add_argument("--env", choices=("dune_sea", "commons"), default="commons")
+    parser.add_argument("--width", type=int, default=64)
+    parser.add_argument("--height", type=int, default=48)
+    parser.add_argument("--agents", type=int, default=8)
     parser.add_argument("--time-limit", type=int, default=1024)
     parser.add_argument("--zoom", type=float, default=2.0)
     parser.add_argument("--window-width", type=int, default=1280)
     parser.add_argument("--window-height", type=int, default=800)
     parser.add_argument("--fps", type=float, default=8.0)
-    parser.add_argument("--rock-fill", type=float, default=0.39)
-    parser.add_argument("--smooth-passes", type=int, default=4)
-    parser.add_argument("--flora-fill", type=float, default=0.03)
-    parser.add_argument("--oasis-density", type=float, default=0.0012)
     parser.add_argument("--seed", type=int, default=0)
     Viewer(parser.parse_args()).start_viewer()
 

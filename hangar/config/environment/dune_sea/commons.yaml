@@ -1,0 +1,9 @@
+namespace: dune_sea
+suite: commons
+env_id: commons
+num_envs: 1024
+kwargs:
+  height: 32
+  width: 32
+  num_agents: 4
+  view_size: 7
