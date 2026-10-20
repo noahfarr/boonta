@@ -13,6 +13,8 @@ ENERGY_DENSITY = 0.1
 CAVE_FILL = 0.46
 CAVE_ROUNDS = 4
 CAVE_ENERGY_DENSITY = 0.05
+BUSH_FILL = 0.42
+BUSH_ROUNDS = 3
 
 Generator = Callable[[Key, int, int, int], tuple[Cell, Agent]]
 
@@ -78,6 +80,7 @@ def uniform_generator(
         wall=wall.astype(jnp.float32),
         goal=goal.astype(jnp.float32),
         energy=energy.astype(jnp.float32) * ENERGY_GAIN,
+        bush=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent
 
@@ -85,9 +88,10 @@ def uniform_generator(
 def cave_generator(
     key: Key, height: int, width: int, num_agents: int
 ) -> tuple[Cell, Agent]:
-    cave_key, agent_key, energy_key, stage_key = jax.random.split(key, 4)
+    cave_key, agent_key, energy_key, stage_key, bush_key = jax.random.split(key, 5)
     noise = jax.random.bernoulli(cave_key, CAVE_FILL, (height, width))
     wall = smooth_cave(noise, CAVE_ROUNDS)
+    bush = smooth_cave(jax.random.bernoulli(bush_key, BUSH_FILL, (height, width)), BUSH_ROUNDS) & ~wall
     agent = place_agents(agent_key, ~wall, num_agents)
     energy = jax.random.bernoulli(energy_key, CAVE_ENERGY_DENSITY, (height, width))
     energy = energy & ~wall & ~occupied_cells(agent, height, width)
@@ -98,5 +102,6 @@ def cave_generator(
         wall=wall.astype(jnp.float32),
         goal=jnp.zeros((height, width), jnp.float32),
         energy=jnp.where(energy, stage, 0.0),
+        bush=bush.astype(jnp.float32),
     )
     return cells, agent

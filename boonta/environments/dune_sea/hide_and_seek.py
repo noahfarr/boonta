@@ -17,12 +17,12 @@ class HideAndSeek(Commons):
 
     def __init__(
         self,
-        height: int = 24,
-        width: int = 24,
-        num_hiders: int = 2,
-        num_seekers: int = 2,
+        height: int = 64,
+        width: int = 64,
+        num_hiders: int = 10,
+        num_seekers: int = 10,
         view_size: int = 7,
-        time_limit: int = 400,
+        time_limit: int = 700,
         generator: Generator = cave_generator,
         growth_steps: int = GROWTH_STEPS,
         preparation_steps: int = PREPARATION_STEPS,

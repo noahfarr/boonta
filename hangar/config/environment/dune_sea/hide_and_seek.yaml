@@ -3,8 +3,8 @@ suite: hide_and_seek
 env_id: hide_and_seek
 num_envs: 1024
 kwargs:
-  height: 24
-  width: 24
-  num_hiders: 2
-  num_seekers: 2
+  height: 64
+  width: 64
+  num_hiders: 10
+  num_seekers: 10
   view_size: 7

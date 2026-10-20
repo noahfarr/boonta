@@ -3,13 +3,18 @@ import jax.numpy as jnp
 import pytest
 
 from boonta.environments import dune_sea
-from boonta.environments.dune_sea import Agent, Cell
+from boonta.environments.dune_sea import Agent
+from boonta.environments.dune_sea import Cell as StateCell
 from boonta.environments.dune_sea.dune_sea import (BROADCAST, CATCH_AMOUNT,
                                                     ENERGY_COST, FORWARD,
                                                     INTERACT, NOOP, PLACE,
                                                     TURN_LEFT)
 from boonta.environments.dune_sea.state import (MATURE_ENERGY, MAX_PLANT_ENERGY,
                                                 SEED_ENERGY)
+
+def make_cell(wall, goal, energy, bush=None):
+    return StateCell(wall, goal, energy, jnp.zeros_like(wall) if bush is None else bush)
+
 
 SIZE = 3
 EMPTY = jnp.zeros((SIZE, SIZE))
@@ -50,7 +55,7 @@ def plant(row, column, amount):
 
 
 def test_interact_takes_the_energy_of_the_cell_being_faced():
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
 
     state, timestep = step(env, state, INTERACT)
@@ -62,7 +67,7 @@ def test_interact_takes_the_energy_of_the_cell_being_faced():
 
 @pytest.mark.parametrize("direction", [1, 2, 3])
 def test_interact_does_nothing_unless_the_agent_faces_the_energy(direction):
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 1]], [direction]))
 
     state, _ = step(env, state, INTERACT)
@@ -71,7 +76,7 @@ def test_interact_does_nothing_unless_the_agent_faces_the_energy(direction):
 
 
 def test_standing_on_energy_does_not_collect_it():
-    cells = Cell(EMPTY, EMPTY, plant(1, 1, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 1, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
@@ -80,7 +85,7 @@ def test_standing_on_energy_does_not_collect_it():
 
 
 def test_interact_mines_a_wall_into_the_inventory_before_collecting():
-    cells = Cell(plant(1, 2, 1.0), EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(plant(1, 2, 1.0), EMPTY, plant(1, 2, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
@@ -91,7 +96,7 @@ def test_interact_mines_a_wall_into_the_inventory_before_collecting():
 
 
 def test_two_agents_facing_one_plant_cannot_both_take_it():
-    cells = Cell(EMPTY, EMPTY, plant(1, 1, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 1, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 0], [1, 2]], [0, 2]))
 
     state, _ = step(env, state, INTERACT, INTERACT)
@@ -101,7 +106,7 @@ def test_two_agents_facing_one_plant_cannot_both_take_it():
 
 
 def test_turning_changes_what_the_agent_can_interact_with():
-    cells = Cell(EMPTY, EMPTY, plant(0, 1, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(0, 1, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, TURN_LEFT)
@@ -111,7 +116,7 @@ def test_turning_changes_what_the_agent_can_interact_with():
 
 
 def test_noop_and_broadcast_leave_the_agent_where_it_is_and_cost_energy():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
 
     for action in (NOOP, BROADCAST):
@@ -121,7 +126,7 @@ def test_noop_and_broadcast_leave_the_agent_where_it_is_and_cost_energy():
 
 
 def test_commons_plants_ripen_up_to_a_cap():
-    cells = Cell(EMPTY, EMPTY, plant(0, 0, 0.1).at[2, 2].set(MAX_PLANT_ENERGY - 0.001))
+    cells = make_cell(EMPTY, EMPTY, plant(0, 0, 0.1).at[2, 2].set(MAX_PLANT_ENERGY - 0.001))
     env, state = world("commons", cells, agents([[1, 1]], [0]), growth_steps=100)
 
     state, _ = step(env, state, NOOP)
@@ -133,7 +138,7 @@ def test_commons_plants_ripen_up_to_a_cap():
 
 
 def test_commons_ripe_plant_regrows_from_a_seed_after_harvest():
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, MAX_PLANT_ENERGY))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, MAX_PLANT_ENERGY))
     env, state = world("commons", cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
@@ -143,7 +148,7 @@ def test_commons_ripe_plant_regrows_from_a_seed_after_harvest():
 
 
 def test_commons_plant_harvested_before_it_matures_is_gone():
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, MATURE_ENERGY - 0.1))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, MATURE_ENERGY - 0.1))
     env, state = world("commons", cells, agents([[1, 1]], [0]))
 
     state, _ = step(env, state, INTERACT)
@@ -156,7 +161,7 @@ def test_commons_plant_harvested_before_it_matures_is_gone():
 
 
 def test_place_puts_a_wall_on_the_faced_cell_and_spends_dirt():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 1]], [0], inventory=1))
 
     state, _ = step(env, state, PLACE)
@@ -168,7 +173,7 @@ def test_place_puts_a_wall_on_the_faced_cell_and_spends_dirt():
 
 
 def test_place_needs_dirt_and_a_free_cell():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 1]], [0], inventory=0))
     state, _ = step(env, state, PLACE)
     assert state.cells.wall.sum() == 0
@@ -180,7 +185,7 @@ def test_place_needs_dirt_and_a_free_cell():
 
 
 def test_placed_wall_can_be_mined_back():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 1]], [0], inventory=1))
 
     state, _ = step(env, state, PLACE)
@@ -191,7 +196,7 @@ def test_placed_wall_can_be_mined_back():
 
 
 def test_an_agent_without_energy_is_inert_and_neither_blocks_nor_shows():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 0], [1, 1]], [0, 0], energy=[0.5, 0.0]))
 
     assert state.agent.energy[1] == 0
@@ -207,7 +212,7 @@ def test_an_agent_without_energy_is_inert_and_neither_blocks_nor_shows():
 
 
 def test_a_thief_takes_energy_from_the_agent_it_faces():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
         "dune_sea", cells, agents([[1, 0], [1, 1]], [0, 2], energy=[0.9, 0.2]), **roles
@@ -221,7 +226,7 @@ def test_a_thief_takes_energy_from_the_agent_it_faces():
 
 
 def test_a_thief_cannot_take_more_than_the_victim_has():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
         "dune_sea", cells, agents([[1, 0], [1, 1]], [0, 2], energy=[0.3, 0.2]), **roles
@@ -234,7 +239,7 @@ def test_a_thief_cannot_take_more_than_the_victim_has():
 
 
 def test_only_thieves_steal_and_only_eaters_eat():
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, 0.4))
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
         "dune_sea", cells, agents([[1, 0], [1, 1]], [0, 0], energy=[0.5, 0.5]), **roles
@@ -249,26 +254,26 @@ def test_only_thieves_steal_and_only_eaters_eat():
 
 def test_a_wall_hides_what_is_behind_it():
     wall = EMPTY.at[1, 1].set(1.0)
-    cells = Cell(wall, EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(wall, EMPTY, plant(1, 2, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 0]], [0]))
 
     view = env.observe(state)["view"][0]
 
-    assert view[2, 3, 0] == 1 and view[2, 3, 6] == 1
-    assert view[1, 3, 2] == 0 and view[1, 3, 6] == 0
+    assert view[2, 3, 0] == 1 and view[2, 3, 7] == 1
+    assert view[1, 3, 2] == 0 and view[1, 3, 7] == 0
 
 
 def test_without_a_wall_the_same_cell_is_visible():
-    cells = Cell(EMPTY, EMPTY, plant(1, 2, 0.4))
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, 0.4))
     env, state = world("dune_sea", cells, agents([[1, 0]], [0]))
 
     view = env.observe(state)["view"][0]
 
-    assert view[1, 3, 2] == pytest.approx(0.4) and view[1, 3, 6] == 1
+    assert view[1, 3, 2] == pytest.approx(0.4) and view[1, 3, 7] == 1
 
 
 def test_the_view_separates_teammates_from_opponents():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world(
         "dune_sea", cells, agents([[1, 0], [1, 1], [0, 0]], [0, 0, 0]), teams=[0, 1, 0]
     )
@@ -381,7 +386,7 @@ def sighted(cells, agent, **kwargs):
 
 
 def test_a_seeker_that_sees_a_hider_takes_energy_from_it_every_step():
-    env, state = sighted(Cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 2]], [0, 0], energy=[0.8, 0.5]))
+    env, state = sighted(make_cell(EMPTY, EMPTY, EMPTY), agents([[1, 0], [1, 2]], [0, 0], energy=[0.8, 0.5]))
 
     state, timestep = step(env, state, NOOP, NOOP)
 
@@ -391,7 +396,7 @@ def test_a_seeker_that_sees_a_hider_takes_energy_from_it_every_step():
 
 
 def test_a_wall_between_them_stops_the_drain():
-    cells = Cell(EMPTY.at[1, 1].set(1.0), EMPTY, EMPTY)
+    cells = make_cell(EMPTY.at[1, 1].set(1.0), EMPTY, EMPTY)
     env, state = sighted(cells, agents([[1, 0], [1, 2]], [0, 0], energy=[0.8, 0.5]))
 
     state, _ = step(env, state, NOOP, NOOP)
@@ -412,7 +417,7 @@ def test_a_hider_outside_the_view_is_not_drained():
         thieves=[False, True],
         sight_drain=0.1,
         generator=lambda key, height, width, num_agents: (
-            Cell(jnp.zeros((12, 12)), jnp.zeros((12, 12)), jnp.zeros((12, 12))),
+            make_cell(jnp.zeros((12, 12)), jnp.zeros((12, 12)), jnp.zeros((12, 12))),
             agents([[1, 0], [1, 9]], [0, 0], energy=[0.8, 0.5]),
         ),
     )
@@ -424,7 +429,7 @@ def test_a_hider_outside_the_view_is_not_drained():
 
 
 def test_the_drain_is_limited_to_what_the_hider_has_and_split_between_watchers():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     roles = dict(teams=[0, 1, 1], eaters=[True, False, False], thieves=[False, True, True])
     env, state = world(
         "dune_sea",
@@ -457,7 +462,7 @@ def test_the_field_of_view_is_the_view_window_minus_what_walls_hide():
         num_agents=1,
         view_size=5,
         generator=lambda key, height, width, num_agents: (
-            Cell(jnp.zeros((9, 9)).at[4, 4].set(1.0), jnp.zeros((9, 9)), jnp.zeros((9, 9))),
+            make_cell(jnp.zeros((9, 9)).at[4, 4].set(1.0), jnp.zeros((9, 9)), jnp.zeros((9, 9))),
             agents([[4, 3]], [0]),
         ),
     )
@@ -474,7 +479,7 @@ def test_the_field_of_view_is_the_view_window_minus_what_walls_hide():
 
 
 def test_an_agent_without_energy_has_no_field_of_view():
-    cells = Cell(EMPTY, EMPTY, EMPTY)
+    cells = make_cell(EMPTY, EMPTY, EMPTY)
     env, state = world("dune_sea", cells, agents([[1, 1]], [0], energy=0.0))
 
     assert not bool(env.fov(state).any())
@@ -489,4 +494,100 @@ def test_rendering_the_field_of_view_changes_the_picture_and_nothing_else_breaks
 
     assert plain.shape == with_fov.shape
     assert bool((plain != with_fov).any())
+
+
+def test_an_agent_in_a_bush_is_hidden_from_anyone_more_than_one_cell_away():
+    bush = EMPTY.at[1, 2].set(1.0)
+    cells = make_cell(EMPTY, EMPTY, EMPTY, bush)
+    env, state = world("dune_sea", cells, agents([[1, 0], [1, 2]], [0, 0]), teams=[0, 0])
+
+    far = env.observe(state)["view"][0]
+    assert far[3, 3, 3] == 1
+    assert far[1, 3, 3] == 0
+    assert far[1, 3, 6] == 1
+
+    state = state.replace(agent=state.agent.replace(position=jnp.array([[1, 1], [1, 2]])))
+    near = env.observe(state)["view"][0]
+    assert near[2, 3, 3] == 1
+
+
+def test_an_agent_always_sees_itself_even_in_a_bush():
+    bush = EMPTY.at[1, 1].set(1.0)
+    env, state = world("dune_sea", make_cell(EMPTY, EMPTY, EMPTY, bush), agents([[1, 1]], [0]))
+
+    assert env.observe(state)["view"][0][3, 3, 3] == 1
+
+
+def test_a_bush_hides_a_hider_from_the_sight_drain_until_a_seeker_is_adjacent():
+    roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
+    bush = EMPTY.at[1, 2].set(1.0)
+    cells = make_cell(EMPTY, EMPTY, EMPTY, bush)
+
+    env, state = world(
+        "dune_sea", cells, agents([[1, 2], [1, 0]], [0, 0], energy=[0.8, 0.5]), sight_drain=0.1, catch_amount=0.0, **roles
+    )
+    state, _ = step(env, state, NOOP, NOOP)
+    assert state.agent.energy[0] == pytest.approx(0.8 - ENERGY_COST)
+
+    env, state = world(
+        "dune_sea", cells, agents([[1, 2], [1, 1]], [0, 0], energy=[0.8, 0.5]), sight_drain=0.1, catch_amount=0.0, **roles
+    )
+    state, _ = step(env, state, NOOP, NOOP)
+    assert state.agent.energy[0] == pytest.approx(0.8 - 0.1 - ENERGY_COST)
+
+
+def test_interact_clears_the_bush_that_is_faced():
+    bush = EMPTY.at[1, 2].set(1.0)
+    env, state = world("dune_sea", make_cell(EMPTY, EMPTY, EMPTY, bush), agents([[1, 1]], [0]))
+
+    state, _ = step(env, state, INTERACT)
+
+    assert state.cells.bush.sum() == 0
+    assert state.agent.inventory[0] == 0
+
+
+def test_a_plant_is_harvested_before_the_bush_on_it_is_cleared():
+    bush = EMPTY.at[1, 2].set(1.0)
+    cells = make_cell(EMPTY, EMPTY, plant(1, 2, 0.4), bush)
+    env, state = world("dune_sea", cells, agents([[1, 1]], [0]))
+
+    state, _ = step(env, state, INTERACT)
+    assert state.cells.energy.sum() == 0 and state.cells.bush.sum() == 1
+    state, _ = step(env, state, INTERACT)
+    assert state.cells.bush.sum() == 0
+
+
+def test_a_seeker_can_clear_the_bush_a_hider_stands_in():
+    roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
+    bush = EMPTY.at[1, 2].set(1.0)
+    env, state = world(
+        "dune_sea",
+        make_cell(EMPTY, EMPTY, EMPTY, bush),
+        agents([[1, 2], [1, 1]], [0, 0]),
+        catch_amount=0.0,
+        **roles,
+    )
+
+    state, _ = step(env, state, NOOP, INTERACT)
+
+    assert state.cells.bush.sum() == 0
+
+
+def test_nothing_can_be_placed_on_a_bush():
+    bush = EMPTY.at[1, 2].set(1.0)
+    env, state = world("dune_sea", make_cell(EMPTY, EMPTY, EMPTY, bush), agents([[1, 1]], [0], inventory=1))
+
+    state, _ = step(env, state, PLACE)
+
+    assert state.cells.wall.sum() == 0 and state.agent.inventory[0] == 1
+
+
+def test_the_cave_generator_grows_bushes_on_open_ground_only():
+    env = dune_sea.make("hide_and_seek", height=48, width=48)
+    state, _ = env.init(KEY)
+
+    bush, wall = state.cells.bush, state.cells.wall
+
+    assert 0.03 < float(bush.mean()) < 0.4
+    assert float((bush * wall).sum()) == 0
 

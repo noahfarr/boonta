@@ -20,7 +20,7 @@ MOVE_OFFSET = jnp.array([0, 0, 2, 3, 1, 0, 0, 0, 0, 0], dtype=jnp.int32)
 STEP_SIZE = jnp.array([0, 1, 1, 1, 1, 0, 0, 0, 0, 0], dtype=jnp.int32)
 TURN_OFFSET = jnp.array([0, 0, 0, 0, 0, 3, 1, 0, 0, 0], dtype=jnp.int32)
 
-NUM_CHANNELS = 7
+NUM_CHANNELS = 8
 
 
 class DuneSea(Environment):
@@ -99,7 +99,7 @@ class DuneSea(Environment):
         indices = jnp.arange(self.num_agents)
 
         def interact_one(carry, agent_index):
-            wall, energy_grid, loss = carry
+            wall, energy_grid, bush, loss = carry
             facing_position = positions[agent_index] + DIRECTIONS[state.agent.direction[agent_index]]
             in_bounds = jnp.all((facing_position >= 0) & (facing_position < grid_size))
             y, x = jnp.clip(facing_position, 0, grid_size - 1)
@@ -125,6 +125,13 @@ class DuneSea(Environment):
                 & self.eaters[agent_index]
                 & (energy_grid[y, x] > 0)
             )
+            can_clear = (
+                interacting
+                & ~can_steal
+                & ~can_mine
+                & ~can_collect
+                & (bush[y, x] > 0)
+            )
             can_place = (
                 (action[agent_index] == PLACE)
                 & in_bounds
@@ -132,23 +139,25 @@ class DuneSea(Environment):
                 & (wall[y, x] == 0)
                 & (energy_grid[y, x] == 0)
                 & (state.cells.goal[y, x] == 0)
+                & (bush[y, x] == 0)
                 & ~at_facing.any()
             )
             gain = stolen + jnp.where(can_collect, energy_grid[y, x], 0.0)
             wall = wall.at[y, x].set(jnp.where(can_mine, 0.0, jnp.where(can_place, 1.0, wall[y, x])))
             energy_grid = energy_grid.at[y, x].set(jnp.where(can_collect, 0.0, energy_grid[y, x]))
+            bush = bush.at[y, x].set(jnp.where(can_clear, 0.0, bush[y, x]))
             loss = loss.at[victim].add(stolen)
-            return (wall, energy_grid, loss), (can_mine, can_place, gain)
+            return (wall, energy_grid, bush, loss), (can_mine, can_place, gain)
 
-        (wall, energy_grid, loss), (mined, placed, gain) = jax.lax.scan(
+        (wall, energy_grid, bush, loss), (mined, placed, gain) = jax.lax.scan(
             interact_one,
-            (state.cells.wall, state.cells.energy, jnp.zeros(self.num_agents, jnp.float32)),
+            (state.cells.wall, state.cells.energy, state.cells.bush, jnp.zeros(self.num_agents, jnp.float32)),
             turn_order,
         )
         in_agent_order = lambda values: jnp.zeros_like(values).at[turn_order].set(values)
         energy_change = in_agent_order(gain) - loss
         inventory_change = in_agent_order(mined).astype(jnp.int32) - in_agent_order(placed).astype(jnp.int32)
-        return state.cells.replace(wall=wall, energy=energy_grid), energy_change, inventory_change
+        return state.cells.replace(wall=wall, energy=energy_grid, bush=bush), energy_change, inventory_change
 
     def step(
         self, key: Key, state: DuneSeaState, action: Array
@@ -160,7 +169,7 @@ class DuneSea(Environment):
         cells, energy_change, inventory_change = self.interact(state, action, positions, turn_order)
 
         if self.sight_drain > 0:
-            energy_change = energy_change + self.sight(state, positions, cells.wall)
+            energy_change = energy_change + self.sight(state, positions, cells.wall, cells.bush)
         upkeep = jnp.where(alive, self.energy_cost, 0.0)
         energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
@@ -182,7 +191,7 @@ class DuneSea(Environment):
         )
         return state, timestep
 
-    def sight(self, state: DuneSeaState, positions: Array, wall: Array) -> Array:
+    def sight(self, state: DuneSeaState, positions: Array, wall: Array, bush: Array) -> Array:
         radius = self.view_size // 2
         alive = state.agent.energy > 0
         padded = jnp.pad(wall, radius, constant_values=1.0)
@@ -193,8 +202,10 @@ class DuneSea(Environment):
             inside = (jnp.abs(relative) <= radius).all(-1)
             rows = jnp.clip(relative[:, 0] + radius, 0, 2 * radius)
             columns = jnp.clip(relative[:, 1] + radius, 0, 2 * radius)
-            return inside & visible[rows, columns]
+            hidden = in_bush & (jnp.abs(relative).max(-1) > 1)
+            return inside & visible[rows, columns] & ~hidden
 
+        in_bush = bush[positions[:, 0], positions[:, 1]] > 0
         sees = jax.vmap(seen_from)(positions)
         sees = sees & (self.thieves & alive)[:, None] & (~self.thieves & alive)[None, :]
         watchers = sees.sum(0)
@@ -234,17 +245,29 @@ class DuneSea(Environment):
         radius = self.view_size // 2
         y, x = state.agent.position[:, 0], state.agent.position[:, 1]
         alive = state.agent.energy > 0
+        in_bush = state.cells.bush[y, x] > 0
         empty = jnp.zeros((self.height, self.width), jnp.float32)
-        broadcasts = empty.at[y, x].add((state.agent.broadcast & alive).astype(jnp.float32))
         padded_wall = jnp.pad(state.cells.wall, radius, constant_values=1.0)
-        shared = [padded_wall] + [jnp.pad(plane, radius) for plane in (state.cells.goal, state.cells.energy)]
-        shared.append(jnp.pad(broadcasts, radius))
+        shared = [
+            padded_wall,
+            *(jnp.pad(plane, radius) for plane in (state.cells.goal, state.cells.energy, state.cells.bush)),
+        ]
 
         def egocentric_view(position, direction, team):
-            allies = empty.at[y, x].add((alive & (self.teams == team)).astype(jnp.float32))
-            others = empty.at[y, x].add((alive & (self.teams != team)).astype(jnp.float32))
+            nearby = jnp.abs(state.agent.position - position).max(-1) <= 1
+            shown = alive & (~in_bush | nearby)
+            allies = empty.at[y, x].add((shown & (self.teams == team)).astype(jnp.float32))
+            others = empty.at[y, x].add((shown & (self.teams != team)).astype(jnp.float32))
+            calls = empty.at[y, x].add((shown & state.agent.broadcast).astype(jnp.float32))
             grid = jnp.stack(
-                [*shared[:3], jnp.pad(allies, radius), jnp.pad(others, radius), shared[3]], axis=-1
+                [
+                    *shared[:3],
+                    jnp.pad(allies, radius),
+                    jnp.pad(others, radius),
+                    jnp.pad(calls, radius),
+                    shared[3],
+                ],
+                axis=-1,
             )
             view = jax.lax.dynamic_slice(
                 grid, (position[0], position[1], 0), (self.view_size, self.view_size, NUM_CHANNELS - 1)

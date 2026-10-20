@@ -14,6 +14,7 @@ class Cell:
     wall: Array
     goal: Array
     energy: Array
+    bush: Array
 
 
 @struct.dataclass
