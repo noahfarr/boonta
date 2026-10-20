@@ -272,51 +272,47 @@ class DuneSea(Environment):
 
     def observe(self, state: DuneSeaState) -> dict[str, Array]:
         radius = self.view_size // 2
-        y, x = state.agent.position[:, 0], state.agent.position[:, 1]
+        size = (self.view_size, self.view_size)
         alive = state.agent.energy > 0
-        in_bush = state.cells.bush[y, x] > 0
-        empty = jnp.zeros((self.height, self.width), jnp.float32)
+        in_bush = state.cells.bush[state.agent.position[:, 0], state.agent.position[:, 1]] > 0
         padded_wall = jnp.pad(state.cells.wall, radius, constant_values=1.0)
         shared = [
             padded_wall,
             *(jnp.pad(plane, radius) for plane in (state.cells.goal, state.cells.energy, state.cells.bush)),
         ]
+        local = jnp.arange(self.view_size)
 
         def egocentric_view(position, direction, team):
+            window = lambda plane: jax.lax.dynamic_slice(plane, (position[0], position[1]), size)
             nearby = jnp.abs(state.agent.position - position).max(-1) <= 1
             shown = alive & (~in_bush | nearby)
-            allies = empty.at[y, x].add((shown & (self.teams == team)).astype(jnp.float32))
-            others = empty.at[y, x].add((shown & (self.teams != team)).astype(jnp.float32))
-            calls = empty.at[y, x].add((shown & state.agent.broadcast).astype(jnp.float32))
-            grid = jnp.stack(
+            relative = state.agent.position - position + radius
+            at = (
+                (local[None, :, None] == relative[:, 0, None, None])
+                & (local[None, None, :] == relative[:, 1, None, None])
+            ).astype(jnp.float32)
+            present = lambda mask: jnp.tensordot(mask.astype(jnp.float32), at, axes=1)
+            wall, goal, energy, bush = (window(plane) for plane in shared)
+            visible = self.visibility(padded_wall, position)
+            view = jnp.stack(
                 [
-                    *shared[:3],
-                    jnp.pad(allies, radius),
-                    jnp.pad(others, radius),
-                    jnp.pad(calls, radius),
-                    shared[3],
+                    wall,
+                    goal,
+                    energy,
+                    present(shown & (self.teams == team)),
+                    present(shown & (self.teams != team)),
+                    present(shown & state.agent.broadcast),
+                    bush,
                 ],
                 axis=-1,
             )
-            view = jax.lax.dynamic_slice(
-                grid, (position[0], position[1], 0), (self.view_size, self.view_size, NUM_CHANNELS - 1)
-            )
-            visible = self.visibility(padded_wall, position)
             view = jnp.concatenate([view * visible[..., None], visible[..., None]], axis=-1)
             if self.observe_facing:
-                relative = (state.agent.direction - direction) % 4
-                planes = jnp.stack(
-                    [empty.at[y, x].add((shown & (relative == k)).astype(jnp.float32)) for k in range(FACING_CHANNELS)],
-                    axis=-1,
-                )
-                planes = jnp.pad(planes, ((radius, radius), (radius, radius), (0, 0)))
-                facing = jax.lax.dynamic_slice(
-                    planes, (position[0], position[1], 0), (self.view_size, self.view_size, FACING_CHANNELS)
-                )
+                turned = (state.agent.direction - direction) % 4
+                facing = jnp.stack([present(shown & (turned == k)) for k in range(FACING_CHANNELS)], axis=-1)
                 view = jnp.concatenate([view, facing * visible[..., None]], axis=-1)
             if self.observe_oasis:
-                water = jnp.pad(jnp.clip(state.cells.oasis, 0.0, 1.0), radius)
-                water = jax.lax.dynamic_slice(water, (position[0], position[1]), (self.view_size, self.view_size))
+                water = window(jnp.pad(jnp.clip(state.cells.oasis, 0.0, 1.0), radius))
                 view = jnp.concatenate([view, (water * visible)[..., None]], axis=-1)
             rotations = jnp.stack([jnp.rot90(view, k, axes=(0, 1)) for k in range(4)])
             return rotations[(direction + 1) % 4]
