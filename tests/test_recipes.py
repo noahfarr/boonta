@@ -160,6 +160,8 @@ CASES = [
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
     ("ippo", "dune_sea/commons", None, False),
     ("ippo", "dune_sea/hide_and_seek", None, False),
+    ("recurrent_ippo", "dune_sea/hide_and_seek", None, False),
+    ("recurrent_ippo", "dune_sea/commons", None, False),
     ("ippo", "dune_sea/connectx", None, False),
     ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
     ("ippo", "bluffjax/goofspiel", installed("bluffjax"), False),
