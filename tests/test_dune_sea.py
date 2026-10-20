@@ -942,3 +942,15 @@ def test_an_agent_behind_a_palm_is_hidden_by_its_trunk_and_one_in_front_is_not()
     assert (behind == behind_alone).all()
     assert not (in_front == in_front_alone).all()
 
+
+
+def test_the_timestep_reports_the_action_that_was_chosen_even_for_an_agent_that_is_dead():
+    env = dune_sea.make("dune_sea", height=12, width=12, num_agents=2)
+    state, _ = env.init(KEY)
+    state = state.replace(agent=state.agent.replace(energy=jnp.array([0.5, 0.0])))
+    chosen = jnp.array([TURN_LEFT, FORWARD], jnp.int32)
+
+    after, timestep = jax.jit(env.step)(KEY, state, chosen)
+
+    assert timestep.action.tolist() == chosen.tolist()
+    assert (after.agent.position[1] == state.agent.position[1]).all()

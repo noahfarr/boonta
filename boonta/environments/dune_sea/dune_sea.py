@@ -189,7 +189,8 @@ class DuneSea(Environment):
         self, key: Key, state: DuneSeaState, action: Array
     ) -> tuple[DuneSeaState, Timestep]:
         alive = state.agent.energy > 0
-        action = jnp.where(alive, jnp.asarray(action, jnp.int32), NOOP)
+        chosen = jnp.asarray(action, jnp.int32)
+        action = jnp.where(alive, chosen, NOOP)
         action = jnp.where(action >= self.num_actions, NOOP, action)
         turn_order = jax.random.permutation(key, self.num_agents)
         positions = self.move(state, action, turn_order)
@@ -211,7 +212,7 @@ class DuneSea(Environment):
         state = state.replace(cells=cells, agent=agent, time=state.time + 1)
         timestep = Timestep(
             obs=self.observe(state),
-            action=action,
+            action=chosen,
             reward=reward,
             terminated=state.agent.energy <= 0.0,
             truncated=jnp.full(self.num_agents, state.time >= self._time_limit),
