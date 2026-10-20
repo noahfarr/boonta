@@ -71,9 +71,14 @@ class Viewer:
         self.key = jax.random.key(args.seed)
         self.init_env = jax.jit(self.env.init)
         self.step_env = jax.jit(self.env.step)
-        self.paint_state = jax.jit(lambda state: self.env.render(state, 1))
+        self.show_fov = False
+        self.paint_plain = jax.jit(lambda state: self.env.render(state, 1))
+        self.paint_fov = jax.jit(lambda state: self.env.render(state, 1, show_fov=True))
         self.camera = pr.Camera2D(pr.Vector2(0, 0), pr.Vector2(0, 0), 0.0, float(args.zoom))
         self.reset_world()
+
+    def paint_state(self, state):
+        return (self.paint_fov if self.show_fov else self.paint_plain)(state)
 
     def next_key(self) -> jax.Array:
         self.key, used_key = jax.random.split(self.key)
@@ -102,6 +107,9 @@ class Viewer:
             self.autoplay = not self.autoplay
         if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
             self.reset_world()
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_V):
+            self.show_fov = not self.show_fov
+            self.frame_dirty = True
         if pr.is_key_pressed(pr.KeyboardKey.KEY_F):
             self.fit_camera()
         if pr.is_key_pressed(pr.KeyboardKey.KEY_C):
@@ -195,7 +203,7 @@ class Viewer:
 def main():
     parser = argparse.ArgumentParser(
         description="Walk agent 0 around a dune_sea grid world. "
-        "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, p place, n wait, "
+        "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, p place, n wait, v show field of view, "
         "space autoplay, +/- speed, r reset, esc quit. "
         "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )

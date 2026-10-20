@@ -43,6 +43,7 @@ POSE_OF_DIRECTION = jnp.array([1, 2, 3, 0])
 TEAM_COLORS = jnp.array(
     [[60, 120, 255], [230, 60, 50], [60, 190, 90], [240, 190, 40]], dtype=jnp.float32
 )
+FOV_ALPHA = 0.25
 BAR_INNER = 12
 BAR_HEIGHT = 4
 BAR_FULL = jnp.array([90, 200, 80], dtype=jnp.float32)
@@ -240,7 +241,19 @@ def paint_agents(image: Array, state: "DuneSeaState", teams: Array | None = None
     return image
 
 
-def render(state: "DuneSeaState", scale: int = 2, teams: Array | None = None) -> Array:
+def paint_fov(image: Array, fov: Array, teams: Array | None) -> Array:
+    team_ids = np.zeros(fov.shape[0], np.int32) if teams is None else np.asarray(teams, np.int32)
+    for team in sorted(set(team_ids.tolist())):
+        seen = (fov & jnp.asarray(team_ids == team)[:, None, None]).any(axis=0)
+        mask = jnp.repeat(jnp.repeat(seen, TILE, axis=0), TILE, axis=1)[..., None]
+        color = TEAM_COLORS[team % len(TEAM_COLORS)]
+        image = jnp.where(mask, image * (1.0 - FOV_ALPHA) + color * FOV_ALPHA, image)
+    return image
+
+
+def render(
+    state: "DuneSeaState", scale: int = 2, teams: Array | None = None, fov: Array | None = None
+) -> Array:
     height, width = state.cells.wall.shape
     wall = state.cells.wall > 0
     ground = choose_fill(fill_tiles(GROUND_SHEET).astype(np.float32), height, width)
@@ -251,6 +264,8 @@ def render(state: "DuneSeaState", scale: int = 2, teams: Array | None = None) ->
     energy = state.cells.energy
     image = paint_sprite(image, ENERGY_SPRITE, (energy > 0) & (energy < MATURE_ENERGY))
     image = paint_sprite(image, RIPE_SPRITE, energy >= MATURE_ENERGY)
+    if fov is not None:
+        image = paint_fov(image, fov, teams)
     image = paint_agents(image, state, teams)
     image = jnp.repeat(jnp.repeat(image, scale, axis=0), scale, axis=1)
     return jnp.clip(image, 0, 255).astype(jnp.uint8)

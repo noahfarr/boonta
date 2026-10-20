@@ -201,6 +201,23 @@ class DuneSea(Environment):
         drained = jnp.minimum(self.sight_drain, state.agent.energy / jnp.maximum(watchers, 1))
         return (sees * drained[None, :]).sum(1) - drained * watchers
 
+    def fov(self, state: DuneSeaState) -> Array:
+        radius = self.view_size // 2
+        padded = jnp.pad(state.cells.wall, radius, constant_values=1.0)
+        alive = state.agent.energy > 0
+
+        rows, columns = jnp.meshgrid(jnp.arange(self.height), jnp.arange(self.width), indexing="ij")
+
+        def seen_by(position):
+            window = self.visibility(padded, position)
+            relative_row, relative_column = rows - position[0], columns - position[1]
+            inside = (jnp.abs(relative_row) <= radius) & (jnp.abs(relative_column) <= radius)
+            row = jnp.clip(relative_row + radius, 0, 2 * radius)
+            column = jnp.clip(relative_column + radius, 0, 2 * radius)
+            return inside & window[row, column]
+
+        return jax.vmap(seen_by)(state.agent.position) & alive[:, None, None]
+
     def visibility(self, padded_wall: Array, position: Array) -> Array:
         radius = self.view_size // 2
         offsets = jnp.arange(-radius, radius + 1)
@@ -270,5 +287,5 @@ class DuneSea(Environment):
     def time_limit(self) -> int:
         return self._time_limit
 
-    def render(self, state: DuneSeaState, scale: int = 2) -> Array:
-        return render(state, scale, self.teams)
+    def render(self, state: DuneSeaState, scale: int = 2, show_fov: bool = False) -> Array:
+        return render(state, scale, self.teams, self.fov(state) if show_fov else None)

@@ -438,3 +438,46 @@ def test_the_sight_variant_is_registered_with_the_catch_off():
 
     assert env.sight_drain > 0 and env.catch_amount == 0
 
+
+def test_the_field_of_view_is_the_view_window_minus_what_walls_hide():
+    wall = EMPTY.at[1, 1].set(1.0)
+    env = dune_sea.make(
+        "dune_sea",
+        height=9,
+        width=9,
+        num_agents=1,
+        view_size=5,
+        generator=lambda key, height, width, num_agents: (
+            Cell(jnp.zeros((9, 9)).at[4, 4].set(1.0), jnp.zeros((9, 9)), jnp.zeros((9, 9))),
+            agents([[4, 3]], [0]),
+        ),
+    )
+    state, _ = env.init(KEY)
+
+    fov = env.fov(state)[0]
+
+    assert fov.shape == (9, 9)
+    assert bool(fov[4, 3]) and bool(fov[4, 4]) and bool(fov[2, 1])
+    assert not bool(fov[4, 5])
+    assert not bool(fov[4, 6]) and not bool(fov[4, 7])
+    assert not bool(fov[0, 0]) and not bool(fov[8, 8])
+    assert int(fov.sum()) < 25
+
+
+def test_an_agent_without_energy_has_no_field_of_view():
+    cells = Cell(EMPTY, EMPTY, EMPTY)
+    env, state = world("dune_sea", cells, agents([[1, 1]], [0], energy=0.0))
+
+    assert not bool(env.fov(state).any())
+
+
+def test_rendering_the_field_of_view_changes_the_picture_and_nothing_else_breaks():
+    env = dune_sea.make("hide_and_seek", height=10, width=10)
+    state, _ = env.init(KEY)
+
+    plain = env.render(state, 1)
+    with_fov = env.render(state, 1, show_fov=True)
+
+    assert plain.shape == with_fov.shape
+    assert bool((plain != with_fov).any())
+
