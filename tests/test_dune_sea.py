@@ -325,3 +325,19 @@ def test_the_game_goes_on_while_both_teams_have_someone_alive():
     state, timestep = jax.jit(env.step)(KEY, state, jnp.zeros(env.num_agents, jnp.int32))
 
     assert not bool(timestep.terminated.any())
+
+
+def test_the_episode_is_truncated_for_everyone_at_the_time_limit():
+    env = dune_sea.make("hide_and_seek", height=12, width=12, time_limit=5)
+    state, _ = env.init(KEY)
+    step = jax.jit(env.step)
+    idle = jnp.zeros(env.num_agents, jnp.int32)
+
+    for _ in range(4):
+        state, timestep = step(KEY, state, idle)
+        assert not bool(timestep.truncated.any())
+    state, timestep = step(KEY, state, idle)
+
+    assert bool(timestep.truncated.all())
+    assert not bool(timestep.terminated.any())
+    assert bool(timestep.done.all())

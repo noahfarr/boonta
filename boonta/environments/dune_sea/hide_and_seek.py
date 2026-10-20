@@ -8,6 +8,7 @@ from .generators import Generator, cave_generator
 from .state import DuneSeaState
 
 PREPARATION_STEPS = 40
+ENERGY_COST = 0.003
 
 
 class HideAndSeek(Commons):
@@ -23,6 +24,8 @@ class HideAndSeek(Commons):
         generator: Generator = cave_generator,
         growth_steps: int = GROWTH_STEPS,
         preparation_steps: int = PREPARATION_STEPS,
+        energy_cost: float = ENERGY_COST,
+        catch_amount: float = 0.5,
     ):
         hiders, seekers = [True] * num_hiders, [True] * num_seekers
         super().__init__(
@@ -36,6 +39,8 @@ class HideAndSeek(Commons):
             teams=[0] * num_hiders + [1] * num_seekers,
             eaters=hiders + [False] * num_seekers,
             thieves=[False] * num_hiders + seekers,
+            energy_cost=energy_cost,
+            catch_amount=catch_amount,
         )
         self.preparation_steps = preparation_steps
 

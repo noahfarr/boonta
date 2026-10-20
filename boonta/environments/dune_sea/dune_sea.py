@@ -36,6 +36,8 @@ class DuneSea(Environment):
         teams: Sequence[int] | None = None,
         eaters: Sequence[bool] | None = None,
         thieves: Sequence[bool] | None = None,
+        energy_cost: float = ENERGY_COST,
+        catch_amount: float = CATCH_AMOUNT,
     ):
         self.height = height
         self.width = width
@@ -43,6 +45,8 @@ class DuneSea(Environment):
         self.view_size = view_size
         self._time_limit = time_limit
         self.generator = generator
+        self.energy_cost = energy_cost
+        self.catch_amount = catch_amount
         self.teams = jnp.asarray(teams if teams is not None else [0] * num_agents, jnp.int32)
         self.eaters = jnp.asarray(eaters if eaters is not None else [True] * num_agents, bool)
         self.thieves = jnp.asarray(thieves if thieves is not None else [False] * num_agents, bool)
@@ -103,7 +107,7 @@ class DuneSea(Environment):
             victim = jnp.argmax(at_facing)
             remaining = state.agent.energy[victim] - loss[victim]
             can_steal = interacting & self.thieves[agent_index] & at_facing.any() & (remaining > 0)
-            stolen = jnp.where(can_steal, jnp.minimum(CATCH_AMOUNT, remaining), 0.0)
+            stolen = jnp.where(can_steal, jnp.minimum(self.catch_amount, remaining), 0.0)
 
             can_mine = interacting & ~can_steal & (wall[y, x] > 0)
             can_collect = (
@@ -147,7 +151,7 @@ class DuneSea(Environment):
         positions = self.move(state, action, turn_order)
         cells, energy_change, inventory_change = self.interact(state, action, positions, turn_order)
 
-        upkeep = jnp.where(alive, ENERGY_COST, 0.0)
+        upkeep = jnp.where(alive, self.energy_cost, 0.0)
         energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
             position=positions,
