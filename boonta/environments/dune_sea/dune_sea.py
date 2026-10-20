@@ -242,4 +242,4 @@ class DuneSea(Environment):
         return self._time_limit
 
     def render(self, state: DuneSeaState, scale: int = 2) -> Array:
-        return render(state, scale)
+        return render(state, scale, self.teams)

@@ -341,3 +341,27 @@ def test_the_episode_is_truncated_for_everyone_at_the_time_limit():
     assert bool(timestep.truncated.all())
     assert not bool(timestep.terminated.any())
     assert bool(timestep.done.all())
+
+
+def test_hiders_start_with_dirt_and_seekers_with_none():
+    env = dune_sea.make("hide_and_seek", num_hiders=2, num_seekers=3, initial_dirt=4)
+
+    state, timestep = env.init(KEY)
+
+    assert state.agent.inventory.tolist() == [4, 4, 0, 0, 0]
+    assert timestep.obs["inventory"].tolist() == [4.0, 4.0, 0.0, 0.0, 0.0]
+
+
+def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
+    env = dune_sea.make("hide_and_seek", height=12, width=12, num_hiders=1, num_seekers=1, preparation_steps=0)
+    state, _ = env.init(KEY)
+    position = jnp.array([[5, 5], [5, 6]])
+    state = state.replace(
+        agent=state.agent.replace(position=position, direction=jnp.array([0, 2]), energy=jnp.array([1.0, 0.4]))
+    )
+
+    state, timestep = jax.jit(env.step)(KEY, state, jnp.array([NOOP, INTERACT], jnp.int32))
+
+    assert state.agent.energy[0] == 0
+    assert bool(timestep.terminated.all())
+

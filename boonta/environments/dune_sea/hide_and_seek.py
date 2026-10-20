@@ -9,6 +9,7 @@ from .state import DuneSeaState
 
 PREPARATION_STEPS = 40
 ENERGY_COST = 0.003
+INITIAL_DIRT = 4
 
 
 class HideAndSeek(Commons):
@@ -25,16 +26,25 @@ class HideAndSeek(Commons):
         growth_steps: int = GROWTH_STEPS,
         preparation_steps: int = PREPARATION_STEPS,
         energy_cost: float = ENERGY_COST,
-        catch_amount: float = 0.5,
+        catch_amount: float = 1.0,
+        initial_dirt: int = INITIAL_DIRT,
     ):
         hiders, seekers = [True] * num_hiders, [True] * num_seekers
+        is_hider = jnp.arange(num_hiders + num_seekers) < num_hiders
+        base_generator = generator
+
+        def generate(key, height, width, num_agents):
+            cells, agent = base_generator(key, height, width, num_agents)
+            dirt = jnp.where(is_hider, initial_dirt, 0).astype(agent.inventory.dtype)
+            return cells, agent.replace(inventory=dirt)
+
         super().__init__(
             height,
             width,
             num_hiders + num_seekers,
             view_size,
             time_limit,
-            generator,
+            generate,
             growth_steps,
             teams=[0] * num_hiders + [1] * num_seekers,
             eaters=hiders + [False] * num_seekers,

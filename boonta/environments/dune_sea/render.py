@@ -8,7 +8,7 @@ import numpy as np
 
 from boonta.utils import Array
 
-from .sprites import wanderer_sprites
+from .sprites import team_sprites, wanderer_sprites
 from .state import MATURE_ENERGY, MAX_ENERGY
 
 if TYPE_CHECKING:
@@ -40,6 +40,9 @@ RIPE_SPRITE = "decor_cactus_small1_pink.png"
 GOAL_SPRITE = "decor_cactus1_pink.png"
 ROW_STRIDE, COLUMN_STRIDE = 7, 13
 POSE_OF_DIRECTION = jnp.array([1, 2, 3, 0])
+TEAM_COLORS = jnp.array(
+    [[60, 120, 255], [230, 60, 50], [60, 190, 90], [240, 190, 40]], dtype=jnp.float32
+)
 BAR_INNER = 12
 BAR_HEIGHT = 4
 BAR_FULL = jnp.array([90, 200, 80], dtype=jnp.float32)
@@ -176,31 +179,53 @@ def agent_bank() -> np.ndarray:
     return wanderer_sprites()
 
 
-def energy_bar(energy: Array) -> Array:
+@cache
+def team_bank() -> np.ndarray:
+    return team_sprites()
+
+
+def energy_bar(energy: Array, frame: Array | None = None) -> Array:
     fraction = jnp.clip(energy / MAX_ENERGY, 0.0, 1.0)
     filled = jnp.arange(BAR_INNER) < jnp.round(fraction * BAR_INNER)
     color = jnp.where(fraction > 0.5, BAR_FULL, jnp.where(fraction > 0.25, BAR_HALF, BAR_LOW))
     inner = jnp.where(filled[None, :, None], color, BAR_EMPTY)
-    return jnp.pad(jnp.broadcast_to(inner, (BAR_HEIGHT - 2, BAR_INNER, 3)), ((1, 1), (1, 1), (0, 0)))
+    inner = jnp.broadcast_to(inner, (BAR_HEIGHT - 2, BAR_INNER, 3))
+    bar = jnp.pad(inner, ((1, 1), (1, 1), (0, 0)))
+    if frame is None:
+        return bar
+    inside = jnp.pad(jnp.ones((BAR_HEIGHT - 2, BAR_INNER), bool), ((1, 1), (1, 1)))
+    return jnp.where(inside[..., None], bar, frame)
 
 
-def paint_agents(image: Array, state: "DuneSeaState") -> Array:
-    bank = jnp.asarray(agent_bank())
+def paint_agents(image: Array, state: "DuneSeaState", teams: Array | None = None) -> Array:
+    marked = teams is not None and bool(np.asarray(teams).any())
+    bank = jnp.asarray(team_bank() if marked else agent_bank())
     coords = (jnp.arange(TILE) + 0.5) / TILE
     radius = jnp.hypot(coords[:, None] - 0.5, coords[None, :] - 0.5)
     ring = (radius >= 0.40) & (radius < 0.46)
     num_agents = state.agent.position.shape[0]
     robes = jnp.arange(num_agents) % bank.shape[0]
+    if marked:
+        team_ids = np.asarray(teams, np.int32)
+        within = np.array([(team_ids[:i] == team_ids[i]).sum() for i in range(num_agents)])
+        robes = jnp.asarray((team_ids % 2) * 2 + within % 2)
+    rows, columns = jnp.meshgrid(jnp.arange(TILE), jnp.arange(TILE), indexing="ij")
+    base = ((columns - 7.5) / 7.2) ** 2 + ((rows - 13.0) / 2.3) ** 2
+    marker = (base >= 0.3) & (base <= 1.25)
+    teams = jnp.zeros(num_agents, jnp.int32) if teams is None else jnp.asarray(teams, jnp.int32)
 
     def draw(image, agent):
-        position, direction, broadcast, robe, energy = agent
+        position, direction, broadcast, robe, energy, team = agent
         y, x = position
         region = jax.lax.dynamic_slice(image, (y * TILE, x * TILE, 0), (TILE, TILE, 3))
+        if marked:
+            region = jnp.where(marker[..., None], TEAM_COLORS[team % len(TEAM_COLORS)], region)
         region = jnp.where((ring & broadcast)[..., None], BROADCAST_COLOR, region)
         region = layer_over(region, bank[robe, POSE_OF_DIRECTION[direction]])
         drawn = jax.lax.dynamic_update_slice(image, region, (y * TILE, x * TILE, 0))
         top, left = jnp.maximum(y * TILE - BAR_HEIGHT, 0), x * TILE + 1
-        drawn = jax.lax.dynamic_update_slice(drawn, energy_bar(energy), (top, left, 0))
+        frame = TEAM_COLORS[team % len(TEAM_COLORS)] if marked else None
+        drawn = jax.lax.dynamic_update_slice(drawn, energy_bar(energy, frame), (top, left, 0))
         return jnp.where(energy > 0, drawn, image), None
 
     agents = (
@@ -209,12 +234,13 @@ def paint_agents(image: Array, state: "DuneSeaState") -> Array:
         state.agent.broadcast,
         robes,
         state.agent.energy,
+        teams,
     )
     image, _ = jax.lax.scan(draw, image, agents)
     return image
 
 
-def render(state: "DuneSeaState", scale: int = 2) -> Array:
+def render(state: "DuneSeaState", scale: int = 2, teams: Array | None = None) -> Array:
     height, width = state.cells.wall.shape
     wall = state.cells.wall > 0
     ground = choose_fill(fill_tiles(GROUND_SHEET).astype(np.float32), height, width)
@@ -225,6 +251,6 @@ def render(state: "DuneSeaState", scale: int = 2) -> Array:
     energy = state.cells.energy
     image = paint_sprite(image, ENERGY_SPRITE, (energy > 0) & (energy < MATURE_ENERGY))
     image = paint_sprite(image, RIPE_SPRITE, energy >= MATURE_ENERGY)
-    image = paint_agents(image, state)
+    image = paint_agents(image, state, teams)
     image = jnp.repeat(jnp.repeat(image, scale, axis=0), scale, axis=1)
     return jnp.clip(image, 0, 255).astype(jnp.uint8)

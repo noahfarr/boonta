@@ -18,5 +18,5 @@ algorithm:
   normalize_advantage: True
 
 optimizer:
-  lr: 3e-4
+  lr: 1e-4
   max_grad_norm: 0.5
