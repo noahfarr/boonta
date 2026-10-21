@@ -36,8 +36,6 @@ class RecurrentPuPOState:
     step: Array
     params: PyTree
     optimizer_state: optax.OptState
-    carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
 
 
 @dataclass
@@ -49,7 +47,7 @@ class RecurrentPuPO:
     auxiliary_losses: tuple[Callable, ...] = ()
     advantage_estimator: Callable = generalized_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentPuPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentPuPOState, PyTree]:
         network_key, carry_key = jax.random.split(key)
 
         carry = self.network.initialize_carry(
@@ -65,21 +63,22 @@ class RecurrentPuPO:
             carry=carry,
             temperature=1.0,
         )
-        return RecurrentPuPOState(
+        state = RecurrentPuPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=self.optimizer.init(params["params"]),
-            carry=carry,
-            rollout_carry=carry,
         )
+
+        return state, carry
 
     def step(
         self,
         state: RecurrentPuPOState,
+        carry: PyTree,
         key: Key,
         timestep: Timestep,
         temperature: float = 1.0,
-    ) -> tuple[RecurrentPuPOState, Array, PyTree]:
+    ) -> tuple[RecurrentPuPOState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, (dist, value) = self.network.apply(
             state.params,
@@ -87,7 +86,7 @@ class RecurrentPuPO:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=temperature,
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
@@ -96,7 +95,7 @@ class RecurrentPuPO:
             "log_prob": remove_time_axis(log_prob),
             "value": remove_time_axis(remove_feature_axis(value)),
         }
-        return state.replace(carry=carry), action, aux
+        return state, carry, action, aux
 
     def update(
         self, state: RecurrentPuPOState, key: Key, transitions: Transition
@@ -191,22 +190,20 @@ class RecurrentPuPO:
         num_steps, num_envs, *num_agents = transitions.second.reward.shape
         width = num_envs // self.cfg.num_minibatches
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, (_, values) = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=final_carry,
             temperature=1.0,
         )
-        bootstrap = remove_time_axis(remove_feature_axis(values))
+        bootstrap = remove_feature_axis(values)[:, -1]
 
-        initial_carry = state.rollout_carry
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         beta = self.importance_exponent(state.step)
 
@@ -308,4 +305,4 @@ class RecurrentPuPO:
         )
         ratio = jnp.ones((num_envs, num_steps, *num_agents))
         (state, _), _ = jax.lax.scan(minibatch_fn, (state, ratio), keys)
-        return state.replace(rollout_carry=state.carry)
+        return state

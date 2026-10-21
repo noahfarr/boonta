@@ -42,25 +42,33 @@ class PPO:
     auxiliary_losses: tuple[Callable, ...] = ()
     advantage_estimator: Callable = generalized_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> PPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[PPOState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
         optimizer_state = self.optimizer.init(params["params"])
 
-        return PPOState(
+        state = PPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
         )
 
+        return state, None
+
     def step(
-        self, state: PPOState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[PPOState, Array, PyTree]:
+        self,
+        state: PPOState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[PPOState, PyTree, Array, PyTree]:
         dist, value = self.network.apply(
             state.params, timestep.obs, temperature=temperature
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
         return (
             state,
+            carry,
             action,
             {"log_prob": log_prob, "value": remove_feature_axis(value)},
         )

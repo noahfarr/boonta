@@ -25,12 +25,13 @@ class Render:
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
+        _, carry = algorithm.init(init_key, timestep)
 
-        def step(carry, key):
-            algorithm_state, environment_state, timestep = carry
+        def step(loop, key):
+            algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, action, _ = algorithm.step(
-                algorithm_state, algorithm_key, timestep, temperature=0.0
+            algorithm_state, carry, action, _ = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
             )
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
@@ -38,11 +39,11 @@ class Render:
             env_state = jax.tree.map(
                 lambda leaf: jnp.take(leaf, 0, axis=0), environment_state
             )
-            return (algorithm_state, environment_state, timestep), env_state
+            return (algorithm_state, carry, environment_state, timestep), env_state
 
-        (_, environment_state, _), trajectory = jax.lax.scan(
+        (_, _, environment_state, _), trajectory = jax.lax.scan(
             step,
-            (algorithm_state, environment_state, timestep),
+            (algorithm_state, carry, environment_state, timestep),
             jax.random.split(key, self.max_frames),
         )
         environment.close(environment_state)

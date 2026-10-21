@@ -27,6 +27,7 @@ class QuadinarosState:
     timestep: Timestep = struct.field(metadata={"axis": "data"})
     environment_state: EnvState = struct.field(metadata={"axis": "data"})
     dataset_state: DatasetState = struct.field(metadata={"axis": "data"})
+    carry: PyTree = struct.field(metadata={"axis": "data"})
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
@@ -68,8 +69,8 @@ class Quadinaros:
     def rollout(self, state: QuadinarosState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state, algorithm_key, state.timestep, temperature
+        algorithm_state, carry, action, aux = self.algorithm.step(
+            state.algorithm_state, state.carry, algorithm_key, state.timestep, temperature
         )
         environment_state, timestep = self.environment.step(
             environment_key, state.environment_state, action
@@ -83,6 +84,7 @@ class Quadinaros:
             lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
+                carry=carry,
                 timestep=timestep,
                 environment_state=environment_state,
             ),
@@ -94,11 +96,12 @@ class Quadinaros:
         pit_key, call_key = jax.random.split(pit_key)
         lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
-        algorithm_state = self.algorithm.init(algorithm_key, timestep)
+        algorithm_state, carry = self.algorithm.init(algorithm_key, timestep)
         state = QuadinarosState(
             timestep=timestep,
             environment_state=environment_state,
             dataset_state=self.dataset.init(),
+            carry=carry,
             algorithm_state=algorithm_state,
         )
         state = state.replace(
@@ -127,6 +130,7 @@ class Quadinaros:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
+        _, carry = self.algorithm.init(reset_key, timestep)
         state = self.pit(
             call_key,
             self.lap(
@@ -134,6 +138,7 @@ class Quadinaros:
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
+                    carry=carry,
                 ),
             ),
         )

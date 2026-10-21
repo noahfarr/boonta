@@ -21,7 +21,6 @@ class RecurrentBCConfig:
 @struct.dataclass(frozen=True)
 class RecurrentBCState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     optimizer_state: optax.OptState
 
@@ -33,7 +32,7 @@ class RecurrentBC:
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentBCState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentBCState, PyTree]:
         network_key, carry_key = jax.random.split(key)
         carry = self.network.initialize_carry(carry_key, (*timestep.reward.shape, 1))
         sequence = timestep.to_sequence()
@@ -46,20 +45,22 @@ class RecurrentBC:
             carry=carry,
             temperature=1.0,
         )
-        return RecurrentBCState(
+        state = RecurrentBCState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
             params=params,
             optimizer_state=self.optimizer.init(params["params"]),
         )
 
+        return state, carry
+
     def step(
         self,
         state: RecurrentBCState,
+        carry: PyTree,
         key: Key,
         timestep: Timestep,
         temperature: float = 1.0,
-    ) -> tuple[RecurrentBCState, Array, PyTree]:
+    ) -> tuple[RecurrentBCState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, dist = self.network.apply(
             state.params,
@@ -67,11 +68,11 @@ class RecurrentBC:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=temperature,
         )
         action = remove_time_axis(dist.sample(seed=key))
-        return state.replace(carry=carry), action, {}
+        return state, carry, action, {}
 
     def update(
         self, state: RecurrentBCState, key: Key, transitions: Transition
