@@ -11,8 +11,8 @@ from .generators import Generator, cave_generator, place_agents
 from .state import MAX_ENERGY, DuneSeaState
 
 DRINK_RATE = 0.05
-MIRAGE_START = 200
-MIRAGE_END = 600
+MIRAGE_START = 160
+MIRAGE_END = 480
 SWEEP = 0.0
 MIN_RADIUS = 2.4
 MAX_RADIUS = 4.4
@@ -93,7 +93,7 @@ class Oasis(DuneSea):
         mirage_end: int = MIRAGE_END,
         sweep: float = SWEEP,
         drink_rate: float = DRINK_RATE,
-        beacon_slots: int = 3,
+        beacon_slots: int = 0,
         energy_cost: float = ENERGY_COST,
     ):
         num_mirages = num_oases if num_mirages is None else num_mirages

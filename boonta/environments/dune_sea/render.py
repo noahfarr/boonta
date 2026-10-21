@@ -368,13 +368,35 @@ def pond_labels(water: np.ndarray, iterations: int = 12) -> np.ndarray:
     return labels
 
 
-def palm_sites(water: np.ndarray, land: np.ndarray, rolls: np.ndarray) -> np.ndarray:
-    water, land, rolls = np.asarray(water, bool), np.asarray(land, bool), np.asarray(rolls)
+def palm_ponds(water: np.ndarray, land: np.ndarray) -> np.ndarray:
     height, width = water.shape
     none = height * width
     labels = pond_labels(water)
     nearest = functools.reduce(np.minimum, shifted(labels, PALM_REACH, fill=none))
-    pond = np.where(land & (nearest < none), nearest, none).reshape(-1)
+    return np.where(land & (nearest < none), nearest, none)
+
+
+def pond_presence(mirage: np.ndarray, phase: np.float32) -> np.ndarray:
+    age = phase - mirage
+    fading = np.clip(1.0 - age / np.float32(MIRAGE_STEPS), 0.0, 1.0)
+    rising = np.clip((phase + mirage) / np.float32(FADE_STEPS), 0.0, 1.0)
+    presence = np.where(mirage > 0, np.where(age >= 0, fading, 1.0), np.where(mirage < 0, rising, 1.0))
+    return presence.astype(np.float32)
+
+
+def palm_presence(ponds: np.ndarray, mirage: np.ndarray, phase: np.float32) -> np.ndarray:
+    none = ponds.size
+    presence = pond_presence(mirage, phase).reshape(-1)[np.minimum(ponds.reshape(-1), none - 1)]
+    return (presence * (ponds.reshape(-1) < none)).reshape(ponds.shape)
+
+
+def palm_sites(
+    water: np.ndarray, land: np.ndarray, rolls: np.ndarray, ponds: np.ndarray | None = None
+) -> np.ndarray:
+    water, land, rolls = np.asarray(water, bool), np.asarray(land, bool), np.asarray(rolls)
+    height, width = water.shape
+    none = height * width
+    pond = (palm_ponds(water, land) if ponds is None else ponds).reshape(-1)
     order = np.argsort(pond.astype(np.float32) * 2.0 + (1.0 - rolls[1].reshape(-1)), kind="stable")
     ordered = pond[order]
     position = np.arange(none)
@@ -386,7 +408,13 @@ def palm_sites(water: np.ndarray, land: np.ndarray, rolls: np.ndarray) -> np.nda
     return sites.reshape(height, width)
 
 
-def paint_palms(image: np.ndarray, sites: np.ndarray, rolls: np.ndarray, behind_only: bool = False) -> np.ndarray:
+def paint_palms(
+    image: np.ndarray,
+    sites: np.ndarray,
+    rolls: np.ndarray,
+    behind_only: bool = False,
+    presence: np.ndarray | None = None,
+) -> np.ndarray:
     height, width = sites.shape
     bank = palm_bank()
     score = np.where(sites, rolls[1], -1.0).astype(np.float32).reshape(-1)
@@ -399,11 +427,14 @@ def paint_palms(image: np.ndarray, sites: np.ndarray, rolls: np.ndarray, behind_
     for item in order:
         if score[flat[item]] < 0:
             continue
+        strength = 1.0 if presence is None else presence[rows[item], columns[item]]
+        if strength <= 0:
+            continue
         top, left = (rows[item] + 1) * TILE - PALM_HEIGHT, columns[item] * TILE + TILE // 2 - PALM_WIDTH // 2
         y0, y1 = max(top, 0), min(top + PALM_HEIGHT, size_y)
         x0, x1 = max(left, 0), min(left + PALM_WIDTH, size_x)
         sprite = bank[variants[item]][y0 - top : y1 - top, x0 - left : x1 - left]
-        alpha = sprite[..., 3:] / 255.0
+        alpha = sprite[..., 3:] / 255.0 * strength
         if behind_only:
             alpha = alpha * trunk[y0 - top : y1 - top]
         region = image[y0:y1, x0:x1]
@@ -615,8 +646,10 @@ def render(
     tuft_kind = np.floor(rolls[1] * len(GRASS_SPRITES) * 3.0).astype(np.int32) % len(GRASS_SPRITES)
     for index, name in enumerate(GRASS_SPRITES):
         image = paint_sprite(image, name, tufts & (tuft_kind == index), directory=FOREST_DIRECTORY)
-    sites = palm_sites(habitat, ~habitat & ~wall & (bush == 0), rolls)
-    image = paint_palms(image, sites, rolls)
+    ponds = palm_ponds(habitat, ~habitat & ~wall & (bush == 0))
+    sites = palm_sites(habitat, ~habitat & ~wall & (bush == 0), rolls, ponds)
+    standing = palm_presence(ponds, mirage, phase)
+    image = paint_palms(image, sites, rolls, presence=standing)
     image = shimmer(image, haze, phase)
     rows, columns = np.meshgrid(np.arange(height), np.arange(width), indexing="ij")
     image = paint_sprite(image, GOAL_SPRITE, goal > 0)
@@ -633,7 +666,7 @@ def render(
     if fov is not None:
         image = paint_fov(image, fov, teams)
     image = paint_agents(image, state, teams, offsets)
-    image = paint_palms(image, sites, rolls, behind_only=True)
+    image = paint_palms(image, sites, rolls, behind_only=True, presence=standing)
     for index, name in enumerate(BUSH_SPRITES):
         here = bush & (variety == index)
         image = paint_sprite(image, name, here & ~occupied, BUSH_ALPHA)

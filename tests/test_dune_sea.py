@@ -1086,8 +1086,10 @@ def test_an_agent_behind_a_palm_is_mostly_hidden_by_its_trunk_and_one_in_front_i
     water = (state.cells.oasis > 0) & (state.cells.wall == 0)
     habitat = water | ((state.cells.mirage != 0) & (state.cells.wall == 0))
     land = ~habitat & (state.cells.wall == 0) & (state.cells.bush == 0)
-    sites = np.asarray(drawing.palm_sites(habitat, land, jnp.asarray(drawing.scenery_rolls(64, 64))))
-    row, column = np.argwhere(sites)[0]
+    ponds = drawing.palm_ponds(np.asarray(habitat), np.asarray(land))
+    sites = drawing.palm_sites(np.asarray(habitat), np.asarray(land), drawing.scenery_rolls(64, 64), ponds)
+    standing = drawing.palm_presence(ponds, np.asarray(state.cells.mirage), np.float32(0.0))
+    row, column = np.argwhere(sites & (standing > 0.99))[0]
     tile = drawing.TILE
 
     def visible(agent_row):
@@ -1154,3 +1156,47 @@ def test_agents_spawn_within_the_reach_of_a_pond_and_a_missing_reach_means_anywh
         for state in (mixed.init(jax.random.key(seed))[0] for seed in range(12))
     }
     assert reached == {True, False}
+
+
+def test_a_broadcast_in_oasis_is_seen_only_through_the_view_window():
+    cells = make_cell(EMPTY, EMPTY, EMPTY, oasis=EMPTY)
+    env = dune_sea.make(
+        "oasis",
+        height=SIZE,
+        width=SIZE,
+        num_agents=2,
+        num_oases=0,
+        num_mirages=0,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 1], [1, 3]], [0, 0], energy=[0.5, 0.5])),
+    )
+    state, _ = env.init(KEY)
+    calling = state.replace(agent=state.agent.replace(broadcast=jnp.array([False, True])))
+
+    assert "beacons" not in env.observe(state)
+    channel = 5
+    assert float(env.observe(state)["view"][0][..., channel].sum()) == 0
+    assert float(env.observe(calling)["view"][0][..., channel].sum()) == 1
+
+
+def test_palms_fade_with_the_mirage_of_their_pond_and_appear_with_the_new_water():
+    import numpy as np
+
+    from boonta.environments.dune_sea import render as drawing
+
+    env = dune_sea.make("oasis", num_agents=2)
+    state, _ = env.init(KEY)
+    mirage = np.asarray(state.cells.mirage)
+    wall = np.asarray(state.cells.wall) > 0
+    habitat = (np.asarray(state.cells.oasis) > 0) | ((mirage != 0) & ~wall)
+    ponds = drawing.palm_ponds(habitat, ~habitat & ~wall)
+    sites = drawing.palm_sites(habitat, ~habitat & ~wall, drawing.scenery_rolls(64, 64), ponds)
+    burial = float(mirage[mirage > 0].min())
+
+    def standing(time):
+        return drawing.palm_presence(ponds, mirage, np.float32(time))[sites]
+
+    before, during, after = standing(burial - 1), standing(burial + 30), standing(burial + 200)
+    assert (before > 0).any() and (before == 0).any()
+    assert ((during > 0) & (during < 1)).any()
+    assert (after[before == 1] < 1).any() and (after[before == 0] == 1).any()
+
