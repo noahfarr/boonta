@@ -9,7 +9,7 @@ from ..environment import Environment
 from ..spaces import Space
 from .generators import Generator, uniform_generator
 from .render import TILE, render
-from .state import MAX_ENERGY, Agent, Cell, DuneSeaState
+from .state import MAX_ENERGY, MIRAGE_STEPS, Agent, Cell, DuneSeaState
 
 ENERGY_COST = 0.01
 CATCH_AMOUNT = 0.5
@@ -315,9 +315,11 @@ class DuneSea(Environment):
                 view = jnp.concatenate([view, facing * visible[..., None]], axis=-1)
             if self.observe_oasis:
                 real = state.cells.oasis > 0
-                seen = jnp.pad(real | (state.cells.mirage < 0), radius).astype(jnp.float32)
+                age = state.time - state.cells.mirage
+                fake = (state.cells.mirage > 0) & (age >= 0) & (age < MIRAGE_STEPS)
+                seen = window(jnp.pad((real | fake).astype(jnp.float32), radius))
                 close = (jnp.abs(local[:, None] - radius) <= 1) & (jnp.abs(local[None, :] - radius) <= 1)
-                water = jnp.where(close, window(jnp.pad(real, radius).astype(jnp.float32)), window(seen))
+                water = jnp.where(close, window(jnp.pad(real.astype(jnp.float32), radius)), seen)
                 view = jnp.concatenate([view, (water * visible)[..., None]], axis=-1)
             rotations = jnp.stack([jnp.rot90(view, k, axes=(0, 1)) for k in range(4)])
             return rotations[(direction + 1) % 4]

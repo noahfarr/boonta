@@ -82,17 +82,16 @@ def uniform_generator(
         energy=energy.astype(jnp.float32) * ENERGY_GAIN,
         bush=jnp.zeros((height, width), jnp.float32),
         oasis=jnp.zeros((height, width), jnp.float32),
-        spare=jnp.zeros((height, width), jnp.float32),
         mirage=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent
 
 
 def cave_generator(
-    key: Key, height: int, width: int, num_agents: int
+    key: Key, height: int, width: int, num_agents: int, fill: float = CAVE_FILL
 ) -> tuple[Cell, Agent]:
     cave_key, agent_key, energy_key, stage_key, bush_key = jax.random.split(key, 5)
-    noise = jax.random.bernoulli(cave_key, CAVE_FILL, (height, width))
+    noise = jax.random.bernoulli(cave_key, fill, (height, width))
     wall = smooth_cave(noise, CAVE_ROUNDS)
     bush = smooth_cave(jax.random.bernoulli(bush_key, BUSH_FILL, (height, width)), BUSH_ROUNDS) & ~wall
     agent = place_agents(agent_key, ~wall, num_agents)
@@ -107,7 +106,6 @@ def cave_generator(
         energy=jnp.where(energy, stage, 0.0),
         bush=bush.astype(jnp.float32),
         oasis=jnp.zeros((height, width), jnp.float32),
-        spare=jnp.zeros((height, width), jnp.float32),
         mirage=jnp.zeros((height, width), jnp.float32),
     )
     return cells, agent

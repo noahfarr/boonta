@@ -17,7 +17,6 @@ class Cell:
     energy: Array
     bush: Array
     oasis: Array
-    spare: Array
     mirage: Array
 
 
