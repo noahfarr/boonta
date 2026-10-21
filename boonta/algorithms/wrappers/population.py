@@ -6,7 +6,7 @@ from flax import struct
 from boonta.utils import (Array, Key, PyTree, Timestep, Transition,
                           canonicalize_dtype, concatenate, place, take)
 
-from ..algorithm import Algorithm
+from ..algorithm import Algorithm, Carries
 from .wrapper import Wrapper
 
 
@@ -27,7 +27,7 @@ class PopulationState:
 class Population(Wrapper):
     count: int
 
-    def init(self, key: Key, timestep: Timestep) -> PopulationState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[PopulationState, PyTree]:
         slots, *_ = timestep.terminated.shape
         assert slots % self.count == 0, (
             f"the environment's {slots} slots do not divide evenly among "
@@ -36,15 +36,19 @@ class Population(Wrapper):
             f"{self.count * (slots // self.count)} wide. "
             f"Pick a multiple of {self.count}."
         )
-        return PopulationState(
-            algorithm_states=tuple(
+        algorithm_states, carries = zip(
+            *(
                 self.algorithm.init(
                     jax.random.fold_in(key, index), take(timestep, index, self.count)
                 )
                 for index in range(self.count)
-            ),
+            )
+        )
+        state = PopulationState(
+            algorithm_states=algorithm_states,
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
         )
+        return state, concatenate(list(carries))
 
     def synchronize(self, state: PopulationState) -> PopulationState:
         return state.replace(
@@ -55,20 +59,26 @@ class Population(Wrapper):
         )
 
     def step(
-        self, state: PopulationState, key: Key, timestep: Timestep, temperature=1.0
-    ) -> tuple[PopulationState, Array, PyTree]:
+        self, state: PopulationState, carry: PyTree, key: Key, timestep: Timestep, temperature=1.0
+    ) -> tuple[PopulationState, PyTree, Array, PyTree]:
         state = self.synchronize(state)
-        algorithm_states, actions, auxes = [], [], []
+        algorithm_states, carries, actions, auxes = [], [], [], []
         for index, algorithm_state in enumerate(state.algorithm_states):
             view = take(timestep, index, self.count)
-            algorithm_state, action, aux = self.algorithm.step(
-                algorithm_state, jax.random.fold_in(key, index), view, temperature
+            algorithm_state, copy_carry, action, aux = self.algorithm.step(
+                algorithm_state,
+                take(carry, index, self.count),
+                jax.random.fold_in(key, index),
+                view,
+                temperature,
             )
             algorithm_states.append(algorithm_state)
+            carries.append(copy_carry)
             actions.append(action)
             auxes.append(aux)
         return (
             state.replace(algorithm_states=tuple(algorithm_states)),
+            concatenate(carries),
             concatenate(actions),
             concatenate(auxes),
         )
@@ -76,23 +86,27 @@ class Population(Wrapper):
     def portion(self, transitions: Transition, index: int) -> Transition:
         return take(transitions, index, self.count, axis=1)
 
+    def share(self, carries: Carries, index: int) -> Carries:
+        return take(carries, index, self.count)
+
     def respond(
         self,
         state: PopulationState,
         index: int,
         key: Key,
         transitions: Transition,
+        carries: Carries,
         algorithm: Algorithm,
     ) -> PopulationState:
         algorithm_state = algorithm.update(
-            state.algorithm_states[index], key, transitions
+            state.algorithm_states[index], key, transitions, carries
         )
         return state.replace(
             algorithm_states=place(state.algorithm_states, index, algorithm_state)
         )
 
     def update(
-        self, state: PopulationState, key: Key, transitions: Transition
+        self, state: PopulationState, key: Key, transitions: Transition, carries: Carries
     ) -> PopulationState:
         state = self.synchronize(state)
         for index in range(self.count):
@@ -101,6 +115,7 @@ class Population(Wrapper):
                 index,
                 jax.random.fold_in(key, index),
                 self.portion(transitions, index),
+                self.share(carries, index),
                 self.algorithm,
             )
         return state

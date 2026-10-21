@@ -5,7 +5,7 @@ from flax import struct
 
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
 
-from ..algorithm import Algorithm
+from ..algorithm import Algorithm, Carries
 
 
 @struct.dataclass
@@ -29,16 +29,16 @@ class Wrapper:
             raise AttributeError(name)
         return getattr(self.algorithm, name)
 
-    def init(self, key: Key, timestep: Timestep):
+    def init(self, key: Key, timestep: Timestep) -> tuple[Any, PyTree]:
         return self.algorithm.init(key, timestep)
 
     def step(
-        self, state, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[Any, Array, PyTree]:
-        return self.algorithm.step(state, key, timestep, temperature)
+        self, state, carry, key: Key, timestep: Timestep, temperature: float = 1.0
+    ) -> tuple[Any, PyTree, Array, PyTree]:
+        return self.algorithm.step(state, carry, key, timestep, temperature)
 
-    def update(self, state, key: Key, transitions: Transition):
-        return self.algorithm.update(state, key, transitions)
+    def update(self, state, key: Key, transitions: Transition, carries: Carries):
+        return self.algorithm.update(state, key, transitions, carries)
 
     def wraps(self, cls: type) -> bool:
         algorithm = self.algorithm

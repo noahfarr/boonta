@@ -245,26 +245,25 @@ def tallied(module):
 class ProbeState:
     step: jax.Array
     version: jax.Array
-    carry: jax.Array = struct.field(metadata={"axis": "data"})
 
 
 class Probe:
     def init(self, key, timestep) -> ProbeState:
         num_envs, *_ = timestep.obs.shape
-        return ProbeState(
-            step=jnp.array(0), version=jnp.float32(0.0), carry=jnp.zeros((num_envs,))
-        )
+        state = ProbeState(step=jnp.array(0), version=jnp.float32(0.0))
+        return state, jnp.zeros((num_envs,))
 
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         num_envs, *_ = timestep.obs.shape
         lox.log({"probe/temperature": temperature})
         return (
-            state.replace(carry=state.carry + 1.0),
+            state,
+            carry + 1.0,
             jnp.zeros((num_envs,), jnp.int32),
             {"version": jnp.full((num_envs,), state.version)},
         )
 
-    def update(self, state, key, transitions) -> ProbeState:
+    def update(self, state, key, transitions, carries) -> ProbeState:
         logs = {
             "probe/version": state.version,
             "probe/observed": jnp.mean(transitions.first.obs),

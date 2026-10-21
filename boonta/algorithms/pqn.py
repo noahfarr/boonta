@@ -19,6 +19,7 @@ from boonta.utils import (
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import q_lambda
+from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -45,28 +46,37 @@ class PQN:
     auxiliary_losses: tuple[Callable, ...] = ()
     action_value_estimator: Callable = q_lambda
 
-    def init(self, key: Key, timestep: Timestep) -> PQNState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[PQNState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
         optimizer_state = self.optimizer.init(params["params"])
 
-        return PQNState(
+        state = PQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
         )
 
+        return state, None
+
     def step(
-        self, state: PQNState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[PQNState, Array, PyTree]:
+        self,
+        state: PQNState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[PQNState, PyTree, Array, PyTree]:
         dist = self.network.apply(
             state.params,
             timestep.obs,
             temperature=self.exploration_schedule(state.step) * temperature,
         )
         action = dist.sample(seed=key)
-        return state, action, {"q_values": dist.preferences}
+        return state, carry, action, {"q_values": dist.preferences}
 
-    def update(self, state: PQNState, key: Key, transitions: Transition) -> PQNState:
+    def update(
+        self, state: PQNState, key: Key, transitions: Transition, carries: Carries
+    ) -> PQNState:
         def loss_fn(
             params: PyTree, transitions: Transition
         ) -> tuple[Array, tuple[PyTree, Array]]:

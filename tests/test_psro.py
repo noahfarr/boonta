@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from boonta.algorithms import Carries
 import pytest
 import trueskill
 from flax import struct
@@ -132,21 +133,22 @@ class SkillAlgorithm:
 
     def init(self, key, timestep):
         params = jnp.zeros((1,))
-        return SkillState(
+        state = SkillState(
             step=jnp.array(0),
             params=params,
             optimizer_state=self.optimizer.init(params),
         )
+        return state, None
 
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         num_envs, *_ = timestep.obs.shape
         action = jnp.broadcast_to(state.params[0], (num_envs,))
-        return state, action, {}
+        return state, carry, action, {}
 
     def loss(self, params):
         return -params[0]
 
-    def update(self, state, key, transitions):
+    def update(self, state, key, transitions, carries):
         grads = jax.grad(self.loss)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
@@ -176,9 +178,9 @@ class Anchorable(SkillAlgorithm):
 
 @dataclass
 class Thermal(SkillAlgorithm):
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         num_envs, *_ = timestep.obs.shape
-        return state, jnp.full((num_envs,), temperature), {}
+        return state, carry, jnp.full((num_envs,), temperature), {}
 
 
 @dataclass
@@ -186,10 +188,10 @@ class Recording(SkillAlgorithm):
 
     seen: list
 
-    def update(self, state, key, transitions):
+    def update(self, state, key, transitions, carries):
         seat = transitions.second
         self.seen.append((seat.action.shape, seat.reward.shape, seat.terminated.shape))
-        return super().update(state, key, transitions)
+        return super().update(state, key, transitions, carries)
 
 
 @dataclass
@@ -199,16 +201,17 @@ class ToyAlgorithm:
 
     def init(self, key, timestep):
         params = jnp.zeros((1,))
-        return SkillState(
+        state = SkillState(
             step=jnp.array(0),
             params=params,
             optimizer_state=self.optimizer.init(params),
         )
+        return state, None
 
-    def step(self, state, key, timestep, temperature=1.0):
-        return state, -timestep.obs[:, 0] * state.params[0], {}
+    def step(self, state, carry, key, timestep, temperature=1.0):
+        return state, carry, -timestep.obs[:, 0] * state.params[0], {}
 
-    def update(self, state, key, transitions):
+    def update(self, state, key, transitions, carries):
         def loss(params):
             prediction = transitions.first.obs[..., 0] * params[0]
             return jnp.mean((prediction - transitions.second.reward) ** 2)
@@ -590,7 +593,7 @@ def test_a_wrapper_missing_its_algorithm_raises_instead_of_recursing():
 def test_each_population_copy_acts_and_learns_on_its_own_slice():
     population = Population(ToyAlgorithm(optax.sgd(0.1)), count=2)
     timestep = slices(8)
-    state = population.init(jax.random.key(0), timestep)
+    state, _ = population.init(jax.random.key(0), timestep)
     state = state.replace(
         algorithm_states=tuple(
             inner.replace(params=jnp.array([value]))
@@ -599,7 +602,7 @@ def test_each_population_copy_acts_and_learns_on_its_own_slice():
         step=jnp.array(40, state.step.dtype),
     )
 
-    state, action, _ = population.step(state, jax.random.key(1), timestep)
+    state, _, action, _ = population.step(state, None, jax.random.key(1), timestep)
     np.testing.assert_allclose(np.asarray(action), [-1.0] * 4 + [2.0] * 4)
     first, second = state.algorithm_states
     assert (int(first.step), int(second.step)) == (40, 40)
@@ -607,7 +610,7 @@ def test_each_population_copy_acts_and_learns_on_its_own_slice():
     window = jax.tree.map(lambda leaf: leaf[None], timestep)
     target = jnp.concatenate([jnp.full(4, 5.0), jnp.zeros(4)])
     transitions = Transition(first=window, second=window.replace(reward=target[None]))
-    updated = population.update(state, jax.random.key(2), transitions)
+    updated = population.update(state, jax.random.key(2), transitions, Carries())
 
     first, second = updated.algorithm_states
     assert float(first.params[0]) > 1.0

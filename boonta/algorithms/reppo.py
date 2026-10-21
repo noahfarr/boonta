@@ -12,6 +12,7 @@ from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import soft_td_lambda
+from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -72,7 +73,7 @@ class REPPO:
     auxiliary_losses: tuple[Callable, ...] = ()
     action_value_estimator: Callable = soft_td_lambda
 
-    def init(self, key: Key, timestep: Timestep) -> REPPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[REPPOState, PyTree]:
         actor_key, critic_key, alpha_key, lagrangian_key = jax.random.split(key, 4)
 
         actor_params = self.actor.init(actor_key, timestep.obs, temperature=1.0)
@@ -80,7 +81,7 @@ class REPPO:
         alpha_params = self.alpha.init(alpha_key)
         lagrangian_params = self.lagrangian.init(lagrangian_key)
 
-        return REPPOState(
+        state = REPPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=actor_params,
             actor_target_params=actor_params,
@@ -95,15 +96,22 @@ class REPPO:
             ),
         )
 
+        return state, None
+
     def step(
-        self, state: REPPOState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[REPPOState, Array, PyTree]:
+        self,
+        state: REPPOState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[REPPOState, PyTree, Array, PyTree]:
         dist = self.actor.apply(state.params, timestep.obs, temperature=temperature)
         action = dist.sample(seed=key)
-        return state, action, {}
+        return state, carry, action, {}
 
     def update(
-        self, state: REPPOState, key: Key, transitions: Transition
+        self, state: REPPOState, key: Key, transitions: Transition, carries: Carries
     ) -> REPPOState:
         def bootstrap(
             state: REPPOState, transitions: Transition, key: Key

@@ -10,6 +10,7 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 import zoo
+from boonta.algorithms import Carries
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.algorithms.wrappers.population import Population
 from boonta.environments.wrappers import ChunkAction
@@ -96,12 +97,7 @@ def test_every_recurrent_carry_shards_with_its_environments(build, environment):
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 1)
 
-    carries = [
-        getattr(state.algorithm_state, name)
-        for name in ("carry", "rollout_carry")
-        if hasattr(state.algorithm_state, name)
-    ]
-    for leaf in jax.tree.leaves(carries):
+    for leaf in jax.tree.leaves(state.carry):
         assert leaf.sharding.spec == P("data")
 
 
@@ -261,8 +257,8 @@ def targets(build, environment, key, boundary, perturbed):
     ).algorithm
     transitions = rollout(environment, boundary, perturbed)
     first = jax.tree.map(lambda leaf: leaf[0], transitions.first)
-    state = algorithm.init(jax.random.key(1), first)
-    jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions))
+    state, _ = algorithm.init(jax.random.key(1), first)
+    jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions, Carries()))
     jax.effects_barrier()
     trained = 2 if boundary == "terminated" else 1
     before = np.asarray(transitions.first.obs[:trained, ..., 0]).ravel().tolist()
@@ -294,8 +290,8 @@ def test_recurrent_bc_learns_only_from_weighted_steps(weight, moves):
     algorithm = zoo.recurrent_bc(environment).algorithm
     episodes = demonstrations(environment, jax.random.key(0), 32)
     batch = episodes.replace(aux={"weight": jnp.full(episodes.second.reward.shape, weight)})
-    state = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
-    updated = algorithm.update(state, jax.random.key(2), batch)
+    state, _ = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
+    updated = algorithm.update(state, jax.random.key(2), batch, Carries())
 
     changed = [
         not np.array_equal(before, after)
@@ -461,8 +457,8 @@ def test_every_algorithm_carries_what_its_layers_write_during_the_update(
         if "optimizer_state" in path and "counts" in path
     ]
 
-    stepped, _, _ = podracer.algorithm.step(
-        state.algorithm_state, jax.random.key(2), state.timestep
+    stepped, *_ = podracer.algorithm.step(
+        state.algorithm_state, state.carry, jax.random.key(2), state.timestep
     )
     evaluated, _ = podracer.evaluate(state, jax.random.key(3), 8)
     for after in (stepped, evaluated.algorithm_state):

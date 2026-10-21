@@ -230,7 +230,7 @@ def test_environments_and_carries_shard_and_parameters_replicate(
     for _ in range(2):
         for leaf in jax.tree.leaves((state.environment_state, state.timestep.obs)):
             assert_sharded(leaf, mesh(2))
-        assert_sharded(state.algorithm_state.carry, mesh(2))
+        assert_sharded(state.carry, mesh(2))
         assert_replicated(state.algorithm_state.version, mesh(2))
         first, second = shards(state.environment_state.noise)
         assert not np.array_equal(first, second)
@@ -306,16 +306,10 @@ def test_sebulba_surfaces_an_actor_failure_instead_of_hanging():
 def test_the_learner_shards_what_the_algorithm_keeps_per_environment(build):
     podracer = build()
     state = podracer.init(jax.random.key(0))
-    shards = [
-        state.algorithm_state.carry.sharding.spec,
-        state.algorithm_state.version.sharding.spec,
-    ]
+    shards = [state.algorithm_state.version.sharding.spec]
     state, _ = podracer.train(state, jax.random.key(1), 2)
-    shards += [
-        state.algorithm_state.carry.sharding.spec,
-        state.algorithm_state.version.sharding.spec,
-    ]
-    assert shards == [P("data"), P(), P("data"), P()]
+    shards += [state.algorithm_state.version.sharding.spec]
+    assert shards == [P(), P()]
 
 
 @pytest.mark.parametrize("build", EVERY)
@@ -374,9 +368,9 @@ def test_quadinaros_pit_steers_the_data():
             )
 
     class Reader(Probe):
-        def update(self, state, key, transitions):
+        def update(self, state, key, transitions, carries):
             lox.log({"reader/seen": jnp.mean(transitions.first.obs[..., 1])})
-            return super().update(state, key, transitions)
+            return super().update(state, key, transitions, carries)
 
     podracer = on_quadinaros(algorithm=Reader(), pit=Steer())
     state = podracer.init(jax.random.key(0))

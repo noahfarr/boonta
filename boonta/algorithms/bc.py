@@ -10,6 +10,7 @@ from flax import struct
 
 from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
+from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -32,21 +33,30 @@ class BC:
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> BCState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[BCState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
-        return BCState(
+        state = BCState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=self.optimizer.init(params["params"]),
         )
 
-    def step(
-        self, state: BCState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[BCState, Array, PyTree]:
-        dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
-        return state, dist.sample(seed=key), {}
+        return state, None
 
-    def update(self, state: BCState, key: Key, transitions: Transition) -> BCState:
+    def step(
+        self,
+        state: BCState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[BCState, PyTree, Array, PyTree]:
+        dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
+        return state, carry, dist.sample(seed=key), {}
+
+    def update(
+        self, state: BCState, key: Key, transitions: Transition, carries: Carries
+    ) -> BCState:
         del key
 
         def loss_fn(params: PyTree) -> tuple[Array, tuple[PyTree, Array, Array]]:

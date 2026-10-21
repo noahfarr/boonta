@@ -3,7 +3,7 @@ from functools import partial
 
 import jax
 import lox
-from boonta.algorithms import Algorithm
+from boonta.algorithms import Algorithm, Carries
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
@@ -23,6 +23,7 @@ class AnakinConfig:
 class AnakinState:
     timestep: Timestep = struct.field(metadata={"axis": "data"})
     environment_state: EnvState = struct.field(metadata={"axis": "data"})
+    carry: PyTree = struct.field(metadata={"axis": "data"})
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
@@ -45,8 +46,8 @@ class Anakin:
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state, algorithm_key, state.timestep, temperature
+        algorithm_state, carry, action, aux = self.algorithm.step(
+            state.algorithm_state, state.carry, algorithm_key, state.timestep, temperature
         )
         environment_state, timestep = self.environment.step(
             environment_key, state.environment_state, action
@@ -66,6 +67,7 @@ class Anakin:
             lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
+                carry=carry,
                 timestep=timestep,
                 environment_state=environment_state,
             ),
@@ -77,10 +79,11 @@ class Anakin:
         pit_key, call_key = jax.random.split(pit_key)
         lap_key, step_key = jax.random.split(lap_key)
         environment_state, timestep = self.environment.init(environment_key)
-        algorithm_state = self.algorithm.init(algorithm_key, timestep)
+        algorithm_state, carry = self.algorithm.init(algorithm_key, timestep)
         state = AnakinState(
             timestep=timestep,
             environment_state=environment_state,
+            carry=carry,
             algorithm_state=algorithm_state,
         )
         state = state.replace(
@@ -101,12 +104,16 @@ class Anakin:
         def step(state: AnakinState, key):
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
+            first = state.carry
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
             state, transitions = jax.lax.scan(
                 partial(self.rollout, temperature=1.0), state, rollout_keys
             )
             algorithm_state = self.algorithm.update(
-                state.algorithm_state, update_key, transitions
+                state.algorithm_state,
+                update_key,
+                transitions,
+                Carries(first=first, last=state.carry),
             )
             pit_state = self.pit.update(
                 state.pit_state, pit_key, transitions, algorithm_state
@@ -122,6 +129,7 @@ class Anakin:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
+        _, carry = self.algorithm.init(reset_key, timestep)
         state = self.pit(
             call_key,
             self.lap(
@@ -129,6 +137,7 @@ class Anakin:
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
+                    carry=carry,
                 ),
             ),
         )

@@ -15,6 +15,7 @@ import jax.numpy as jnp
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
+from boonta.algorithms import Carries
 from boonta.algorithms.wrappers import Wrapper as AlgorithmWrapper
 from boonta.environments.wrappers import Wrapper as EnvironmentWrapper
 from boonta.podracers.podracer import Lap, Pit
@@ -40,14 +41,14 @@ def sample(key, action, space):
 
 @dataclass
 class TrackedAlgorithm(AlgorithmWrapper):
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         return px.track(name="algorithm/step")(self.algorithm.step)(
-            state, key, timestep, temperature
+            state, carry, key, timestep, temperature
         )
 
-    def update(self, state, key, transitions):
+    def update(self, state, key, transitions, carries):
         return px.track(name="algorithm/update")(self.algorithm.update)(
-            state, key, transitions
+            state, key, transitions, carries
         )
 
 
@@ -135,21 +136,21 @@ def benchmark(overrides, num_updates, seed):
         return carry
 
     @jax.jit
-    def collect(algorithm_state, environment_state, timestep, key):
-        def step(carry, key):
-            algorithm_state, environment_state, timestep = carry
+    def collect(algorithm_state, carry, environment_state, timestep, key):
+        def step(loop, key):
+            algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, action, aux = algorithm.step(
-                algorithm_state, algorithm_key, timestep, 1.0
+            algorithm_state, carry, action, aux = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, 1.0
             )
             environment_state, next_timestep = environment.step(
                 environment_key, environment_state, action
             )
             transition = Transition(first=timestep, second=next_timestep, aux=aux)
-            return (algorithm_state, environment_state, next_timestep), transition
+            return (algorithm_state, carry, environment_state, next_timestep), transition
 
         keys = jax.random.split(key, num_steps)
-        return jax.lax.scan(step, (algorithm_state, environment_state, timestep), keys)
+        return jax.lax.scan(step, (algorithm_state, carry, environment_state, timestep), keys)
 
     update = jax.jit(algorithm.update)
 
@@ -160,20 +161,21 @@ def benchmark(overrides, num_updates, seed):
     jax.block_until_ready(rollout(environment_state, timestep, env_key))
     env_time = time.monotonic() - start
 
-    algorithm_state = algorithm.init(init_key, timestep)
-    carry, _ = collect(algorithm_state, environment_state, timestep, collect_key)
-    carry, transitions = jax.block_until_ready(collect(*carry, collect_key))
+    algorithm_state, carry = algorithm.init(init_key, timestep)
+    loop, _ = collect(algorithm_state, carry, environment_state, timestep, collect_key)
+    loop, transitions = jax.block_until_ready(collect(*loop, collect_key))
 
     start = time.monotonic()
-    carry, transitions = jax.block_until_ready(collect(*carry, collect_key))
+    loop, transitions = jax.block_until_ready(collect(*loop, collect_key))
     rollout_time = time.monotonic() - start
 
-    algorithm_state, *_ = carry
-    algorithm_state = update(algorithm_state, update_key, transitions)
-    jax.block_until_ready(update(algorithm_state, update_key, transitions))
+    algorithm_state, last, *_ = loop
+    carries = Carries(first=carry, last=last)
+    algorithm_state = update(algorithm_state, update_key, transitions, carries)
+    jax.block_until_ready(update(algorithm_state, update_key, transitions, carries))
 
     start = time.monotonic()
-    jax.block_until_ready(update(algorithm_state, update_key, transitions))
+    jax.block_until_ready(update(algorithm_state, update_key, transitions, carries))
     update_time = time.monotonic() - start
     environment.close(environment_state)
 
