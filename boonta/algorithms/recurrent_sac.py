@@ -32,7 +32,6 @@ class RecurrentSACConfig:
 @struct.dataclass(frozen=True)
 class RecurrentSACState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     critic_params: PyTree
     target_critic_params: PyTree
@@ -55,7 +54,7 @@ class RecurrentSAC:
     alpha_optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentSACState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentSACState, PyTree]:
         actor_key, critic_key, alpha_key, carry_key = jax.random.split(key, 4)
 
         carry = self.actor.initialize_carry(carry_key, (*timestep.reward.shape, 1))
@@ -81,9 +80,8 @@ class RecurrentSAC:
         )
         alpha_params = self.alpha.init(alpha_key)
 
-        return RecurrentSACState(
+        state = RecurrentSACState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
             params=actor_params,
             critic_params=critic_params,
             target_critic_params=critic_params,
@@ -99,13 +97,16 @@ class RecurrentSAC:
             ),
         )
 
+        return state, carry
+
     def step(
         self,
         state: RecurrentSACState,
+        carry: PyTree,
         key: Key,
         timestep: Timestep,
         temperature: float = 1.0,
-    ) -> tuple[RecurrentSACState, Array, PyTree]:
+    ) -> tuple[RecurrentSACState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, dist = self.actor.apply(
             state.params,
@@ -113,12 +114,12 @@ class RecurrentSAC:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=temperature,
         )
         action = dist.sample(seed=key)
         action = remove_time_axis(action)
-        return state.replace(carry=carry), action, {}
+        return state, carry, action, {}
 
     def update(
         self, state: RecurrentSACState, key: Key, transitions: Transition
@@ -246,6 +247,7 @@ class RecurrentSAC:
             loss = -(log_alpha * (log_prob + self.cfg.target_entropy)).mean()
             return loss, variables
 
+        transitions = transitions.replace(carry=None)
         buffer_state, _ = jax.lax.scan(
             lambda buffer_state, transition: (
                 self.buffer.add(buffer_state, jax.tree.map(add_time_axis, transition)),

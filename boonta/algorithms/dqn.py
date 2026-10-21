@@ -45,10 +45,10 @@ class DQN:
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> DQNState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[DQNState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
 
-        return DQNState(
+        state = DQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             target_params=params,
@@ -61,16 +61,23 @@ class DQN:
             ),
         )
 
+        return state, None
+
     def step(
-        self, state: DQNState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[DQNState, Array, PyTree]:
+        self,
+        state: DQNState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[DQNState, PyTree, Array, PyTree]:
         dist = self.network.apply(
             state.params,
             timestep.obs,
             temperature=self.exploration_schedule(state.step) * temperature,
         )
         action = dist.sample(seed=key)
-        return state, action, {}
+        return state, carry, action, {}
 
     def update(self, state: DQNState, key: Key, transitions: Transition) -> DQNState:
         def loss_fn(

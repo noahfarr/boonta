@@ -17,7 +17,7 @@ uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 | `seed=3` | Seed of the run: 0 by default, the trial number in a multirun |
 | `num_steps=100_000_000` | Environment steps in total |
 | `num_epochs=50` | Train and log cycles the steps are split into |
-| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch |
+| `checkpoint=<path>` | Start from a run directory (its latest checkpoint) or from a checkpoint step directory, continuing at the checkpoint's epoch. `checkpoint=<host>:<path>` pulls it over ssh first, with a host from `~/.ssh/config` and rsync or scp, into `~/.cache/boonta/checkpoints` (`BOONTA_CACHE` moves it), and a later call reuses the copy |
 
 ### Several machines
 

@@ -6,6 +6,8 @@ import time
 from functools import partial
 from types import SimpleNamespace
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -109,13 +111,91 @@ def test_resume_restores_each_saved_field_and_leaves_the_rest_fresh(tmp_path, fi
         assert_restored(getattr(expected, field), getattr(restored, field))
 
 
-def test_resume_fails_when_a_saved_field_changed_shape(tmp_path):
-    saved = build_podracer(zoo.recurrent_ppo)
-    wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)
-    save(tmp_path, saved.init(jax.random.key(0)))
+def test_resume_fails_when_a_saved_parameter_changed_shape(tmp_path):
+    podracer = build_podracer(zoo.recurrent_ppo)
+    save(tmp_path, podracer.init(jax.random.key(0)))
+    fresh = podracer.init(jax.random.key(0))
+    wrong = jax.tree.map(lambda leaf: jnp.zeros((leaf.shape[0] + 1, *leaf.shape[1:]), leaf.dtype) if leaf.ndim else leaf, fresh.algorithm_state.params)
 
     with pytest.raises(ValueError, match="stored shape"):
-        load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
+        load_checkpoint(resolve_checkpoint(tmp_path), fresh.replace(algorithm_state=fresh.algorithm_state.replace(params=wrong)))
+
+
+def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_count(tmp_path):
+    saved = build_podracer(zoo.recurrent_ppo)
+    wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)
+    trained = train(saved)
+    save(tmp_path, trained)
+
+    stored = {item.name for item in (tmp_path / "checkpoints/latest/96/algorithm_state").iterdir()}
+    loaded = load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
+
+    assert not any("carry" in name for name in stored)
+    assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
+    assert int(loaded.algorithm_state.step) == int(trained.algorithm_state.step)
+    assert loaded.carry.shape[0] == 2 * NUM_ENVS
+
+
+def test_a_checkpoint_saved_with_the_carry_inside_the_algorithm_state_still_loads(tmp_path):
+    import orbax.checkpoint as ocp
+
+    podracer = build_podracer(zoo.recurrent_ppo)
+    trained = train(podracer)
+    legacy = {
+        **{field: getattr(trained.algorithm_state, field) for field in ("step", "params", "optimizer_state")},
+        "carry": trained.carry,
+        "rollout_carry": trained.carry,
+    }
+    directory = tmp_path / "checkpoints/latest/96"
+    directory.mkdir(parents=True)
+    checkpointer = ocp.StandardCheckpointer()
+    checkpointer.save((directory / "algorithm_state").resolve(), legacy)
+    checkpointer.wait_until_finished()
+
+    loaded = load_checkpoint(resolve_checkpoint(tmp_path), podracer.init(jax.random.key(0)))
+
+    assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
+
+
+def test_a_host_and_path_is_recognised_as_a_remote_checkpoint_and_a_local_path_is_not(tmp_path):
+    from boonta.utils.checkpoint import remote_parts
+
+    assert remote_parts("ias:/path/to/checkpoint") == ("ias", "/path/to/checkpoint")
+    assert remote_parts("me@host:~/runs/a") == ("me@host", "~/runs/a")
+    assert remote_parts(str(tmp_path)) is None
+    assert remote_parts("C:\\runs") is None
+    assert remote_parts("https://example.org/a") is None
+    assert remote_parts("a/b:c") is None
+
+
+def test_a_remote_run_directory_is_pulled_once_to_the_cache_at_its_latest_checkpoint(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+
+    remote = tmp_path / "remote" / "run"
+    for step in (1, 12, 3):
+        (remote / "checkpoints/latest" / str(step) / "algorithm_state").mkdir(parents=True)
+        (remote / "checkpoints/latest" / str(step) / "algorithm_state/data").write_text(str(step))
+    calls = []
+
+    def fake(command, **kwargs):
+        calls.append(command[0])
+        if command[0] == "ssh":
+            return subprocess.CompletedProcess(command, 0, stdout=str(remote / "checkpoints/latest/12") + "\n", stderr="")
+        shutil.copytree(remote / "checkpoints/latest/12", command[-1], dirs_exist_ok=True)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setenv("BOONTA_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(subprocess, "run", fake)
+
+    first = resolve_checkpoint(f"cluster:{remote}")
+    second = resolve_checkpoint(f"cluster:{remote}")
+
+    assert first == second
+    assert first.endswith("checkpoints/latest/12")
+    assert (Path(first) / "algorithm_state/data").read_text() == "12"
+    assert str(tmp_path / "cache") in first
+    assert len([call for call in calls if call != "ssh"]) == 1
 
 
 def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_path):
@@ -213,11 +293,11 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     space = environment.action_space()
     num_actions = space.num_actions
 
-    def step(state, key, timestep, temperature=1.0):
+    def step(state, carry, key, timestep, temperature=1.0):
         action = jax.random.randint(key, (NUM_ENVS,), 0, num_actions, space.dtype)
-        return state, action, {}
+        return state, carry, action, {}
 
-    algorithm = SimpleNamespace(step=step)
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
     video = Render(max_frames=16).craft(jax.random.key(0), algorithm, environment, state, {})
 
@@ -237,10 +317,10 @@ def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environme
     environment = zoo.wrap(corridor(), NUM_ENVS)
     environment.time_limit = lambda: 3
 
-    def step(state, key, timestep, temperature=1.0):
-        return state, jnp.arange(NUM_ENVS, dtype=jnp.int32) % 2, {}
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, jnp.arange(NUM_ENVS, dtype=jnp.int32) % 2, {}
 
-    algorithm = SimpleNamespace(step=step)
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
     text = Transcript("repo", num_examples=3).craft(
         jax.random.key(0), algorithm, environment, state, {}

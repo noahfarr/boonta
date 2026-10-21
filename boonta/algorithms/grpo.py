@@ -40,21 +40,28 @@ class GRPO:
     auxiliary_losses: tuple[Callable, ...] = ()
     advantage_estimator: Callable = group_relative_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> GRPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[GRPOState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
-        return GRPOState(
+        state = GRPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             reference_params=params,
             optimizer_state=self.optimizer.init(params["params"]),
         )
 
+        return state, None
+
     def step(
-        self, state: GRPOState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[GRPOState, Array, PyTree]:
+        self,
+        state: GRPOState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[GRPOState, PyTree, Array, PyTree]:
         dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
         action, log_prob = dist.sample_and_log_prob(seed=key)
-        return state, action, {"log_prob": log_prob}
+        return state, carry, action, {"log_prob": log_prob}
 
     def update(self, state: GRPOState, key: Key, transitions: Transition) -> GRPOState:
         num_steps, num_envs = transitions.second.reward.shape

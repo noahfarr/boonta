@@ -162,14 +162,14 @@ def test_negamax_blocks_a_win_in_one_only_when_it_looks_two_plies_ahead():
 
 
 def scripted(bot):
-    def step(algorithm_state, key, timestep, temperature):
+    def step(algorithm_state, carry, key, timestep, temperature):
         count, *_ = timestep.obs["board"].shape
         keys = jax.random.split(key, (count, 2))
         seats = jnp.broadcast_to(jnp.arange(2), (count, 2))
         actions = jax.vmap(jax.vmap(bot, in_axes=(None, 0, 0)))(timestep.obs, keys, seats)
-        return algorithm_state, actions, {}
+        return algorithm_state, carry, actions, {}
 
-    return SimpleNamespace(step=step)
+    return SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
 
 
 @pytest.mark.parametrize(

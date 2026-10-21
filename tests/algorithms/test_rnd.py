@@ -30,11 +30,11 @@ class Toy:
     advantage_estimator: callable = generalized_advantage_estimator
 
     def init(self, key, timestep):
-        return ToyState(step=jnp.array(0), params=jnp.zeros(2))
+        return ToyState(step=jnp.array(0), params=jnp.zeros(2)), None
 
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         envs = timestep.reward.shape[0]
-        return state, jnp.zeros(envs, jnp.int32), {}
+        return state, carry, jnp.zeros(envs, jnp.int32), {}
 
     def update(self, state, key, transitions):
         steps, envs = transitions.second.reward.shape
@@ -128,7 +128,7 @@ def test_target_and_predictor_start_apart_so_the_error_is_positive():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     transitions = rollout(2, 3, obs, jnp.zeros((2, 3)))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     assert float(jnp.mean(errors_of(env, state, transitions))) > 0.0
 
 
@@ -137,7 +137,7 @@ def test_the_bonus_reaches_the_actor_through_the_advantage():
     env = build(record)
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     advantages, _ = record[0]
     assert bool(jnp.any(advantages != 0.0))
@@ -148,7 +148,7 @@ def test_the_extrinsic_critic_target_never_sees_the_bonus():
     env = build(record)
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     _, returns = record[0]
     assert returns == pytest.approx(jnp.zeros((2, 3)), abs=1e-6)
@@ -160,7 +160,7 @@ def test_zero_coefficient_leaves_the_advantage_untouched():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     transitions = rollout(2, 3, obs, jnp.full((2, 3), 0.5))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     env.update(state, key, transitions)
     advantages, _ = record[0]
     plain, _ = generalized_advantage_estimator(
@@ -173,7 +173,7 @@ def test_updating_does_not_rewire_the_wrapped_algorithm():
     env = build([])
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert env.algorithm.advantage_estimator is generalized_advantage_estimator
 
@@ -184,7 +184,7 @@ def test_no_bonus_is_paid_for_a_state_the_reset_handed_over():
     obs = jax.random.normal(key, (4, 3, 4))
     terminated = jnp.zeros((4, 3), bool).at[1].set(True)
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)), terminated)
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     bonus = env.intrinsic_reward(state, transitions, errors_of(env, state, transitions))
     assert bonus[1] == pytest.approx(jnp.zeros(3), abs=1e-8)
     assert bool(jnp.all(bonus[0] > 0.0))
@@ -196,7 +196,7 @@ def test_the_predictor_still_trains_on_the_states_it_is_not_paid_for():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (4, 3, 4))
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)), jnp.ones((4, 3), bool))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     bonus = env.intrinsic_reward(state, transitions, errors_of(env, state, transitions))
     after = env.update(state, key, transitions)
     assert bool(jnp.all(bonus == 0.0))
@@ -209,7 +209,7 @@ def test_the_intrinsic_advantage_ignores_termination():
     obs = jax.random.normal(key, (4, 3, 4))
     terminated = jnp.zeros((4, 3), bool).at[1].set(True)
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)), terminated)
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     sight = sighted(state, transitions)
     bonus = jnp.ones((4, 3))
     values = env.intrinsic_value(state.critic_params, transitions.first.obs, sight)
@@ -238,7 +238,7 @@ def test_the_target_never_moves_and_the_predictor_does():
     env = build([])
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert not moved(state.random_network_params, after.random_network_params)
     assert moved(state.predictor_params, after.predictor_params)
@@ -249,7 +249,7 @@ def test_training_the_predictor_drives_the_error_down():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     transitions = rollout(2, 3, obs, jnp.zeros((2, 3)))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     before = float(jnp.mean(errors_of(env, state, transitions)))
     for _ in range(200):
         state = env.update(state, key, transitions)
@@ -261,7 +261,7 @@ def test_subsampling_the_batch_still_trains_the_predictor():
     env = build([], proportion=0.25)
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert moved(state.predictor_params, after.predictor_params)
 
@@ -273,7 +273,7 @@ def test_more_epochs_move_the_predictor_further():
 
     def travelled(epochs):
         env = build([], epochs=epochs, num_minibatches=2)
-        state = env.init(key, frame(6, obs[0]))
+        state, _ = env.init(key, frame(6, obs[0]))
         after = env.update(state, key, transitions)
         return sum(
             float(jnp.sum(jnp.abs(a - b)))
@@ -290,7 +290,7 @@ def test_minibatches_must_divide_the_environments():
     env = build([], num_minibatches=4)
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 6, 4))
-    state = env.init(key, frame(6, obs[0]))
+    state, _ = env.init(key, frame(6, obs[0]))
     with pytest.raises(AssertionError, match="6 environments"):
         env.update(state, key, rollout(2, 6, obs, jnp.zeros((2, 6))))
 
@@ -300,7 +300,7 @@ def test_the_normaliser_tracks_the_discounted_return_not_the_raw_error():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (8, 4, 4))
     transitions = rollout(8, 4, obs, jnp.zeros((8, 4)))
-    state = env.init(key, frame(4, obs[0]))
+    state, _ = env.init(key, frame(4, obs[0]))
     raw = errors_of(env, state, transitions)
     after = env.update(state, key, transitions)
 
@@ -315,7 +315,7 @@ def test_the_accumulator_survives_across_updates():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (4, 3, 4))
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     assert float(jnp.max(jnp.abs(state.intrinsic_returns))) == 0.0
     once = env.update(state, key, transitions)
     twice = env.update(once, key, transitions)
@@ -329,7 +329,7 @@ def test_observation_statistics_accumulate():
     env = build([])
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4)) + 5.0
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     assert float(state.obs_normalizer.steps) == 0.0
     after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert float(after.obs_normalizer.steps) == 1.0
@@ -341,7 +341,7 @@ def test_state_reads_forward_to_the_wrapped_algorithm():
     env = build([])
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     assert state.params is state.algorithm_state.params
 
 
@@ -351,7 +351,7 @@ def test_the_step_the_podracer_counts_reaches_the_wrapped_algorithm():
     env.algorithm.seen = seen
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
-    state = env.init(key, frame(3, obs[0]))
+    state, _ = env.init(key, frame(3, obs[0]))
     state = state.replace(step=state.step + 7)
     env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert int(seen[0]) == 7

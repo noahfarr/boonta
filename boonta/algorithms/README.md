@@ -30,7 +30,7 @@ class PPOState:
     optimizer_state: optax.OptState
 ```
 
-A field that holds one row per environment is marked `struct.field(metadata={"axis": "data"})`. It is then sharded with the environments across devices. Everything else is replicated. The recurrent carry and the replay buffers in [`recurrent_dqn.py`](recurrent_dqn.py) are marked this way.
+A field that holds one row per environment is marked `struct.field(metadata={"axis": "data"})`. It is then sharded with the environments across devices. Everything else is replicated. The replay buffers in [`recurrent_dqn.py`](recurrent_dqn.py) are marked this way. The recurrent carry is not part of the state. It belongs to the rollout, and the podracer holds it.
 
 ## What update receives
 
@@ -44,7 +44,7 @@ Every algorithm takes `auxiliary_losses: tuple[Callable, ...]` and adds each one
 
 - Every algorithm passes `params`, `apply`, `transitions`, `dist` and `variables`.
 - Those with a critic pass `value`. Those with Q-values pass `q_values`.
-- Recurrent algorithms pass `carry`.
+- Recurrent algorithms pass `carry`, the carry that was live when the loss ran.
 - SAC, REPPO and IQL pass their actor's values.
 
 A loss takes `**kwargs` and reads only what it needs. `variables` holds every collection the forward pass returned, so `variables["intermediates"]["features"]` is what the head saw. [`auxiliary_losses.py`](auxiliary_losses.py) has two real ones, `DR3` and `Anchor`. A minimal loss, from [`tests/test_auxiliary_losses.py`](../../tests/test_auxiliary_losses.py):
@@ -60,7 +60,7 @@ def energy(weight):
 
 ## Recurrent algorithms
 
-Recurrent algorithms (`recurrent_*.py`) keep two carries. `carry` is the live one that `step` advances. `rollout_carry` is the carry the current rollout started from. `update` replays the rollout through the network from `rollout_carry`, then sets `rollout_carry` to `carry`, where the next rollout starts. See the end of `RecurrentPPO.update` in [`recurrent_ppo.py`](recurrent_ppo.py).
+The recurrent carry is rollout state, like the environment state, so the podracer owns it and not the algorithm. `init(key, timestep)` returns `(state, carry)`, where the carry is what a fresh rollout starts from, and `None` for an algorithm without one. `step(state, carry, key, timestep, temperature)` returns `(state, carry, action, aux)`. The podracer records the carry that entered each step in `Transition.carry`. A recurrent `update` replays the rollout from `transitions.start`, the carry of the first step, and `transitions.tail()` returns the last two timesteps and the carry that entered the last step, which is enough to bootstrap the final value. Because the carry is not in `algorithm_state`, a checkpoint holds only what was learned, and an evaluation starts every episode from a fresh carry. See `RecurrentPPO` in [`recurrent_ppo.py`](recurrent_ppo.py).
 
 ## Add an algorithm
 

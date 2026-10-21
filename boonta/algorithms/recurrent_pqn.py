@@ -27,8 +27,6 @@ class RecurrentPQNConfig:
 @struct.dataclass(frozen=True)
 class RecurrentPQNState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     optimizer_state: optax.OptState
 
@@ -42,7 +40,7 @@ class RecurrentPQN:
     auxiliary_losses: tuple[Callable, ...] = ()
     action_value_estimator: Callable = q_lambda
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentPQNState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentPQNState, PyTree]:
         network_key, carry_key = jax.random.split(key)
 
         carry = self.network.initialize_carry(
@@ -60,17 +58,22 @@ class RecurrentPQN:
         )
         optimizer_state = self.optimizer.init(params["params"])
 
-        return RecurrentPQNState(
+        state = RecurrentPQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
-            rollout_carry=carry,
             params=params,
             optimizer_state=optimizer_state,
         )
 
+        return state, carry
+
     def step(
-        self, state: RecurrentPQNState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[RecurrentPQNState, Array, PyTree]:
+        self,
+        state: RecurrentPQNState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[RecurrentPQNState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, dist = self.network.apply(
             state.params,
@@ -78,13 +81,13 @@ class RecurrentPQN:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=self.exploration_schedule(state.step) * temperature,
         )
         action = remove_time_axis(dist.sample(seed=key))
 
         aux = {"q_values": remove_time_axis(dist.preferences)}
-        return state.replace(carry=carry), action, aux
+        return state, carry, action, aux
 
     def update(
         self, state: RecurrentPQNState, key: Key, transitions: Transition
@@ -139,27 +142,25 @@ class RecurrentPQN:
 
         num_steps, num_envs = transitions.second.reward.shape
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, dist = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=final_carry,
             temperature=1.0,
         )
-        q_values = remove_time_axis(dist.preferences)
+        q_values = dist.preferences[:, -1]
         target_q_value = self.action_value_estimator(
             transitions, q_values, self.cfg.gamma, self.cfg.q_lambda
         )
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )
-        initial_carry = state.rollout_carry
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         def minibatch_fn(
             state: RecurrentPQNState, indices: Array
@@ -214,4 +215,4 @@ class RecurrentPQN:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

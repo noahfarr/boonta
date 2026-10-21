@@ -18,21 +18,22 @@ class Transcript:
     def rollout(self, algorithm, environment, num_steps, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
+        _, carry = algorithm.init(init_key, timestep)
 
-        def step(carry, key):
-            algorithm_state, environment_state, timestep = carry
+        def step(loop, key):
+            algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, action, _ = algorithm.step(
-                algorithm_state, algorithm_key, timestep, temperature=0.0
+            algorithm_state, carry, action, _ = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
             )
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            return (algorithm_state, environment_state, timestep), action
+            return (algorithm_state, carry, environment_state, timestep), action
 
-        (_, environment_state, _), actions = jax.lax.scan(
+        (_, _, environment_state, _), actions = jax.lax.scan(
             step,
-            (algorithm_state, environment_state, timestep),
+            (algorithm_state, carry, environment_state, timestep),
             jax.random.split(key, num_steps),
         )
         environment.close(environment_state)

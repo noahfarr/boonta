@@ -30,8 +30,6 @@ class RecurrentGRPOConfig:
 @struct.dataclass(frozen=True)
 class RecurrentGRPOState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     reference_params: PyTree
     optimizer_state: optax.OptState
@@ -45,7 +43,7 @@ class RecurrentGRPO:
     auxiliary_losses: tuple[Callable, ...] = ()
     advantage_estimator: Callable = group_relative_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentGRPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentGRPOState, PyTree]:
         network_key, carry_key = jax.random.split(key)
 
         carry = self.network.initialize_carry(carry_key, (*timestep.reward.shape, 1))
@@ -60,22 +58,23 @@ class RecurrentGRPO:
             temperature=1.0,
         )
 
-        return RecurrentGRPOState(
+        state = RecurrentGRPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
-            rollout_carry=carry,
             params=params,
             reference_params=params,
             optimizer_state=self.optimizer.init(params["params"]),
         )
 
+        return state, carry
+
     def step(
         self,
         state: RecurrentGRPOState,
+        carry: PyTree,
         key: Key,
         timestep: Timestep,
         temperature: float = 1.0,
-    ) -> tuple[RecurrentGRPOState, Array, PyTree]:
+    ) -> tuple[RecurrentGRPOState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, dist = self.network.apply(
             state.params,
@@ -83,13 +82,13 @@ class RecurrentGRPO:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=temperature,
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
 
         aux = {"log_prob": remove_time_axis(log_prob)}
-        return state.replace(carry=carry), remove_time_axis(action), aux
+        return state, carry, remove_time_axis(action), aux
 
     def update(
         self, state: RecurrentGRPOState, key: Key, transitions: Transition
@@ -179,7 +178,8 @@ class RecurrentGRPO:
                 clip_fraction,
             )
 
-        initial_carry = state.rollout_carry
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
         advantages, episode_mask = self.advantage_estimator(
             transitions, self.cfg.gamma, self.cfg.group_size
         )
@@ -276,4 +276,4 @@ class RecurrentGRPO:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

@@ -111,22 +111,22 @@ class RND(Wrapper):
         )
 
     def step(
-        self, state: RNDState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[RNDState, Array, PyTree]:
+        self, state: RNDState, carry: PyTree, key: Key, timestep: Timestep, temperature: float = 1.0
+    ) -> tuple[RNDState, PyTree, Array, PyTree]:
         state = self.synchronize(state)
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state, key, timestep, temperature
+        algorithm_state, carry, action, aux = self.algorithm.step(
+            state.algorithm_state, carry, key, timestep, temperature
         )
-        return state.replace(algorithm_state=algorithm_state), action, aux
+        return state.replace(algorithm_state=algorithm_state), carry, action, aux
 
-    def init(self, key: Key, timestep: Timestep) -> RNDState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RNDState, PyTree]:
         algorithm_key, random_key, predictor_key, critic_key = jax.random.split(key, 4)
-        algorithm_state = self.algorithm.init(algorithm_key, timestep)
+        algorithm_state, carry = self.algorithm.init(algorithm_key, timestep)
         sample_obs = jax.tree.map(lambda leaf: leaf[:1], timestep.obs)
         random_network_params = self.random_network.init(random_key, sample_obs)
         predictor_params = self.predictor_network.init(predictor_key, sample_obs)
         critic_params = self.critic_network.init(critic_key, sample_obs)
-        return RNDState(
+        state = RNDState(
             algorithm_state=algorithm_state,
             step=algorithm_state.step,
             random_network_params=random_network_params,
@@ -143,6 +143,7 @@ class RND(Wrapper):
                 jnp.zeros(()), axis=(), decay=self.statistics_decay
             ),
         )
+        return state, carry
 
     def update(self, state: RNDState, key: Key, transitions: Transition) -> RNDState:
         state = self.synchronize(state)

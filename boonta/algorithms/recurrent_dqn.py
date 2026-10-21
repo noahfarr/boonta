@@ -25,7 +25,6 @@ class RecurrentDQNConfig:
 @struct.dataclass(frozen=True)
 class RecurrentDQNState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     target_params: PyTree
     optimizer_state: optax.OptState
@@ -41,7 +40,7 @@ class RecurrentDQN:
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentDQNState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentDQNState, PyTree]:
         network_key, carry_key = jax.random.split(key)
 
         carry = self.network.initialize_carry(
@@ -58,9 +57,8 @@ class RecurrentDQN:
             temperature=1.0,
         )
 
-        return RecurrentDQNState(
+        state = RecurrentDQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
             params=params,
             target_params=params,
             optimizer_state=self.optimizer.init(params["params"]),
@@ -72,13 +70,16 @@ class RecurrentDQN:
             ),
         )
 
+        return state, carry
+
     def step(
         self,
         state: RecurrentDQNState,
+        carry: PyTree,
         key: Key,
         timestep: Timestep,
         temperature: float = 1.0,
-    ) -> tuple[RecurrentDQNState, Array, PyTree]:
+    ) -> tuple[RecurrentDQNState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, dist = self.network.apply(
             state.params,
@@ -86,12 +87,12 @@ class RecurrentDQN:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=self.exploration_schedule(state.step) * temperature,
         )
         action = dist.sample(seed=key)
         action = remove_time_axis(action)
-        return state.replace(carry=carry), action, {}
+        return state, carry, action, {}
 
     def update(
         self, state: RecurrentDQNState, key: Key, transitions: Transition
@@ -167,6 +168,7 @@ class RecurrentDQN:
                 )
             return loss, (variables, q_value)
 
+        transitions = transitions.replace(carry=None)
         buffer_state, _ = jax.lax.scan(
             lambda buffer_state, transition: (
                 self.buffer.add(buffer_state, jax.tree.map(add_time_axis, transition)),
