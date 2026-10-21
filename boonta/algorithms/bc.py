@@ -10,7 +10,6 @@ from flax import struct
 
 from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -54,9 +53,7 @@ class BC:
         dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
         return state, carry, dist.sample(seed=key), {}
 
-    def update(
-        self, state: BCState, key: Key, transitions: Transition, carries: Carries
-    ) -> BCState:
+    def update(self, state: BCState, key: Key, transitions: Transition) -> BCState:
         del key
 
         def loss_fn(params: PyTree) -> tuple[Array, tuple[PyTree, Array, Array]]:

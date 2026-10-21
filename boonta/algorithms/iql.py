@@ -10,7 +10,6 @@ from flax import struct
 
 from boonta.utils import Timestep, Transition, canonicalize_dtype, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -78,9 +77,7 @@ class IQL:
         action = dist.sample(seed=key)
         return state, carry, action, {}
 
-    def update(
-        self, state: IQLState, key: Key, transitions: Transition, carries: Carries
-    ) -> IQLState:
+    def update(self, state: IQLState, key: Key, transitions: Transition) -> IQLState:
         del key
 
         def value_loss_fn(

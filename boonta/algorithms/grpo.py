@@ -12,7 +12,6 @@ from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import group_relative_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -64,9 +63,7 @@ class GRPO:
         action, log_prob = dist.sample_and_log_prob(seed=key)
         return state, carry, action, {"log_prob": log_prob}
 
-    def update(
-        self, state: GRPOState, key: Key, transitions: Transition, carries: Carries
-    ) -> GRPOState:
+    def update(self, state: GRPOState, key: Key, transitions: Transition) -> GRPOState:
         num_steps, num_envs = transitions.second.reward.shape
         batch_size = num_steps * num_envs
 

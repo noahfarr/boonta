@@ -15,7 +15,6 @@ import jax.numpy as jnp
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 
-from boonta.algorithms import Carries
 from boonta.algorithms.wrappers import Wrapper as AlgorithmWrapper
 from boonta.environments.wrappers import Wrapper as EnvironmentWrapper
 from boonta.podracers.podracer import Lap, Pit
@@ -46,9 +45,9 @@ class TrackedAlgorithm(AlgorithmWrapper):
             state, carry, key, timestep, temperature
         )
 
-    def update(self, state, key, transitions, carries):
+    def update(self, state, key, transitions):
         return px.track(name="algorithm/update")(self.algorithm.update)(
-            state, key, transitions, carries
+            state, key, transitions
         )
 
 
@@ -140,14 +139,14 @@ def benchmark(overrides, num_updates, seed):
         def step(loop, key):
             algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, carry, action, aux = algorithm.step(
+            next_state, next_carry, action, aux = algorithm.step(
                 algorithm_state, carry, algorithm_key, timestep, 1.0
             )
             environment_state, next_timestep = environment.step(
                 environment_key, environment_state, action
             )
-            transition = Transition(first=timestep, second=next_timestep, aux=aux)
-            return (algorithm_state, carry, environment_state, next_timestep), transition
+            transition = Transition(first=timestep, second=next_timestep, aux=aux, carry=carry)
+            return (next_state, next_carry, environment_state, next_timestep), transition
 
         keys = jax.random.split(key, num_steps)
         return jax.lax.scan(step, (algorithm_state, carry, environment_state, timestep), keys)
@@ -169,13 +168,12 @@ def benchmark(overrides, num_updates, seed):
     loop, transitions = jax.block_until_ready(collect(*loop, collect_key))
     rollout_time = time.monotonic() - start
 
-    algorithm_state, last, *_ = loop
-    carries = Carries(first=carry, last=last)
-    algorithm_state = update(algorithm_state, update_key, transitions, carries)
-    jax.block_until_ready(update(algorithm_state, update_key, transitions, carries))
+    algorithm_state, *_ = loop
+    algorithm_state = update(algorithm_state, update_key, transitions)
+    jax.block_until_ready(update(algorithm_state, update_key, transitions))
 
     start = time.monotonic()
-    jax.block_until_ready(update(algorithm_state, update_key, transitions, carries))
+    jax.block_until_ready(update(algorithm_state, update_key, transitions))
     update_time = time.monotonic() - start
     environment.close(environment_state)
 

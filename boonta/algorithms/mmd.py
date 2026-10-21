@@ -12,7 +12,6 @@ from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remo
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -81,9 +80,7 @@ class MMD:
             {"log_prob": log_prob, "value": remove_feature_axis(value)},
         )
 
-    def update(
-        self, state: MMDState, key: Key, transitions: Transition, carries: Carries
-    ) -> MMDState:
+    def update(self, state: MMDState, key: Key, transitions: Transition) -> MMDState:
         def loss_fn(
             params: PyTree,
             magnet_params: PyTree,

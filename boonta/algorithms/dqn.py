@@ -18,7 +18,6 @@ from boonta.utils import (
     remove_feature_axis,
 )
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -80,9 +79,7 @@ class DQN:
         action = dist.sample(seed=key)
         return state, carry, action, {}
 
-    def update(
-        self, state: DQNState, key: Key, transitions: Transition, carries: Carries
-    ) -> DQNState:
+    def update(self, state: DQNState, key: Key, transitions: Transition) -> DQNState:
         def loss_fn(
             params: PyTree, state: DQNState, transitions: Transition
         ) -> tuple[Array, tuple[PyTree, Array]]:

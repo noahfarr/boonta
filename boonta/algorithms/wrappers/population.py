@@ -6,7 +6,7 @@ from flax import struct
 from boonta.utils import (Array, Key, PyTree, Timestep, Transition,
                           canonicalize_dtype, concatenate, place, take)
 
-from ..algorithm import Algorithm, Carries
+from ..algorithm import Algorithm
 from .wrapper import Wrapper
 
 
@@ -86,27 +86,23 @@ class Population(Wrapper):
     def portion(self, transitions: Transition, index: int) -> Transition:
         return take(transitions, index, self.count, axis=1)
 
-    def share(self, carries: Carries, index: int) -> Carries:
-        return take(carries, index, self.count)
-
     def respond(
         self,
         state: PopulationState,
         index: int,
         key: Key,
         transitions: Transition,
-        carries: Carries,
         algorithm: Algorithm,
     ) -> PopulationState:
         algorithm_state = algorithm.update(
-            state.algorithm_states[index], key, transitions, carries
+            state.algorithm_states[index], key, transitions
         )
         return state.replace(
             algorithm_states=place(state.algorithm_states, index, algorithm_state)
         )
 
     def update(
-        self, state: PopulationState, key: Key, transitions: Transition, carries: Carries
+        self, state: PopulationState, key: Key, transitions: Transition
     ) -> PopulationState:
         state = self.synchronize(state)
         for index in range(self.count):
@@ -115,7 +111,6 @@ class Population(Wrapper):
                 index,
                 jax.random.fold_in(key, index),
                 self.portion(transitions, index),
-                self.share(carries, index),
                 self.algorithm,
             )
         return state

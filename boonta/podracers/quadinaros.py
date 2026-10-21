@@ -5,7 +5,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import lox
-from boonta.algorithms import Algorithm, Carries
+from boonta.algorithms import Algorithm
 from boonta.datasets import Dataset, DatasetState
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
@@ -57,7 +57,7 @@ class Quadinaros:
             batch, NamedSharding(self.config.mesh, P("data"))
         )
         algorithm_state = self.algorithm.update(
-            state.algorithm_state, update_key, batch, Carries()
+            state.algorithm_state, update_key, batch
         )
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step + self.batch_size

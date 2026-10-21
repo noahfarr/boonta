@@ -263,7 +263,7 @@ class Probe:
             {"version": jnp.full((num_envs,), state.version)},
         )
 
-    def update(self, state, key, transitions, carries) -> ProbeState:
+    def update(self, state, key, transitions) -> ProbeState:
         logs = {
             "probe/version": state.version,
             "probe/observed": jnp.mean(transitions.first.obs),

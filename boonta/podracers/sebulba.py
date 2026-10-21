@@ -5,7 +5,7 @@ from functools import partial
 
 import jax
 import lox
-from boonta.algorithms import Algorithm, Carries
+from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.population import Population
 from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
@@ -98,6 +98,7 @@ class Sebulba:
             first=state.timestep,
             second=timestep,
             aux=aux,
+            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -127,11 +128,10 @@ class Sebulba:
         pit_state: PyTree,
         key: Key,
         transitions: Transition,
-        carries: Carries,
     ):
         algorithm_key, pit_key = jax.random.split(key)
         algorithm_state = self.algorithm.update(
-            algorithm_state, algorithm_key, transitions, carries
+            algorithm_state, algorithm_key, transitions
         )
         pit_state = self.pit.update(pit_state, pit_key, transitions, algorithm_state)
         return algorithm_state, pit_state
@@ -221,7 +221,6 @@ class Sebulba:
                         if delivery is None:
                             return
                         algorithm_state, pit_state = delivery
-                    first = actor_state.carry
                     rollout_state = jax.device_put(
                         actor_state.board(algorithm_state, pit_state), device
                     )
@@ -238,7 +237,7 @@ class Sebulba:
                     log = jax.device_put(log, replicated)
                     num_laps = rollout_state.algorithm_state.step - before
                     actor_state = ActorState.alight(rollout_state)
-                    rollout_queue.put((actor_state, transitions, log, num_laps, first))
+                    rollout_queue.put((actor_state, transitions, log, num_laps))
             except BaseException as error:
                 rollout_queue.put(error)
                 raise
@@ -271,14 +270,6 @@ class Sebulba:
                     [jax.device_put(delivery[1], sharded) for delivery in deliveries],
                     1,
                 )
-                carries = Carries(
-                    first=concatenate(
-                        [jax.device_put(delivery[4], replicated) for delivery in deliveries]
-                    ),
-                    last=concatenate(
-                        [jax.device_put(actor_state.carry, replicated) for actor_state in actors]
-                    ),
-                )
                 num_laps = sum(jax.device_get(delivery[3]) for delivery in deliveries)
                 algorithm_state = algorithm_state.replace(
                     step=algorithm_state.step + num_laps
@@ -288,7 +279,7 @@ class Sebulba:
                     jax.random.fold_in(learner_key, update), replicated
                 )
                 (algorithm_state, pit_state), update_log = self.update(
-                    algorithm_state, pit_state, update_key, transitions, carries
+                    algorithm_state, pit_state, update_key, transitions
                 )
                 for parameter_queue in parameter_queues:
                     parameter_queue.put((algorithm_state, pit_state))

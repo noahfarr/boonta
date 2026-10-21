@@ -19,7 +19,6 @@ from boonta.utils import (
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import q_lambda
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -74,9 +73,7 @@ class PQN:
         action = dist.sample(seed=key)
         return state, carry, action, {"q_values": dist.preferences}
 
-    def update(
-        self, state: PQNState, key: Key, transitions: Transition, carries: Carries
-    ) -> PQNState:
+    def update(self, state: PQNState, key: Key, transitions: Transition) -> PQNState:
         def loss_fn(
             params: PyTree, transitions: Transition
         ) -> tuple[Array, tuple[PyTree, Array]]:

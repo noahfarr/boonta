@@ -19,7 +19,6 @@ from boonta.utils import (
     remove_time_axis,
 )
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -123,7 +122,7 @@ class RecurrentSAC:
         return state, carry, action, {}
 
     def update(
-        self, state: RecurrentSACState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentSACState, key: Key, transitions: Transition
     ) -> RecurrentSACState:
         def critic_loss_fn(
             critic_params: PyTree,
@@ -248,6 +247,7 @@ class RecurrentSAC:
             loss = -(log_alpha * (log_prob + self.cfg.target_entropy)).mean()
             return loss, variables
 
+        transitions = transitions.replace(carry=None)
         buffer_state, _ = jax.lax.scan(
             lambda buffer_state, transition: (
                 self.buffer.add(buffer_state, jax.tree.map(add_time_axis, transition)),

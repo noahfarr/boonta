@@ -17,7 +17,6 @@ from boonta.utils import (
     remove_feature_axis,
 )
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -91,9 +90,7 @@ class SAC:
         action = dist.sample(seed=key)
         return state, carry, action, {}
 
-    def update(
-        self, state: SACState, key: Key, transitions: Transition, carries: Carries
-    ) -> SACState:
+    def update(self, state: SACState, key: Key, transitions: Transition) -> SACState:
         def critic_loss_fn(
             critic_params: PyTree, state: SACState, transitions: Transition, key: Key
         ) -> tuple[Array, tuple[PyTree, Array]]:

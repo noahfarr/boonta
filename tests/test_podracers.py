@@ -368,9 +368,9 @@ def test_quadinaros_pit_steers_the_data():
             )
 
     class Reader(Probe):
-        def update(self, state, key, transitions, carries):
+        def update(self, state, key, transitions):
             lox.log({"reader/seen": jnp.mean(transitions.first.obs[..., 1])})
-            return super().update(state, key, transitions, carries)
+            return super().update(state, key, transitions)
 
     podracer = on_quadinaros(algorithm=Reader(), pit=Steer())
     state = podracer.init(jax.random.key(0))

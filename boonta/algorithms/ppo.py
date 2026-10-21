@@ -12,7 +12,6 @@ from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remo
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -74,9 +73,7 @@ class PPO:
             {"log_prob": log_prob, "value": remove_feature_axis(value)},
         )
 
-    def update(
-        self, state: PPOState, key: Key, transitions: Transition, carries: Carries
-    ) -> PPOState:
+    def update(self, state: PPOState, key: Key, transitions: Transition) -> PPOState:
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, tuple]:
             advantages = transitions.aux["advantages"]
             returns = transitions.aux["returns"]

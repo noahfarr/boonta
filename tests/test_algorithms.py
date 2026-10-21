@@ -10,11 +10,10 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 import zoo
-from boonta.algorithms import Carries
 from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.algorithms.wrappers.population import Population
 from boonta.environments.wrappers import ChunkAction
-from boonta.utils import Timestep, Transition
+from boonta.utils import Timestep, Transition, remove_feature_axis
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
 
@@ -258,7 +257,7 @@ def targets(build, environment, key, boundary, perturbed):
     transitions = rollout(environment, boundary, perturbed)
     first = jax.tree.map(lambda leaf: leaf[0], transitions.first)
     state, _ = algorithm.init(jax.random.key(1), first)
-    jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions, Carries()))
+    jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions))
     jax.effects_barrier()
     trained = 2 if boundary == "terminated" else 1
     before = np.asarray(transitions.first.obs[:trained, ..., 0]).ravel().tolist()
@@ -291,7 +290,7 @@ def test_recurrent_bc_learns_only_from_weighted_steps(weight, moves):
     episodes = demonstrations(environment, jax.random.key(0), 32)
     batch = episodes.replace(aux={"weight": jnp.full(episodes.second.reward.shape, weight)})
     state, _ = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
-    updated = algorithm.update(state, jax.random.key(2), batch, Carries())
+    updated = algorithm.update(state, jax.random.key(2), batch)
 
     changed = [
         not np.array_equal(before, after)
@@ -464,3 +463,31 @@ def test_every_algorithm_carries_what_its_layers_write_during_the_update(
     for after in (stepped, evaluated.algorithm_state):
         for before, now in zip(advanced, counts(after), strict=True):
             np.testing.assert_array_equal(before, now)
+
+
+def test_the_tail_of_a_rollout_bootstraps_the_value_the_next_step_would_have_seen():
+    podracer = zoo.recurrent_ppo(recall())
+    algorithm = podracer.algorithm
+    state = podracer.init(jax.random.key(0))
+    keys = jax.random.split(jax.random.key(1), podracer.config.num_steps)
+    after, transitions = jax.lax.scan(partial(podracer.rollout, temperature=1.0), state, keys)
+
+    sequence, carry = transitions.tail()
+    _, (_, values) = algorithm.network.apply(
+        after.algorithm_state.params,
+        sequence.obs,
+        sequence.action,
+        sequence.reward,
+        sequence.done,
+        carry=carry,
+        temperature=1.0,
+    )
+    _, _, _, aux = algorithm.step(
+        after.algorithm_state, after.carry, jax.random.key(2), after.timestep, 1.0
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(remove_feature_axis(values)[:, -1], np.float32),
+        np.asarray(aux["value"], np.float32),
+        atol=1e-2,
+    )

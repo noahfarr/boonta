@@ -13,7 +13,6 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -99,7 +98,7 @@ class RecurrentPuPO:
         return state, carry, action, aux
 
     def update(
-        self, state: RecurrentPuPOState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentPuPOState, key: Key, transitions: Transition
     ) -> RecurrentPuPOState:
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
@@ -191,22 +190,20 @@ class RecurrentPuPO:
         num_steps, num_envs, *num_agents = transitions.second.reward.shape
         width = num_envs // self.cfg.num_minibatches
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, (_, values) = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=carries.last,
+            carry=final_carry,
             temperature=1.0,
         )
-        bootstrap = remove_time_axis(remove_feature_axis(values))
+        bootstrap = remove_feature_axis(values)[:, -1]
 
-        initial_carry = carries.first
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         beta = self.importance_exponent(state.step)
 

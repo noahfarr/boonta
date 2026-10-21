@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from boonta.algorithms import Carries
 import pytest
 import trueskill
 from flax import struct
@@ -148,7 +147,7 @@ class SkillAlgorithm:
     def loss(self, params):
         return -params[0]
 
-    def update(self, state, key, transitions, carries):
+    def update(self, state, key, transitions):
         grads = jax.grad(self.loss)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
@@ -188,10 +187,10 @@ class Recording(SkillAlgorithm):
 
     seen: list
 
-    def update(self, state, key, transitions, carries):
+    def update(self, state, key, transitions):
         seat = transitions.second
         self.seen.append((seat.action.shape, seat.reward.shape, seat.terminated.shape))
-        return super().update(state, key, transitions, carries)
+        return super().update(state, key, transitions)
 
 
 @dataclass
@@ -211,7 +210,7 @@ class ToyAlgorithm:
     def step(self, state, carry, key, timestep, temperature=1.0):
         return state, carry, -timestep.obs[:, 0] * state.params[0], {}
 
-    def update(self, state, key, transitions, carries):
+    def update(self, state, key, transitions):
         def loss(params):
             prediction = transitions.first.obs[..., 0] * params[0]
             return jnp.mean((prediction - transitions.second.reward) ** 2)
@@ -610,7 +609,7 @@ def test_each_population_copy_acts_and_learns_on_its_own_slice():
     window = jax.tree.map(lambda leaf: leaf[None], timestep)
     target = jnp.concatenate([jnp.full(4, 5.0), jnp.zeros(4)])
     transitions = Transition(first=window, second=window.replace(reward=target[None]))
-    updated = population.update(state, jax.random.key(2), transitions, Carries())
+    updated = population.update(state, jax.random.key(2), transitions)
 
     first, second = updated.algorithm_states
     assert float(first.params[0]) > 1.0

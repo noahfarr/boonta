@@ -13,7 +13,6 @@ from boonta.utils import (Timestep, Transition, add_feature_axis,
                           conditional_update, remove_batch_axis,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -96,7 +95,7 @@ class RecurrentDQN:
         return state, carry, action, {}
 
     def update(
-        self, state: RecurrentDQNState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentDQNState, key: Key, transitions: Transition
     ) -> RecurrentDQNState:
         def loss_fn(
             params: PyTree,
@@ -169,6 +168,7 @@ class RecurrentDQN:
                 )
             return loss, (variables, q_value)
 
+        transitions = transitions.replace(carry=None)
         buffer_state, _ = jax.lax.scan(
             lambda buffer_state, transition: (
                 self.buffer.add(buffer_state, jax.tree.map(add_time_axis, transition)),

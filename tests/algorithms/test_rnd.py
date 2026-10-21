@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from boonta.algorithms import Carries
 import optax
 import pytest
 from flax import struct
@@ -37,7 +36,7 @@ class Toy:
         envs = timestep.reward.shape[0]
         return state, carry, jnp.zeros(envs, jnp.int32), {}
 
-    def update(self, state, key, transitions, carries):
+    def update(self, state, key, transitions):
         steps, envs = transitions.second.reward.shape
         if self.seen is not None:
             self.seen.append(state.step)
@@ -139,7 +138,7 @@ def test_the_bonus_reaches_the_actor_through_the_advantage():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
-    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     advantages, _ = record[0]
     assert bool(jnp.any(advantages != 0.0))
 
@@ -150,7 +149,7 @@ def test_the_extrinsic_critic_target_never_sees_the_bonus():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
-    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     _, returns = record[0]
     assert returns == pytest.approx(jnp.zeros((2, 3)), abs=1e-6)
 
@@ -162,7 +161,7 @@ def test_zero_coefficient_leaves_the_advantage_untouched():
     obs = jax.random.normal(key, (2, 3, 4))
     transitions = rollout(2, 3, obs, jnp.full((2, 3), 0.5))
     state, _ = env.init(key, frame(3, obs[0]))
-    env.update(state, key, transitions, Carries())
+    env.update(state, key, transitions)
     advantages, _ = record[0]
     plain, _ = generalized_advantage_estimator(
         transitions, jnp.zeros((2, 3)), jnp.zeros(3), GAMMA, LAMBDA
@@ -175,7 +174,7 @@ def test_updating_does_not_rewire_the_wrapped_algorithm():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
-    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert env.algorithm.advantage_estimator is generalized_advantage_estimator
 
 
@@ -199,7 +198,7 @@ def test_the_predictor_still_trains_on_the_states_it_is_not_paid_for():
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)), jnp.ones((4, 3), bool))
     state, _ = env.init(key, frame(3, obs[0]))
     bonus = env.intrinsic_reward(state, transitions, errors_of(env, state, transitions))
-    after = env.update(state, key, transitions, Carries())
+    after = env.update(state, key, transitions)
     assert bool(jnp.all(bonus == 0.0))
     assert moved(state.predictor_params, after.predictor_params)
 
@@ -240,7 +239,7 @@ def test_the_target_never_moves_and_the_predictor_does():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
-    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert not moved(state.random_network_params, after.random_network_params)
     assert moved(state.predictor_params, after.predictor_params)
 
@@ -253,7 +252,7 @@ def test_training_the_predictor_drives_the_error_down():
     state, _ = env.init(key, frame(3, obs[0]))
     before = float(jnp.mean(errors_of(env, state, transitions)))
     for _ in range(200):
-        state = env.update(state, key, transitions, Carries())
+        state = env.update(state, key, transitions)
     after = float(jnp.mean(errors_of(env, state, transitions)))
     assert after < before
 
@@ -263,7 +262,7 @@ def test_subsampling_the_batch_still_trains_the_predictor():
     key = jax.random.key(0)
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
-    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert moved(state.predictor_params, after.predictor_params)
 
 
@@ -275,7 +274,7 @@ def test_more_epochs_move_the_predictor_further():
     def travelled(epochs):
         env = build([], epochs=epochs, num_minibatches=2)
         state, _ = env.init(key, frame(6, obs[0]))
-        after = env.update(state, key, transitions, Carries())
+        after = env.update(state, key, transitions)
         return sum(
             float(jnp.sum(jnp.abs(a - b)))
             for a, b in zip(
@@ -293,7 +292,7 @@ def test_minibatches_must_divide_the_environments():
     obs = jax.random.normal(key, (2, 6, 4))
     state, _ = env.init(key, frame(6, obs[0]))
     with pytest.raises(AssertionError, match="6 environments"):
-        env.update(state, key, rollout(2, 6, obs, jnp.zeros((2, 6))), Carries())
+        env.update(state, key, rollout(2, 6, obs, jnp.zeros((2, 6))))
 
 
 def test_the_normaliser_tracks_the_discounted_return_not_the_raw_error():
@@ -303,7 +302,7 @@ def test_the_normaliser_tracks_the_discounted_return_not_the_raw_error():
     transitions = rollout(8, 4, obs, jnp.zeros((8, 4)))
     state, _ = env.init(key, frame(4, obs[0]))
     raw = errors_of(env, state, transitions)
-    after = env.update(state, key, transitions, Carries())
+    after = env.update(state, key, transitions)
 
     _, trailed = env.accumulate(state, raw)
     _, spread = after.reward_normalizer.settled()
@@ -318,8 +317,8 @@ def test_the_accumulator_survives_across_updates():
     transitions = rollout(4, 3, obs, jnp.zeros((4, 3)))
     state, _ = env.init(key, frame(3, obs[0]))
     assert float(jnp.max(jnp.abs(state.intrinsic_returns))) == 0.0
-    once = env.update(state, key, transitions, Carries())
-    twice = env.update(once, key, transitions, Carries())
+    once = env.update(state, key, transitions)
+    twice = env.update(once, key, transitions)
     assert float(jnp.min(once.intrinsic_returns)) > 0.0
     assert float(jnp.min(twice.intrinsic_returns)) > float(
         jnp.min(once.intrinsic_returns)
@@ -332,7 +331,7 @@ def test_observation_statistics_accumulate():
     obs = jax.random.normal(key, (2, 3, 4)) + 5.0
     state, _ = env.init(key, frame(3, obs[0]))
     assert float(state.obs_normalizer.steps) == 0.0
-    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    after = env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert float(after.obs_normalizer.steps) == 1.0
     centre, _ = after.obs_normalizer.settled()
     assert float(jnp.mean(centre)) > 4.0
@@ -354,7 +353,7 @@ def test_the_step_the_podracer_counts_reaches_the_wrapped_algorithm():
     obs = jax.random.normal(key, (2, 3, 4))
     state, _ = env.init(key, frame(3, obs[0]))
     state = state.replace(step=state.step + 7)
-    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))), Carries())
+    env.update(state, key, rollout(2, 3, obs, jnp.zeros((2, 3))))
     assert int(seen[0]) == 7
 
 

@@ -13,7 +13,6 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -97,7 +96,7 @@ class RecurrentPPO:
         return state, carry, action, aux
 
     def update(
-        self, state: RecurrentPPOState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentPPOState, key: Key, transitions: Transition
     ) -> RecurrentPPOState:
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
@@ -186,20 +185,17 @@ class RecurrentPPO:
 
         num_steps, num_envs, *_ = transitions.second.reward.shape
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, (_, values) = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=carries.last,
+            carry=final_carry,
             temperature=1.0,
         )
-        value = remove_time_axis(remove_feature_axis(values))
+        value = remove_feature_axis(values)[:, -1]
         advantages, returns = self.advantage_estimator(
             transitions,
             transitions.aux["value"],
@@ -212,7 +208,8 @@ class RecurrentPPO:
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "returns": returns}
         )
-        initial_carry = carries.first
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         def minibatch_fn(
             state: RecurrentPPOState, indices: Array

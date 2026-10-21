@@ -1,4 +1,4 @@
-from .algorithm import Algorithm, Carries
+from .algorithm import Algorithm
 from .auxiliary_losses import DR3, Anchor
 from .bc import BC
 from .dqn import DQN
@@ -29,7 +29,6 @@ __all__ = [
     "SAC",
     "Algorithm",
     "Anchor",
-    "Carries",
     "RecurrentBC",
     "RecurrentDQN",
     "RecurrentGRPO",

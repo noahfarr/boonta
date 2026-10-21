@@ -12,7 +12,6 @@ from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import soft_td_lambda
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -111,7 +110,7 @@ class REPPO:
         return state, carry, action, {}
 
     def update(
-        self, state: REPPOState, key: Key, transitions: Transition, carries: Carries
+        self, state: REPPOState, key: Key, transitions: Transition
     ) -> REPPOState:
         def bootstrap(
             state: REPPOState, transitions: Transition, key: Key

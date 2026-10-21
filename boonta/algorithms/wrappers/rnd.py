@@ -12,7 +12,6 @@ from boonta.utils import (EMA, Array, Key, PyTree, Timestep, Transition,
                           remove_feature_axis)
 
 from ..advantage_estimators import generalized_advantage_estimator
-from ..algorithm import Carries
 from .wrapper import Wrapper, WrapperState
 
 
@@ -146,9 +145,7 @@ class RND(Wrapper):
         )
         return state, carry
 
-    def update(
-        self, state: RNDState, key: Key, transitions: Transition, carries: Carries
-    ) -> RNDState:
+    def update(self, state: RNDState, key: Key, transitions: Transition) -> RNDState:
         state = self.synchronize(state)
         num_steps, num_envs = transitions.second.reward.shape
         assert num_envs % self.num_minibatches == 0, (
@@ -277,7 +274,7 @@ class RND(Wrapper):
             self.algorithm, advantage_estimator=advantage_estimator
         )
         algorithm_state = curious_algorithm.update(
-            state.algorithm_state, key, transitions, carries
+            state.algorithm_state, key, transitions
         )
         return state.replace(
             algorithm_state=algorithm_state,

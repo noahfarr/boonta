@@ -14,7 +14,6 @@ from boonta.utils import (Timestep, Transition, add_feature_axis,
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import q_lambda
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -91,7 +90,7 @@ class RecurrentPQN:
         return state, carry, action, aux
 
     def update(
-        self, state: RecurrentPQNState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentPQNState, key: Key, transitions: Transition
     ) -> RecurrentPQNState:
         def loss_fn(
             params: PyTree, trajectory: Transition, carry: PyTree
@@ -143,27 +142,25 @@ class RecurrentPQN:
 
         num_steps, num_envs = transitions.second.reward.shape
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, dist = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=carries.last,
+            carry=final_carry,
             temperature=1.0,
         )
-        q_values = remove_time_axis(dist.preferences)
+        q_values = dist.preferences[:, -1]
         target_q_value = self.action_value_estimator(
             transitions, q_values, self.cfg.gamma, self.cfg.q_lambda
         )
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )
-        initial_carry = carries.first
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         def minibatch_fn(
             state: RecurrentPQNState, indices: Array

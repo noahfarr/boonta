@@ -15,7 +15,6 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import group_relative_advantage_estimator
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -92,7 +91,7 @@ class RecurrentGRPO:
         return state, carry, remove_time_axis(action), aux
 
     def update(
-        self, state: RecurrentGRPOState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentGRPOState, key: Key, transitions: Transition
     ) -> RecurrentGRPOState:
         num_steps, num_envs = transitions.second.reward.shape
 
@@ -179,7 +178,8 @@ class RecurrentGRPO:
                 clip_fraction,
             )
 
-        initial_carry = carries.first
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
         advantages, episode_mask = self.advantage_estimator(
             transitions, self.cfg.gamma, self.cfg.group_size
         )

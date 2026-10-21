@@ -5,7 +5,7 @@ from flax import struct
 
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
 
-from ..algorithm import Algorithm, Carries
+from ..algorithm import Algorithm
 
 
 @struct.dataclass
@@ -37,8 +37,8 @@ class Wrapper:
     ) -> tuple[Any, PyTree, Array, PyTree]:
         return self.algorithm.step(state, carry, key, timestep, temperature)
 
-    def update(self, state, key: Key, transitions: Transition, carries: Carries):
-        return self.algorithm.update(state, key, transitions, carries)
+    def update(self, state, key: Key, transitions: Transition):
+        return self.algorithm.update(state, key, transitions)
 
     def wraps(self, cls: type) -> bool:
         algorithm = self.algorithm

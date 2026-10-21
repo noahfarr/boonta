@@ -3,7 +3,7 @@ from functools import partial
 
 import jax
 import lox
-from boonta.algorithms import Algorithm, Carries
+from boonta.algorithms import Algorithm
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
@@ -57,6 +57,7 @@ class Anakin:
             first=state.timestep,
             second=timestep,
             aux=aux,
+            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -104,16 +105,12 @@ class Anakin:
         def step(state: AnakinState, key):
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
-            first = state.carry
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
             state, transitions = jax.lax.scan(
                 partial(self.rollout, temperature=1.0), state, rollout_keys
             )
             algorithm_state = self.algorithm.update(
-                state.algorithm_state,
-                update_key,
-                transitions,
-                Carries(first=first, last=state.carry),
+                state.algorithm_state, update_key, transitions
             )
             pit_state = self.pit.update(
                 state.pit_state, pit_key, transitions, algorithm_state

@@ -10,7 +10,6 @@ from flax import struct
 
 from boonta.utils import Timestep, Transition, canonicalize_dtype, remove_time_axis
 from boonta.utils.typing import Array, Key, PyTree
-from .algorithm import Carries
 
 
 @struct.dataclass(frozen=True)
@@ -76,7 +75,7 @@ class RecurrentBC:
         return state, carry, action, {}
 
     def update(
-        self, state: RecurrentBCState, key: Key, transitions: Transition, carries: Carries
+        self, state: RecurrentBCState, key: Key, transitions: Transition
     ) -> RecurrentBCState:
         timesteps = transitions.first
         batch_size, *_ = jax.tree.leaves(timesteps.obs)[0].shape
