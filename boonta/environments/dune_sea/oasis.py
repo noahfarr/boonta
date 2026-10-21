@@ -1,4 +1,5 @@
 import functools
+from collections.abc import Sequence
 
 import jax
 import jax.numpy as jnp
@@ -88,6 +89,7 @@ class Oasis(DuneSea):
         generator: Generator = functools.partial(cave_generator, fill=CAVE_FILL),
         num_oases: int = 2,
         num_mirages: int | None = None,
+        spawn_reach: int | tuple[int | None, ...] | None = None,
         mirage_start: int = MIRAGE_START,
         mirage_end: int = MIRAGE_END,
         sweep: float = SWEEP,
@@ -96,6 +98,7 @@ class Oasis(DuneSea):
         energy_cost: float = ENERGY_COST,
     ):
         num_mirages = num_oases if num_mirages is None else num_mirages
+        reaches = tuple(spawn_reach) if isinstance(spawn_reach, Sequence) else (spawn_reach,)
         assert num_mirages <= num_oases
         base_generator = generator
 
@@ -119,10 +122,15 @@ class Oasis(DuneSea):
                     mirage = jnp.where(pond_cells, sign * when, mirage)
             bush = jnp.where(dilate(ponds > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
             cells = cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, mirage=mirage)
+            land = (cells.wall == 0) & (oasis == 0)
+            if reaches != (None,):
+                masks = jnp.stack([land if reach is None else land & (dilate(oasis > 0, reach) > 0) for reach in reaches])
+                chosen = jax.random.randint(jax.random.fold_in(key, 29), (), 0, len(reaches))
+                return cells, place_agents(jax.random.fold_in(key, 23), masks[chosen], num_agents)
             row, column = agent.position[:, 0], agent.position[:, 1]
             standing = oasis[row, column] > 0
             crowded = jnp.zeros_like(oasis).at[row, column].set(1.0)
-            moved = place_agents(jax.random.fold_in(key, 23), (cells.wall == 0) & (oasis == 0) & (crowded == 0), num_agents)
+            moved = place_agents(jax.random.fold_in(key, 23), land & (crowded == 0), num_agents)
             agent = agent.replace(
                 position=jnp.where(standing[:, None], moved.position, agent.position),
                 direction=jnp.where(standing, moved.direction, agent.direction),

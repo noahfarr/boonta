@@ -1132,3 +1132,22 @@ def test_shore_plants_fade_with_the_opacity_they_are_given():
     assert bool((none == base).all())
     ratio = jnp.abs(half - base).sum(-1)[drawn] / jnp.abs(full - base).sum(-1)[drawn]
     assert float(jnp.abs(ratio - 0.5).max()) < 0.02
+
+
+def test_agents_spawn_within_the_reach_of_a_pond_and_a_missing_reach_means_anywhere():
+    from boonta.environments.dune_sea import oasis as pond_module
+
+    near = dune_sea.make("oasis", num_agents=16, spawn_reach=5)
+    for seed in range(5):
+        state, _ = near.init(jax.random.key(seed))
+        close = pond_module.dilate(state.cells.oasis > 0, 5) > 0
+        rows, columns = state.agent.position[:, 0], state.agent.position[:, 1]
+        assert bool(close[rows, columns].all())
+        assert bool((state.cells.oasis[rows, columns] == 0).all())
+
+    mixed = dune_sea.make("oasis", num_agents=16, spawn_reach=(3, None))
+    reached = {
+        bool((pond_module.dilate(state.cells.oasis > 0, 3) > 0)[state.agent.position[:, 0], state.agent.position[:, 1]].all())
+        for state in (mixed.init(jax.random.key(seed))[0] for seed in range(12))
+    }
+    assert reached == {True, False}

@@ -113,7 +113,9 @@ def borders(widths) -> set[int]:
 def seam(above, below, width, left, right, fill="─", down="┬", cross="┼", up="┴"):
     marks = {index: up for index in above}
     marks.update({index: cross if index in above else down for index in below})
-    return left + "".join(marks.get(index, fill) for index in range(1, width - 1)) + right
+    return (
+        left + "".join(marks.get(index, fill) for index in range(1, width - 1)) + right
+    )
 
 
 def sizes(head, body, footer) -> list[int]:
@@ -233,13 +235,17 @@ def overrides_for_evaluation(overrides) -> list[str]:
 
 def evaluation_command(run_dir, overrides) -> str:
     arguments = ["checkpoint=" + str(run_dir), *overrides_for_evaluation(overrides)]
-    return "uv run boonta evaluate " + " ".join(shlex.quote(a) for a in arguments)
+    return "boonta evaluate " + " ".join(shlex.quote(a) for a in arguments)
 
 
 def duration(seconds: float) -> str:
     minutes, seconds = divmod(int(seconds), 60)
     hours, minutes = divmod(minutes, 60)
-    return f"{hours}h {minutes:02d}m {seconds:02d}s" if hours else f"{minutes}m {seconds:02d}s"
+    return (
+        f"{hours}h {minutes:02d}m {seconds:02d}s"
+        if hours
+        else f"{minutes}m {seconds:02d}s"
+    )
 
 
 def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) -> None:
@@ -255,7 +261,11 @@ def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) ->
     width = max(span(sizes(head, body, None)), shutil.get_terminal_size().columns)
     lines = ["", *panel(head, body, None, set(), width), ""]
     if saved:
-        lines += ["evaluate this run with", "", f"  {evaluation_command(run_dir, overrides)}"]
+        lines += [
+            "evaluate this run with",
+            "",
+            f"  {evaluation_command(run_dir, overrides)}",
+        ]
     else:
         lines += [
             "no checkpoint was saved, so there is nothing to evaluate",

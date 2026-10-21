@@ -13,5 +13,6 @@ kwargs:
   num_oases: 2
   beacon_slots: 3
   view_size: 7
+  spawn_reach: [4, 8, 16, null]
 auto_reset:
   ratio: 8
