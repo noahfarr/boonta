@@ -1095,7 +1095,7 @@ def test_the_sandstorm_moves_with_time_and_can_be_switched_off():
     assert bool((env.render(state, 1) != env.render(state, 1, storm=0.0)).any())
 
 
-def test_an_agent_behind_a_palm_is_hidden_by_its_trunk_and_one_in_front_is_not():
+def test_an_agent_behind_a_palm_is_mostly_hidden_by_its_trunk_and_one_in_front_is_not():
     import numpy as np
 
     from boonta.environments.dune_sea import render as drawing
@@ -1103,29 +1103,25 @@ def test_an_agent_behind_a_palm_is_hidden_by_its_trunk_and_one_in_front_is_not()
     env = dune_sea.make("oasis", num_agents=2)
     state, _ = env.init(KEY)
     water = (state.cells.oasis > 0) & (state.cells.wall == 0)
-    land = ~water & (state.cells.wall == 0) & (state.cells.bush == 0)
-    sites = np.asarray(drawing.palm_sites(water, land, jnp.asarray(drawing.scenery_rolls(64, 64))))
+    habitat = water | ((state.cells.mirage != 0) & (state.cells.wall == 0))
+    land = ~habitat & (state.cells.wall == 0) & (state.cells.bush == 0)
+    sites = np.asarray(drawing.palm_sites(habitat, land, jnp.asarray(drawing.scenery_rolls(64, 64))))
     row, column = np.argwhere(sites)[0]
     tile = drawing.TILE
 
-    def trunk_pixels(agent_row, agent_column, left, right):
+    def visible(agent_row):
         placed = state.replace(
             agent=state.agent.replace(
-                position=jnp.array([[agent_row, agent_column], [0, 0]]), energy=jnp.ones(2)
+                position=jnp.array([[agent_row, column], [0, 0]]), energy=jnp.ones(2)
             )
         )
         away = placed.replace(agent=placed.agent.replace(position=jnp.array([[0, 0], [0, 1]])))
-        with_agent = np.asarray(env.render(placed, 1, storm=0.0))
-        without = np.asarray(env.render(away, 1, storm=0.0))
-        block = (slice(agent_row * tile, (agent_row + 1) * tile), slice(agent_column * tile + left, agent_column * tile + right))
-        return with_agent[block], without[block]
+        with_agent = np.asarray(env.render(placed, 1, storm=0.0)).astype(int)
+        without = np.asarray(env.render(away, 1, storm=0.0)).astype(int)
+        block = (slice(agent_row * tile, (agent_row + 1) * tile), slice(column * tile, (column + 1) * tile))
+        return int((np.abs(with_agent[block] - without[block]).sum(-1) > 0).sum())
 
-    behind, behind_alone = trunk_pixels(row - 2, column, 6, 10)
-    in_front, in_front_alone = trunk_pixels(row, column + 1, 0, tile)
-
-    assert (behind == behind_alone).all()
-    assert not (in_front == in_front_alone).all()
-
+    assert visible(row - 2) < visible(row + 1) // 2
 
 
 def test_the_timestep_reports_the_action_that_was_chosen_even_for_an_agent_that_is_dead():

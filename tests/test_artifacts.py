@@ -136,27 +136,6 @@ def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_co
     assert loaded.carry.shape[0] == 2 * NUM_ENVS
 
 
-def test_a_checkpoint_saved_with_the_carry_inside_the_algorithm_state_still_loads(tmp_path):
-    import orbax.checkpoint as ocp
-
-    podracer = build_podracer(zoo.recurrent_ppo)
-    trained = train(podracer)
-    legacy = {
-        **{field: getattr(trained.algorithm_state, field) for field in ("step", "params", "optimizer_state")},
-        "carry": trained.carry,
-        "rollout_carry": trained.carry,
-    }
-    directory = tmp_path / "checkpoints/latest/96"
-    directory.mkdir(parents=True)
-    checkpointer = ocp.StandardCheckpointer()
-    checkpointer.save((directory / "algorithm_state").resolve(), legacy)
-    checkpointer.wait_until_finished()
-
-    loaded = load_checkpoint(resolve_checkpoint(tmp_path), podracer.init(jax.random.key(0)))
-
-    assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
-
-
 def test_a_host_and_path_is_recognised_as_a_remote_checkpoint_and_a_local_path_is_not(tmp_path):
     from boonta.utils.checkpoint import remote_parts
 

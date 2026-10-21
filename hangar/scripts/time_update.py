@@ -46,13 +46,15 @@ if __name__ == "__main__":
 
     @jax.jit
     def policy(state, key):
-        def body(algorithm_state, key):
-            algorithm_state, action, _ = algorithm.step(
-                algorithm_state, key, state.timestep, 1.0
+        def body(loop, key):
+            algorithm_state, carry = loop
+            algorithm_state, carry, action, _ = algorithm.step(
+                algorithm_state, carry, key, state.timestep, 1.0
             )
-            return algorithm_state, action
+            return (algorithm_state, carry), action
 
-        return jax.lax.scan(body, state.algorithm_state, jax.random.split(key, steps))[1]
+        loop = (state.algorithm_state, state.carry)
+        return jax.lax.scan(body, loop, jax.random.split(key, steps))[1]
 
     @jax.jit
     def simulate(state, key):
