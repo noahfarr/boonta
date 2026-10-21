@@ -906,16 +906,13 @@ def test_the_real_water_appears_when_its_time_comes():
     assert columns == [[0, 0, 0], [0, 0, 0], [1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 1, 1], [1, 1, 1]]
 
 
-def test_a_mirage_looks_like_water_from_afar_until_you_are_next_to_it_and_then_vanishes():
+def test_a_mirage_is_only_for_show_and_the_agents_never_see_it_as_water():
     env, state = mirage_world(mirage=whole_pond(3.0), position=(5, 3))
-    near = state.replace(agent=state.agent.replace(position=jnp.array([[5, 4]])))
     during = state.replace(time=jnp.int32(10))
-    after = state.replace(time=jnp.int32(3 + MIRAGE_STEPS + 1))
+    near = during.replace(agent=during.agent.replace(position=jnp.array([[5, 4]])))
 
-    assert float(env.observe(state)["view"][0][1, 3, 8]) == 0.0
-    assert float(env.observe(during)["view"][0][1, 3, 8]) == 1.0
-    assert float(env.observe(near.replace(time=jnp.int32(10)))["view"][0][2, 3, 8]) == 0.0
-    assert float(env.observe(after)["view"][0][1, 3, 8]) == 0.0
+    for seen in (state, during, near):
+        assert float(env.observe(seen)["view"][0][..., 8].sum()) == 0.0
 
 
 def test_a_hidden_pond_is_invisible_until_it_appears():

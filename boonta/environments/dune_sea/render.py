@@ -19,11 +19,15 @@ FOREST_DIRECTORY = DIRECTORY.parent / "glionox_forest"
 WATER_TILE = (3, 9)
 FADE_STEPS = 30.0
 RISE_OPACITY = 0.15
-SHIMMER_REACH = 2
-SHIMMER_SMOOTHING = 2
-SHIMMER_AMPLITUDE = 2.0
-SHIMMER_FREQUENCY = 0.45
-SHIMMER_SPEED = 0.7
+SHIMMER_SIGMA = 2.2
+SHIMMER_GAIN = 2.2
+SHIMMER_AMPLITUDE = 5.0
+SHIMMER_GLOW = 0.3
+EVAPORATION_SPREAD = 0.6
+EVAPORATION_FEATURE = 4.0
+GLOW_COLOR = (255, 246, 222)
+SHIMMER_FREQUENCY = 0.35
+SHIMMER_SPEED = 1.5
 REED_SPRITES = tuple(f"decor_reed{i}.png" for i in range(1, 9))
 LILYPAD_SPRITES = tuple(f"decor_lilypad{i}.png" for i in range(1, 9))
 GRASS_SPRITES = tuple(f"decor_grass{i}.png" for i in range(1, 5))
@@ -168,6 +172,11 @@ def scenery_rolls(height: int, width: int) -> np.ndarray:
     return np.random.default_rng(7).random((2, height, width)).astype(np.float32)
 
 
+@cache
+def evaporation_jitter(height: int, width: int) -> np.ndarray:
+    return (0.5 + 0.5 * np.tanh(smooth_noise(height, width, EVAPORATION_FEATURE, 5))).astype(np.float32)
+
+
 def cut_tile(sheet: np.ndarray, row: int, col: int) -> np.ndarray:
     return sheet[row * TILE : (row + 1) * TILE, col * TILE : (col + 1) * TILE]
 
@@ -298,6 +307,13 @@ def terrain(wall_bytes: bytes, height: int, width: int) -> np.ndarray:
     return image
 
 
+def pixel_opacity(opacity: np.ndarray, water: np.ndarray) -> np.ndarray:
+    height, width = water.shape
+    present = water.astype(np.float32)
+    spread = soften(opacity * present, 1.0) / np.maximum(soften(present, 1.0), 1e-3)
+    return np.clip(upsample(np.where(water, opacity, spread), height * TILE, width * TILE), 0.0, 1.0)
+
+
 def paint_pond(image: np.ndarray, water: np.ndarray, opacity: np.ndarray) -> np.ndarray:
     height, width = water.shape
     rows, columns = np.nonzero(water)
@@ -305,8 +321,10 @@ def paint_pond(image: np.ndarray, water: np.ndarray, opacity: np.ndarray) -> np.
         return image
     tiles = as_tiles(image, height, width)
     base = tiles[rows, columns]
-    filled = base + (water_tile() - base) * opacity[rows, columns][:, None, None, None]
-    shore = shore_table()[neighbour_mask(~water)[rows, columns]]
+    solid = opacity.reshape(height, TILE, width, TILE).transpose(0, 2, 1, 3)[rows, columns][..., None]
+    filled = base + (water_tile() - base) * solid
+    shore = shore_table()[neighbour_mask(~water)[rows, columns]].copy()
+    shore[..., 3:] *= solid
     tiles[rows, columns] = blend_over(filled, shore)
     return image
 
@@ -474,22 +492,32 @@ def drift(layer: np.ndarray, phase: np.float32, speed: float) -> np.ndarray:
     return np.roll(layer, (shift[0], shift[1]), axis=(0, 1))
 
 
+def soften(field: np.ndarray, sigma: float) -> np.ndarray:
+    def kernel(size: int) -> np.ndarray:
+        distance = np.arange(size)[:, None] - np.arange(size)[None, :]
+        weights = np.exp(-0.5 * (distance / sigma) ** 2)
+        return (weights / (sigma * np.sqrt(2.0 * np.pi))).astype(np.float32)
+
+    return kernel(field.shape[0]) @ field.astype(np.float32) @ kernel(field.shape[1]).T
+
+
 def shimmer(image: np.ndarray, haze: np.ndarray, phase: np.float32) -> np.ndarray:
     if not (haze > 0).any():
         return image
     height, width = haze.shape
-    field = functools.reduce(np.maximum, shifted(haze, SHIMMER_REACH))
-    for _ in range(SHIMMER_SMOOTHING):
-        padded = np.pad(field, 1, mode="edge")
-        field = sum(padded[dy : dy + height, dx : dx + width] for dy in range(3) for dx in range(3)) / 9.0
+    field = np.clip(soften(haze, SHIMMER_SIGMA) * SHIMMER_GAIN, 0.0, 1.0)
     strength = upsample(field, height * TILE, width * TILE)
-    active = np.nonzero((strength > 0).any(axis=1))[0]
+    active = np.nonzero((strength > 0.01).any(axis=1))[0]
     rows = np.arange(height * TILE, dtype=np.float32)[:, None]
-    columns = np.arange(width * TILE)[None, :]
-    sway = np.round(strength[active] * np.float32(SHIMMER_AMPLITUDE) * np.sin(rows[active] * np.float32(SHIMMER_FREQUENCY) + phase * np.float32(SHIMMER_SPEED)))
-    source = np.clip(columns + sway.astype(np.int32), 0, width * TILE - 1)
+    columns = np.arange(width * TILE, dtype=np.float32)[None, :]
+    wave = np.sin(rows[active] * np.float32(SHIMMER_FREQUENCY) + phase * np.float32(SHIMMER_SPEED)) + 0.6 * np.sin(
+        rows[active] * np.float32(SHIMMER_FREQUENCY * 2.3) - phase * np.float32(SHIMMER_SPEED * 1.4) + columns * np.float32(0.05)
+    )
+    sway = np.round(strength[active] * np.float32(SHIMMER_AMPLITUDE / 1.6) * wave)
+    source = np.clip(columns.astype(np.int32) + sway.astype(np.int32), 0, width * TILE - 1)
     wavy = np.take_along_axis(image[active], np.broadcast_to(source[..., None], (len(active), width * TILE, 3)), axis=1)
-    image[active] = np.where((strength[active] > 0)[..., None], wavy, image[active])
+    glow = (strength[active] * np.float32(SHIMMER_GLOW))[..., None]
+    image[active] = wavy * (1.0 - glow) + np.array(GLOW_COLOR, np.float32) * glow
     return image
 
 
@@ -502,10 +530,12 @@ def upsample(field: np.ndarray, height: int, width: int) -> np.ndarray:
     return weights(field.shape[0], height) @ field.astype(np.float32) @ weights(field.shape[1], width).T
 
 
-def water_phases(mirage: np.ndarray, oasis: np.ndarray, phase: np.float32) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def water_phases(
+    mirage: np.ndarray, oasis: np.ndarray, phase: np.float32, jitter: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     age = phase - mirage
     fake = (mirage > 0) & (age >= 0) & (age < MIRAGE_STEPS)
-    lifetime = np.clip(age / np.float32(MIRAGE_STEPS), 0.0, 1.0)
+    lifetime = np.clip(age / np.float32(MIRAGE_STEPS) * np.float32(1.0 + EVAPORATION_SPREAD) - EVAPORATION_SPREAD * jitter, 0.0, 1.0)
     risen = (mirage < 0) & (oasis > 0)
     rising = np.clip((phase + mirage) / np.float32(FADE_STEPS), 0.0, 1.0)
     opacity = np.where(fake, 1.0 - lifetime, np.where(risen, RISE_OPACITY + (1.0 - RISE_OPACITY) * rising, 1.0))
@@ -615,13 +645,13 @@ def render(
     oasis, mirage, bush = np.asarray(cells.oasis), np.asarray(cells.mirage), np.asarray(cells.bush)
     energy, goal = np.asarray(cells.energy), np.asarray(cells.goal)
     phase = np.float32(int(state.time)) - np.float32(1.0) + np.float32(blend)
-    fake, opacity, haze = water_phases(mirage, oasis, phase)
+    fake, opacity, haze = water_phases(mirage, oasis, phase, evaporation_jitter(height, width))
     water = ((oasis > 0) | fake) & ~wall
     habitat = water | ((mirage != 0) & ~wall)
     neighbours = count_neighbours(habitat)
     wet = ~habitat & ~wall & (neighbours > 0)
     image = terrain(wall.tobytes(), height, width).copy()
-    image = paint_pond(image, water, opacity)
+    image = paint_pond(image, water, pixel_opacity(opacity, water))
     if storm:
         image = paint_ground_storm(image, phase, storm)
     image = paint_scenery(image, state, habitat)
