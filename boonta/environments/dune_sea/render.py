@@ -21,7 +21,6 @@ PATCH_SHEET = "sandstone.png"
 SHORE_SHEET = "sand_to_water.png"
 FOREST_DIRECTORY = DIRECTORY.parent / "glionox_forest"
 WATER_TILE = (3, 9)
-THIN_WATER = 0.15
 FADE_STEPS = 30.0
 RISE_OPACITY = 0.15
 SHIMMER_REACH = 2
@@ -469,8 +468,7 @@ def water_phases(state: "DuneSeaState", phase: Array) -> tuple[Array, Array, Arr
     lifetime = jnp.clip(age / MIRAGE_STEPS, 0.0, 1.0)
     risen = (mirage < 0) & (state.cells.oasis > 0)
     rising = jnp.clip((phase + mirage) / FADE_STEPS, 0.0, 1.0)
-    thin = jnp.clip(state.cells.oasis / THIN_WATER, 0.0, 1.0)
-    opacity = jnp.where(fake, 1.0 - lifetime, jnp.where(risen, thin * (RISE_OPACITY + (1.0 - RISE_OPACITY) * rising), thin))
+    opacity = jnp.where(fake, 1.0 - lifetime, jnp.where(risen, RISE_OPACITY + (1.0 - RISE_OPACITY) * rising, 1.0))
     haze = jnp.where(fake, jnp.sin(jnp.pi * lifetime), jnp.where(risen, 1.0 - rising, 0.0))
     return fake, opacity, haze
 

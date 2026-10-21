@@ -9,9 +9,7 @@ from .dune_sea import DuneSea
 from .generators import Generator, cave_generator, place_agents
 from .state import MAX_ENERGY, DuneSeaState
 
-OASIS_RESERVE = 0.45
 DRINK_RATE = 0.05
-EVAPORATION = 0.0
 MIRAGE_START = 200
 MIRAGE_END = 600
 SWEEP = 0.0
@@ -45,7 +43,7 @@ def smooth_cells(mask: Array, rounds: int = 2) -> Array:
     return mask
 
 
-def spawn_pond(key: Key, wall: Array, oasis: Array, reserve: float) -> Array:
+def spawn_pond(key: Key, wall: Array, oasis: Array) -> Array:
     height, width = wall.shape
     center_key, radius_key, edge_key = jax.random.split(key, 3)
     open_ground = wall == 0
@@ -75,7 +73,7 @@ def spawn_pond(key: Key, wall: Array, oasis: Array, reserve: float) -> Array:
         if (dy, dx) != (1, 1)
     )
     inside = inside & ((around >= MIN_NEIGHBOURS) | centre)
-    return jnp.where(inside & (wall == 0) & (oasis == 0), reserve, oasis)
+    return jnp.where(inside & (wall == 0) & (oasis == 0), 1.0, oasis)
 
 
 class Oasis(DuneSea):
@@ -89,16 +87,15 @@ class Oasis(DuneSea):
         time_limit: int = 800,
         generator: Generator = functools.partial(cave_generator, fill=CAVE_FILL),
         num_oases: int = 2,
-        num_mirages: int = 1,
+        num_mirages: int | None = None,
         mirage_start: int = MIRAGE_START,
         mirage_end: int = MIRAGE_END,
         sweep: float = SWEEP,
-        reserve: float = OASIS_RESERVE,
         drink_rate: float = DRINK_RATE,
-        evaporation: float = EVAPORATION,
         beacon_slots: int = 3,
         energy_cost: float = ENERGY_COST,
     ):
+        num_mirages = num_oases if num_mirages is None else num_mirages
         assert num_mirages <= num_oases
         base_generator = generator
 
@@ -107,10 +104,10 @@ class Oasis(DuneSea):
             ponds = jnp.zeros_like(cells.oasis)
             keys = jax.random.split(jax.random.fold_in(key, 11), num_oases + num_mirages)
             for number, pond_key in enumerate(keys, start=1):
-                grown = spawn_pond(pond_key, cells.wall, jnp.maximum(ponds, cells.oasis), 1.0)
+                grown = spawn_pond(pond_key, cells.wall, jnp.maximum(ponds, cells.oasis))
                 added = smooth_cells((grown > 0) & (ponds == 0) & (cells.oasis == 0)) & (cells.wall == 0) & (ponds == 0)
                 ponds = jnp.where(added, float(number), ponds)
-            oasis = jnp.where((ponds >= 1) & (ponds <= num_oases), reserve, cells.oasis)
+            oasis = jnp.where((ponds >= 1) & (ponds <= num_oases), 1.0, cells.oasis)
             columns = jnp.broadcast_to(jnp.arange(width), (height, width))
             starts = jnp.sort(jax.random.randint(jax.random.fold_in(key, 17), (num_mirages,), mirage_start, mirage_end + 1))
             mirage = cells.mirage
@@ -143,14 +140,13 @@ class Oasis(DuneSea):
             observe_oasis=True,
             beacon_slots=beacon_slots,
         )
-        self.reserve = reserve
         self.drink_rate = drink_rate
-        self.evaporation = evaporation
 
     def step(
         self, key: Key, state: DuneSeaState, action: Array
     ) -> tuple[DuneSeaState, Timestep]:
-        thirsty = state.agent.energy > 0
+        before = state.agent.energy
+        thirsty = before > 0
         state, timestep = super().step(key, state, action)
         cells = state.cells
         radius = self.view_size // 2
@@ -174,21 +170,17 @@ class Oasis(DuneSea):
 
         drinking = thirsty & in_view
         wanted = jnp.where(drinking, jnp.minimum(self.drink_rate, MAX_ENERGY - state.agent.energy), 0.0)
-        demand = jnp.zeros_like(cells.oasis).at[y, x].add(wanted)
-        share = jnp.minimum(1.0, cells.oasis / jnp.maximum(demand, 1e-9))
-        drunk = wanted * share[y, x]
-        energy = jnp.clip(state.agent.energy + drunk, 0.0, MAX_ENERGY)
-        oasis = cells.oasis - jnp.zeros_like(cells.oasis).at[y, x].add(drunk)
-        oasis = jnp.where(oasis > self.evaporation, oasis - self.evaporation, 0.0)
+        energy = jnp.clip(state.agent.energy + wanted, 0.0, MAX_ENERGY)
+        oasis = cells.oasis
 
         buried = (cells.mirage > 0) & (cells.mirage <= state.time)
         uncovered = (cells.mirage < 0) & (-cells.mirage == state.time) & (cells.wall == 0)
-        oasis = jnp.where(uncovered, self.reserve, jnp.where(buried, 0.0, oasis))
+        oasis = jnp.where(uncovered, 1.0, jnp.where(buried, 0.0, oasis))
 
         state = state.replace(cells=cells.replace(oasis=oasis), agent=state.agent.replace(energy=energy))
         timestep = timestep.replace(
             obs=self.observe(state),
-            reward=timestep.reward + drunk,
+            reward=jnp.broadcast_to((energy - before).mean(), energy.shape),
             terminated=energy <= 0.0,
         )
         return state, timestep
