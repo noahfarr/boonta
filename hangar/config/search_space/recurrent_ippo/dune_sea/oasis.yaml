@@ -47,10 +47,25 @@ algorithm.update_epochs:
 podracer.config.num_steps:
   distribution: uniform_pow2
   min: 32
-  max: 256
+  max: 128
   center: 64
+environment.num_envs:
+  distribution: uniform_pow2
+  min: 512
+  max: 2048
+  center: 1024
 cell.features:
   distribution: uniform_pow2
   min: 64
   max: 256
   center: 128
+num_layers:
+  distribution: int_uniform
+  min: 1
+  max: 4
+  center: 2
+stack.expansion_factor:
+  distribution: uniform_pow2
+  min: 2
+  max: 8
+  center: 4
