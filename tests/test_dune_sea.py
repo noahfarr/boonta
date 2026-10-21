@@ -771,7 +771,7 @@ def test_an_agent_with_water_in_view_drinks_from_it_without_draining_it():
 
     assert state.agent.energy[0] == pytest.approx(0.5 - 0.01 + 0.1)
     assert state.agent.energy[1] == pytest.approx(0.5 - 0.01)
-    assert timestep.reward.tolist() == pytest.approx([(0.1 - 0.01 - 0.01) / 2] * 2)
+    assert timestep.reward.tolist() == pytest.approx([0.1 - 0.01, -0.01])
     assert float(state.cells.oasis[4, 4]) == 1.0
 
 
@@ -968,12 +968,12 @@ def test_real_water_that_just_appeared_condenses_out_of_the_haze():
     assert distance(10) > distance(25) > 1.0
 
 
-def test_there_are_no_plants_and_no_grass_on_the_water():
+def test_there_are_no_plants_and_no_grass_in_the_oasis():
     env = dune_sea.make("oasis")
     state, _ = env.init(KEY)
 
     assert float(state.cells.energy.sum()) == 0
-    assert float((state.cells.bush * (state.cells.oasis > 0)).sum()) == 0
+    assert float(state.cells.bush.sum()) == 0
     assert float((state.cells.wall * (state.cells.oasis > 0)).sum()) == 0
 
 
@@ -1118,20 +1118,23 @@ def test_the_timestep_reports_the_action_that_was_chosen_even_for_an_agent_that_
 
 
 def test_shore_plants_fade_with_the_opacity_they_are_given():
+    import numpy as np
+
     from boonta.environments.dune_sea import render as drawing
 
-    base = jnp.full((16, 16, 3), 100.0)
-    mask = jnp.ones((1, 1), bool)
+    base = np.full((16, 16, 3), 100.0, np.float32)
+    mask = np.ones((1, 1), bool)
     name = drawing.REED_SPRITES[0]
-    full = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY)
-    half = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY, opacity=jnp.full((1, 1), 0.5))
-    none = drawing.paint_sprite(base, name, mask, directory=drawing.FOREST_DIRECTORY, opacity=jnp.zeros((1, 1)))
+    full = drawing.paint_sprite(base.copy(), name, mask, directory=drawing.FOREST_DIRECTORY)
+    half = drawing.paint_sprite(base.copy(), name, mask, directory=drawing.FOREST_DIRECTORY, opacity=np.full((1, 1), 0.5))
+    none = drawing.paint_sprite(base.copy(), name, mask, directory=drawing.FOREST_DIRECTORY, opacity=np.zeros((1, 1)))
 
-    drawn = jnp.abs(full - base).sum(-1) > 1.0
+    drawn = np.abs(full - base).sum(-1) > 1.0
     assert bool(drawn.any())
     assert bool((none == base).all())
-    ratio = jnp.abs(half - base).sum(-1)[drawn] / jnp.abs(full - base).sum(-1)[drawn]
-    assert float(jnp.abs(ratio - 0.5).max()) < 0.02
+    ratio = np.abs(half - base).sum(-1)[drawn] / np.abs(full - base).sum(-1)[drawn]
+    assert float(np.abs(ratio - 0.5).max()) < 0.02
+
 
 
 def test_agents_spawn_within_the_reach_of_a_pond_and_a_missing_reach_means_anywhere():

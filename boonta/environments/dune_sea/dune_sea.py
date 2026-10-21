@@ -26,6 +26,7 @@ OBSERVATION_DTYPE = jnp.bfloat16
 
 
 class DuneSea(Environment):
+    thread_safe_render = True
 
     def __init__(
         self,
@@ -389,7 +390,7 @@ class DuneSea(Environment):
     def render(
         self,
         state: DuneSeaState,
-        scale: int = 2,
+        scale: int = 1,
         show_fov: bool = False,
         storm: float = 1.0,
         previous: DuneSeaState | None = None,

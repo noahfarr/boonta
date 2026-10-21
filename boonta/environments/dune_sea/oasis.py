@@ -20,7 +20,6 @@ EDGE_JITTER = 0.9
 MIN_NEIGHBOURS = 3
 CLEARANCE = 5
 POND_SPACING = 12
-BUSH_CLEARANCE = 2
 ENERGY_COST = 0.004
 CAVE_FILL = 0.39
 
@@ -120,8 +119,9 @@ class Oasis(DuneSea):
                     edge = jnp.where(pond_cells, columns, width).min()
                     when = starts[number - 1].astype(jnp.float32) + (columns - edge) * sweep
                     mirage = jnp.where(pond_cells, sign * when, mirage)
-            bush = jnp.where(dilate(ponds > 0, BUSH_CLEARANCE) > 0, 0.0, cells.bush)
-            cells = cells.replace(energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=bush, mirage=mirage)
+            cells = cells.replace(
+                energy=jnp.zeros_like(cells.energy), oasis=oasis, bush=jnp.zeros_like(cells.bush), mirage=mirage
+            )
             land = (cells.wall == 0) & (oasis == 0)
             if reaches != (None,):
                 masks = jnp.stack([land if reach is None else land & (dilate(oasis > 0, reach) > 0) for reach in reaches])
@@ -188,7 +188,7 @@ class Oasis(DuneSea):
         state = state.replace(cells=cells.replace(oasis=oasis), agent=state.agent.replace(energy=energy))
         timestep = timestep.replace(
             obs=self.observe(state),
-            reward=jnp.broadcast_to((energy - before).mean(), energy.shape),
+            reward=energy - before,
             terminated=energy <= 0.0,
         )
         return state, timestep
