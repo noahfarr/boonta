@@ -9,7 +9,7 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 SKIP = ("hydra", "loggers", "artisans", "search_space")
-TRAINING_ONLY = (
+DROPPED_OVERRIDES = (
     "logger",
     "loggers",
     "artisan",
@@ -224,23 +224,23 @@ def brief(cfg, state) -> None:
     print("\n".join(lines), flush=True)
 
 
-def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) -> None:
-    saved = (Path(run_dir) / "checkpoints").is_dir()
+def debrief(cfg, run_dir, overrides, step: int, score: float, duration: float) -> None:
+    has_checkpoint = (Path(run_dir) / "checkpoints").is_dir()
     rows = [
         ("steps", f"{step:,}"),
         (str(cfg.score), f"{score:.4g}" if np.isfinite(score) else "n/a"),
-        ("time", str(datetime.timedelta(seconds=int(seconds)))),
+        ("time", str(datetime.timedelta(seconds=int(duration)))),
         ("run", str(run_dir)),
-        ("checkpoint", "saved" if saved else "not saved"),
+        ("checkpoint", "saved" if has_checkpoint else "not saved"),
     ]
     lines = panel(("finished", "value"), rows, None, set(), shutil.get_terminal_size().columns)
-    if saved:
-        kept = [
+    if has_checkpoint:
+        overrides = [
             override
             for override in overrides
-            if re.split(r"[./=]", override.lstrip("+~"))[0] not in TRAINING_ONLY
+            if re.split(r"[./=]", override.lstrip("+~"))[0] not in DROPPED_OVERRIDES
         ]
-        command = "boonta evaluate " + shlex.join([f"checkpoint={run_dir}", *kept])
+        command = "boonta evaluate " + shlex.join([f"checkpoint={run_dir}", *overrides])
         lines += ["", "evaluate this run with", "", f"  {command}"]
     else:
         lines += [
