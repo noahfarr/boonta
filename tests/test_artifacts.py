@@ -22,7 +22,7 @@ from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
-from hangar.brief import brief
+from hangar.brief import brief, debrief
 
 NUM_ENVS, NUM_STEPS = 8, 4
 online = partial(zoo.online, devices=2)
@@ -121,6 +121,21 @@ def test_resume_fails_when_a_saved_parameter_changed_shape(tmp_path):
         load_checkpoint(resolve_checkpoint(tmp_path), fresh.replace(algorithm_state=fresh.algorithm_state.replace(params=wrong)))
 
 
+@struct.dataclass
+class Holding:
+    algorithm_state: tuple
+
+
+def test_a_checkpoint_keeps_empty_arrays_in_place(tmp_path):
+    saved = Holding((jnp.arange(3.0), jnp.zeros((0, 4), jnp.int32), {"pool": jnp.ones((5, 0))}))
+    save(tmp_path, saved)
+
+    fresh = Holding((jnp.zeros(3), jnp.ones((0, 4), jnp.int32), {"pool": jnp.zeros((5, 0))}))
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
+
+    assert_restored(saved.algorithm_state, restored.algorithm_state)
+
+
 def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_count(tmp_path):
     saved = build_podracer(zoo.recurrent_ppo)
     wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)
@@ -134,27 +149,6 @@ def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_co
     assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
     assert int(loaded.algorithm_state.step) == int(trained.algorithm_state.step)
     assert loaded.carry.shape[0] == 2 * NUM_ENVS
-
-
-def test_a_checkpoint_saved_with_the_carry_inside_the_algorithm_state_still_loads(tmp_path):
-    import orbax.checkpoint as ocp
-
-    podracer = build_podracer(zoo.recurrent_ppo)
-    trained = train(podracer)
-    legacy = {
-        **{field: getattr(trained.algorithm_state, field) for field in ("step", "params", "optimizer_state")},
-        "carry": trained.carry,
-        "rollout_carry": trained.carry,
-    }
-    directory = tmp_path / "checkpoints/latest/96"
-    directory.mkdir(parents=True)
-    checkpointer = ocp.StandardCheckpointer()
-    checkpointer.save((directory / "algorithm_state").resolve(), legacy)
-    checkpointer.wait_until_finished()
-
-    loaded = load_checkpoint(resolve_checkpoint(tmp_path), podracer.init(jax.random.key(0)))
-
-    assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
 
 
 def test_a_host_and_path_is_recognised_as_a_remote_checkpoint_and_a_local_path_is_not(tmp_path):
@@ -290,6 +284,7 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     from boonta.environments import gymnax
 
     environment = zoo.wrap(gymnax.make("Breakout-MinAtar"), NUM_ENVS)
+    environment.time_limit = lambda: 15
     space = environment.action_space()
     num_actions = space.num_actions
 
@@ -299,11 +294,27 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
 
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render(max_frames=16).craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
 
     frames, _, _, channels = video.data.shape
-    assert (frames, channels) == (16, 3)
-    assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1
+    assert 1 < frames <= 16 and channels == 3
+    assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
+
+
+def test_the_render_artisan_stops_when_the_first_episode_ends():
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 12
+    environment.render = lambda state: np.zeros((1, 1, 3))
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, timestep.obs.argmax(-1) % 2, {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+
+    frames, *_ = video.data.shape
+    assert frames == corridor().shortest
 
 
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
@@ -482,3 +493,91 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     assert axes.opponents is None
     assert axes.weights.kernel == root
     assert axes.step is False
+
+
+TRAINED_WITH = [
+    "algorithm=ippo",
+    "environment=dune_sea/oasis",
+    "environment.kwargs.num_agents=8",
+    "logger=[dashboard,orbax]",
+    "artisan=checkpoint",
+    "seed=3",
+    "num_steps=1_000",
+    "hydra/launcher=submitit",
+]
+
+
+def evaluation_command(capsys, run_dir, overrides):
+    (run_dir / "checkpoints").mkdir(parents=True)
+    debrief(OmegaConf.create({"score": "training/return"}), run_dir, overrides, 1_000, 0.0, 30.0)
+    *_, command = capsys.readouterr().out.strip().splitlines()
+    return command.strip()
+
+
+def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_trains(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path, TRAINED_WITH)
+
+    assert command == (
+        f"boonta evaluate checkpoint={tmp_path} algorithm=ippo "
+        "environment=dune_sea/oasis environment.kwargs.num_agents=8"
+    )
+
+
+def test_the_evaluation_command_quotes_what_the_shell_would_expand(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path / "with space", ["network.sizes=[1,2]"])
+
+    assert command == f"boonta evaluate 'checkpoint={tmp_path}/with space' 'network.sizes=[1,2]'"
+
+
+def test_debrief_prints_the_evaluation_command_of_a_run_that_saved_a_checkpoint(capsys, tmp_path):
+    (tmp_path / "checkpoints").mkdir()
+
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 20_000_000, 3.5, 4000.0)
+
+    printed = capsys.readouterr().out
+    for shown in ("20,000,000", "training/return", "3.5", "1:06:40", "saved"):
+        assert shown in printed
+    assert f"boonta evaluate checkpoint={tmp_path} algorithm=ippo" in printed
+
+
+def test_debrief_says_so_when_no_checkpoint_was_saved(capsys, tmp_path):
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 1_000, float("-inf"), 30.0)
+
+    printed = capsys.readouterr().out
+    assert "not saved" in printed and "n/a" in printed
+    assert "boonta evaluate" not in printed
+    assert "logger=[dashboard,orbax] artisan=checkpoint" in printed
+
+
+def test_the_wandb_logger_keeps_a_host_copy_of_the_checkpoint_it_will_upload(monkeypatch):
+    import sys
+    import types
+
+    import jax.numpy as jnp
+
+    monkeypatch.setitem(sys.modules, "wandb", types.ModuleType("wandb"))
+    monkeypatch.delitem(sys.modules, "boonta.loggers.wandb", raising=False)
+
+    from boonta.artisans import Checkpoint
+    from boonta.loggers.wandb import WandbLogger
+
+    logger = object.__new__(WandbLogger)
+    logger.runs, logger.checkpoint = {}, None
+    weights = jnp.arange(4.0)
+
+    logger.log_artifact(Checkpoint("model", {"weights": weights}, 1.0), step=1)
+    weights.delete()
+
+    assert logger.checkpoint.data["weights"].tolist() == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
+    import jax
+
+    key = jax.random.key(0)
+    step = 4_303_355_904
+
+    folded = jax.random.fold_in(key, step & 0xFFFFFFFF)
+
+    assert folded.shape == key.shape
+

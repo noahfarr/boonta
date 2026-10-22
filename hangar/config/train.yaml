@@ -16,8 +16,10 @@ defaults:
   - algorithm: ppo
   - environment/auto_reset: same_step
   - environment: gymnax/minatar/breakout
-  - logger: dashboard
-  - artisan: null
+  - logger: 
+      - dashboard
+      - orbax
+  - artisan: checkpoint
   - curriculum: default
   - intrinsic_reward: null
   - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
