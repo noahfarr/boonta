@@ -109,6 +109,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=32)
     parser.add_argument("--rollouts", type=int, default=64)
     parser.add_argument("--episodes", type=int, default=4096)
+    parser.add_argument("--k", type=float, help="restart ratio for every arm: 1/k of the environments continue from rho (default: the run's)")
     parser.add_argument("--burn-in", type=int, help="rollouts each arm runs before the update (default: horizon / rollout length)")
     arguments = parser.parse_args()
     run = Path(arguments.run).resolve()
@@ -128,6 +129,8 @@ def main():
     print(f"checkpoint at step {int(checkpoint.algorithm_state.step):,}")
 
     selector = podracer.pit.selector
+    if arguments.k:
+        selector = dataclasses.replace(selector, k=arguments.k)
     num_placed = selector.num_placed(environment.num_envs)
     placements = {"rho": Placement(jnp.ones(1), 0, selector), "prd": selector, "erd": Exploring(num_placed, selector)}
     if hasattr(game, "place"):

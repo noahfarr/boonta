@@ -134,6 +134,7 @@ def main():
         help="bound the KL of every state, as PPO's clipping bounds every sample, or the mean on the batch's or rho's states",
     )
     parser.add_argument("--iterations", type=int, default=400)
+    parser.add_argument("--ks", default="1.33,2,4,8,16,inf", help="restart ratios to compare: 1/k of the environments continue from rho")
     parser.add_argument("--tile", type=int, default=16)
     arguments = parser.parse_args()
     run = Path(arguments.run).resolve()
@@ -235,6 +236,20 @@ def main():
     change = float(improvement(unconstrained, 0.0))
     kl = divergence(unconstrained, 0.0)
     print(f"{'optimum, restarting all':<26} {change:>+14.4f} {change / rho:>8.2f} {kl[0]:>10.4f} {kl[1]:>16.3f} {kl[2]:>12.3f}")
+
+    print("by k, where 1/k of the environments continue from rho:")
+    print(f"  {'k':>6} {'prd':>10} {'erd':>10} {'best for this k':>16}")
+    for k in (float(text) for text in arguments.ks.split(",")):
+        share = 1.0 / k
+
+        def at_k(restarts, share=share):
+            return improvement(restarts, share)
+
+        best = max(
+            (ascend(at_k, initial) for initial in (optimum, restarts["prd"], restarts["erd"])),
+            key=lambda restarts: float(at_k(restarts)),
+        )
+        print(f"  {k:>6g} {float(at_k(restarts['prd'])) / rho:>9.2f}x {float(at_k(restarts['erd'])) / rho:>9.2f}x {float(at_k(best)) / rho:>15.2f}x")
 
     diagnose(
         selector, podracer.pit.environment, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, game.num_cells
