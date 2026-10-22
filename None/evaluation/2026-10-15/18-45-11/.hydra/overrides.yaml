@@ -1,5 +1,0 @@
-- algorithm=ppo
-- environment=mujoco_playground/manipulation/aloha_single_peg_insertion
-- logger=[dashboard,xdg]
-- artisan=[render]
-- environment.num_envs=1024
