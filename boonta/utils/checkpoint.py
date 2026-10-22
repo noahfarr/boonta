@@ -100,7 +100,7 @@ def resolve_checkpoint(path):
 def restore_item(directory, node):
     import orbax.checkpoint as ocp
 
-    restored = ocp.StandardCheckpointer().restore(
+    checkpoint = ocp.StandardCheckpointer().restore(
         directory,
         target=jax.tree.map(
             lambda leaf: None if getattr(leaf, "size", 1) == 0 else leaf, node
@@ -108,7 +108,7 @@ def restore_item(directory, node):
     )
     return jax.tree.map(
         lambda kept, leaf: leaf if kept is None else kept,
-        restored,
+        checkpoint,
         node,
         is_leaf=lambda leaf: leaf is None,
     )
