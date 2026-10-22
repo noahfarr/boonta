@@ -23,9 +23,7 @@ class Placement:
 
     @property
     def score(self):
-        from boonta.curricula.prd import Diagonal
-
-        return Diagonal()
+        return self.selector.score
 
     def update(self, state, key, transitions):
         return state
@@ -49,9 +47,7 @@ class Exploring:
 
     @property
     def score(self):
-        from boonta.curricula.prd import Diagonal
-
-        return Diagonal()
+        return self.selector.score
 
     def update(self, state, key, transitions):
         return state
