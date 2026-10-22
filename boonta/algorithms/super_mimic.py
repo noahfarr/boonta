@@ -54,14 +54,16 @@ class WorldModel(nn.Module):
     termination: nn.Module
 
     def __call__(self, state: Array, action: Array, context: Array) -> Prediction:
-        inputs = jnp.concatenate([state, action, context], axis=-1)
-        following = state + self.dynamics(inputs)
+        following = state + self.dynamics(jnp.concatenate([state, action, context], axis=-1))
         return Prediction(
             state=following,
-            reward=jnp.squeeze(self.reward(inputs), axis=-1),
-            observation=self.observation(jnp.concatenate([following, context], axis=-1)),
+            reward=jnp.squeeze(self.reward(jnp.concatenate([state, action], axis=-1)), axis=-1),
+            observation=self.observe(following, context),
             termination=jnp.squeeze(self.termination(following), axis=-1),
         )
+
+    def observe(self, state: Array, context: Array) -> Array:
+        return self.observation(jnp.concatenate([state, context], axis=-1))
 
 
 def _observed(timestep: Timestep) -> Array:
@@ -169,9 +171,7 @@ class SuperMimic:
             }
             return sum(terms.values()), terms
 
-        def imagine_fn(
-            params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array, key: Key
-        ) -> tuple:
+        def imagine_fn(params: PyTree, state: SuperMimicState, starts: Array, context: Array, key: Key) -> tuple:
             def act_fn(carry: tuple, key: Key) -> tuple:
                 imagined, observation, survival = carry
                 action = self.actor.apply(params, observation, temperature=1.0).mean()
@@ -185,9 +185,14 @@ class SuperMimic:
                     survival,
                 )
 
+            start_key, key = jax.random.split(key)
+            observation = self.sensor_noise(
+                start_key,
+                self.world_model.apply(state.world_model_params, starts, context, method=WorldModel.observe),
+            )
             survival = jnp.ones(jnp.shape(starts)[:-1])
             (last, _, last_survival), (states, rewards, terminations, survivals) = jax.lax.scan(
-                act_fn, (starts, observations, survival), jax.random.split(key, self.cfg.horizon)
+                act_fn, (starts, observation, survival), jax.random.split(key, self.cfg.horizon)
             )
             states = jnp.concatenate([states, last[None]], axis=0)
             survivals = jnp.concatenate([survivals, last_survival[None]], axis=0)
@@ -198,9 +203,7 @@ class SuperMimic:
         ) -> tuple[Array, tuple]:
             first = jax.tree.map(lambda leaf: leaf[:, 0], window.first)
             context = self.context_of(first)
-            states, rewards, terminations, survivals = imagine_fn(
-                params, state, self.state_of(first), self.observation_of(first), context, key
-            )
+            states, rewards, terminations, survivals = imagine_fn(params, state, self.state_of(first), context, key)
             values = state_values_fn(state.critic_params, states, context)
             discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
             imagined_return = jnp.sum(discounts[:-1, None] * survivals[:-1] * rewards, axis=0)
@@ -218,9 +221,9 @@ class SuperMimic:
                 )
             return loss, (imagined_return, states, rewards, terminations, context)
 
-        def critic_loss_fn(critic_params: PyTree, states: Array, context: Array, targets: Array, survivals: Array):
+        def critic_loss_fn(critic_params: PyTree, states: Array, context: Array, targets: Array) -> Array:
             values = state_values_fn(critic_params, states[:-1], context)
-            return jnp.mean(jnp.sum(survivals * (values - targets) ** 2, axis=0))
+            return jnp.mean(jnp.sum((values - targets) ** 2, axis=0))
 
         def world_model_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             window = self.buffer.sample(state.buffer_state, key).experience
@@ -264,9 +267,6 @@ class SuperMimic:
                 aux={"value": values[1:]},
             )
             targets = self.value_estimator(imagined, self.cfg.gamma, self.cfg.td_lambda)
-            survivals = jnp.cumprod(
-                jnp.concatenate([jnp.ones_like(terminations[:1]), 1.0 - terminations[:-1]]), axis=0
-            )
             num_rollouts, *_ = jnp.shape(context)
             minibatch_size = num_rollouts // self.cfg.critic_minibatches
 
@@ -277,7 +277,6 @@ class SuperMimic:
                     states[:, indices],
                     context[indices],
                     targets[:, indices],
-                    survivals[:, indices],
                 )
                 updates, critic_optimizer_state = self.critic_optimizer.update(
                     grads["params"], critic_optimizer_state, critic_params["params"]

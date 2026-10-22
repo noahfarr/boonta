@@ -4,8 +4,9 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic, WorldModel
-from boonta.environments.wrappers import NormalizeObservation, RecordEpisodeStatistics
+from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, Network
+from boonta.networks.layers import Identity
 
 
 def mlp(sizes, outputs=None):
@@ -36,7 +37,7 @@ def make(cfg):
         cfg=instantiate(cfg.algorithm),
         actor=Network(
             feature_extractor=FeatureExtractor(observation_extractor=mlp(cfg.network.actor)),
-            head=FixedGaussian(nn.Sequential([nn.Dense(action_dim), nn.tanh]), scale=cfg.network.action_noise),
+            head=FixedGaussian(nn.Dense(action_dim), scale=cfg.network.action_noise),
         ),
         critic=Network(
             feature_extractor=FeatureExtractor(observation_extractor=mlp(cfg.network.critic)),
@@ -45,7 +46,7 @@ def make(cfg):
         world_model=WorldModel(
             dynamics=mlp(cfg.network.world_model, obs_dim),
             reward=mlp(cfg.network.heads, 1),
-            observation=mlp(cfg.network.heads, obs_dim),
+            observation=Identity(),
             termination=mlp(cfg.network.heads, 1),
         ),
         buffer=instantiate(cfg.buffer),
@@ -59,5 +60,4 @@ def make(cfg):
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    env = NormalizeObservation(env)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

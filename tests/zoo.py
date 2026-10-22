@@ -370,10 +370,10 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         ),
         actor=Network(
             feature_extractor=encoder(),
-            head=FixedGaussian(nn.Sequential([nn.Dense(action_dim(environment)), nn.tanh]), scale=0.3),
+            head=FixedGaussian(nn.Dense(action_dim(environment)), scale=0.3),
         ),
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
-        world_model=WorldModel(dynamics=mlp(width), reward=mlp(1), observation=mlp(width), termination=mlp(1)),
+        world_model=WorldModel(dynamics=mlp(width), reward=mlp(1), observation=Identity(), termination=mlp(1)),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,
             min_length_time_axis=window,
