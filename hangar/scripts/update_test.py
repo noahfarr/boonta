@@ -39,6 +39,30 @@ class Placement:
         return jax.random.categorical(key, jnp.log(weights), shape=(self.num_placed,))
 
 
+@dataclasses.dataclass
+class Exploring:
+    num_placed: int
+    selector: object
+
+    def init(self, archive_size, num_actions):
+        return self.selector.init(archive_size, num_actions)
+
+    @property
+    def score(self):
+        from boonta.curricula.prd import Diagonal
+
+        return Diagonal()
+
+    def update(self, state, key, transitions):
+        return state
+
+    def select(self, state, wrapper, archive_auto_reset_state, key, **context):
+        from boonta.environments.wrappers.archive_auto_reset import pick
+
+        eligible_mask = wrapper.archive.eligible(archive_auto_reset_state.archive_state)
+        return pick(key, jnp.where(eligible_mask, 0.0, -jnp.inf), (self.num_placed,))
+
+
 def transplant(fresh, saved):
     from boonta.environments.wrappers.archive_auto_reset import ArchiveAutoResetState
 
@@ -119,7 +143,7 @@ def main():
 
     selector = podracer.pit.selector
     num_placed = selector.num_placed(environment.num_envs)
-    placements = {"rho": Placement(jnp.ones(1), 0, selector), "prd": selector}
+    placements = {"rho": Placement(jnp.ones(1), 0, selector), "prd": selector, "erd": Exploring(num_placed, selector)}
     if hasattr(game, "place"):
         signal_key, reach_key = jax.random.split(measure_key)
         maps = measure(

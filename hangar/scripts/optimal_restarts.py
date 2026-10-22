@@ -31,16 +31,18 @@ def occupancy(starts, transitions, num_steps):
     return total
 
 
-def prd_restarts(selector, wrapper, checkpoint, algorithm, num_cells, key, num_draws=16):
+def archive_of(environment_state):
     from boonta.environments.wrappers.archive_auto_reset import ArchiveAutoResetState
 
-    archive = next(
+    return next(
         node
-        for node in jax.tree.leaves(
-            checkpoint.environment_state, is_leaf=lambda node: isinstance(node, ArchiveAutoResetState)
-        )
+        for node in jax.tree.leaves(environment_state, is_leaf=lambda node: isinstance(node, ArchiveAutoResetState))
         if isinstance(node, ArchiveAutoResetState)
     )
+
+
+def prd_restarts(selector, wrapper, checkpoint, algorithm, num_cells, key, num_draws=16):
+    archive = archive_of(checkpoint.environment_state)
     cells = jnp.squeeze(archive.archive_state.keys, axis=-1)
 
     def draw(key):
@@ -50,6 +52,14 @@ def prd_restarts(selector, wrapper, checkpoint, algorithm, num_cells, key, num_d
         return jnp.zeros(num_cells).at[cells[slots]].add(1.0)
 
     counts = jnp.sum(jax.vmap(draw)(jax.random.split(key, num_draws)), axis=0)
+    return counts / jnp.sum(counts)
+
+
+def erd_restarts(wrapper, checkpoint, num_cells):
+    archive_state = archive_of(checkpoint.environment_state).archive_state
+    cells = jnp.squeeze(archive_state.keys, axis=-1)
+    eligible = wrapper.archive.eligible(archive_state)
+    counts = jnp.zeros(num_cells).at[jnp.where(eligible, cells, num_cells)].add(1.0, mode="drop")
     return counts / jnp.sum(counts)
 
 
@@ -144,6 +154,7 @@ def main():
     restarts = {
         "rho": visits_rho,
         "prd": prd,
+        "erd": erd_restarts(podracer.pit.environment, checkpoint, game.num_cells),
         "signal oracle": signal / jnp.sum(signal),
         "alignment oracle": jnp.maximum(alignment, 0.0) / jnp.sum(jnp.maximum(alignment, 0.0)),
     }
