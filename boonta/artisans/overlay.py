@@ -11,10 +11,6 @@ EDGE = 40
 GAP = 20
 
 
-def is_archive(node) -> bool:
-    return isinstance(node, ArchiveAutoResetState)
-
-
 def paint(cell_values: np.ndarray, cell_grid: np.ndarray, tile: int) -> np.ndarray:
     peak = max(float(np.abs(cell_values).max()), 1e-30)
     normalized = np.append(cell_values, 0.0)[cell_grid] / peak
@@ -38,8 +34,11 @@ class Overlay:
         ledger = podracer_state.pit_state
         archive_auto_reset_state = next(
             node
-            for node in jax.tree.leaves(podracer_state.environment_state, is_leaf=is_archive)
-            if is_archive(node)
+            for node in jax.tree.leaves(
+                podracer_state.environment_state,
+                is_leaf=lambda node: isinstance(node, ArchiveAutoResetState),
+            )
+            if isinstance(node, ArchiveAutoResetState)
         )
         worth = selector.score(
             selector,
