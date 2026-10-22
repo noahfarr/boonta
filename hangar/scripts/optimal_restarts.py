@@ -63,6 +63,54 @@ def erd_restarts(wrapper, checkpoint, num_cells):
     return counts / jnp.sum(counts)
 
 
+def per_cell_scores(score, selector, checkpoint, wrapper, algorithm, num_cells):
+    archive = archive_of(checkpoint.environment_state)
+    per_slot = score(
+        selector, checkpoint.pit_state, wrapper, archive, algorithm=algorithm, algorithm_state=checkpoint.algorithm_state
+    )
+    archive_state = archive.archive_state
+    cells = jnp.squeeze(archive_state.keys, axis=-1)
+    return jnp.zeros(num_cells).at[jnp.where(archive_state.mask, cells, num_cells)].set(per_slot, mode="drop")
+
+
+def cosine(left, right):
+    return float(left @ right / (jnp.linalg.norm(left) * jnp.linalg.norm(right) + 1e-30))
+
+
+def diagnose(selector, wrapper, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, num_cells):
+    from scipy.stats import spearmanr
+
+    from boonta.curricula.prd import Diagonal, Kernel, precondition
+
+    archive_state = archive_of(checkpoint.environment_state).archive_state
+    held = np.zeros(num_cells, bool)
+    held[np.asarray(jnp.squeeze(archive_state.keys, axis=-1))[np.asarray(archive_state.mask)]] = True
+
+    def agreement(scores):
+        return spearmanr(np.asarray(scores)[held], np.asarray(optimum)[held]).statistic
+
+    print("rank correlation with the optimal restarts, over the archive's cells:")
+    diagonal = per_cell_scores(Diagonal(), selector, checkpoint, wrapper, algorithm, num_cells)
+    print(f"  diagonal score from this ledger           {agreement(diagonal):+.3f}")
+    if not isinstance(selector.score, Kernel):
+        return
+    optimizer_state = checkpoint.algorithm_state.optimizer_state
+    adam = next(leaf for leaf in jax.tree.leaves(optimizer_state, is_leaf=lambda node: hasattr(node, "nu")) if hasattr(leaf, "nu"))
+    second, _ = ravel_pytree(adam.nu)
+    seen = second > 1e-12
+    exact, _ = ravel_pytree(precondition(unravel(jax.grad(objective)(origin)), optimizer_state))
+    exact = jnp.where(seen, exact, 0.0)
+    estimated, _ = ravel_pytree(checkpoint.pit_state.direction)
+    kernel = per_cell_scores(selector.score, selector, checkpoint, wrapper, algorithm, num_cells)
+    print(f"  kernel score as PRD computes it           {agreement(kernel):+.3f}")
+    print(f"  kernel with exact advantages              {agreement(per_cell @ estimated):+.3f}")
+    print(f"  kernel with exact advantages and direction {agreement(per_cell @ exact):+.3f}")
+    print(
+        "cosine between the kernel's direction and the exact preconditioned gradient of J_rho, "
+        f"over the parameters Adam has seen: {cosine(jnp.where(seen, estimated, 0.0), exact):+.3f}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("run")
@@ -173,6 +221,10 @@ def main():
     change = float(improvement(unconstrained, 0.0))
     kl = divergence(unconstrained, 0.0)
     print(f"{'optimum, restarting all':<26} {change:>+14.4f} {change / rho:>8.2f} {kl[0]:>10.4f} {kl[1]:>16.3f} {kl[2]:>12.3f}")
+
+    diagnose(
+        selector, podracer.pit.environment, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, game.num_cells
+    )
 
     tile = arguments.tile
     start, _ = game.init(key)
