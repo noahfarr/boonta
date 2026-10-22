@@ -41,14 +41,17 @@ def discounted_returns(algorithm, algorithm_state, game, gamma, states, actions,
     return total
 
 
-def advantages(algorithm, algorithm_state, game, gamma, num_actions, num_rollouts, key):
-    start, _ = game.init(key)
-    cells = jnp.arange(game.num_cells)
-    placed = jax.vmap(game.place, in_axes=(None, 0))(start, cells)
+def policy_table(algorithm, algorithm_state, game, key):
+    start, timestep = game.init(key)
+    placed = jax.vmap(game.place, in_axes=(None, 0))(start, jnp.arange(game.num_cells))
     observed = jax.vmap(game.observe)(placed)
-    timesteps = jax.vmap(lambda obs: game.init(key)[1].replace(obs=obs))(observed)
+    timesteps = jax.vmap(lambda obs: timestep.replace(obs=obs))(observed)
     _, _, _, aux = algorithm.step(algorithm_state, None, key, timesteps, temperature=1.0)
-    policy = jax.nn.softmax(aux["logits"], axis=-1)
+    return placed, observed, jax.nn.softmax(aux["logits"], axis=-1)
+
+
+def advantages(algorithm, algorithm_state, game, gamma, num_actions, num_rollouts, key):
+    placed, observed, policy = policy_table(algorithm, algorithm_state, game, key)
 
     repeat = num_actions * num_rollouts
     states = jax.tree.map(lambda leaf: jnp.repeat(leaf, repeat, axis=0), placed)

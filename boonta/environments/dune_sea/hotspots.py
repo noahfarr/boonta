@@ -76,6 +76,10 @@ class Hotspots(Environment):
     def time_limit(self) -> int:
         return self.horizon
 
+    def expected_return(self, policy: Array) -> Array:
+        assert self.control == 0.0, "the random walk's reach is the policy's only while it cannot steer"
+        return jnp.sum(jnp.asarray(reach(self)) * policy[self.hotspots, self.secrets])
+
     def place(self, state: HotspotsState, cell: Array) -> HotspotsState:
         return state.replace(position=jnp.int32(cell), clock=jnp.zeros_like(state.clock))
 
