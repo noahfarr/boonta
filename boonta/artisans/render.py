@@ -49,7 +49,8 @@ class Render:
         environment.close(environment_state)
         return trajectory, done
 
-    def craft(self, key, algorithm, environment, state, logs) -> Video:
+    def craft(self, key, podracer, podracer_state, logs) -> Video:
+        algorithm, environment = podracer.algorithm, podracer.environment
         try:
             from matplotlib import pyplot
 
@@ -58,7 +59,7 @@ class Render:
             pass
         trajectory, done = jax.device_get(
             jax.jit(partial(self.rollout, algorithm, environment))(
-                state.algorithm_state, key
+                podracer_state.algorithm_state, key
             )
         )
         num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)

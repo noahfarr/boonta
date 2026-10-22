@@ -29,7 +29,7 @@ class Plot:
         self.means = []
         self.stds = []
 
-    def craft(self, key, algorithm, environment, state, logs) -> Image:
+    def craft(self, key, podracer, podracer_state, logs) -> Image:
         # matplotlib is imported here so that the library does not need it.
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure

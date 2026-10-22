@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -182,7 +184,7 @@ class Oracle:
 def test_the_scorecard_weighs_each_hotspot_by_how_often_rho_reaches_it(confidence, share):
     env = Hotspots(width=9, num_hotspots=4, nearest=2, farthest=7, horizon=60)
     state = type("State", (), {"algorithm_state": None})()
-    data = Scorecard().craft(jax.random.key(0), Oracle(env, confidence), env, state, {}).data
+    data = Scorecard().craft(jax.random.key(0), SimpleNamespace(algorithm=Oracle(env, confidence), environment=env), state, {}).data
     best = reach(env).sum()
     assert abs(float(data["hotspots/best_return"]) - best) < 1e-5
     assert abs(float(data["hotspots/return"]) - share * best) < 1e-5
