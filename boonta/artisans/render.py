@@ -11,12 +11,10 @@ class Render:
     def __init__(
         self,
         name: str = "render",
-        max_frames: int = 1024,
         fps: int = 16,
         kwargs: dict | None = None,
     ):
         self.name = name
-        self.max_frames = max_frames
         self.fps = fps
         self.kwargs = kwargs or {}
 
@@ -24,7 +22,7 @@ class Render:
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
         _, carry = algorithm.init(init_key, timestep)
-        num_steps = min(environment.time_limit() + 1, self.max_frames)
+        num_steps = environment.time_limit() + 1
 
         def step(loop, key):
             algorithm_state, carry, environment_state, timestep = loop

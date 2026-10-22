@@ -265,8 +265,7 @@ def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
     assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
 
 
-@pytest.mark.parametrize("max_frames, longest", [(1024, 16), (4, 4)])
-def test_the_render_artisan_plays_and_draws_the_first_environment(max_frames, longest):
+def test_the_render_artisan_plays_and_draws_the_first_environment():
     from boonta.environments import gymnax
 
     environment = zoo.wrap(gymnax.make("Breakout-MinAtar"), NUM_ENVS)
@@ -280,10 +279,10 @@ def test_the_render_artisan_plays_and_draws_the_first_environment(max_frames, lo
 
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render(max_frames=max_frames).craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
 
     frames, _, _, channels = video.data.shape
-    assert 1 < frames <= longest and channels == 3
+    assert 1 < frames <= 16 and channels == 3
     assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
 
 
