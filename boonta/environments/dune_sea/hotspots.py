@@ -80,6 +80,16 @@ class Hotspots(Environment):
         assert self.control == 0.0, "the random walk's reach is the policy's only while it cannot steer"
         return jnp.sum(jnp.asarray(reach(self)) * policy[self.hotspots, self.secrets])
 
+    def advantages(self, policy: Array) -> Array:
+        assert self.control == 0.0, "actions matter only on hotspots while the agent cannot steer"
+        payoff = jnp.zeros_like(policy).at[self.hotspots, self.secrets].set(1.0)
+        return payoff - jnp.sum(policy * payoff, axis=-1, keepdims=True)
+
+    def transitions(self, policy: Array) -> Array:
+        assert self.control == 0.0, "the walk is the policy's only while the agent cannot steer"
+        walk = jnp.asarray(random_walk(self), jnp.float32)
+        return walk.at[self.hotspots].set(0.0).at[self.hotspots, self.start].set(1.0)
+
     def place(self, state: HotspotsState, cell: Array) -> HotspotsState:
         return state.replace(position=jnp.int32(cell), clock=jnp.zeros_like(state.clock))
 
@@ -146,10 +156,8 @@ class Hotspots(Environment):
         return colour.astype(jnp.uint8)
 
 
-def reach(env) -> np.ndarray:
-    game = getattr(env, "unwrapped", env)
+def random_walk(game) -> np.ndarray:
     width, num_cells = game.width, game.num_cells
-    hotspots = np.asarray(game.hotspots)
     rows, columns = np.divmod(np.arange(num_cells), width)
     walk = np.zeros((num_cells, num_cells))
     for row_move, column_move in MOVES:
@@ -158,6 +166,13 @@ def reach(env) -> np.ndarray:
             + np.clip(columns + column_move, 0, width - 1)
         )
         np.add.at(walk, (np.arange(num_cells), landing), 1.0 / len(MOVES))
+    return walk
+
+
+def reach(env) -> np.ndarray:
+    game = getattr(env, "unwrapped", env)
+    num_cells, hotspots = game.num_cells, np.asarray(game.hotspots)
+    walk = random_walk(game)
     walk[hotspots] = 0.0
     occupancy = np.zeros(num_cells)
     occupancy[game.start] = 1.0

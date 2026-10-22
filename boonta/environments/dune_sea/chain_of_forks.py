@@ -107,7 +107,7 @@ class ChainOfForks(Environment):
     def time_limit(self) -> int:
         return self.longest_episode
 
-    def expected_return(self, policy: Array) -> Array:
+    def state_values(self, policy: Array) -> Array:
         survival = (1.0 - self.hazard) * ~self.terminal
 
         def backup(values, _):
@@ -115,7 +115,22 @@ class ChainOfForks(Environment):
             return jnp.sum(policy * (self.reward[landing] + survival[landing] * values[landing]), axis=-1), None
 
         values, _ = jax.lax.scan(backup, jnp.zeros(self.num_cells), None, length=self.time_limit())
-        return values[self.start]
+        return values
+
+    def expected_return(self, policy: Array) -> Array:
+        return self.state_values(policy)[self.start]
+
+    def advantages(self, policy: Array) -> Array:
+        survival = (1.0 - self.hazard) * ~self.terminal
+        landing = self.successor
+        action_values = self.reward[landing] + survival[landing] * self.state_values(policy)[landing]
+        return action_values - jnp.sum(policy * action_values, axis=-1, keepdims=True)
+
+    def transitions(self, policy: Array) -> Array:
+        continuing = (1.0 - self.hazard) * ~self.terminal[self.successor]
+        cells = jnp.arange(self.num_cells)[:, None]
+        moves = jnp.zeros((self.num_cells, self.num_cells)).at[cells, self.successor].add(policy * continuing)
+        return moves.at[:, self.start].add(jnp.sum(policy * (1.0 - continuing), axis=-1))
 
     def place(self, state: ChainOfForksState, cell: Array) -> ChainOfForksState:
         return state.replace(cell=jnp.int32(cell))
