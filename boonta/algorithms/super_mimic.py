@@ -58,15 +58,12 @@ class WorldModel(nn.Module):
             termination=jnp.squeeze(self.termination(following), axis=-1),
         )
 
-    def observe(self, state: Array, context: Array) -> Array:
-        return self.observation(jnp.concatenate([state, context], axis=-1))
 
-
-def observed(timestep: Timestep) -> Array:
+def _observation(timestep: Timestep) -> Array:
     return timestep.obs
 
 
-def contextless(timestep: Timestep) -> Array:
+def _empty_context(timestep: Timestep) -> Array:
     batch = jnp.shape(timestep.reward)
     return jnp.zeros((*batch, 0), jnp.float32)
 
@@ -81,9 +78,9 @@ class SuperMimic:
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
     world_model_optimizer: optax.GradientTransformation
-    state_of: Callable[[Timestep], Array] = observed
-    observation_of: Callable[[Timestep], Array] = observed
-    context_of: Callable[[Timestep], Array] = contextless
+    state_of: Callable[[Timestep], Array] = _observation
+    observation_of: Callable[[Timestep], Array] = _observation
+    context_of: Callable[[Timestep], Array] = _empty_context
     auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, PyTree]:
@@ -119,12 +116,12 @@ class SuperMimic:
         dist = self.actor.apply(state.params, self.observation_of(timestep), temperature=temperature)
         return state, carry, dist.sample(seed=key), {}
 
-    def value(self, critic_params: PyTree, state: Array, context: Array) -> Array:
+    def _state_values(self, critic_params: PyTree, state: Array, context: Array) -> Array:
         *batch, _ = jnp.shape(state)
         context = jnp.broadcast_to(context, (*batch, jnp.shape(context)[-1]))
         return jnp.squeeze(self.critic.apply(critic_params, jnp.concatenate([state, context], axis=-1)), axis=-1)
 
-    def fit(self, world_model_params: PyTree, window: Transition) -> tuple[Array, dict]:
+    def _world_model_loss(self, world_model_params: PyTree, window: Transition) -> tuple[Array, dict]:
         first, second = window.first, window.second
         context = self.context_of(jax.tree.map(lambda leaf: leaf[:, 0], first))
         done = (second.terminated | second.truncated).astype(jnp.float32)
@@ -159,7 +156,7 @@ class SuperMimic:
         }
         return sum(terms.values()), terms
 
-    def imagine(
+    def _imagined_rollout(
         self, params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array
     ) -> tuple[Array, Array, Array, Array]:
         def act(carry, _):
@@ -182,15 +179,15 @@ class SuperMimic:
         survivals = jnp.concatenate([survivals, last_survival[None]], axis=0)
         return states, rewards, terminations, survivals
 
-    def returns(self, params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array):
-        states, rewards, terminations, survivals = self.imagine(params, state, starts, observations, context)
-        values = self.value(state.critic_params, states, context)
+    def _imagined_return(self, params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array):
+        states, rewards, terminations, survivals = self._imagined_rollout(params, state, starts, observations, context)
+        values = self._state_values(state.critic_params, states, context)
         discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
         objective = jnp.sum(discounts[:-1, None] * survivals[:-1] * rewards, axis=0)
         objective = objective + discounts[-1] * survivals[-1] * values[-1]
         return jnp.mean(objective), (states, rewards, terminations, values)
 
-    def targets(self, rewards: Array, terminations: Array, values: Array) -> Array:
+    def _lambda_returns(self, rewards: Array, terminations: Array, values: Array) -> Array:
         def back(following, step):
             reward, termination, value = step
             target = reward + self.cfg.gamma * (1.0 - termination) * (
@@ -208,7 +205,7 @@ class SuperMimic:
 
         def fit_world_model(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             window = self.buffer.sample(state.buffer_state, key).experience
-            (loss, terms), grads = jax.value_and_grad(self.fit, has_aux=True)(state.world_model_params, window)
+            (loss, terms), grads = jax.value_and_grad(self._world_model_loss, has_aux=True)(state.world_model_params, window)
             updates, optimizer_state = self.world_model_optimizer.update(
                 grads["params"], state.world_model_optimizer_state, state.world_model_params["params"]
             )
@@ -227,7 +224,7 @@ class SuperMimic:
             starts, context = self.state_of(first), self.context_of(first)
 
             def actor_loss(params):
-                objective, imagined = self.returns(params, state, starts, self.observation_of(first), context)
+                objective, imagined = self._imagined_return(params, state, starts, self.observation_of(first), context)
                 loss = -objective
                 dist, variables = self.actor.apply(
                     params, self.observation_of(first), temperature=1.0, mutable=True
@@ -249,12 +246,12 @@ class SuperMimic:
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
             states, rewards, terminations = jax.lax.stop_gradient((states, rewards, terminations))
-            targets = self.targets(rewards, terminations, self.value(state.critic_params, states, context))
+            targets = self._lambda_returns(rewards, terminations, self._state_values(state.critic_params, states, context))
 
             survivals = jax.lax.stop_gradient(jnp.cumprod(jnp.concatenate([jnp.ones_like(terminations[:1]), 1.0 - terminations[:-1]]), axis=0))
 
             def critic_loss(critic_params):
-                values = self.value(critic_params, states[:-1], context)
+                values = self._state_values(critic_params, states[:-1], context)
                 return jnp.mean(jnp.sum(survivals * (values - targets) ** 2, axis=0))
 
             loss, critic_grads = jax.value_and_grad(critic_loss)(state.critic_params)
