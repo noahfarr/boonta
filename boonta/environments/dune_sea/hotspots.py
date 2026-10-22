@@ -76,6 +76,9 @@ class Hotspots(Environment):
     def time_limit(self) -> int:
         return self.horizon
 
+    def place(self, state: HotspotsState, cell: Array) -> HotspotsState:
+        return state.replace(position=jnp.int32(cell), clock=jnp.zeros_like(state.clock))
+
     def observe(self, state: HotspotsState) -> Array:
         return jax.nn.one_hot(state.position, self.num_cells)
 

@@ -107,6 +107,9 @@ class ChainOfForks(Environment):
     def time_limit(self) -> int:
         return self.longest_episode
 
+    def place(self, state: ChainOfForksState, cell: Array) -> ChainOfForksState:
+        return state.replace(cell=jnp.int32(cell))
+
     def observe(self, state: ChainOfForksState) -> Array:
         return jax.nn.one_hot(state.cell, self.num_cells)
 
