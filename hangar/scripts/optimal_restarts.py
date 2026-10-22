@@ -197,8 +197,8 @@ def main():
         reached = visits_rho > 1e-6 * jnp.max(visits_rho)
         return float(jnp.sum(visits_rho * per_state)), float(jnp.max(jnp.where(reached, per_state, 0.0))), float(jnp.max(per_state))
 
-    def optimise(share_continuing, initial):
-        loss = jax.jit(jax.value_and_grad(lambda logits: -improvement(jax.nn.softmax(logits), share_continuing)))
+    def ascend(value, initial):
+        loss = jax.jit(jax.value_and_grad(lambda logits: -value(jax.nn.softmax(logits))))
         optimiser = optax.adam(0.1)
         logits = jnp.log(initial + 1e-6)
         state = optimiser.init(logits)
@@ -220,9 +220,9 @@ def main():
         "signal oracle": signal / jnp.sum(signal),
         "alignment oracle": jnp.maximum(alignment, 0.0) / jnp.sum(jnp.maximum(alignment, 0.0)),
     }
-    candidates = {name: optimise(continuing, initial) for name, initial in restarts.items()}
+    candidates = {name: ascend(lambda restarts: improvement(restarts, continuing), initial) for name, initial in restarts.items()}
     optimum = max(candidates.values(), key=lambda restarts: float(improvement(restarts, continuing)))
-    unconstrained = optimise(0.0, continuing * visits_rho + (1.0 - continuing) * optimum)
+    unconstrained = ascend(lambda restarts: improvement(restarts, 0.0), continuing * visits_rho + (1.0 - continuing) * optimum)
 
     print(f"J_rho before the update: {before:.4f}; every update moves the policy by KL {arguments.kl} on {dict(max='every single state', batch="its batch's states", rho="rho's states")[arguments.trust]}")
     print(f"{continuing:.0%} of environments continue from rho, the rest restart where the arm says")
@@ -240,6 +240,12 @@ def main():
         selector, podracer.pit.environment, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, game.num_cells
     )
 
+    def data_improvement(data):
+        return objective(stepped(data @ per_cell, data)) - before
+
+    starts = [batch_of(visits_rho, 1.0), batch_of(optimum, continuing)]
+    found = [ascend(data_improvement, start / jnp.sum(start)) for start in starts]
+    optimal_data = max(found, key=lambda data: float(data_improvement(data)))
     trained = load_checkpoint(resolve_checkpoint(run), podracer.init(key)).algorithm_state
     behaviors = {
         "trained behavior": policy_table(algorithm, trained, game, key)[2],
@@ -251,6 +257,7 @@ def main():
         "PRD batch": batch_of(prd, continuing),
         **{name: stationary(game.transitions(behavior), game.start) for name, behavior in behaviors.items()},
         "optimal restart batch": batch_of(optimum, continuing),
+        "optimal data": optimal_data,
     }
     directions = {name: (batch @ per_cell, batch) for name, batch in sources.items()}
     directions["true gradient of J_rho"] = (true_gradient, visits_rho)
