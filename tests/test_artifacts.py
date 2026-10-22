@@ -121,6 +121,21 @@ def test_resume_fails_when_a_saved_parameter_changed_shape(tmp_path):
         load_checkpoint(resolve_checkpoint(tmp_path), fresh.replace(algorithm_state=fresh.algorithm_state.replace(params=wrong)))
 
 
+@struct.dataclass
+class Holding:
+    algorithm_state: tuple
+
+
+def test_a_checkpoint_keeps_empty_arrays_in_place(tmp_path):
+    saved = Holding((jnp.arange(3.0), jnp.zeros((0, 4), jnp.int32), {"pool": jnp.ones((5, 0))}))
+    save(tmp_path, saved)
+
+    fresh = Holding((jnp.zeros(3), jnp.ones((0, 4), jnp.int32), {"pool": jnp.zeros((5, 0))}))
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
+
+    assert_restored(saved.algorithm_state, restored.algorithm_state)
+
+
 def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_count(tmp_path):
     saved = build_podracer(zoo.recurrent_ppo)
     wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)

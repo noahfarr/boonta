@@ -7,29 +7,7 @@ import sys
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
 from flax import serialization
-
-
-def savable(tree):
-    return jax.tree.map(
-        lambda leaf: None if getattr(leaf, "size", 1) == 0 else leaf, tree
-    )
-
-
-def refill(saved, target):
-    kept = iter(jax.tree.leaves(saved))
-    return jax.tree.unflatten(
-        jax.tree.structure(target),
-        [
-            (
-                jnp.zeros(leaf.shape, leaf.dtype)
-                if getattr(leaf, "size", 1) == 0
-                else next(kept)
-            )
-            for leaf in jax.tree.leaves(target)
-        ],
-    )
 
 
 REMOTE = re.compile(r"^(?P<host>[A-Za-z0-9_.@-]{2,}):(?P<path>(?!//).+)$")
@@ -122,7 +100,18 @@ def resolve_checkpoint(path):
 def restore_item(directory, node):
     import orbax.checkpoint as ocp
 
-    return refill(ocp.StandardCheckpointer().restore(directory, target=savable(node)), node)
+    restored = ocp.StandardCheckpointer().restore(
+        directory,
+        target=jax.tree.map(
+            lambda leaf: None if getattr(leaf, "size", 1) == 0 else leaf, node
+        ),
+    )
+    return jax.tree.map(
+        lambda kept, leaf: leaf if kept is None else kept,
+        restored,
+        node,
+        is_leaf=lambda leaf: leaf is None,
+    )
 
 
 def load_checkpoint(path, target=None):
