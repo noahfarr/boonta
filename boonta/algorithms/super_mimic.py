@@ -11,7 +11,7 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, conditional_update, remove_batch_axis
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
 
-from .advantage_estimators import generalized_advantage_estimator
+from .action_value_estimators import td_lambda
 
 
 @struct.dataclass(frozen=True)
@@ -19,7 +19,7 @@ class SuperMimicConfig:
     horizon: int
     window: int
     gamma: float
-    gae_lambda: float
+    td_lambda: float
     world_model_updates: int
     policy_updates: int
 
@@ -83,7 +83,7 @@ class SuperMimic:
     state_of: Callable[[Timestep], Array] = _observed
     observation_of: Callable[[Timestep], Array] = _observed
     context_of: Callable[[Timestep], Array] = _contextless
-    advantage_estimator: Callable = generalized_advantage_estimator
+    value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, PyTree]:
@@ -240,12 +240,11 @@ class SuperMimic:
                     obs=states[1:],
                     reward=rewards,
                     terminated=terminations,
-                    truncated=jnp.zeros_like(terminations),
+                    truncated=jnp.zeros_like(terminations, bool),
                 ),
+                aux={"value": values[1:]},
             )
-            _, targets = self.advantage_estimator(
-                imagined, values[:-1], values[-1], self.cfg.gamma, self.cfg.gae_lambda
-            )
+            targets = self.value_estimator(imagined, self.cfg.gamma, self.cfg.td_lambda)
             survivals = jnp.cumprod(
                 jnp.concatenate([jnp.ones_like(terminations[:1]), 1.0 - terminations[:-1]]), axis=0
             )
