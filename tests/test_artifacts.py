@@ -287,6 +287,22 @@ def test_the_render_artisan_plays_and_draws_the_first_environment(max_frames, lo
     assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
 
 
+def test_the_render_artisan_stops_when_the_first_episode_ends():
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 12
+    environment.render = lambda state: np.zeros((1, 1, 3))
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, timestep.obs.argmax(-1) % 2, {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+
+    frames, *_ = video.data.shape
+    assert frames == corridor().shortest
+
+
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
     monkeypatch,
 ):

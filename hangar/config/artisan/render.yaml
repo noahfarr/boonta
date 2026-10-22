@@ -4,4 +4,3 @@ name: render
 max_frames: 1024
 fps: 16
 kwargs: {}
-smooth: 1
