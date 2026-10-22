@@ -33,6 +33,8 @@ optimizer:
   lr: 2e-4
   max_grad_norm: 1.0
   max_actor_grad: 0.1
+  decay_iterations: 250_000
+  final_scale: 0.03
 
 network:
   action_noise: 0.1

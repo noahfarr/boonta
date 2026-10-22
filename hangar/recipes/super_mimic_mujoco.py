@@ -22,6 +22,16 @@ def make(cfg):
     def clipped(*transforms):
         return optax.chain(optax.clip_by_global_norm(cfg.optimizer.max_grad_norm), *transforms)
 
+    def decayed(steps_per_iteration):
+        return optax.cosine_decay_schedule(
+            cfg.optimizer.lr,
+            decay_steps=cfg.optimizer.decay_iterations * steps_per_iteration,
+            alpha=cfg.optimizer.final_scale,
+        )
+
+    algorithm_cfg = cfg.algorithm
+    critic_steps = algorithm_cfg.policy_updates * algorithm_cfg.critic_epochs * algorithm_cfg.critic_minibatches
+
     algorithm = SuperMimic(
         cfg=instantiate(cfg.algorithm),
         actor=Network(
@@ -40,10 +50,11 @@ def make(cfg):
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(
-            optax.clip(cfg.optimizer.max_actor_grad), optax.adam(cfg.optimizer.lr, b1=0.9, b2=0.95)
+            optax.clip(cfg.optimizer.max_actor_grad),
+            optax.adam(decayed(algorithm_cfg.policy_updates), b1=0.9, b2=0.95),
         ),
-        critic_optimizer=clipped(optax.adam(cfg.optimizer.lr)),
-        world_model_optimizer=clipped(optax.adam(cfg.optimizer.lr)),
+        critic_optimizer=clipped(optax.adam(decayed(critic_steps))),
+        world_model_optimizer=clipped(optax.adam(decayed(algorithm_cfg.world_model_updates))),
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)

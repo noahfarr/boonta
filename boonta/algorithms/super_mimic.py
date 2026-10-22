@@ -68,6 +68,10 @@ def _observed(timestep: Timestep) -> Array:
     return timestep.obs
 
 
+def _noiseless(key: Key, observation: Array) -> Array:
+    return observation
+
+
 def _contextless(timestep: Timestep) -> Array:
     batch = jnp.shape(timestep.reward)
     return jnp.zeros((*batch, 0), jnp.float32)
@@ -86,6 +90,7 @@ class SuperMimic:
     state_of: Callable[[Timestep], Array] = _observed
     observation_of: Callable[[Timestep], Array] = _observed
     context_of: Callable[[Timestep], Array] = _contextless
+    sensor_noise: Callable[[Key, Array], Array] = _noiseless
     value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
 
@@ -165,14 +170,15 @@ class SuperMimic:
             return sum(terms.values()), terms
 
         def imagine_fn(
-            params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array
+            params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array, key: Key
         ) -> tuple:
-            def act_fn(carry: tuple, _) -> tuple:
+            def act_fn(carry: tuple, key: Key) -> tuple:
                 imagined, observation, survival = carry
                 action = self.actor.apply(params, observation, temperature=1.0).mean()
                 prediction = self.world_model.apply(state.world_model_params, imagined, action, context)
                 termination = jax.nn.sigmoid(prediction.termination)
-                return (prediction.state, prediction.observation, survival * (1.0 - termination)), (
+                observation = self.sensor_noise(key, prediction.observation)
+                return (prediction.state, observation, survival * (1.0 - termination)), (
                     imagined,
                     prediction.reward,
                     termination,
@@ -181,17 +187,19 @@ class SuperMimic:
 
             survival = jnp.ones(jnp.shape(starts)[:-1])
             (last, _, last_survival), (states, rewards, terminations, survivals) = jax.lax.scan(
-                act_fn, (starts, observations, survival), None, length=self.cfg.horizon
+                act_fn, (starts, observations, survival), jax.random.split(key, self.cfg.horizon)
             )
             states = jnp.concatenate([states, last[None]], axis=0)
             survivals = jnp.concatenate([survivals, last_survival[None]], axis=0)
             return states, rewards, terminations, survivals
 
-        def actor_loss_fn(params: PyTree, state: SuperMimicState, window: Transition) -> tuple[Array, tuple]:
+        def actor_loss_fn(
+            params: PyTree, state: SuperMimicState, window: Transition, key: Key
+        ) -> tuple[Array, tuple]:
             first = jax.tree.map(lambda leaf: leaf[:, 0], window.first)
             context = self.context_of(first)
             states, rewards, terminations, survivals = imagine_fn(
-                params, state, self.state_of(first), self.observation_of(first), context
+                params, state, self.state_of(first), self.observation_of(first), context, key
             )
             values = state_values_fn(state.critic_params, states, context)
             discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
@@ -232,14 +240,14 @@ class SuperMimic:
             ), None
 
         def policy_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
-            sample_key, shuffle_key = jax.random.split(key)
+            sample_key, imagine_key, shuffle_key = jax.random.split(key, 3)
             windows = jax.vmap(lambda key: self.buffer.sample(state.buffer_state, key).experience)(
                 jax.random.split(sample_key, self.cfg.policy_batches)
             )
             window = jax.tree.map(lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), windows)
             (_, (imagined_return, states, rewards, terminations, context)), grads = jax.value_and_grad(
                 actor_loss_fn, has_aux=True
-            )(state.params, state, window)
+            )(state.params, state, window, imagine_key)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
