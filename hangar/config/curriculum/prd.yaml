@@ -20,6 +20,6 @@ curriculum:
     gate: false
     successor:
       _target_: boonta.curricula.prd.SuccessorRepresentation
-      gamma: ${eval:'1 - 1 / ${rollout.num_steps} if "${curriculum.restart_at}" == "rollout" else ${algorithm.gamma}'}
+      gamma: ${eval:'1 - 1 / ${podracer.config.num_steps} if "${curriculum.restart_at}" == "rollout" else ${algorithm.gamma}'}
       rate: 0.1
       columns: 256
