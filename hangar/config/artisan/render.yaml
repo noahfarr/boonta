@@ -1,6 +1,7 @@
 # @package artisans.render
 _target_: boonta.artisans.Render
 name: render
-max_frames: 256
+max_frames: 1024
 fps: 16
 kwargs: {}
+smooth: 1

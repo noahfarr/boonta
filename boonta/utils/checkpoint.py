@@ -1,4 +1,3 @@
-import dataclasses
 import os
 import re
 import shlex
@@ -123,20 +122,7 @@ def resolve_checkpoint(path):
 def restore_item(directory, node):
     import orbax.checkpoint as ocp
 
-    checkpointer = ocp.StandardCheckpointer()
-    if not dataclasses.is_dataclass(node):
-        return refill(checkpointer.restore(directory, target=savable(node)), node)
-    names = [field.name for field in dataclasses.fields(node)]
-    stored = checkpointer.metadata(directory).item_metadata
-    legacy = {
-        key: jax.tree.map(lambda meta: jax.ShapeDtypeStruct(meta.shape, meta.dtype), stored[key])
-        for key in set(stored.keys()) - set(names)
-    }
-    if not legacy:
-        return refill(checkpointer.restore(directory, target=savable(node)), node)
-    target = {**{name: savable(getattr(node, name)) for name in names}, **legacy}
-    restored = checkpointer.restore(directory, target=target)
-    return node.replace(**{name: refill(restored[name], getattr(node, name)) for name in names})
+    return refill(ocp.StandardCheckpointer().restore(directory, target=savable(node)), node)
 
 
 def load_checkpoint(path, target=None):

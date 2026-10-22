@@ -1,10 +1,26 @@
+import re
+import shlex
 import shutil
+from pathlib import Path
 
 import jax
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 SKIP = ("hydra", "loggers", "artisans", "search_space")
+TRAINING_ONLY = (
+    "logger",
+    "loggers",
+    "artisan",
+    "artisans",
+    "seed",
+    "num_steps",
+    "num_epochs",
+    "num_processes",
+    "checkpoint",
+    "score",
+    "hydra",
+)
 
 
 def shapes(params) -> list[tuple[str, tuple[int, ...], int]]:
@@ -97,7 +113,9 @@ def borders(widths) -> set[int]:
 def seam(above, below, width, left, right, fill="─", down="┬", cross="┼", up="┴"):
     marks = {index: up for index in above}
     marks.update({index: cross if index in above else down for index in below})
-    return left + "".join(marks.get(index, fill) for index in range(1, width - 1)) + right
+    return (
+        left + "".join(marks.get(index, fill) for index in range(1, width - 1)) + right
+    )
 
 
 def sizes(head, body, footer) -> list[int]:
@@ -205,3 +223,52 @@ def brief(cfg, state) -> None:
         lines.extend(panel(head, body, footer, aligned, width))
         lines.append("")
     print("\n".join(lines), flush=True)
+
+
+def overrides_for_evaluation(overrides) -> list[str]:
+    return [
+        override
+        for override in overrides
+        if re.split(r"[./=]", override.lstrip("+~"))[0] not in TRAINING_ONLY
+    ]
+
+
+def evaluation_command(run_dir, overrides) -> str:
+    arguments = ["checkpoint=" + str(run_dir), *overrides_for_evaluation(overrides)]
+    return "boonta evaluate " + " ".join(shlex.quote(a) for a in arguments)
+
+
+def duration(seconds: float) -> str:
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return (
+        f"{hours}h {minutes:02d}m {seconds:02d}s"
+        if hours
+        else f"{minutes}m {seconds:02d}s"
+    )
+
+
+def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) -> None:
+    saved = (Path(run_dir) / "checkpoints").is_dir()
+    rows = [
+        ("steps", f"{step:,}"),
+        (str(cfg.score), f"{score:.4g}" if score > float("-inf") else "n/a"),
+        ("time", duration(seconds)),
+        ("run", str(run_dir)),
+        ("checkpoint", "saved" if saved else "not saved"),
+    ]
+    head, body = ("finished", "value"), rows
+    width = max(span(sizes(head, body, None)), shutil.get_terminal_size().columns)
+    lines = ["", *panel(head, body, None, set(), width), ""]
+    if saved:
+        lines += [
+            "evaluate this run with",
+            "",
+            f"  {evaluation_command(run_dir, overrides)}",
+        ]
+    else:
+        lines += [
+            "no checkpoint was saved, so there is nothing to evaluate",
+            "train again with logger=[dashboard,orbax] artisan=checkpoint to keep one",
+        ]
+    print("\n".join([*lines, ""]), flush=True)

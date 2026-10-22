@@ -5,6 +5,7 @@ import hydra
 import jax
 import jax.numpy as jnp
 import numpy as np
+from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
@@ -19,7 +20,7 @@ def main(cfg):
     from boonta.loggers import MultiLogger
     from boonta.utils import SystemMonitor, load_checkpoint, resolve_checkpoint
     from hangar import recipes
-    from hangar.brief import brief
+    from hangar.brief import brief, debrief
 
     start = time.monotonic()
     scores = []
@@ -73,7 +74,8 @@ def main(cfg):
     scoring = instantiate(cfg.scoring)
 
     def craft(state, logs, step):
-        keys = jax.random.split(jax.random.fold_in(craft_key, step), max(len(artisans), 1))
+        seed = step & 0xFFFFFFFF
+        keys = jax.random.split(jax.random.fold_in(craft_key, seed), max(len(artisans), 1))
         for key, artisan in zip(keys, artisans):
             logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
 
@@ -107,14 +109,26 @@ def main(cfg):
             returns = data.get(cfg.score)
             if returns is not None and np.isfinite(returns).any():
                 scores.append(float(np.nanmean(returns)))
+        step = int(jax.device_get(state.algorithm_state.step))
     finally:
         podracer.close(state)
         logger.finish()
 
-    return {
+    result = {
         "score": scoring(scores) if scores else float("-inf"),
         "cost": time.monotonic() - start,
     }
+    if jax.process_index() == 0:
+        hydra_cfg = HydraConfig.get()
+        debrief(
+            cfg,
+            hydra_cfg.runtime.output_dir,
+            list(hydra_cfg.overrides.task),
+            step,
+            result["score"],
+            result["cost"],
+        )
+    return result
 
 
 if __name__ == "__main__":

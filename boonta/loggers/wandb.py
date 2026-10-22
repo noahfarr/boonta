@@ -1,3 +1,5 @@
+import dataclasses
+
 import jax
 import numpy as np
 import wandb
@@ -80,7 +82,7 @@ class WandbLogger:
         if jax.process_index() != 0:
             return
         if isinstance(artifact, Checkpoint):
-            self.checkpoint = artifact
+            self.checkpoint = dataclasses.replace(artifact, data=jax.device_get(artifact.data))
         elif isinstance(artifact, Metrics):
             for run in self.runs.values():
                 run.log(dict(artifact.data), step=step)
@@ -102,7 +104,7 @@ class WandbLogger:
         if self.checkpoint is not None:
             from flax import serialization
 
-            data = jax.device_get(self.checkpoint.data)
+            data = self.checkpoint.data
             for run in self.runs.values():
                 model = wandb.Artifact(f"model-{run.id}", type="model")
                 with model.new_file("model.msgpack", mode="wb") as f:
