@@ -44,6 +44,7 @@ algorithm.update_epochs:
   min: 1
   max: 4
   center: 2
+  scale: 3.33
 podracer.config.num_steps:
   distribution: uniform_pow2
   min: 32
@@ -64,7 +65,8 @@ num_layers:
   min: 1
   max: 4
   center: 2
-stack.expansion_factor:
+  scale: 3.33
+llama.expansion_factor:
   distribution: uniform_pow2
   min: 2
   max: 8

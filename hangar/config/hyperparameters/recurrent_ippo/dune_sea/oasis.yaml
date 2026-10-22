@@ -11,6 +11,18 @@ torso:
 network:
   dtype: bfloat16
 
+num_layers: 3
+
+llama:
+  _target_: boonta.networks.llama
+  block: ${torso}
+  num_layers: ${num_layers}
+  dtype: ${oc.select:network.dtype,null}
+  features: ${cell.features}
+  expansion_factor: 4
+
+stack: ${llama}
+
 num_steps: 1_000_000_000
 
 environment:
@@ -22,12 +34,14 @@ podracer:
 
 algorithm:
   num_minibatches: 8
-  update_epochs: 2
-  gamma: 0.995
-  gae_lambda: 0.95
-  entropy_coefficient: 0.003
+  update_epochs: 1
+  gamma: 0.9959
+  gae_lambda: 0.952
+  entropy_coefficient: 0.0032
+  value_coefficient: 0.47
+  clip_coefficient: 0.19
   normalize_advantage: True
 
 optimizer:
-  lr: 3e-4
-  max_grad_norm: 0.5
+  lr: 3.4e-4
+  max_grad_norm: 0.46
