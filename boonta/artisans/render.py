@@ -35,9 +35,8 @@ class Render:
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            first = jax.tree.map(lambda leaf: jnp.take(leaf, 0, axis=0), environment_state)
             return (algorithm_state, carry, environment_state, timestep), (
-                first,
+                jax.tree.map(lambda leaf: jnp.take(leaf, 0, axis=0), environment_state),
                 jnp.all(timestep.done[0]),
             )
 
