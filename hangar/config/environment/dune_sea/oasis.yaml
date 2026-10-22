@@ -14,4 +14,4 @@ kwargs:
   view_size: 7
   spawn_reach: [4, 8, 16, null]
 auto_reset:
-  ratio: 8
+  ratio: 32
