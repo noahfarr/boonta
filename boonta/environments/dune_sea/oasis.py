@@ -86,7 +86,7 @@ class Oasis(DuneSea):
         view_size: int = 7,
         time_limit: int = 800,
         generator: Generator = functools.partial(cave_generator, fill=CAVE_FILL),
-        num_oases: int = 2,
+        num_oases: int = 3,
         num_mirages: int | None = None,
         spawn_reach: int | tuple[int | None, ...] | None = None,
         mirage_start: int = MIRAGE_START,
