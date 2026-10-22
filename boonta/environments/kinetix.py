@@ -2,7 +2,6 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from gymnax.environments import spaces as gymnax_spaces
 
 from boonta.utils import Array, Key, Timestep
 
@@ -65,6 +64,7 @@ class Kinetix(Environment):
         )
 
     def action_space(self) -> Space:
+        from gymnax.environments import spaces as gymnax_spaces
         from kinetix.environment import MultiDiscrete
 
         space = self._env.action_space(self._params)

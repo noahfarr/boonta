@@ -2,7 +2,7 @@
 
 # MuJoCo Playground's reference PPO for PandaPickCube (brax): 20M steps, discount 0.97,
 # 2048 envs x 10-step unrolls, 32 minibatches x 8 epochs, lr 1e-3, entropy 2e-2.
-total_timesteps: 20_000_000
+num_steps: 20_000_000
 
 algorithm:
   gamma: 0.97

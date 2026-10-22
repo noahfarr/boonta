@@ -1,7 +1,29 @@
+num_episodes: ${environment.num_envs}
+seed: ${trial:}
+checkpoint: null
+
+loggers: {}
+artisans: {}
+
+environment:
+  num_envs: 64
+
 defaults:
-  - config
+  - podracer: anakin
+  - algorithm: ppo
+  - environment/auto_reset: same_step
+  - environment: gymnax/minatar/breakout
+  - logger: [dashboard, xdg]
+  - artisan: render
+  - curriculum: default
+  - intrinsic_reward: null
+  - optional hyperparameters: ${cascade:hyperparameters,${algorithm},${environment},${curriculum}}
   - _self_
 
 hydra:
   run:
-    dir: ${checkpoint}/evaluation/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/${oc.env:SLURM_JOB_ID,${now:%Y-%m-%d}/${now:%H-%M-%S}}-${oc.env:SLURM_ARRAY_TASK_ID,0}
+  job_logging:
+    loggers:
+      absl:
+        level: WARNING

@@ -109,7 +109,7 @@ A learning rate that anneals comes from `learning_rate(cfg, batch_size)` in [`sc
 3. `hyperparameters/ppo/gymnax.yaml`
 4. `hyperparameters/ppo.yaml`
 
-and uses the first that exists. Here it is the second, which sets `total_timesteps: 20_000_000` for every MinAtar game. A missing file is not an error.
+and uses the first that exists. Here it is the second, which sets `num_steps: 20_000_000` for every MinAtar game. A missing file is not an error.
 
 Before each environment file it tries the same path with the curriculum appended, so `curriculum=plr` with `environment=kinetix/kinetix` finds `hyperparameters/ppo/kinetix/plr.yaml`. That file pulls in `hyperparameters/ppo/kinetix.yaml` through its defaults and sets what PLR needs on Kinetix, the level `generate_level` factory. A recipe never passes curriculum arguments: it calls `instantiate(cfg.curriculum)(algorithm, env)`, and Hydra builds the factories when the curriculum is instantiated. The default curriculum has no such files, so it resolves exactly as before.
 

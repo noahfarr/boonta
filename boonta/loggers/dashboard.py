@@ -35,7 +35,9 @@ class DashboardLogger:
     ):
         if jax.process_index() != 0:
             return
-        self.summary = summary or {}
+        self.summary = {**(summary or {})}
+        if total_timesteps:
+            self.summary["Total Timesteps"] = total_timesteps
         self.max_rows = max_rows
         self.generations = {}
         self._metrics = {}

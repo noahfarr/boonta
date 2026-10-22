@@ -13,8 +13,9 @@ algorithm:
   vmax: 150.0
   num_bins: 151
 
-rollout:
-  num_steps: 128
+podracer:
+  config:
+    num_steps: 128
 
 environment:
   num_envs: 1024

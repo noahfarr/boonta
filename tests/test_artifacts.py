@@ -6,6 +6,8 @@ import time
 from functools import partial
 from types import SimpleNamespace
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,10 +19,10 @@ import zoo
 from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.artisans import Checkpoint, Image, Plot, Render, Video
+from boonta.artisans import Checkpoint, Image, Plot, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
-from hangar.brief import brief
+from hangar.brief import brief, debrief
 
 NUM_ENVS, NUM_STEPS = 8, 4
 online = partial(zoo.online, devices=2)
@@ -109,13 +111,85 @@ def test_resume_restores_each_saved_field_and_leaves_the_rest_fresh(tmp_path, fi
         assert_restored(getattr(expected, field), getattr(restored, field))
 
 
-def test_resume_fails_when_a_saved_field_changed_shape(tmp_path):
-    saved = build_podracer(zoo.recurrent_ppo)
-    wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)
-    save(tmp_path, saved.init(jax.random.key(0)))
+def test_resume_fails_when_a_saved_parameter_changed_shape(tmp_path):
+    podracer = build_podracer(zoo.recurrent_ppo)
+    save(tmp_path, podracer.init(jax.random.key(0)))
+    fresh = podracer.init(jax.random.key(0))
+    wrong = jax.tree.map(lambda leaf: jnp.zeros((leaf.shape[0] + 1, *leaf.shape[1:]), leaf.dtype) if leaf.ndim else leaf, fresh.algorithm_state.params)
 
     with pytest.raises(ValueError, match="stored shape"):
-        load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
+        load_checkpoint(resolve_checkpoint(tmp_path), fresh.replace(algorithm_state=fresh.algorithm_state.replace(params=wrong)))
+
+
+@struct.dataclass
+class Holding:
+    algorithm_state: tuple
+
+
+def test_a_checkpoint_keeps_empty_arrays_in_place(tmp_path):
+    saved = Holding((jnp.arange(3.0), jnp.zeros((0, 4), jnp.int32), {"pool": jnp.ones((5, 0))}))
+    save(tmp_path, saved)
+
+    fresh = Holding((jnp.zeros(3), jnp.ones((0, 4), jnp.int32), {"pool": jnp.zeros((5, 0))}))
+    restored = load_checkpoint(resolve_checkpoint(tmp_path), fresh)
+
+    assert_restored(saved.algorithm_state, restored.algorithm_state)
+
+
+def test_a_recurrent_checkpoint_holds_no_carry_and_loads_into_a_different_env_count(tmp_path):
+    saved = build_podracer(zoo.recurrent_ppo)
+    wider = build_podracer(zoo.recurrent_ppo, num_envs=2 * NUM_ENVS)
+    trained = train(saved)
+    save(tmp_path, trained)
+
+    stored = {item.name for item in (tmp_path / "checkpoints/latest/96/algorithm_state").iterdir()}
+    loaded = load_checkpoint(resolve_checkpoint(tmp_path), wider.init(jax.random.key(0)))
+
+    assert not any("carry" in name for name in stored)
+    assert_restored(trained.algorithm_state.params, loaded.algorithm_state.params)
+    assert int(loaded.algorithm_state.step) == int(trained.algorithm_state.step)
+    assert loaded.carry.shape[0] == 2 * NUM_ENVS
+
+
+def test_a_host_and_path_is_recognised_as_a_remote_checkpoint_and_a_local_path_is_not(tmp_path):
+    from boonta.utils.checkpoint import remote_parts
+
+    assert remote_parts("ias:/path/to/checkpoint") == ("ias", "/path/to/checkpoint")
+    assert remote_parts("me@host:~/runs/a") == ("me@host", "~/runs/a")
+    assert remote_parts(str(tmp_path)) is None
+    assert remote_parts("C:\\runs") is None
+    assert remote_parts("https://example.org/a") is None
+    assert remote_parts("a/b:c") is None
+
+
+def test_a_remote_run_directory_is_pulled_once_to_the_cache_at_its_latest_checkpoint(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+
+    remote = tmp_path / "remote" / "run"
+    for step in (1, 12, 3):
+        (remote / "checkpoints/latest" / str(step) / "algorithm_state").mkdir(parents=True)
+        (remote / "checkpoints/latest" / str(step) / "algorithm_state/data").write_text(str(step))
+    calls = []
+
+    def fake(command, **kwargs):
+        calls.append(command[0])
+        if command[0] == "ssh":
+            return subprocess.CompletedProcess(command, 0, stdout=str(remote / "checkpoints/latest/12") + "\n", stderr="")
+        shutil.copytree(remote / "checkpoints/latest/12", command[-1], dirs_exist_ok=True)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setenv("BOONTA_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(subprocess, "run", fake)
+
+    first = resolve_checkpoint(f"cluster:{remote}")
+    second = resolve_checkpoint(f"cluster:{remote}")
+
+    assert first == second
+    assert first.endswith("checkpoints/latest/12")
+    assert (Path(first) / "algorithm_state/data").read_text() == "12"
+    assert str(tmp_path / "cache") in first
+    assert len([call for call in calls if call != "ssh"]) == 1
 
 
 def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_path):
@@ -206,46 +280,64 @@ def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
     assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
 
 
-def test_the_file_logger_writes_each_image_as_a_png(tmp_path):
-    logger = FileLogger(directory=tmp_path)
-    logger.log_artifact(Image("plot", np.zeros((8, 8, 3), np.uint8)), step=100)
-
-    assert [path.name for path in tmp_path.iterdir()] == ["plot-100.png"]
-
-
-def test_the_plot_artisan_draws_the_history_of_finished_episodes():
-    plot = Plot(size=(3.0, 2.0), dpi=50)
-    key = "episode_statistics/episode_return"
-    first = plot.craft(None, None, None, None, {key: np.array([np.nan, 1.0, 3.0, np.nan])})
-    second = plot.craft(None, None, None, None, {key: np.full((2, 2), np.nan)})
-    third = plot.craft(None, None, None, None, {key: np.array([[5.0, np.nan]])})
-
-    np.testing.assert_array_equal(plot.means, [2.0, np.nan, 5.0])
-    np.testing.assert_array_equal(plot.stds, [1.0, np.nan, 0.0])
-    for image in (first, second, third):
-        assert image.name == "episode_return"
-        assert image.data.shape == (100, 150, 3) and image.data.dtype == np.uint8
-    assert not np.array_equal(first.data, third.data)
-
-
 def test_the_render_artisan_plays_and_draws_the_first_environment():
     from boonta.environments import gymnax
 
     environment = zoo.wrap(gymnax.make("Breakout-MinAtar"), NUM_ENVS)
+    environment.time_limit = lambda: 15
     space = environment.action_space()
     num_actions = space.num_actions
 
-    def step(state, key, timestep, temperature=1.0):
+    def step(state, carry, key, timestep, temperature=1.0):
         action = jax.random.randint(key, (NUM_ENVS,), 0, num_actions, space.dtype)
-        return state, action, {}
+        return state, carry, action, {}
 
-    algorithm = SimpleNamespace(step=step)
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render(max_frames=16).craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
 
     frames, _, _, channels = video.data.shape
-    assert (frames, channels) == (16, 3)
-    assert len(np.unique(video.data.reshape(16, -1), axis=0)) > 1
+    assert 1 < frames <= 16 and channels == 3
+    assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
+
+
+def test_the_render_artisan_stops_when_the_first_episode_ends():
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 12
+    environment.render = lambda state: np.zeros((1, 1, 3))
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, timestep.obs.argmax(-1) % 2, {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+
+    frames, *_ = video.data.shape
+    assert frames == corridor().shortest
+
+
+def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
+    monkeypatch,
+):
+    class Tokenizer:
+        def decode(self, tokens):
+            return " ".join(map(str, tokens))
+
+    monkeypatch.setattr("boonta.artisans.transcript.load_tokenizer", lambda repo_id: Tokenizer())
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 3
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, jnp.arange(NUM_ENVS, dtype=jnp.int32) % 2, {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+    text = Transcript("repo", num_examples=3).craft(
+        jax.random.key(0), algorithm, environment, state, {}
+    )
+
+    assert text.data == "0: 0 0 0 0\n\n1: 1 1 1 1\n\n2: 0 0 0 0"
 
 
 RUN = """
@@ -403,21 +495,91 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     assert axes.step is False
 
 
-def test_the_xdg_logger_opens_each_image_it_is_given(tmp_path, monkeypatch):
-    from unittest import mock
+TRAINED_WITH = [
+    "algorithm=ippo",
+    "environment=dune_sea/oasis",
+    "environment.kwargs.num_agents=8",
+    "logger=[dashboard,orbax]",
+    "artisan=checkpoint",
+    "seed=3",
+    "num_steps=1_000",
+    "hydra/launcher=submitit",
+]
 
-    from boonta.loggers import XdgLogger
 
-    monkeypatch.setenv("DISPLAY", ":0")
-    logger = XdgLogger(directory=tmp_path)
-    with mock.patch("shutil.which", return_value="/usr/bin/xdg-open"), mock.patch(
-        "subprocess.Popen"
-    ) as popen:
-        for step in (1, 2):
-            logger.log_artifact(Image("plot", np.full((8, 8, 3), step, np.uint8)), step=step)
+def evaluation_command(capsys, run_dir, overrides):
+    (run_dir / "checkpoints").mkdir(parents=True)
+    debrief(OmegaConf.create({"score": "training/return"}), run_dir, overrides, 1_000, 0.0, 30.0)
+    *_, command = capsys.readouterr().out.strip().splitlines()
+    return command.strip()
 
-    assert popen.call_count == 2
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["plot-1.png", "plot-2.png"]
+
+def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_trains(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path, TRAINED_WITH)
+
+    assert command == (
+        f"boonta evaluate checkpoint={tmp_path} algorithm=ippo "
+        "environment=dune_sea/oasis environment.kwargs.num_agents=8"
+    )
+
+
+def test_the_evaluation_command_quotes_what_the_shell_would_expand(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path / "with space", ["network.sizes=[1,2]"])
+
+    assert command == f"boonta evaluate 'checkpoint={tmp_path}/with space' 'network.sizes=[1,2]'"
+
+
+def test_debrief_prints_the_evaluation_command_of_a_run_that_saved_a_checkpoint(capsys, tmp_path):
+    (tmp_path / "checkpoints").mkdir()
+
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 20_000_000, 3.5, 4000.0)
+
+    printed = capsys.readouterr().out
+    for shown in ("20,000,000", "training/return", "3.5", "1:06:40", "saved"):
+        assert shown in printed
+    assert f"boonta evaluate checkpoint={tmp_path} algorithm=ippo" in printed
+
+
+def test_debrief_says_so_when_no_checkpoint_was_saved(capsys, tmp_path):
+    debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 1_000, float("-inf"), 30.0)
+
+    printed = capsys.readouterr().out
+    assert "not saved" in printed and "n/a" in printed
+    assert "boonta evaluate" not in printed
+    assert "logger=[dashboard,orbax] artisan=checkpoint" in printed
+
+
+def test_the_wandb_logger_keeps_a_host_copy_of_the_checkpoint_it_will_upload(monkeypatch):
+    import sys
+    import types
+
+    import jax.numpy as jnp
+
+    monkeypatch.setitem(sys.modules, "wandb", types.ModuleType("wandb"))
+    monkeypatch.delitem(sys.modules, "boonta.loggers.wandb", raising=False)
+
+    from boonta.artisans import Checkpoint
+    from boonta.loggers.wandb import WandbLogger
+
+    logger = object.__new__(WandbLogger)
+    logger.runs, logger.checkpoint = {}, None
+    weights = jnp.arange(4.0)
+
+    logger.log_artifact(Checkpoint("model", {"weights": weights}, 1.0), step=1)
+    weights.delete()
+
+    assert logger.checkpoint.data["weights"].tolist() == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
+    import jax
+
+    key = jax.random.key(0)
+    step = 4_303_355_904
+
+    folded = jax.random.fold_in(key, step & 0xFFFFFFFF)
+
+    assert folded.shape == key.shape
 
 
 def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
@@ -438,3 +600,45 @@ def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
     assert data["concentration/steps_for_half"] == pytest.approx(0.005)
     assert data["concentration/steps_for_ninety"] == pytest.approx(0.009)
     assert data["concentration/index"] == pytest.approx(0.99)
+
+
+
+def test_the_file_logger_writes_each_image_as_a_png(tmp_path):
+    logger = FileLogger(directory=tmp_path)
+    logger.log_artifact(Image("plot", np.zeros((8, 8, 3), np.uint8)), step=100)
+
+    assert [path.name for path in tmp_path.iterdir()] == ["plot-100.png"]
+
+
+
+def test_the_plot_artisan_draws_the_history_of_finished_episodes():
+    plot = Plot(size=(3.0, 2.0), dpi=50)
+    key = "episode_statistics/episode_return"
+    first = plot.craft(None, None, None, None, {key: np.array([np.nan, 1.0, 3.0, np.nan])})
+    second = plot.craft(None, None, None, None, {key: np.full((2, 2), np.nan)})
+    third = plot.craft(None, None, None, None, {key: np.array([[5.0, np.nan]])})
+
+    np.testing.assert_array_equal(plot.means, [2.0, np.nan, 5.0])
+    np.testing.assert_array_equal(plot.stds, [1.0, np.nan, 0.0])
+    for image in (first, second, third):
+        assert image.name == "episode_return"
+        assert image.data.shape == (100, 150, 3) and image.data.dtype == np.uint8
+    assert not np.array_equal(first.data, third.data)
+
+
+
+def test_the_xdg_logger_opens_each_image_it_is_given(tmp_path, monkeypatch):
+    from unittest import mock
+
+    from boonta.loggers import XdgLogger
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    logger = XdgLogger(directory=tmp_path)
+    with mock.patch("shutil.which", return_value="/usr/bin/xdg-open"), mock.patch(
+        "subprocess.Popen"
+    ) as popen:
+        for step in (1, 2):
+            logger.log_artifact(Image("plot", np.full((8, 8, 3), step, np.uint8)), step=step)
+
+    assert popen.call_count == 2
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["plot-1.png", "plot-2.png"]

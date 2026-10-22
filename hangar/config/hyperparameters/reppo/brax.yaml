@@ -1,9 +1,10 @@
 # @package _global_
 
-total_timesteps: 50_000_000
+num_steps: 50_000_000
 
-rollout:
-  num_steps: 32
+podracer:
+  config:
+    num_steps: 32
 
 environment:
   num_envs: 4096

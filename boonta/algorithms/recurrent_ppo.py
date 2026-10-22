@@ -12,7 +12,7 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
                           remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
-from .advantage_estimators import generalized_advantage_estimation
+from .advantage_estimators import generalized_advantage_estimator
 
 
 @struct.dataclass(frozen=True)
@@ -31,8 +31,6 @@ class RecurrentPPOConfig:
 @struct.dataclass(frozen=True)
 class RecurrentPPOState:
     step: Array
-    carry: PyTree = struct.field(metadata={"axis": "data"})
-    rollout_carry: PyTree = struct.field(metadata={"axis": "data"})
     params: PyTree
     optimizer_state: optax.OptState
 
@@ -43,8 +41,9 @@ class RecurrentPPO:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> RecurrentPPOState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[RecurrentPPOState, PyTree]:
         network_key, carry_key = jax.random.split(key)
 
         carry = self.network.initialize_carry(
@@ -62,17 +61,22 @@ class RecurrentPPO:
         )
         optimizer_state = self.optimizer.init(params["params"])
 
-        return RecurrentPPOState(
+        state = RecurrentPPOState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
-            carry=carry,
-            rollout_carry=carry,
             params=params,
             optimizer_state=optimizer_state,
         )
 
+        return state, carry
+
     def step(
-        self, state: RecurrentPPOState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[RecurrentPPOState, Array, PyTree]:
+        self,
+        state: RecurrentPPOState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[RecurrentPPOState, PyTree, Array, PyTree]:
         sequence = timestep.to_sequence()
         carry, (dist, values) = self.network.apply(
             state.params,
@@ -80,7 +84,7 @@ class RecurrentPPO:
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=carry,
             temperature=temperature,
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
@@ -90,7 +94,7 @@ class RecurrentPPO:
 
         logits = jax.tree.map(remove_time_axis, getattr(dist, "logits", None))
         aux = {"log_prob": log_prob, "value": value, "logits": logits}
-        return state.replace(carry=carry), action, aux
+        return state, carry, action, aux
 
     def update(
         self, state: RecurrentPPOState, key: Key, transitions: Transition
@@ -182,21 +186,18 @@ class RecurrentPPO:
 
         num_steps, num_envs, *_ = transitions.second.reward.shape
 
-        last_timestep = jax.tree.map(
-            lambda x: jnp.take(x, -1, axis=0), transitions.second
-        )
-        sequence = last_timestep.to_sequence()
+        sequence, final_carry = transitions.tail()
         _, (_, values) = self.network.apply(
             state.params,
             sequence.obs,
             sequence.action,
             sequence.reward,
             sequence.done,
-            carry=state.carry,
+            carry=final_carry,
             temperature=1.0,
         )
-        value = remove_time_axis(remove_feature_axis(values))
-        advantages, returns = generalized_advantage_estimation(
+        value = remove_feature_axis(values)[:, -1]
+        advantages, returns = self.advantage_estimator(
             transitions,
             transitions.aux["value"],
             value,
@@ -208,7 +209,8 @@ class RecurrentPPO:
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "returns": returns}
         )
-        initial_carry = state.rollout_carry
+        initial_carry = transitions.start
+        transitions = transitions.replace(carry=None)
 
         def minibatch_fn(
             state: RecurrentPPOState, indices: Array
@@ -277,4 +279,4 @@ class RecurrentPPO:
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
-        return state.replace(rollout_carry=state.carry)
+        return state

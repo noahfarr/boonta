@@ -105,7 +105,7 @@ def make(cfg):
 
     learning_rate = schedules.learning_rate(
         cfg,
-        batch_size=cfg.environment.num_envs * cfg.rollout.num_steps * env.num_agents,
+        batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps * env.num_agents,
     )
 
     algorithm = RecurrentPuPO(

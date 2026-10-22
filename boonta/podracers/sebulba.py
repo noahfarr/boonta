@@ -20,7 +20,6 @@ from .podracer import Lap, Pit
 
 @struct.dataclass(frozen=True)
 class SebulbaConfig:
-    num_envs: int
     num_steps: int
     learner: Mesh = struct.field(pytree_node=False)
     actor: Mesh = struct.field(pytree_node=False)
@@ -34,11 +33,10 @@ class ActorState:
     lap_state: PyTree = None
 
     def board(self, algorithm_state, pit_state=None) -> "RolloutState":
-        if self.carry is not None:
-            algorithm_state = algorithm_state.replace(carry=self.carry)
         return RolloutState(
             timestep=self.timestep,
             environment_state=self.environment_state,
+            carry=self.carry,
             algorithm_state=algorithm_state,
             pit_state=pit_state,
             lap_state=self.lap_state,
@@ -49,7 +47,7 @@ class ActorState:
         return cls(
             timestep=state.timestep,
             environment_state=state.environment_state,
-            carry=getattr(state.algorithm_state, "carry", None),
+            carry=state.carry,
             lap_state=state.lap_state,
         )
 
@@ -58,6 +56,7 @@ class ActorState:
 class RolloutState:
     timestep: Timestep
     environment_state: EnvState
+    carry: PyTree
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
@@ -88,8 +87,8 @@ class Sebulba:
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
-        algorithm_state, action, aux = self.algorithm.step(
-            state.algorithm_state, algorithm_key, state.timestep, temperature
+        algorithm_state, carry, action, aux = self.algorithm.step(
+            state.algorithm_state, state.carry, algorithm_key, state.timestep, temperature
         )
         environment_state, timestep = self.environment.step(
             environment_key, state.environment_state, action
@@ -99,16 +98,18 @@ class Sebulba:
             first=state.timestep,
             second=timestep,
             aux=aux,
+            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
             step=algorithm_state.step
-            + self.config.num_envs * self.environment.num_agents
+            + self.environment.num_envs * self.environment.num_agents
         )
         state = self.lap(
             lap_key,
             state.replace(
                 algorithm_state=algorithm_state,
+                carry=carry,
                 timestep=timestep,
                 environment_state=environment_state,
             ),
@@ -152,14 +153,13 @@ class Sebulba:
                 for _, actor_timestep in environments
             ]
         )
-        algorithm_state = jax.jit(self.algorithm.init, out_shardings=self.shardings)(
-            jax.device_put(algorithm_key, replicated), timestep
-        )
+        algorithm_state, carry = jax.jit(
+            self.algorithm.init, out_shardings=(self.shardings, None)
+        )(jax.device_put(algorithm_key, replicated), timestep)
         pit_state = jax.jit(self.pit.init)(
             jax.device_put(pit_key, replicated),
-            RolloutState(timestep, None, algorithm_state),
+            RolloutState(timestep, None, carry, algorithm_state),
         )
-        carry = getattr(algorithm_state, "carry", None)
         start = jax.device_get(algorithm_state.step)
 
         def begin(key, state):
@@ -196,7 +196,7 @@ class Sebulba:
     def batch_size(self) -> int:
         return (
             self.config.actor.size
-            * self.config.num_envs
+            * self.environment.num_envs
             * self.config.num_steps
             * self.environment.num_agents
         )
@@ -265,24 +265,15 @@ class Sebulba:
                 for delivery in deliveries:
                     if isinstance(delivery, BaseException):
                         raise delivery
-                actors = [actor_state for actor_state, _, _, _ in deliveries]
+                actors = [delivery[0] for delivery in deliveries]
                 transitions = concatenate(
-                    [jax.device_put(pieces, sharded) for _, pieces, _, _ in deliveries],
+                    [jax.device_put(delivery[1], sharded) for delivery in deliveries],
                     1,
                 )
-                carries = [
-                    jax.device_put(actor_state.carry, replicated)
-                    for actor_state in actors
-                    if actor_state.carry is not None
-                ]
-                num_laps = sum(jax.device_get(laps) for _, _, _, laps in deliveries)
+                num_laps = sum(jax.device_get(delivery[3]) for delivery in deliveries)
                 algorithm_state = algorithm_state.replace(
                     step=algorithm_state.step + num_laps
                 )
-                if carries:
-                    algorithm_state = algorithm_state.replace(
-                        carry=concatenate(carries)
-                    )
                 algorithm_state = jax.device_put(algorithm_state, self.shardings)
                 update_key = jax.device_put(
                     jax.random.fold_in(learner_key, update), replicated
@@ -292,7 +283,7 @@ class Sebulba:
                 )
                 for parameter_queue in parameter_queues:
                     parameter_queue.put((algorithm_state, pit_state))
-                log = concatenate([log for _, _, log, _ in deliveries])
+                log = concatenate([delivery[2] for delivery in deliveries])
                 logs.append(log | update_log)
             for worker in workers:
                 worker.result()
@@ -319,6 +310,7 @@ class Sebulba:
     def assess(self, state: RolloutState, key: Key, num_steps: int) -> PyTree:
         env_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         environment_state, timestep = self.environment.init(env_key)
+        _, carry = self.algorithm.init(env_key, timestep)
         state = self.pit(
             call_key,
             self.lap(
@@ -326,6 +318,7 @@ class Sebulba:
                 state.replace(
                     timestep=timestep,
                     environment_state=environment_state,
+                    carry=carry,
                 ),
             ),
         )
@@ -353,15 +346,14 @@ def make(
     podracer = Sebulba(config, algorithm, environment, pit, lap)
 
     assert (
-        config.num_envs % config.learner.size == 0
+        environment.num_envs % config.learner.size == 0
     ), "num_envs must be divisible by the number of learner devices"
     assert not (
         isinstance(algorithm, Population)
         or (isinstance(algorithm, Wrapper) and algorithm.wraps(Population))
     ), (
         f"{type(algorithm).__name__} runs a population, which sebulba does not support: "
-        f"the actor keeps no recurrent carry for the population's copies, their step "
-        f"counts never reach the learner, and the league would credit each rollout to "
+        f"their step counts never reach the learner, and the league would credit each rollout to "
         f"the opponent drawn one update after the one that played it. Use anakin."
     )
 
@@ -372,7 +364,7 @@ def make(
             environment.init(jax.random.fold_in(key, index))[1]
             for index in range(config.actor.size)
         ]
-        return algorithm.init(key, concatenate(timesteps))
+        return algorithm.init(key, concatenate(timesteps))[0]
 
     axes = sharded(jax.eval_shape(initialize, jax.random.key(0)))
     podracer.shardings = jax.tree.map(

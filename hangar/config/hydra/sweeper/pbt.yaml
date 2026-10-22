@@ -3,8 +3,8 @@ defaults:
   - _self_
 
 budget_variable:
-  total_timesteps: ${total_timesteps}
-  training.num_epochs: ${training.num_epochs}
+  num_steps: ${num_steps}
+  num_epochs: ${num_epochs}
 checkpoint: checkpoint
 overrides:
   - scoring=final

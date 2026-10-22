@@ -1,0 +1,23 @@
+# @package _global_
+
+# Throughput oriented. The number of environments follows the JAXtari PQN benchmark, the rest is not tuned
+
+num_steps: 100_000_000
+
+algorithm:
+  num_minibatches: 32
+  update_epochs: 2
+  clip_coefficient: 0.1
+  entropy_coefficient: 0.01
+  normalize_advantage: True
+
+podracer:
+  config:
+    num_steps: 32
+
+environment:
+  num_envs: 4096
+
+optimizer:
+  lr: 2.5e-4
+  max_grad_norm: 0.5

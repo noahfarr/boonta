@@ -32,19 +32,26 @@ class BC:
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> BCState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[BCState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
-        return BCState(
+        state = BCState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=self.optimizer.init(params["params"]),
         )
 
+        return state, None
+
     def step(
-        self, state: BCState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[BCState, Array, PyTree]:
+        self,
+        state: BCState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[BCState, PyTree, Array, PyTree]:
         dist = self.network.apply(state.params, timestep.obs, temperature=temperature)
-        return state, dist.sample(seed=key), {}
+        return state, carry, dist.sample(seed=key), {}
 
     def update(self, state: BCState, key: Key, transitions: Transition) -> BCState:
         del key

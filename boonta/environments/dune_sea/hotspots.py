@@ -180,7 +180,7 @@ class Scorecard:
             terminated=empty.astype(bool),
             truncated=empty.astype(bool),
         )
-        _, _, aux = algorithm.step(state.algorithm_state, key, timestep, 1.0)
+        _, _, _, aux = algorithm.step(state.algorithm_state, None, key, timestep, temperature=1.0)
         logits = aux["logits"]
         correct = jnp.take_along_axis(jax.nn.softmax(logits), game.secrets[:, None], axis=-1)[:, 0]
         solved = jnp.argmax(logits, axis=-1) == game.secrets

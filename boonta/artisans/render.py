@@ -11,53 +11,57 @@ class Render:
     def __init__(
         self,
         name: str = "render",
-        max_frames: int = 256,
         fps: int = 16,
         kwargs: dict | None = None,
     ):
         self.name = name
-        self.max_frames = max_frames
         self.fps = fps
         self.kwargs = kwargs or {}
 
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
+        _, carry = algorithm.init(init_key, timestep)
+        num_steps = environment.time_limit() + 1
 
-        def step(carry, key):
-            algorithm_state, environment_state, timestep = carry
+        def step(loop, key):
+            algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, action, _ = algorithm.step(
-                algorithm_state, algorithm_key, timestep, temperature=0.0
+            algorithm_state, carry, action, _ = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
             )
             environment_state, timestep = environment.step(
                 environment_key, environment_state, action
             )
-            env_state = jax.tree.map(
-                lambda leaf: jnp.take(leaf, 0, axis=0),
-                getattr(environment_state, "unwrapped", environment_state),
+            return (algorithm_state, carry, environment_state, timestep), (
+                jax.tree.map(
+                    lambda leaf: jnp.take(leaf, 0, axis=0),
+                    getattr(environment_state, "unwrapped", environment_state),
+                ),
+                jnp.all(jnp.take(timestep.done, 0, axis=0)),
             )
-            return (algorithm_state, environment_state, timestep), env_state
 
-        (_, environment_state, _), trajectory = jax.lax.scan(
+        (_, _, environment_state, _), (trajectory, done) = jax.lax.scan(
             step,
-            (algorithm_state, environment_state, timestep),
-            jax.random.split(key, self.max_frames),
+            (algorithm_state, carry, environment_state, timestep),
+            jax.random.split(key, num_steps),
         )
         environment.close(environment_state)
-        return trajectory
+        return trajectory, done
 
     def craft(self, key, algorithm, environment, state, logs) -> Video:
         try:
-            # Environments that draw with pyplot (gymnax) would otherwise open a window
-            # per frame on an interactive backend, which is slow and hangs under the dashboard.
             from matplotlib import pyplot
 
             pyplot.switch_backend("Agg")
         except ImportError:
             pass
-        rollout = jax.jit(partial(self.rollout, algorithm, environment))
-        trajectory = rollout(state.algorithm_state, key)
+        trajectory, done = jax.device_get(
+            jax.jit(partial(self.rollout, algorithm, environment))(
+                state.algorithm_state, key
+            )
+        )
+        num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)
         frames = [
             np.asarray(
                 environment.render(
@@ -65,6 +69,6 @@ class Render:
                 ),
                 dtype=np.uint8,
             )
-            for step in range(self.max_frames)
+            for step in range(num_frames)
         ]
         return Video(self.name, np.stack(frames), fps=self.fps)

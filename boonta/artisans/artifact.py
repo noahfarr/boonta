@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from PIL import Image as PILImage
 
 
 @dataclass(frozen=True)
@@ -21,6 +20,8 @@ class Video(Artifact):
     fps: int = 16
 
     def encode(self, path) -> str:
+        from PIL import Image as PILImage
+
         frames = np.asarray(self.data, dtype=np.uint8)
         if frames.ndim == 3:
             frames = np.repeat(frames[..., None], 3, axis=-1)
@@ -39,6 +40,8 @@ class Video(Artifact):
 class Image(Artifact):
 
     def encode(self, path) -> str:
+        from PIL import Image as PILImage
+
         pixels = np.asarray(self.data, dtype=np.uint8)
         PILImage.fromarray(pixels).save(path)
         return str(path)

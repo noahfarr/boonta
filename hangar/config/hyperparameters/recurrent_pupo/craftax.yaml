@@ -1,15 +1,15 @@
 # @package _global_
 
-total_timesteps: 100_000_000
+num_steps: 100_000_000
 
-training:
-  num_epochs: 20
+num_epochs: 20
 
 environment:
   num_envs: 1024
 
-rollout:
-  num_steps: 64
+podracer:
+  config:
+    num_steps: 64
 
 num_layers: 2
 

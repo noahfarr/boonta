@@ -45,14 +45,14 @@ class IQL:
     value_optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> IQLState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[IQLState, PyTree]:
         actor_key, critic_key, value_key = jax.random.split(key, 3)
 
         actor_params = self.actor.init(actor_key, timestep.obs, temperature=1.0)
         critic_params = self.critic.init(critic_key, timestep.obs, timestep.action)
         value_params = self.value.init(value_key, timestep.obs)
 
-        return IQLState(
+        state = IQLState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=actor_params,
             critic_params=critic_params,
@@ -63,12 +63,19 @@ class IQL:
             value_optimizer_state=self.value_optimizer.init(value_params["params"]),
         )
 
+        return state, None
+
     def step(
-        self, state: IQLState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[IQLState, Array, PyTree]:
+        self,
+        state: IQLState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[IQLState, PyTree, Array, PyTree]:
         dist = self.actor.apply(state.params, timestep.obs, temperature=temperature)
         action = dist.sample(seed=key)
-        return state, action, {}
+        return state, carry, action, {}
 
     def update(self, state: IQLState, key: Key, transitions: Transition) -> IQLState:
         del key

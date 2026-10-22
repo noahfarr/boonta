@@ -39,7 +39,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 - Grid worlds and open-ended: [Jumanji](https://github.com/instadeepai/jumanji) · [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) · [Craftax](https://github.com/MichaelTMatthews/Craftax)
 - Levels: [Kinetix](https://github.com/FLAIROx/Kinetix) · [JaxUED](https://github.com/DramaCow/jaxued)
 - Multi-agent: [JaxMARL](https://github.com/FLAIROx/JaxMARL) · [Mapox](https://github.com/gabe00122/mapox) · [BluffJAX](https://github.com/AryamanReddi99/bluffjax) · [ConnectX](https://www.kaggle.com/competitions/connectx)
-- Games: [Atari](https://github.com/Farama-Foundation/Arcade-Learning-Environment) · Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) · Super Mario Bros. · Wordle
+- Games: [Atari](https://github.com/Farama-Foundation/Arcade-Learning-Environment) · [JAXtari](https://github.com/k4ntz/JAXtari) · Pokémon Red on [Peanut-GB](https://github.com/deltabeard/Peanut-GB) · Super Mario Bros. · Wordle
 - Anything else: [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) vector environments
 
 **Curricula**
@@ -70,11 +70,21 @@ boonta is not on PyPI. Install it from a checkout with [uv](https://docs.astral.
 
 ```bash
 git clone https://github.com/noahfarr/boonta && cd boonta
-uv sync                  # the library
-uv sync --extra hangar   # the library, plus Hydra to run the configs in hangar
+uv sync --no-dev                    # the core
+uv sync --no-dev --extra hangar     # the core, plus Hydra to run the configs in hangar
 ```
 
-The library never imports `hangar`, Hydra or OmegaConf. Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra craftax`.
+| Extra | Adds | Needed for |
+|---|---|---|
+| `hangar` | Hydra, OmegaConf, Rich, Pillow, psutil, nvidia-ml-py | the `boonta` command, the dashboard logger, videos |
+| `gymnax` | Gymnax | the `gymnax` environments, such as MinAtar |
+| `minari` | Minari | the `minari` datasets of BC and IQL |
+| `huggingface` | huggingface-hub, tokenizers, safetensors, Jinja2 | loading Qwen3, Gemma, SigLIP and π0 weights |
+| `trueskill` | TrueSkill | the `TrueSkill` artisan |
+| `wandb` | wandb, pandas, joblib, tqdm | `WandbLogger` and `boonta.utils.wandb` |
+| `chat` | Textual, plus `huggingface` | the chat scripts in `hangar/scripts` |
+
+Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra gymnax --extra craftax`. Plain `uv sync` also installs the `dev` group: pytest and the packages the tests import.
 
 ## Guides
 

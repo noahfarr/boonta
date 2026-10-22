@@ -14,7 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from jax.flatten_util import ravel_pytree
 from omegaconf import OmegaConf
 
-from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.utils import remove_feature_axis
 from hangar import recipes
 from hangar import resolvers  # noqa: F401
@@ -33,7 +33,7 @@ def compose(run: Path, num_envs: int, curriculum: bool = False):
     kept = [item for item in overrides if not item.startswith(dropped)]
     with hydra.initialize(version_base=None, config_path="../config"):
         cfg = hydra.compose(
-            config_name="config",
+            config_name="train",
             overrides=[*kept, *extra, f"environment.num_envs={num_envs}"],
             return_hydra_config=True,
         )
@@ -115,7 +115,7 @@ def main(
     def advantages_of(params, transitions):
         last_obs = jax.tree.map(lambda leaf: leaf[-1], transitions.second.obs)
         _, bootstrap = algorithm.network.apply(params, last_obs, temperature=1.0)
-        advantages, _ = generalized_advantage_estimation(
+        advantages, _ = generalized_advantage_estimator(
             transitions,
             transitions.aux["value"],
             remove_feature_axis(bootstrap),

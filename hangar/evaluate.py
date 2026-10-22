@@ -34,7 +34,8 @@ def main(cfg):
             for v in (cfg.loggers or {}).values()
         ]
     )
-    num_steps = int(cfg.evaluation.num_steps) or environment.time_limit() + 1
+    num_steps = environment.time_limit() + 1
+    num_rollouts = -(-int(cfg.num_episodes) // int(cfg.environment.num_envs))
 
     init_key, evaluate_key, craft_key = jax.random.split(jax.random.key(cfg.seed), 3)
     path = resolve_checkpoint(cfg.checkpoint)
@@ -42,14 +43,19 @@ def main(cfg):
     step = int(jax.device_get(state.algorithm_state.step))
 
     try:
-        _, logs = podracer.evaluate(state, evaluate_key, num_steps)
-        data = {
-            k.replace("episode_statistics/", "evaluation/"): np.nanmean(
-                v.reshape(1, -1), axis=1, keepdims=True
+        _, logs = zip(
+            *(
+                podracer.evaluate(state, rollout_key, num_steps)
+                for rollout_key in jax.random.split(evaluate_key, num_rollouts)
             )
-            for k, v in jax.device_get(
-                {k: v for k, v in logs.items() if "/" in k}
-            ).items()
+        )
+        logs = jax.tree.map(lambda *values: np.stack(values), *logs)
+        data = {
+            name.replace("episode_statistics/", "evaluation/"): np.nanmean(
+                value
+            ).reshape(1, 1)
+            for name, value in logs.items()
+            if "/" in name
         }
         artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
         for key, artisan in zip(

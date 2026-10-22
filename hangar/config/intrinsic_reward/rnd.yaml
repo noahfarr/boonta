@@ -1,0 +1,12 @@
+# @package intrinsic_reward
+
+features: 64
+lr: 1e-4
+intrinsic_coefficient: 0.5
+intrinsic_gamma: 0.99
+intrinsic_lambda: ${algorithm.gae_lambda}
+statistics_decay: 0.99
+update_proportion: 1.0
+observation_clip: 5.0
+update_epochs: ${algorithm.update_epochs}
+num_minibatches: ${algorithm.num_minibatches}

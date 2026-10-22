@@ -20,14 +20,13 @@ NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 
 
 def on_anakin(algorithm=None, environment=None, **hooks):
-    config = anakin.AnakinConfig(num_envs=NUM_ENVS, num_steps=NUM_STEPS, mesh=mesh(2))
+    config = anakin.AnakinConfig(num_steps=NUM_STEPS, mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
     return anakin.make(config, algorithm or Probe(), environment, **hooks)
 
 
 def on_sebulba(algorithm=None, environment=None, **hooks):
     config = sebulba.SebulbaConfig(
-        num_envs=NUM_ENVS,
         num_steps=NUM_STEPS,
         learner=mesh(ACTORS),
         actor=mesh(ACTORS, start=ACTORS),
@@ -37,9 +36,7 @@ def on_sebulba(algorithm=None, environment=None, **hooks):
 
 
 def on_quadinaros(algorithm=None, environment=None, dataset=None, **hooks):
-    config = quadinaros.QuadinarosConfig(
-        num_envs=NUM_ENVS, batch_shape=(16,), mesh=mesh(2)
-    )
+    config = quadinaros.QuadinarosConfig(batch_shape=(16,), mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
     dataset = dataset or Episodes(flatten(demonstrations(Dial(), jax.random.key(0), 16)))
     return quadinaros.make(config, algorithm or Probe(), environment, dataset, **hooks)
@@ -233,7 +230,7 @@ def test_environments_and_carries_shard_and_parameters_replicate(
     for _ in range(2):
         for leaf in jax.tree.leaves((state.environment_state, state.timestep.obs)):
             assert_sharded(leaf, mesh(2))
-        assert_sharded(state.algorithm_state.carry, mesh(2))
+        assert_sharded(state.carry, mesh(2))
         assert_replicated(state.algorithm_state.version, mesh(2))
         first, second = shards(state.environment_state.noise)
         assert not np.array_equal(first, second)
@@ -309,16 +306,10 @@ def test_sebulba_surfaces_an_actor_failure_instead_of_hanging():
 def test_the_learner_shards_what_the_algorithm_keeps_per_environment(build):
     podracer = build()
     state = podracer.init(jax.random.key(0))
-    shards = [
-        state.algorithm_state.carry.sharding.spec,
-        state.algorithm_state.version.sharding.spec,
-    ]
+    shards = [state.algorithm_state.version.sharding.spec]
     state, _ = podracer.train(state, jax.random.key(1), 2)
-    shards += [
-        state.algorithm_state.carry.sharding.spec,
-        state.algorithm_state.version.sharding.spec,
-    ]
-    assert shards == [P("data"), P(), P("data"), P()]
+    shards += [state.algorithm_state.version.sharding.spec]
+    assert shards == [P(), P()]
 
 
 @pytest.mark.parametrize("build", EVERY)

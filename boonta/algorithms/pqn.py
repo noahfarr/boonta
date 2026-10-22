@@ -18,6 +18,8 @@ from boonta.utils import (
 )
 from boonta.utils.typing import Array, Key, PyTree
 
+from .action_value_estimators import q_lambda
+
 
 @struct.dataclass(frozen=True)
 class PQNConfig:
@@ -41,56 +43,37 @@ class PQN:
     exploration_schedule: optax.Schedule
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    action_value_estimator: Callable = q_lambda
 
-    def init(self, key: Key, timestep: Timestep) -> PQNState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[PQNState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
         optimizer_state = self.optimizer.init(params["params"])
 
-        return PQNState(
+        state = PQNState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
         )
 
+        return state, None
+
     def step(
-        self, state: PQNState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[PQNState, Array, PyTree]:
+        self,
+        state: PQNState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[PQNState, PyTree, Array, PyTree]:
         dist = self.network.apply(
             state.params,
             timestep.obs,
             temperature=self.exploration_schedule(state.step) * temperature,
         )
         action = dist.sample(seed=key)
-        return state, action, {"q_values": dist.preferences}
+        return state, carry, action, {"q_values": dist.preferences}
 
     def update(self, state: PQNState, key: Key, transitions: Transition) -> PQNState:
-        def q_lambda(transitions: Transition, q_values: Array) -> Array:
-            gamma, q_lambda_ = self.cfg.gamma, self.cfg.q_lambda
-            reward = transitions.second.reward
-            terminated = transitions.second.terminated
-            truncated = transitions.second.truncated
-
-            def scan_fn(carry: tuple, x: tuple) -> tuple:
-                lambda_returns, next_q_value = carry
-                reward, terminated, truncated, q_values = x
-                td_target = reward + gamma * (1.0 - terminated) * next_q_value
-                delta = lambda_returns - next_q_value
-                lambda_returns = (
-                    td_target + gamma * q_lambda_ * (1.0 - terminated) * delta
-                )
-                q_value = jnp.max(q_values, axis=-1)
-                lambda_returns = jnp.where(truncated, q_value, lambda_returns)
-                return (lambda_returns, q_value), lambda_returns
-
-            next_q_value = jnp.max(q_values, axis=-1)
-            _, target_q_value = jax.lax.scan(
-                scan_fn,
-                (next_q_value, next_q_value),
-                (reward, terminated, truncated, transitions.aux["q_values"]),
-                reverse=True,
-            )
-            return target_q_value
-
         def loss_fn(
             params: PyTree, transitions: Transition
         ) -> tuple[Array, tuple[PyTree, Array]]:
@@ -134,7 +117,9 @@ class PQN:
         q_values = self.network.apply(
             state.params, obs, temperature=1.0
         ).preferences
-        target_q_value = q_lambda(transitions, q_values)
+        target_q_value = self.action_value_estimator(
+            transitions, q_values, self.cfg.gamma, self.cfg.q_lambda
+        )
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )

@@ -11,4 +11,4 @@ algorithm:
 optimizer:
   lr: 1.0e-4
 
-total_timesteps: 147_000_000
+num_steps: 147_000_000

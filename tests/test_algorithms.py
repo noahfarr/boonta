@@ -10,10 +10,10 @@ import pytest
 from jax.sharding import PartitionSpec as P
 
 import zoo
-from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.algorithms.wrappers.population import Population
 from boonta.environments.wrappers import ChunkAction
-from boonta.utils import Timestep, Transition
+from boonta.utils import Timestep, Transition, remove_feature_axis
 from dummies import (Team, corridor, demonstrations, match, reach, recall,
                      recall_continuous, tallied)
 
@@ -96,40 +96,35 @@ def test_every_recurrent_carry_shards_with_its_environments(build, environment):
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 1)
 
-    carries = [
-        getattr(state.algorithm_state, name)
-        for name in ("carry", "rollout_carry")
-        if hasattr(state.algorithm_state, name)
-    ]
-    for leaf in jax.tree.leaves(carries):
+    for leaf in jax.tree.leaves(state.carry):
         assert leaf.sharding.spec == P("data")
 
 
-def reference_advantages(reward, values, bootstrap, terminated, truncated, importance, trace):
+def reference_advantages(reward, values, bootstrap, terminated, truncated, rho, c):
     gamma, gae_lambda = 0.9, 0.8
     advantages = np.zeros_like(values)
     advantage, next_value = np.zeros_like(bootstrap), bootstrap
     for index in reversed(range(len(values))):
         alive = (1.0 - terminated[index]) * (1.0 - truncated[index])
-        delta = importance[index] * (
+        delta = rho[index] * (
             reward[index] + gamma * (1.0 - terminated[index]) * next_value - values[index]
         )
         delta = delta * (1.0 - truncated[index])
-        advantage = delta + gamma * gae_lambda * trace[index] * alive * advantage
+        advantage = delta + gamma * gae_lambda * c[index] * alive * advantage
         advantages[index] = advantage
         next_value = values[index]
     return advantages
 
 
 @pytest.mark.parametrize("weighted", [False, True], ids=["gae", "vtrace"])
-def test_generalized_advantage_estimation_follows_the_recursion(weighted):
+def test_generalized_advantage_estimator_follows_the_recursion(weighted):
     generator = np.random.default_rng(0)
     shape = (6, 3)
     reward, values = generator.normal(size=shape), generator.normal(size=shape)
     bootstrap = generator.normal(size=shape[1:])
     terminated = generator.random(shape) < 0.2
     truncated = (generator.random(shape) < 0.2) & ~terminated
-    importance, trace = (
+    rho, c = (
         generator.uniform(0.5, 1.5, shape) if weighted else np.ones(shape)
         for _ in range(2)
     )
@@ -141,24 +136,24 @@ def test_generalized_advantage_estimation_follows_the_recursion(weighted):
         truncated=jnp.asarray(truncated),
     )
 
-    advantages, returns = generalized_advantage_estimation(
+    advantages, returns = generalized_advantage_estimator(
         Transition(first=timestep, second=timestep),
         jnp.asarray(values, jnp.float32),
         jnp.asarray(bootstrap, jnp.float32),
         0.9,
         0.8,
-        importance=jnp.asarray(importance, jnp.float32),
-        trace=jnp.asarray(trace, jnp.float32),
+        rho=jnp.asarray(rho, jnp.float32),
+        c=jnp.asarray(c, jnp.float32),
     )
 
     expected = reference_advantages(
-        reward, values, bootstrap, terminated, truncated, importance, trace
+        reward, values, bootstrap, terminated, truncated, rho, c
     )
     np.testing.assert_allclose(advantages, expected, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(returns, expected + values, rtol=1e-5, atol=1e-6)
 
 
-def test_generalized_advantage_estimation_accumulates_a_bf16_critic_in_fp32():
+def test_generalized_advantage_estimator_accumulates_a_bf16_critic_in_fp32():
     shape = (4, 2)
     timestep = Timestep(
         obs=jnp.zeros(shape),
@@ -167,7 +162,7 @@ def test_generalized_advantage_estimation_accumulates_a_bf16_critic_in_fp32():
         terminated=jnp.zeros(shape, bool),
         truncated=jnp.zeros(shape, bool),
     )
-    advantages, returns = generalized_advantage_estimation(
+    advantages, returns = generalized_advantage_estimator(
         Transition(first=timestep, second=timestep),
         jnp.ones(shape, jnp.bfloat16),
         jnp.ones(shape[1:], jnp.bfloat16),
@@ -261,7 +256,7 @@ def targets(build, environment, key, boundary, perturbed):
     ).algorithm
     transitions = rollout(environment, boundary, perturbed)
     first = jax.tree.map(lambda leaf: leaf[0], transitions.first)
-    state = algorithm.init(jax.random.key(1), first)
+    state, _ = algorithm.init(jax.random.key(1), first)
     jax.block_until_ready(algorithm.update(state, jax.random.key(2), transitions))
     jax.effects_barrier()
     trained = 2 if boundary == "terminated" else 1
@@ -294,7 +289,7 @@ def test_recurrent_bc_learns_only_from_weighted_steps(weight, moves):
     algorithm = zoo.recurrent_bc(environment).algorithm
     episodes = demonstrations(environment, jax.random.key(0), 32)
     batch = episodes.replace(aux={"weight": jnp.full(episodes.second.reward.shape, weight)})
-    state = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
+    state, _ = algorithm.init(jax.random.key(1), jax.tree.map(lambda leaf: leaf[:, 0], batch.first))
     updated = algorithm.update(state, jax.random.key(2), batch)
 
     changed = [
@@ -461,10 +456,38 @@ def test_every_algorithm_carries_what_its_layers_write_during_the_update(
         if "optimizer_state" in path and "counts" in path
     ]
 
-    stepped, _, _ = podracer.algorithm.step(
-        state.algorithm_state, jax.random.key(2), state.timestep
+    stepped, *_ = podracer.algorithm.step(
+        state.algorithm_state, state.carry, jax.random.key(2), state.timestep
     )
     evaluated, _ = podracer.evaluate(state, jax.random.key(3), 8)
     for after in (stepped, evaluated.algorithm_state):
         for before, now in zip(advanced, counts(after), strict=True):
             np.testing.assert_array_equal(before, now)
+
+
+def test_the_tail_of_a_rollout_bootstraps_the_value_the_next_step_would_have_seen():
+    podracer = zoo.recurrent_ppo(recall())
+    algorithm = podracer.algorithm
+    state = podracer.init(jax.random.key(0))
+    keys = jax.random.split(jax.random.key(1), podracer.config.num_steps)
+    after, transitions = jax.lax.scan(partial(podracer.rollout, temperature=1.0), state, keys)
+
+    sequence, carry = transitions.tail()
+    _, (_, values) = algorithm.network.apply(
+        after.algorithm_state.params,
+        sequence.obs,
+        sequence.action,
+        sequence.reward,
+        sequence.done,
+        carry=carry,
+        temperature=1.0,
+    )
+    _, _, _, aux = algorithm.step(
+        after.algorithm_state, after.carry, jax.random.key(2), after.timestep, 1.0
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(remove_feature_axis(values)[:, -1], np.float32),
+        np.asarray(aux["value"], np.float32),
+        atol=1e-2,
+    )

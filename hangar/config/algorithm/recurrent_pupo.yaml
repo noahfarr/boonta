@@ -24,8 +24,9 @@ importance_exponent:
   _target_: optax.constant_schedule
   value: 0.2
 
-rollout:
-  num_steps: 128
+podracer:
+  config:
+    num_steps: 128
 
 environment:
   num_envs: 64

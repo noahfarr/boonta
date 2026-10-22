@@ -36,12 +36,13 @@ class Gauntlet:
         def play(algorithm_state: PyTree, key: Key) -> tuple[Array, Array]:
             init_key, key = jax.random.split(key)
             environment_state, timestep = games.init(init_key)
+            _, carry = algorithm.init(init_key, timestep)
 
-            def turn(carry, ply):
-                environment_state, timestep, score, over, key = carry
+            def turn(loop, ply):
+                environment_state, timestep, carry, score, over, key = loop
                 key, learner_key, bot_key, opening_key, step_key = jax.random.split(key, 5)
-                _, learned, _ = algorithm.step(
-                    algorithm_state, learner_key, timestep, temperature=0.0
+                _, carry, learned, _ = algorithm.step(
+                    algorithm_state, carry, learner_key, timestep, temperature=0.0
                 )
                 bot_keys = jax.random.split(bot_key, self.num_games)
                 rival = jax.vmap(opponent)(timestep.obs, bot_keys, 1 - seats)
@@ -54,13 +55,13 @@ class Gauntlet:
                 reward = jnp.sum(jnp.where(learner, timestep.reward, 0.0), axis=-1)
                 score = jnp.where(over, score, (reward + 1.0) / 2.0)
                 over = over | timestep.terminated.all(axis=-1)
-                return (environment_state, timestep, score, over, key), None
+                return (environment_state, timestep, carry, score, over, key), None
 
             score = jnp.full((self.num_games,), 0.5)
             over = jnp.zeros((self.num_games,), bool)
-            (_, _, score, over, _), _ = jax.lax.scan(
+            (_, _, _, score, over, _), _ = jax.lax.scan(
                 turn,
-                (environment_state, timestep, score, over, key),
+                (environment_state, timestep, carry, score, over, key),
                 jnp.arange(game.time_limit()),
             )
             return score, over

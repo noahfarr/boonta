@@ -132,16 +132,17 @@ class SkillAlgorithm:
 
     def init(self, key, timestep):
         params = jnp.zeros((1,))
-        return SkillState(
+        state = SkillState(
             step=jnp.array(0),
             params=params,
             optimizer_state=self.optimizer.init(params),
         )
+        return state, None
 
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         num_envs, *_ = timestep.obs.shape
         action = jnp.broadcast_to(state.params[0], (num_envs,))
-        return state, action, {}
+        return state, carry, action, {}
 
     def loss(self, params):
         return -params[0]
@@ -176,9 +177,9 @@ class Anchorable(SkillAlgorithm):
 
 @dataclass
 class Thermal(SkillAlgorithm):
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         num_envs, *_ = timestep.obs.shape
-        return state, jnp.full((num_envs,), temperature), {}
+        return state, carry, jnp.full((num_envs,), temperature), {}
 
 
 @dataclass
@@ -199,14 +200,15 @@ class ToyAlgorithm:
 
     def init(self, key, timestep):
         params = jnp.zeros((1,))
-        return SkillState(
+        state = SkillState(
             step=jnp.array(0),
             params=params,
             optimizer_state=self.optimizer.init(params),
         )
+        return state, None
 
-    def step(self, state, key, timestep, temperature=1.0):
-        return state, -timestep.obs[:, 0] * state.params[0], {}
+    def step(self, state, carry, key, timestep, temperature=1.0):
+        return state, carry, -timestep.obs[:, 0] * state.params[0], {}
 
     def update(self, state, key, transitions):
         def loss(params):
@@ -267,7 +269,7 @@ def build(
     initialize=skill_initialize,
     **extras,
 ):
-    config = anakin.AnakinConfig(num_envs=num_envs, num_steps=4, mesh=mesh(2))
+    config = anakin.AnakinConfig(num_steps=4, mesh=mesh(2))
     algorithm, environment, pit, lap = psro.make(
         oracle or SkillAlgorithm(optimizer=optax.sgd(1.0)),
         MarginEnvironment(num_envs=num_envs),
@@ -434,7 +436,7 @@ def test_the_oracle_is_handed_its_own_seat():
     state = podracer.init(jax.random.key(0))
     state, _ = podracer.train(state, jax.random.key(1), 1)
 
-    shape = (config.num_steps, config.num_envs)
+    shape = (config.num_steps, podracer.environment.num_envs)
     assert set(seen) == {(shape, shape, shape)}
     podracer.close(state)
 
@@ -590,7 +592,7 @@ def test_a_wrapper_missing_its_algorithm_raises_instead_of_recursing():
 def test_each_population_copy_acts_and_learns_on_its_own_slice():
     population = Population(ToyAlgorithm(optax.sgd(0.1)), count=2)
     timestep = slices(8)
-    state = population.init(jax.random.key(0), timestep)
+    state, _ = population.init(jax.random.key(0), timestep)
     state = state.replace(
         algorithm_states=tuple(
             inner.replace(params=jnp.array([value]))
@@ -599,7 +601,7 @@ def test_each_population_copy_acts_and_learns_on_its_own_slice():
         step=jnp.array(40, state.step.dtype),
     )
 
-    state, action, _ = population.step(state, jax.random.key(1), timestep)
+    state, _, action, _ = population.step(state, None, jax.random.key(1), timestep)
     np.testing.assert_allclose(np.asarray(action), [-1.0] * 4 + [2.0] * 4)
     first, second = state.algorithm_states
     assert (int(first.step), int(second.step)) == (40, 40)

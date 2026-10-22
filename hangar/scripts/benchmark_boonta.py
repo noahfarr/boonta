@@ -4,8 +4,10 @@ px.enable_device_profiling()
 px.enable_barriers()
 
 import argparse
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import hydra
 import jax
@@ -22,7 +24,7 @@ from hangar import recipes
 def compose(overrides):
     with hydra.initialize(version_base=None, config_path="../config"):
         cfg = hydra.compose(
-            config_name="config", overrides=list(overrides), return_hydra_config=True
+            config_name="train", overrides=list(overrides), return_hydra_config=True
         )
     HydraConfig.instance().set_config(cfg)
     return cfg
@@ -38,9 +40,9 @@ def sample(key, action, space):
 
 @dataclass
 class TrackedAlgorithm(AlgorithmWrapper):
-    def step(self, state, key, timestep, temperature=1.0):
+    def step(self, state, carry, key, timestep, temperature=1.0):
         return px.track(name="algorithm/step")(self.algorithm.step)(
-            state, key, timestep, temperature
+            state, carry, key, timestep, temperature
         )
 
     def update(self, state, key, transitions):
@@ -110,7 +112,7 @@ def benchmark(overrides, num_updates, seed):
     podracer = instantiate(cfg.podracer)(**components)
     algorithm, environment = podracer.algorithm, podracer.environment
 
-    num_envs = podracer.config.num_envs
+    num_envs = podracer.environment.num_envs
     num_steps = podracer.config.num_steps
     num_agents = getattr(environment, "num_agents", 1)
     batch_size = num_envs * num_steps * num_agents
@@ -133,21 +135,21 @@ def benchmark(overrides, num_updates, seed):
         return carry
 
     @jax.jit
-    def collect(algorithm_state, environment_state, timestep, key):
-        def step(carry, key):
-            algorithm_state, environment_state, timestep = carry
+    def collect(algorithm_state, carry, environment_state, timestep, key):
+        def step(loop, key):
+            algorithm_state, carry, environment_state, timestep = loop
             algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, action, aux = algorithm.step(
-                algorithm_state, algorithm_key, timestep, 1.0
+            next_state, next_carry, action, aux = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, 1.0
             )
             environment_state, next_timestep = environment.step(
                 environment_key, environment_state, action
             )
-            transition = Transition(first=timestep, second=next_timestep, aux=aux)
-            return (algorithm_state, environment_state, next_timestep), transition
+            transition = Transition(first=timestep, second=next_timestep, aux=aux, carry=carry)
+            return (next_state, next_carry, environment_state, next_timestep), transition
 
         keys = jax.random.split(key, num_steps)
-        return jax.lax.scan(step, (algorithm_state, environment_state, timestep), keys)
+        return jax.lax.scan(step, (algorithm_state, carry, environment_state, timestep), keys)
 
     update = jax.jit(algorithm.update)
 
@@ -158,15 +160,15 @@ def benchmark(overrides, num_updates, seed):
     jax.block_until_ready(rollout(environment_state, timestep, env_key))
     env_time = time.monotonic() - start
 
-    algorithm_state = algorithm.init(init_key, timestep)
-    carry, _ = collect(algorithm_state, environment_state, timestep, collect_key)
-    carry, transitions = jax.block_until_ready(collect(*carry, collect_key))
+    algorithm_state, carry = algorithm.init(init_key, timestep)
+    loop, _ = collect(algorithm_state, carry, environment_state, timestep, collect_key)
+    loop, transitions = jax.block_until_ready(collect(*loop, collect_key))
 
     start = time.monotonic()
-    carry, transitions = jax.block_until_ready(collect(*carry, collect_key))
+    loop, transitions = jax.block_until_ready(collect(*loop, collect_key))
     rollout_time = time.monotonic() - start
 
-    algorithm_state, *_ = carry
+    algorithm_state, *_ = loop
     algorithm_state = update(algorithm_state, update_key, transitions)
     jax.block_until_ready(update(algorithm_state, update_key, transitions))
 
@@ -191,7 +193,16 @@ def benchmark(overrides, num_updates, seed):
         clock.append(time.monotonic() - start)
         return state
 
-    state, stats = px.profile(race)(state)
+    options = jax.profiler.ProfileOptions()
+    options.python_tracer_level = 0
+    options.host_tracer_level = 1
+    with tempfile.TemporaryDirectory() as directory:
+        with jax.profiler.trace(directory, profiler_options=options):
+            state = race(state)
+        stats = px.Profile(
+            host=px.ProfileResult.from_events(px.parse_perfetto_trace(Path(directory))),
+            device=px.ProfileResult.from_events(px.parse_device_trace(Path(directory))),
+        )
     (train_time,) = clock
     podracer.close(state)
 

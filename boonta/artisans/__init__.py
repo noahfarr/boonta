@@ -6,7 +6,6 @@ from .gauntlet import Gauntlet
 from .plot import Plot
 from .render import Render
 from .transcript import Transcript
-from .trueskill import TrueSkill
 
 __all__ = [
     "Artifact",
@@ -24,3 +23,11 @@ __all__ = [
     "TrueSkill",
     "Video",
 ]
+
+
+def __getattr__(name):
+    if name == "TrueSkill":
+        from .trueskill import TrueSkill
+
+        return TrueSkill
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

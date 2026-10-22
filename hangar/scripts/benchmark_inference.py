@@ -17,7 +17,7 @@ from hangar import recipes
 def compose(overrides):
     with hydra.initialize(version_base=None, config_path="../config"):
         cfg = hydra.compose(
-            config_name="config", overrides=list(overrides), return_hydra_config=True
+            config_name="train", overrides=list(overrides), return_hydra_config=True
         )
     HydraConfig.instance().set_config(cfg)
     return cfg
@@ -50,7 +50,7 @@ def main(run, seed, num_steps, num_envs):
 
     init_key, reset_key = jax.random.split(jax.random.key(seed))
     _, timestep = environment.init(reset_key)
-    state = algorithm.init(init_key, timestep)
+    state, initial_carry = algorithm.init(init_key, timestep)
     state = state.replace(params=load_fields()["algorithm_state"]["params"])
 
     @jax.jit
@@ -71,7 +71,7 @@ def main(run, seed, num_steps, num_envs):
         return tqdx.scan(step, carry, None, length=num_steps)
 
     carry, logits = jax.block_until_ready(
-        rollout(state.carry, state.params, timestep)
+        rollout(initial_carry, state.params, timestep)
     )
 
     start = time.monotonic()

@@ -7,8 +7,9 @@ algorithm:
   gamma: 0.99
   q_lambda: 0.65
 
-rollout:
-  num_steps: 16
+podracer:
+  config:
+    num_steps: 16
 
 environment:
   num_envs: 128

@@ -14,8 +14,9 @@ algorithm:
   magnet_decay: 0.99
   magnet_anneal: 1.0
 
-rollout:
-  num_steps: 16
+podracer:
+  config:
+    num_steps: 16
 
 environment:
   num_envs: 4096

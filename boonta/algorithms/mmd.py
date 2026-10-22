@@ -11,7 +11,7 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
-from .advantage_estimators import generalized_advantage_estimation
+from .advantage_estimators import generalized_advantage_estimator
 
 
 @struct.dataclass(frozen=True)
@@ -45,12 +45,13 @@ class MMD:
     network: nn.Module
     optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
+    advantage_estimator: Callable = generalized_advantage_estimator
 
-    def init(self, key: Key, timestep: Timestep) -> MMDState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[MMDState, PyTree]:
         params = self.network.init(key, timestep.obs, temperature=1.0)
         optimizer_state = self.optimizer.init(params["params"])
 
-        return MMDState(
+        state = MMDState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
@@ -58,15 +59,23 @@ class MMD:
             alpha=jnp.asarray(self.cfg.magnet_coefficient, dtype=jnp.float32),
         )
 
+        return state, None
+
     def step(
-        self, state: MMDState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[MMDState, Array, PyTree]:
+        self,
+        state: MMDState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[MMDState, PyTree, Array, PyTree]:
         dist, value = self.network.apply(
             state.params, timestep.obs, temperature=temperature
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
         return (
             state,
+            carry,
             action,
             {"log_prob": log_prob, "value": remove_feature_axis(value)},
         )
@@ -167,7 +176,7 @@ class MMD:
         )
         _, value = self.network.apply(state.params, obs, temperature=1.0)
         value = remove_feature_axis(value)
-        advantages, returns = generalized_advantage_estimation(
+        advantages, returns = self.advantage_estimator(
             transitions,
             transitions.aux["value"],
             value,

@@ -1,8 +1,27 @@
+import datetime
+import re
+import shlex
+import shutil
+from pathlib import Path
+
 import jax
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 SKIP = ("hydra", "loggers", "artisans", "search_space")
+DROPPED_OVERRIDES = (
+    "logger",
+    "loggers",
+    "artisan",
+    "artisans",
+    "seed",
+    "num_steps",
+    "num_epochs",
+    "num_processes",
+    "checkpoint",
+    "score",
+    "hydra",
+)
 
 
 def shapes(params) -> list[tuple[str, tuple[int, ...], int]]:
@@ -197,8 +216,36 @@ def brief(cfg, state) -> None:
     ]
     sections.append(settings(prune(flatten(cfg))))
     width = max(span(sizes(head, body, footer)) for head, body, footer, _ in sections)
+    width = max(width, shutil.get_terminal_size().columns)
     lines = [""]
     for head, body, footer, aligned in sections:
         lines.extend(panel(head, body, footer, aligned, width))
         lines.append("")
     print("\n".join(lines), flush=True)
+
+
+def debrief(cfg, run_dir, overrides, step: int, score: float, duration: float) -> None:
+    has_checkpoint = (Path(run_dir) / "checkpoints").is_dir()
+    rows = [
+        ("steps", f"{step:,}"),
+        (str(cfg.score), f"{score:.4g}" if np.isfinite(score) else "n/a"),
+        ("time", str(datetime.timedelta(seconds=int(duration)))),
+        ("run", str(run_dir)),
+        ("checkpoint", "saved" if has_checkpoint else "not saved"),
+    ]
+    lines = panel(("finished", "value"), rows, None, set(), shutil.get_terminal_size().columns)
+    if has_checkpoint:
+        overrides = [
+            override
+            for override in overrides
+            if re.split(r"[./=]", override.lstrip("+~"))[0] not in DROPPED_OVERRIDES
+        ]
+        command = "boonta evaluate " + shlex.join([f"checkpoint={run_dir}", *overrides])
+        lines += ["", "evaluate this run with", "", f"  {command}"]
+    else:
+        lines += [
+            "",
+            "no checkpoint was saved, so there is nothing to evaluate",
+            "train again with logger=[dashboard,orbax] artisan=checkpoint to keep one",
+        ]
+    print("\n".join(["", *lines, ""]), flush=True)

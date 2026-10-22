@@ -7,7 +7,7 @@ import optax
 from flax import struct
 
 from boonta.algorithms import Algorithm
-from boonta.algorithms.advantage_estimators import generalized_advantage_estimation
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset, ArchiveAutoResetState, pick, unwrap)
 from boonta.podracers.podracer import Lap, Pit
@@ -300,7 +300,7 @@ class Advantage:
         first, second = transitions.first, transitions.second
         values = transitions.aux["value"]
         truncated = second.truncated[:-1].astype(bool)
-        advantages, _ = generalized_advantage_estimation(
+        advantages, _ = generalized_advantage_estimator(
             jax.tree.map(lambda leaf: leaf[:-1], transitions),
             values[:-1],
             values[-1],
@@ -597,7 +597,7 @@ class Kernel:
     def climb(self, selector, policy, inner, transitions: Transition) -> Array:
         first, second = transitions.first, transitions.second
         values = transitions.aux["value"]
-        advantages, _ = generalized_advantage_estimation(
+        advantages, _ = generalized_advantage_estimator(
             jax.tree.map(lambda leaf: leaf[:-1], transitions),
             values[:-1],
             values[-1],

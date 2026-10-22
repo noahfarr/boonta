@@ -19,7 +19,7 @@ def make(cfg):
     epsilon_schedule = optax.linear_schedule(
         cfg.exploration.start,
         cfg.exploration.end,
-        int(cfg.total_timesteps * cfg.exploration.fraction),
+        int(cfg.num_steps * cfg.exploration.fraction),
     )
 
     torso = instantiate(cfg.stack)

@@ -14,6 +14,9 @@ class PodracerState(Protocol):
     def environment_state(self) -> EnvState: ...
 
     @property
+    def carry(self) -> PyTree: ...
+
+    @property
     def algorithm_state(self) -> PyTree: ...
 
     @property

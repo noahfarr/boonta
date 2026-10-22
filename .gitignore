@@ -246,3 +246,6 @@ figures/
 
 # Cluster launcher configs
 hangar/config/hydra/launcher/determined/42.yaml
+
+# Local Determined shell config
+shell.yaml

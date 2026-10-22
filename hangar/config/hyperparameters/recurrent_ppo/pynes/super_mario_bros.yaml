@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 50_000_000
+num_steps: 50_000_000
 reward_scale: 1000.0
 clip_reward: false
 
@@ -9,11 +9,9 @@ environment:
 
 podracer:
   config:
+    num_steps: 64
     mesh:
       count: 1
-
-rollout:
-  num_steps: 64
 
 num_layers: 1
 

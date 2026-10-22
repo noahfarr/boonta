@@ -1,6 +1,6 @@
 # @package _global_
 
-total_timesteps: 150_000_000
+num_steps: 150_000_000
 
 algorithm:
   gamma: 0.97

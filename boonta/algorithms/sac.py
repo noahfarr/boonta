@@ -52,14 +52,14 @@ class SAC:
     alpha_optimizer: optax.GradientTransformation
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def init(self, key: Key, timestep: Timestep) -> SACState:
+    def init(self, key: Key, timestep: Timestep) -> tuple[SACState, PyTree]:
         actor_key, critic_key, alpha_key = jax.random.split(key, 3)
 
         actor_params = self.actor.init(actor_key, timestep.obs, temperature=1.0)
         critic_params = self.critic.init(critic_key, timestep.obs, timestep.action)
         alpha_params = self.alpha.init(alpha_key)
 
-        return SACState(
+        state = SACState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=actor_params,
             critic_params=critic_params,
@@ -76,12 +76,19 @@ class SAC:
             ),
         )
 
+        return state, None
+
     def step(
-        self, state: SACState, key: Key, timestep: Timestep, temperature: float = 1.0
-    ) -> tuple[SACState, Array, PyTree]:
+        self,
+        state: SACState,
+        carry: PyTree,
+        key: Key,
+        timestep: Timestep,
+        temperature: float = 1.0,
+    ) -> tuple[SACState, PyTree, Array, PyTree]:
         dist = self.actor.apply(state.params, timestep.obs, temperature=temperature)
         action = dist.sample(seed=key)
-        return state, action, {}
+        return state, carry, action, {}
 
     def update(self, state: SACState, key: Key, transitions: Transition) -> SACState:
         def critic_loss_fn(
