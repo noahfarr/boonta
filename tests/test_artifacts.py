@@ -528,7 +528,7 @@ def test_debrief_prints_the_evaluation_command_of_a_run_that_saved_a_checkpoint(
     debrief(OmegaConf.create({"score": "training/return"}), tmp_path, TRAINED_WITH, 20_000_000, 3.5, 4000.0)
 
     printed = capsys.readouterr().out
-    for shown in ("20,000,000", "training/return", "3.5", "1h 06m 40s", "saved"):
+    for shown in ("20,000,000", "training/return", "3.5", "1:06:40", "saved"):
         assert shown in printed
     assert f"boonta evaluate checkpoint={tmp_path} algorithm=ippo" in printed
 
