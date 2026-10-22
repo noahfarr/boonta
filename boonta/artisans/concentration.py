@@ -20,6 +20,8 @@ class Concentration:
         from boonta.curricula.prd import signal
 
         ledger = jax.device_get(podracer_state.pit_state)
+        if ledger is None:
+            return Metrics(self.name, {})
         visits = np.asarray(ledger.reach, np.float64)
         per_step = np.asarray(signal(ledger.gain), np.float64)
         counted = np.asarray(ledger.gain.cell_visits, np.float64) >= self.min_visits

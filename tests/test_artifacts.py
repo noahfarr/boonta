@@ -19,7 +19,7 @@ import zoo
 from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.artisans import Checkpoint, Image, Plot, Render, Transcript, Video
+from boonta.artisans import Checkpoint, Concentration, Image, Plot, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief, debrief
@@ -599,6 +599,10 @@ def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
     assert data["concentration/steps_for_ninety"] == pytest.approx(0.009)
     assert data["concentration/index"] == pytest.approx(0.99)
 
+
+
+def test_concentration_reports_nothing_without_a_restart_ledger():
+    assert Concentration().craft(None, None, SimpleNamespace(pit_state=None), {}).data == {}
 
 
 def test_the_file_logger_writes_each_image_as_a_png(tmp_path):
