@@ -115,9 +115,6 @@ wandb = [
 xland-minigrid = [
     "xminigrid",
 ]
-dune-sea = [
-    "raylib==6.0.1.0",
-]
 
 [tool.uv]
 conflicts = [

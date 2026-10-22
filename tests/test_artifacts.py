@@ -286,24 +286,6 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
 
 
-def test_the_render_artisan_plays_the_whole_episode_and_stops_when_it_ends():
-    from boonta.environments import dune_sea
-
-    def video(**kwargs):
-        environment = zoo.wrap(dune_sea.make("dune_sea", height=12, width=12, num_agents=2, time_limit=20, **kwargs), NUM_ENVS)
-        num_actions = environment.action_space().num_actions
-
-        def step(state, carry, key, timestep, temperature=1.0):
-            return state, carry, jnp.zeros((NUM_ENVS, 2), jnp.int32), {}
-
-        algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
-        state = SimpleNamespace(algorithm_state=None)
-        return Render(kwargs={"scale": 1}).craft(jax.random.key(0), algorithm, environment, state, {})
-
-    assert video().data.shape[0] == 20
-    assert video(energy_cost=0.25).data.shape[0] == 4
-
-
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
     monkeypatch,
 ):
