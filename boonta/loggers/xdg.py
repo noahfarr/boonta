@@ -6,7 +6,7 @@ from pathlib import Path
 
 import jax
 
-from boonta.artisans import Video
+from boonta.artisans import Image, Video
 from boonta.utils import PyTree
 
 
@@ -18,7 +18,7 @@ class XdgLogger:
         pass
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
-        if jax.process_index() != 0 or not isinstance(artifact, Video):
+        if jax.process_index() != 0 or not isinstance(artifact, (Image, Video)):
             return
         opener = "open" if sys.platform == "darwin" else "xdg-open"
         if not shutil.which(opener):
@@ -26,7 +26,8 @@ class XdgLogger:
         if sys.platform != "darwin" and not os.environ.get("DISPLAY"):
             return
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = artifact.encode(self.directory / f"{artifact.name}-{step}.gif")
+        suffix = "png" if isinstance(artifact, Image) else "gif"
+        path = artifact.encode(self.directory / f"{artifact.name}-{step}.{suffix}")
         subprocess.Popen([opener, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def log_summary(self, data: PyTree, **kwargs) -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from boonta.artisans import Metrics, Video
+from boonta.artisans import Image, Metrics, Video
 from boonta.utils import PyTree
 
 
@@ -33,6 +33,9 @@ class FileLogger:
             self.directory.mkdir(parents=True, exist_ok=True)
             path = self.directory / f"{artifact.name}-{step}.gif"
             artifact.encode(path)
+        if jax.process_index() == 0 and isinstance(artifact, Image):
+            self.directory.mkdir(parents=True, exist_ok=True)
+            artifact.encode(self.directory / f"{artifact.name}-{step}.png")
 
     def log_summary(self, data: PyTree, **kwargs) -> None:
         pass

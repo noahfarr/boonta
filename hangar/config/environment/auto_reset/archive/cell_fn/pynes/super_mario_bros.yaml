@@ -1,0 +1,5 @@
+_target_: boonta.environments.pynes.super_mario_bros.cell
+_partial_: true
+cell_x: 64
+cell_y: 64
+lives: true

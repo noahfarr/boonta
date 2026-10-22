@@ -1,0 +1,3 @@
+# @package _global_.curriculum.selector.allocation
+_target_: boonta.curricula.prd.Importance
+gain_exponent: 0.5

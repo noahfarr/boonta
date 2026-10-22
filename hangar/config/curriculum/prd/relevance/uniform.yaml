@@ -1,0 +1,2 @@
+# @package _global_.curriculum.selector.relevance
+_target_: boonta.curricula.prd.UniformRelevance

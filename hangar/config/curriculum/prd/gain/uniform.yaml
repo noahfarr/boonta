@@ -1,0 +1,5 @@
+# @package _global_.curriculum.selector.gain
+_target_: boonta.curricula.prd.UniformGain
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2

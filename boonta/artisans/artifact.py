@@ -20,12 +20,12 @@ class Video(Artifact):
     fps: int = 16
 
     def encode(self, path) -> str:
-        from PIL import Image
+        from PIL import Image as PILImage
 
         frames = np.asarray(self.data, dtype=np.uint8)
         if frames.ndim == 3:
             frames = np.repeat(frames[..., None], 3, axis=-1)
-        first, *rest = [Image.fromarray(frame) for frame in frames]
+        first, *rest = [PILImage.fromarray(frame) for frame in frames]
         first.save(
             path,
             save_all=True,
@@ -33,6 +33,17 @@ class Video(Artifact):
             duration=max(int(1000 / max(self.fps, 1)), 1),
             loop=0,
         )
+        return str(path)
+
+
+@dataclass(frozen=True)
+class Image(Artifact):
+
+    def encode(self, path) -> str:
+        from PIL import Image as PILImage
+
+        pixels = np.asarray(self.data, dtype=np.uint8)
+        PILImage.fromarray(pixels).save(path)
         return str(path)
 
 

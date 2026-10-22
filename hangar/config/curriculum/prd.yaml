@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - /curriculum/prd/footprint: successor_representation
+  - /curriculum/prd/relevance: counted
+  - /curriculum/prd/gain: advantage
+  - /curriculum/prd/score: diagonal
+  - /curriculum/prd/allocation: marginal
+  - override /environment/auto_reset@_global_.environment.auto_reset: archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.prd.make
+  _partial_: true
+  restart_at: rollout
+  importance_weights: false
+  selector:
+    _target_: boonta.curricula.prd.Selector
+    k: 4.0
+    gate: false
+    successor:
+      _target_: boonta.curricula.prd.SuccessorRepresentation
+      gamma: ${eval:'1 - 1 / ${podracer.config.num_steps} if "${curriculum.restart_at}" == "rollout" else ${algorithm.gamma}'}
+      rate: 0.1
+      columns: 256

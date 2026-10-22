@@ -96,6 +96,9 @@ mujoco-playground = [
     "ml-collections",
     "playground",
 ]
+plot = [
+    "matplotlib",
+]
 pynes = [
     "pynes",
 ]

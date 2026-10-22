@@ -19,7 +19,7 @@ import zoo
 from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
-from boonta.artisans import Checkpoint, Render, Transcript, Video
+from boonta.artisans import Checkpoint, Concentration, Image, Plot, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief, debrief
@@ -55,7 +55,7 @@ def train(podracer):
 def save(directory, state, **options):
     logger = OrbaxLogger(str(directory / "checkpoints"))
     logs = {"episode_statistics/episode_return": np.ones(4)}
-    logger.log_artifact(Checkpointer(**options).craft(None, None, None, state, logs), step=96)
+    logger.log_artifact(Checkpointer(**options).craft(None, None, state, logs), step=96)
     logger.finish()
 
 
@@ -203,10 +203,8 @@ def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_p
 def test_the_checkpointer_saves_exactly_the_fields_it_names():
     state = SimpleNamespace(algorithm_state="learned", environment_state="played")
 
-    default = Checkpointer().craft(None, None, None, state, {})
-    both = Checkpointer(fields=["algorithm_state", "environment_state"]).craft(
-        None, None, None, state, {}
-    )
+    default = Checkpointer().craft(None, None, state, {})
+    both = Checkpointer(fields=["algorithm_state", "environment_state"]).craft(None, None, state, {})
 
     assert default.data == {"algorithm_state": "learned"}
     assert both.data == {"algorithm_state": "learned", "environment_state": "played"}
@@ -216,9 +214,9 @@ def test_the_checkpointer_scores_by_mean_episode_return_unless_told_otherwise():
     state = SimpleNamespace(algorithm_state="learned")
     logs = {"episode_statistics/episode_return": np.array([1.0, np.nan, 5.0]), "bonus": [7.0]}
 
-    assert Checkpointer().craft(None, None, None, state, logs).score == 3.0
-    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, None, state, logs).score == 7.0
-    assert Checkpointer().craft(None, None, None, state, {}).score == float("-inf")
+    assert Checkpointer().craft(None, None, state, logs).score == 3.0
+    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, state, logs).score == 7.0
+    assert Checkpointer().craft(None, None, state, {}).score == float("-inf")
 
 
 def log_scores(directory, scores, **options):
@@ -294,7 +292,7 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
 
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render().craft(jax.random.key(0), SimpleNamespace(algorithm=algorithm, environment=environment), state, {})
 
     frames, _, _, channels = video.data.shape
     assert 1 < frames <= 16 and channels == 3
@@ -311,7 +309,7 @@ def test_the_render_artisan_stops_when_the_first_episode_ends():
 
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render().craft(jax.random.key(0), SimpleNamespace(algorithm=algorithm, environment=environment), state, {})
 
     frames, *_ = video.data.shape
     assert frames == corridor().shortest
@@ -334,7 +332,7 @@ def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environme
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
     text = Transcript("repo", num_examples=3).craft(
-        jax.random.key(0), algorithm, environment, state, {}
+        jax.random.key(0), SimpleNamespace(algorithm=algorithm, environment=environment), state, {}
     )
 
     assert text.data == "0: 0 0 0 0\n\n1: 1 1 1 1\n\n2: 0 0 0 0"
@@ -581,3 +579,68 @@ def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
 
     assert folded.shape == key.shape
 
+
+def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
+    from boonta.artisans import Concentration
+    from boonta.curricula.prd import GainState, SelectorState
+
+    counts = jnp.array([[50.0, 50.0], [4950.0, 4950.0]])
+    gain = GainState(
+        action_counts=counts,
+        advantage_sums=jnp.array([[50.0, -50.0], [0.0, 0.0]]),
+        square_sums=counts,
+        probability_sums=jnp.zeros_like(counts),
+        cell_visits=jnp.sum(counts, axis=-1),
+        scale=jnp.zeros(()),
+    )
+    ledger = SelectorState(successor=None, reach=jnp.array([1.0, 99.0]), gain=gain)
+    data = Concentration().craft(None, None, SimpleNamespace(pit_state=ledger), {}).data
+    assert data["concentration/steps_for_half"] == pytest.approx(0.005)
+    assert data["concentration/steps_for_ninety"] == pytest.approx(0.009)
+    assert data["concentration/index"] == pytest.approx(0.99)
+
+
+
+def test_concentration_reports_nothing_without_a_restart_ledger():
+    assert Concentration().craft(None, None, SimpleNamespace(pit_state=None), {}).data == {}
+
+
+def test_the_file_logger_writes_each_image_as_a_png(tmp_path):
+    logger = FileLogger(directory=tmp_path)
+    logger.log_artifact(Image("plot", np.zeros((8, 8, 3), np.uint8)), step=100)
+
+    assert [path.name for path in tmp_path.iterdir()] == ["plot-100.png"]
+
+
+
+def test_the_plot_artisan_draws_the_history_of_finished_episodes():
+    plot = Plot(size=(3.0, 2.0), dpi=50)
+    key = "episode_statistics/episode_return"
+    first = plot.craft(None, None, None, {key: np.array([np.nan, 1.0, 3.0, np.nan])})
+    second = plot.craft(None, None, None, {key: np.full((2, 2), np.nan)})
+    third = plot.craft(None, None, None, {key: np.array([[5.0, np.nan]])})
+
+    np.testing.assert_array_equal(plot.means, [2.0, np.nan, 5.0])
+    np.testing.assert_array_equal(plot.stds, [1.0, np.nan, 0.0])
+    for image in (first, second, third):
+        assert image.name == "episode_return"
+        assert image.data.shape == (100, 150, 3) and image.data.dtype == np.uint8
+    assert not np.array_equal(first.data, third.data)
+
+
+
+def test_the_xdg_logger_opens_each_image_it_is_given(tmp_path, monkeypatch):
+    from unittest import mock
+
+    from boonta.loggers import XdgLogger
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    logger = XdgLogger(directory=tmp_path)
+    with mock.patch("shutil.which", return_value="/usr/bin/xdg-open"), mock.patch(
+        "subprocess.Popen"
+    ) as popen:
+        for step in (1, 2):
+            logger.log_artifact(Image("plot", np.full((8, 8, 3), step, np.uint8)), step=step)
+
+    assert popen.call_count == 2
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["plot-1.png", "plot-2.png"]

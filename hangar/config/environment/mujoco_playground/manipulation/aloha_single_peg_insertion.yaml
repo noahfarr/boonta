@@ -1,0 +1,6 @@
+namespace: mujoco_playground
+suite: manipulation
+env_id: AlohaSinglePegInsertion
+kwargs:
+  config_overrides:
+    impl: warp
