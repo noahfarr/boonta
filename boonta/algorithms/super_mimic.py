@@ -11,6 +11,8 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, conditional_update, remove_batch_axis
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
 
+from .advantage_estimators import generalized_advantage_estimator
+
 
 @struct.dataclass(frozen=True)
 class SuperMimicConfig:
@@ -81,6 +83,7 @@ class SuperMimic:
     state_of: Callable[[Timestep], Array] = _observed
     observation_of: Callable[[Timestep], Array] = _observed
     context_of: Callable[[Timestep], Array] = _contextless
+    advantage_estimator: Callable = generalized_advantage_estimator
     auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, PyTree]:
@@ -200,17 +203,6 @@ class SuperMimic:
                 )
             return loss, (imagined_return, states, rewards, terminations, context)
 
-        def lambda_returns_fn(rewards: Array, terminations: Array, values: Array) -> Array:
-            def back_fn(following: Array, step: tuple) -> tuple[Array, Array]:
-                reward, termination, value = step
-                target = reward + self.cfg.gamma * (1.0 - termination) * (
-                    (1.0 - self.cfg.gae_lambda) * value + self.cfg.gae_lambda * following
-                )
-                return target, target
-
-            _, targets = jax.lax.scan(back_fn, values[-1], (rewards, terminations, values[1:]), reverse=True)
-            return targets
-
         def critic_loss_fn(critic_params: PyTree, states: Array, context: Array, targets: Array, survivals: Array):
             values = state_values_fn(critic_params, states[:-1], context)
             return jnp.mean(jnp.sum(survivals * (values - targets) ** 2, axis=0))
@@ -241,7 +233,19 @@ class SuperMimic:
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
             states, rewards, terminations = jax.lax.stop_gradient((states, rewards, terminations))
-            targets = lambda_returns_fn(rewards, terminations, state_values_fn(state.critic_params, states, context))
+            values = state_values_fn(state.critic_params, states, context)
+            imagined = Transition(
+                first=Timestep(obs=states[:-1]),
+                second=Timestep(
+                    obs=states[1:],
+                    reward=rewards,
+                    terminated=terminations,
+                    truncated=jnp.zeros_like(terminations),
+                ),
+            )
+            _, targets = self.advantage_estimator(
+                imagined, values[:-1], values[-1], self.cfg.gamma, self.cfg.gae_lambda
+            )
             survivals = jnp.cumprod(
                 jnp.concatenate([jnp.ones_like(terminations[:1]), 1.0 - terminations[:-1]]), axis=0
             )
