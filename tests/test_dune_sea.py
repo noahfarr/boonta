@@ -44,6 +44,50 @@ def test_the_best_policy_without_hazard_collects_one_per_fork_and_the_goal():
     assert total == 6.0
 
 
+@pytest.mark.parametrize("depth, length", [(6, 4), (3, 2), (1, 5)])
+def test_the_time_limit_is_the_longest_episode_through_the_forks(depth, length):
+    env = ChainOfForks(depth=depth, length=length, hazard=0.0)
+    assert env.time_limit() == length + depth * (length + 1) + 1
+
+    def wander(key):
+        state, _ = env.init(key)
+
+        def body(carry, key):
+            state, steps, ended = carry
+            action_key, step_key = jax.random.split(key)
+            state, timestep = env.step(step_key, state, jax.random.bernoulli(action_key).astype(jnp.int32))
+            return (state, steps + ~ended, ended | timestep.terminated), None
+
+        (_, steps, ended), _ = jax.lax.scan(
+            body, (state, jnp.int32(0), jnp.bool_(False)), jax.random.split(key, 2 * env.time_limit())
+        )
+        return steps, ended
+
+    steps, ended = jax.vmap(wander)(jax.random.split(jax.random.key(0), 512))
+    assert bool(ended.all())
+    assert int(steps.max()) == env.time_limit()
+
+
+def test_the_chain_of_forks_renders_the_agent_red_the_goals_green_and_the_lures_gold():
+    env = ChainOfForks(depth=6)
+    state, _ = env.init(jax.random.key(0))
+    tile = 8
+    image = np.asarray(env.render(state, tile=tile))
+    num_rows, num_columns = np.asarray(env.cell_grid).shape
+    assert image.shape == (num_rows * tile, num_columns * tile, 3)
+    assert image.dtype == np.uint8
+
+    def centre(cell, across=0.5):
+        return image[int((int(env.rows[cell]) + 0.5) * tile), int((int(env.columns[cell]) + across) * tile)]
+
+    reward = np.asarray(env.reward)
+    np.testing.assert_array_equal(centre(env.start, across=0.4), [255, 0, 0])
+    for cell in np.flatnonzero(reward >= 1):
+        np.testing.assert_array_equal(centre(cell), [0, 255, 0])
+    for cell in np.flatnonzero((reward > 0) & (reward < 1)):
+        np.testing.assert_array_equal(centre(cell), [255, 200, 0])
+
+
 def test_only_forks_and_dead_ends_offer_a_choice():
     env = ChainOfForks(depth=6)
     successor = np.asarray(env.successor)
@@ -130,8 +174,8 @@ class Oracle:
         table[np.asarray(env.hotspots), np.asarray(env.secrets)] = confidence
         self.table = jnp.asarray(table)
 
-    def step(self, state, key, timestep, temperature):
-        return state, None, {"logits": timestep.obs @ self.table}
+    def step(self, state, carry, key, timestep, temperature):
+        return state, carry, None, {"logits": timestep.obs @ self.table}
 
 
 @pytest.mark.parametrize("confidence, share", [(50.0, 1.0), (0.0, 0.25)])

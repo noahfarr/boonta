@@ -63,6 +63,13 @@ def layout(depth: int, length: int, lure: float, seed: int):
     return index[start], successor, reward, terminal, rows, columns
 
 
+def longest_episode(start: int, successor: np.ndarray, terminal: np.ndarray) -> int:
+    steps_to_end = np.zeros(len(terminal), np.int64)
+    for _ in range(len(terminal)):
+        steps_to_end = np.where(terminal, 0, 1 + steps_to_end[successor].max(axis=-1))
+    return int(steps_to_end[start])
+
+
 def cell(env):
     return lambda env_state: env_state.cell
 
@@ -86,12 +93,19 @@ class ChainOfForks(Environment):
         self.rows = jnp.asarray(rows)
         self.columns = jnp.asarray(columns)
         self.num_cells = len(reward)
+        self.longest_episode = longest_episode(start, successor, terminal)
+        cell_grid = np.full((rows.max() + 1, columns.max() + 1), -1, np.int32)
+        cell_grid[rows, columns] = np.arange(self.num_cells)
+        self.cell_grid = jnp.asarray(cell_grid)
 
     def observation_space(self) -> Space:
         return Space((self.num_cells,), jnp.float32, 0.0, 1.0)
 
     def action_space(self) -> Space:
         return Space((), jnp.int32, 0, 1)
+
+    def time_limit(self) -> int:
+        return self.longest_episode
 
     def observe(self, state: ChainOfForksState) -> Array:
         return jax.nn.one_hot(state.cell, self.num_cells)
@@ -117,6 +131,33 @@ class ChainOfForks(Environment):
             terminated=self.terminal[cell] | perished,
             truncated=jnp.bool_(False),
         )
+
+    def render(self, state: ChainOfForksState, tile: int = 32) -> Array:
+        num_rows, num_columns = self.cell_grid.shape
+        rows, columns = jnp.meshgrid(
+            (jnp.arange(num_rows * tile) + 0.5) / tile,
+            (jnp.arange(num_columns * tile) + 0.5) / tile,
+            indexing="ij",
+        )
+        row, column = jnp.floor(rows).astype(jnp.int32), jnp.floor(columns).astype(jnp.int32)
+        down, across = rows - row, columns - column
+        cell = self.cell_grid[row, column]
+        floor = cell >= 0
+        reward = self.reward[jnp.maximum(cell, 0)]
+        line = 1.0 / tile
+        edge = (down < line) | (across < line) | (down > 1 - line) | (across > 1 - line)
+        triangle = (
+            (across > 0.12)
+            & (across < 0.87)
+            & (jnp.abs(down - 0.5) < 0.31 * (0.87 - across) / 0.75)
+        )
+        colour = jnp.zeros((*rows.shape, 3))
+        colour = jnp.where(floor[..., None], jnp.array([100.0, 100.0, 100.0]), colour)
+        colour = jnp.where((floor & (reward > 0))[..., None], jnp.array([255.0, 200.0, 0.0]), colour)
+        colour = jnp.where((floor & (reward >= 1))[..., None], jnp.array([0.0, 255.0, 0.0]), colour)
+        colour = jnp.where((floor & edge)[..., None], jnp.zeros(3), colour)
+        colour = jnp.where(((cell == state.cell) & triangle)[..., None], jnp.array([255.0, 0.0, 0.0]), colour)
+        return colour.astype(jnp.uint8)
 
 
 def on_optimal_path(env):
