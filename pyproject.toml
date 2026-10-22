@@ -94,6 +94,9 @@ minari = [
 ]
 mujoco-playground = [
     "ml-collections",
+    "mujoco>=3.16.0",
+    "mujoco-mjx>=3.16.0",
+    "mujoco-warp>=3.16.0",
     "playground",
 ]
 pynes = [
