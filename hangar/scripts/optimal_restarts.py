@@ -7,7 +7,7 @@ import numpy as np
 import optax
 from jax.flatten_util import ravel_pytree
 from omegaconf import OmegaConf
-from PIL import Image
+from PIL import Image, ImageDraw
 from render_checkpoint import load
 from signal_map import gradients, policy_table
 
@@ -111,6 +111,16 @@ def diagnose(selector, wrapper, checkpoint, algorithm, objective, origin, unrave
     )
 
 
+def optimal_policy(game, policy, iterations=100):
+    num_actions = policy.shape[-1]
+
+    def improve(policy, _):
+        return jax.nn.one_hot(jnp.argmax(game.advantages(policy) + 1e-9 * policy, axis=-1), num_actions), None
+
+    policy, _ = jax.lax.scan(improve, policy, None, length=iterations)
+    return policy
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("run")
@@ -160,10 +170,7 @@ def main():
 
     before = float(objective(origin))
 
-    def updated(restarts, share_continuing):
-        starts = share_continuing * visits_rho + (1.0 - share_continuing) * restarts
-        batch = occupancy(starts, transitions, num_steps)
-        direction = batch @ per_cell
+    def stepped(direction, batch):
         direction = direction / jnp.linalg.norm(direction)
         _, change = jax.jvp(log_policy, (origin,), (direction,))
         per_state = jnp.sum(policy * change**2, axis=-1)
@@ -173,6 +180,13 @@ def main():
             "rho": jnp.sum(visits_rho * per_state),
         }[arguments.trust]
         return origin + jnp.sqrt(2.0 * arguments.kl / curvature) * direction
+
+    def batch_of(restarts, share_continuing):
+        return occupancy(share_continuing * visits_rho + (1.0 - share_continuing) * restarts, transitions, num_steps)
+
+    def updated(restarts, share_continuing):
+        batch = batch_of(restarts, share_continuing)
+        return stepped(batch @ per_cell, batch)
 
     def improvement(restarts, share_continuing):
         return objective(updated(restarts, share_continuing)) - before
@@ -226,6 +240,35 @@ def main():
         selector, podracer.pit.environment, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, game.num_cells
     )
 
+    trained = load_checkpoint(resolve_checkpoint(run), podracer.init(key)).algorithm_state
+    behaviors = {
+        "trained behavior": policy_table(algorithm, trained, game, key)[2],
+        "optimal behavior": optimal_policy(game, policy),
+    }
+    true_gradient = jax.grad(objective)(origin)
+    sources = {
+        "rho batch": batch_of(visits_rho, 1.0),
+        "PRD batch": batch_of(prd, continuing),
+        **{name: stationary(game.transitions(behavior), game.start) for name, behavior in behaviors.items()},
+        "optimal restart batch": batch_of(optimum, continuing),
+    }
+    directions = {name: (batch @ per_cell, batch) for name, batch in sources.items()}
+    directions["true gradient of J_rho"] = (true_gradient, visits_rho)
+    advantages = game.advantages(policy)
+
+    def contribution(direction, batch):
+        moved = stepped(direction, batch) - origin
+        _, change = jax.jvp(log_policy, (origin,), (moved,))
+        per_state = visits_rho * jnp.sum(advantages * policy * change, axis=-1)
+        return per_state * (true_gradient @ moved) / jnp.sum(per_state), objective(origin + moved) - before
+
+    print(f"gradients, each scaled to the same step (max KL {arguments.kl} per state):")
+    print(f"  {'source':<24} {'cos with true gradient':>24} {'J_rho change':>14}")
+    maps = {}
+    for name, (direction, batch) in directions.items():
+        maps[name], change = contribution(direction, batch)
+        print(f"  {name:<24} {cosine(direction, true_gradient):>+24.3f} {float(change):>+14.4f}")
+
     tile = arguments.tile
     start, _ = game.init(key)
     render = np.asarray(game.render(start, tile=tile), np.uint8)
@@ -238,6 +281,18 @@ def main():
     path = run / f"optimal_restarts_{step}.png"
     Image.fromarray(image).save(path)
     print(f"render | rho's visits | PRD's restarts | optimal restarts  ->  {path}")
+
+    peak = max(float(jnp.max(jnp.abs(values))) for values in maps.values())
+    rows = [("checkpoint", render), *((name, paint(np.asarray(values), cell_grid, tile, peak)) for name, values in maps.items())]
+    _, width, _ = render.shape
+    strips = []
+    for name, panel in rows:
+        label = Image.new("RGB", (width, 2 * tile), (GAP, GAP, GAP))
+        ImageDraw.Draw(label).text((4, tile // 2), name, fill=(230, 230, 230))
+        strips += [np.asarray(label), panel]
+    path = run / f"gradients_{step}.png"
+    Image.fromarray(np.concatenate(strips, axis=0)).save(path)
+    print(f"each panel: how much the step changes J_rho through each cell's policy, on one shared scale  ->  {path}")
 
 
 if __name__ == "__main__":

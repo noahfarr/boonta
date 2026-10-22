@@ -11,8 +11,8 @@ EDGE = 40
 GAP = 20
 
 
-def paint(cell_values: np.ndarray, cell_grid: np.ndarray, tile: int) -> np.ndarray:
-    peak = max(float(np.abs(cell_values).max()), 1e-30)
+def paint(cell_values: np.ndarray, cell_grid: np.ndarray, tile: int, peak: float | None = None) -> np.ndarray:
+    peak = max(float(np.abs(cell_values).max()) if peak is None else peak, 1e-30)
     normalized = np.append(cell_values, 0.0)[cell_grid] / peak
     intensity = np.kron(normalized, np.ones((tile, tile)))
     canvas = (
