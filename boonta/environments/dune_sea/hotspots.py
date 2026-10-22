@@ -63,6 +63,9 @@ class Hotspots(Environment):
         self.hotspot_index = jnp.full(self.num_cells, -1, jnp.int32).at[self.hotspots].set(
             jnp.arange(num_hotspots, dtype=jnp.int32)
         )
+        cell_grid = np.full((width + 2, width + 2), -1, np.int32)
+        cell_grid[1:-1, 1:-1] = np.arange(self.num_cells).reshape(width, width)
+        self.cell_grid = jnp.asarray(cell_grid)
 
     def observation_space(self) -> Space:
         return Space((self.num_cells,), jnp.float32, 0.0, 1.0)
@@ -164,7 +167,8 @@ class Scorecard:
         self.name = name
         self.reached = {}
 
-    def craft(self, key, algorithm, environment, state, logs):
+    def craft(self, key, podracer, podracer_state, logs):
+        algorithm, environment = podracer.algorithm, podracer.environment
         from boonta.artisans.artifact import Metrics
 
         game = getattr(environment, "unwrapped", environment)
@@ -180,7 +184,7 @@ class Scorecard:
             terminated=empty.astype(bool),
             truncated=empty.astype(bool),
         )
-        _, _, _, aux = algorithm.step(state.algorithm_state, None, key, timestep, temperature=1.0)
+        _, _, _, aux = algorithm.step(podracer_state.algorithm_state, None, key, timestep, temperature=1.0)
         logits = aux["logits"]
         correct = jnp.take_along_axis(jax.nn.softmax(logits), game.secrets[:, None], axis=-1)[:, 0]
         solved = jnp.argmax(logits, axis=-1) == game.secrets

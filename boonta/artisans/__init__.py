@@ -3,6 +3,7 @@ from .artisan import Artisan
 from .checkpointer import Checkpointer
 from .concentration import Concentration
 from .gauntlet import Gauntlet
+from .overlay import Overlay
 from .plot import Plot
 from .render import Render
 from .transcript import Transcript
@@ -16,6 +17,7 @@ __all__ = [
     "Gauntlet",
     "Image",
     "Metrics",
+    "Overlay",
     "Plot",
     "Render",
     "Text",
