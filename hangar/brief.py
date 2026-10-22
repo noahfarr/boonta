@@ -224,15 +224,6 @@ def brief(cfg, state) -> None:
     print("\n".join(lines), flush=True)
 
 
-def evaluation_command(run_dir, overrides) -> str:
-    kept = [
-        override
-        for override in overrides
-        if re.split(r"[./=]", override.lstrip("+~"))[0] not in TRAINING_ONLY
-    ]
-    return "boonta evaluate " + shlex.join([f"checkpoint={run_dir}", *kept])
-
-
 def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) -> None:
     saved = (Path(run_dir) / "checkpoints").is_dir()
     rows = [
@@ -244,7 +235,13 @@ def debrief(cfg, run_dir, overrides, step: int, score: float, seconds: float) ->
     ]
     lines = panel(("finished", "value"), rows, None, set(), shutil.get_terminal_size().columns)
     if saved:
-        lines += ["", "evaluate this run with", "", f"  {evaluation_command(run_dir, overrides)}"]
+        kept = [
+            override
+            for override in overrides
+            if re.split(r"[./=]", override.lstrip("+~"))[0] not in TRAINING_ONLY
+        ]
+        command = "boonta evaluate " + shlex.join([f"checkpoint={run_dir}", *kept])
+        lines += ["", "evaluate this run with", "", f"  {command}"]
     else:
         lines += [
             "",

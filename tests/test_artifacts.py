@@ -22,7 +22,7 @@ from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Transcript, Video
 from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
 from dummies import corridor
-from hangar.brief import brief, debrief, evaluation_command
+from hangar.brief import brief, debrief
 
 NUM_ENVS, NUM_STEPS = 8, 4
 online = partial(zoo.online, devices=2)
@@ -507,19 +507,26 @@ TRAINED_WITH = [
 ]
 
 
-def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_trains():
-    command = evaluation_command("/runs/a", TRAINED_WITH)
+def evaluation_command(capsys, run_dir, overrides):
+    (run_dir / "checkpoints").mkdir(parents=True)
+    debrief(OmegaConf.create({"score": "training/return"}), run_dir, overrides, 1_000, 0.0, 30.0)
+    *_, command = capsys.readouterr().out.strip().splitlines()
+    return command.strip()
+
+
+def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_trains(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path, TRAINED_WITH)
 
     assert command == (
-        "boonta evaluate checkpoint=/runs/a algorithm=ippo "
+        f"boonta evaluate checkpoint={tmp_path} algorithm=ippo "
         "environment=dune_sea/oasis environment.kwargs.num_agents=8"
     )
 
 
-def test_the_evaluation_command_quotes_what_the_shell_would_expand():
-    command = evaluation_command("/runs/with space", ["network.sizes=[1,2]"])
+def test_the_evaluation_command_quotes_what_the_shell_would_expand(capsys, tmp_path):
+    command = evaluation_command(capsys, tmp_path / "with space", ["network.sizes=[1,2]"])
 
-    assert command == "boonta evaluate 'checkpoint=/runs/with space' 'network.sizes=[1,2]'"
+    assert command == f"boonta evaluate 'checkpoint={tmp_path}/with space' 'network.sizes=[1,2]'"
 
 
 def test_debrief_prints_the_evaluation_command_of_a_run_that_saved_a_checkpoint(capsys, tmp_path):
