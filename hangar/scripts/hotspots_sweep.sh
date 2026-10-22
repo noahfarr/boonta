@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+unset $(compgen -e | grep "^SLURM_") || true
 .venv/bin/boonta train -m \
     hydra/launcher=submitit/ias \
     hydra.launcher.array_parallelism=8 \
