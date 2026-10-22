@@ -18,15 +18,10 @@ class Placement:
     num_placed: int
     selector: object
 
-    def init(self, archive_size, num_actions):
-        return self.selector.init(archive_size, num_actions)
-
-    @property
-    def score(self):
-        return self.selector.score
-
-    def update(self, state, key, transitions):
-        return state
+    def __getattr__(self, name):
+        if name == "selector":
+            raise AttributeError(name)
+        return getattr(self.selector, name)
 
     def select(self, state, wrapper, archive_auto_reset_state, key, **context):
         if self.num_placed == 0:
@@ -42,15 +37,10 @@ class Exploring:
     num_placed: int
     selector: object
 
-    def init(self, archive_size, num_actions):
-        return self.selector.init(archive_size, num_actions)
-
-    @property
-    def score(self):
-        return self.selector.score
-
-    def update(self, state, key, transitions):
-        return state
+    def __getattr__(self, name):
+        if name == "selector":
+            raise AttributeError(name)
+        return getattr(self.selector, name)
 
     def select(self, state, wrapper, archive_auto_reset_state, key, **context):
         from boonta.environments.wrappers.archive_auto_reset import pick
