@@ -22,6 +22,9 @@ class SuperMimicConfig:
     td_lambda: float
     world_model_updates: int
     policy_updates: int
+    policy_batches: int
+    critic_epochs: int
+    critic_minibatches: int
 
 
 @struct.dataclass(frozen=True)
@@ -126,7 +129,9 @@ class SuperMimic:
             values = self.critic.apply(critic_params, jnp.concatenate([states, context], axis=-1))
             return jnp.squeeze(values, axis=-1)
 
-        def world_model_loss_fn(world_model_params: PyTree, window: Transition) -> tuple[Array, dict]:
+        def world_model_loss_fn(
+            world_model_params: PyTree, state: SuperMimicState, window: Transition
+        ) -> tuple[Array, dict]:
             first, second = window.first, window.second
             start = jax.tree.map(lambda leaf: leaf[:, 0], first)
             context = self.context_of(start)
@@ -145,10 +150,10 @@ class SuperMimic:
                 return jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
 
             terms = {
-                "state": mean_fn(jnp.sum((predictions.state - self.state_of(second)) ** 2, axis=-1), settled),
+                "state": mean_fn(jnp.mean((predictions.state - self.state_of(second)) ** 2, axis=-1), settled),
                 "reward": mean_fn((predictions.reward - second.reward) ** 2, alive),
                 "observation": mean_fn(
-                    jnp.sum((predictions.observation - self.observation_of(second)) ** 2, axis=-1), settled
+                    jnp.mean((predictions.observation - self.observation_of(second)) ** 2, axis=-1), settled
                 ),
                 "termination": mean_fn(
                     optax.sigmoid_binary_cross_entropy(
@@ -159,7 +164,9 @@ class SuperMimic:
             }
             return sum(terms.values()), terms
 
-        def imagine_fn(params: PyTree, starts: Array, observations: Array, context: Array) -> tuple:
+        def imagine_fn(
+            params: PyTree, state: SuperMimicState, starts: Array, observations: Array, context: Array
+        ) -> tuple:
             def act_fn(carry: tuple, _) -> tuple:
                 imagined, observation, survival = carry
                 action = self.actor.apply(params, observation, temperature=1.0).mean()
@@ -180,11 +187,11 @@ class SuperMimic:
             survivals = jnp.concatenate([survivals, last_survival[None]], axis=0)
             return states, rewards, terminations, survivals
 
-        def actor_loss_fn(params: PyTree, window: Transition) -> tuple[Array, tuple]:
+        def actor_loss_fn(params: PyTree, state: SuperMimicState, window: Transition) -> tuple[Array, tuple]:
             first = jax.tree.map(lambda leaf: leaf[:, 0], window.first)
             context = self.context_of(first)
             states, rewards, terminations, survivals = imagine_fn(
-                params, self.state_of(first), self.observation_of(first), context
+                params, state, self.state_of(first), self.observation_of(first), context
             )
             values = state_values_fn(state.critic_params, states, context)
             discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
@@ -210,7 +217,7 @@ class SuperMimic:
         def world_model_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             window = self.buffer.sample(state.buffer_state, key).experience
             (loss, terms), grads = jax.value_and_grad(world_model_loss_fn, has_aux=True)(
-                state.world_model_params, window
+                state.world_model_params, state, window
             )
             updates, optimizer_state = self.world_model_optimizer.update(
                 grads["params"], state.world_model_optimizer_state, state.world_model_params["params"]
@@ -225,10 +232,14 @@ class SuperMimic:
             ), None
 
         def policy_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
-            window = self.buffer.sample(state.buffer_state, key).experience
+            sample_key, shuffle_key = jax.random.split(key)
+            windows = jax.vmap(lambda key: self.buffer.sample(state.buffer_state, key).experience)(
+                jax.random.split(sample_key, self.cfg.policy_batches)
+            )
+            window = jax.tree.map(lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), windows)
             (_, (imagined_return, states, rewards, terminations, context)), grads = jax.value_and_grad(
                 actor_loss_fn, has_aux=True
-            )(state.params, window)
+            )(state.params, state, window)
             updates, actor_optimizer_state = self.actor_optimizer.update(
                 grads["params"], state.actor_optimizer_state, state.params["params"]
             )
@@ -248,12 +259,36 @@ class SuperMimic:
             survivals = jnp.cumprod(
                 jnp.concatenate([jnp.ones_like(terminations[:1]), 1.0 - terminations[:-1]]), axis=0
             )
-            critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
-                state.critic_params, states, context, targets, survivals
+            num_rollouts, *_ = jnp.shape(context)
+            minibatch_size = num_rollouts // self.cfg.critic_minibatches
+
+            def critic_minibatch_fn(carry: tuple, indices: Array) -> tuple[tuple, Array]:
+                critic_params, critic_optimizer_state = carry
+                loss, grads = jax.value_and_grad(critic_loss_fn)(
+                    critic_params,
+                    states[:, indices],
+                    context[indices],
+                    targets[:, indices],
+                    survivals[:, indices],
+                )
+                updates, critic_optimizer_state = self.critic_optimizer.update(
+                    grads["params"], critic_optimizer_state, critic_params["params"]
+                )
+                critic_params = {**critic_params, "params": optax.apply_updates(critic_params["params"], updates)}
+                return (critic_params, critic_optimizer_state), loss
+
+            def critic_epoch_fn(carry: tuple, key: Key) -> tuple[tuple, Array]:
+                order = jax.random.permutation(key, num_rollouts)[: minibatch_size * self.cfg.critic_minibatches]
+                return jax.lax.scan(
+                    critic_minibatch_fn, carry, jnp.reshape(order, (self.cfg.critic_minibatches, minibatch_size))
+                )
+
+            (critic_params, critic_optimizer_state), critic_losses = jax.lax.scan(
+                critic_epoch_fn,
+                (state.critic_params, state.critic_optimizer_state),
+                jax.random.split(shuffle_key, self.cfg.critic_epochs),
             )
-            critic_updates, critic_optimizer_state = self.critic_optimizer.update(
-                critic_grads["params"], state.critic_optimizer_state, state.critic_params["params"]
-            )
+            critic_loss = jnp.mean(critic_losses)
             lox.log(
                 {
                     "actor/imagined_return": imagined_return,
@@ -265,10 +300,7 @@ class SuperMimic:
             )
             return state.replace(
                 params={**state.params, "params": optax.apply_updates(state.params["params"], updates)},
-                critic_params={
-                    **state.critic_params,
-                    "params": optax.apply_updates(state.critic_params["params"], critic_updates),
-                },
+                critic_params=critic_params,
                 actor_optimizer_state=actor_optimizer_state,
                 critic_optimizer_state=critic_optimizer_state,
             ), None

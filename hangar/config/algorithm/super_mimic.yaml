@@ -1,0 +1,42 @@
+# @package _global_
+
+defaults:
+  - /buffer: trajectory
+
+algorithm:
+  _target_: boonta.algorithms.super_mimic.SuperMimicConfig
+  horizon: 32
+  window: 8
+  gamma: 0.99
+  td_lambda: 0.95
+  world_model_updates: 10
+  policy_updates: 1
+  policy_batches: 2
+  critic_epochs: 5
+  critic_minibatches: 4
+
+podracer:
+  config:
+    num_steps: 2
+
+environment:
+  num_envs: 4096
+
+replay:
+  capacity: 4_096_000
+
+buffer:
+  sample_batch_size: 2048
+  sample_sequence_length: ${algorithm.window}
+
+optimizer:
+  lr: 2e-4
+  max_grad_norm: 1.0
+  max_actor_grad: 0.1
+
+network:
+  action_noise: 0.1
+  actor: [512, 256, 128]
+  critic: [256, 128]
+  world_model: [1024, 1024, 1024]
+  heads: [256, 256]
