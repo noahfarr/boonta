@@ -36,7 +36,7 @@ class Render:
                 environment_key, environment_state, action
             )
             return (algorithm_state, carry, environment_state, timestep), (
-                jax.tree.map(lambda leaf: jnp.take(leaf, 0, axis=0), environment_state),
+                jax.tree.map(lambda leaf: leaf[0], environment_state),
                 jnp.all(timestep.done[0]),
             )
 
