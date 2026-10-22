@@ -6,6 +6,8 @@ namespace: dune_sea
 suite: walk
 env_id: walk
 num_envs: 4096
-kwargs: {}
+kwargs:
+  impl: warp
+  worlds: ${environment.num_envs}
 auto_reset:
   ratio: 16

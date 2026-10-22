@@ -29,7 +29,9 @@ LOOSE_JOINTS = ("hip_pitch", "knee", "ankle")
 
 @struct.dataclass
 class WalkState:
-    data: mjx.Data
+    qpos: Array
+    qvel: Array
+    warmstart: Array
     command: Array
     phase: Array
     action: Array
@@ -49,7 +51,10 @@ def rotate(vector: Array, quat: Array) -> Array:
 class Walk(Environment):
     def __init__(
         self,
-        impl: str = "jax",
+        impl: str = "warp",
+        worlds: int = 1,
+        contacts: int = 24,
+        constraints: int = 128,
         episode_length: int = 1000,
         control_dt: float = 0.02,
         action_scale: float = 0.5,
@@ -63,9 +68,13 @@ class Walk(Environment):
         weights: dict[str, float] | None = None,
     ):
         self.model = mujoco.MjModel.from_xml_path(str(fetch("unitree_g1") / "scene_mjx.xml"))
+        self.model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_EULERDAMP
         self.impl = impl
         self.mjx_model = mjx.put_model(self.model, impl=impl)
-        self.template = mjx.make_data(self.model, impl=impl)
+        if impl == "warp":
+            self.mjx_model = self.mjx_model.tree_replace({"opt._impl": self.mjx_model.opt._impl.replace(warn_overflow=0)})
+        buffers = {"naconmax": contacts * worlds, "njmax": constraints} if impl == "warp" else {}
+        self.template = mjx.make_data(self.model, impl=impl, **buffers)
         self.episode_length = episode_length
         self.control_dt = control_dt
         self.substeps = round(control_dt / self.model.opt.timestep)
@@ -104,7 +113,9 @@ class Walk(Environment):
         data = self.template.replace(qpos=qpos, qvel=qvel, ctrl=self.default_ctrl)
         data = mjx.forward(self.mjx_model, data)
         state = WalkState(
-            data=data,
+            qpos=data.qpos,
+            qvel=data.qvel,
+            warmstart=data.qacc_warmstart,
             command=self.draw(command_key),
             phase=jnp.array([0.0, jnp.pi], jnp.float32),
             action=jnp.zeros(self.num_joints, jnp.float32),
@@ -122,14 +133,27 @@ class Walk(Environment):
 
     def step(self, key: Key, state: WalkState, action: Array) -> tuple[WalkState, Timestep]:
         action = jnp.asarray(action, jnp.float32)
-        data = state.data.replace(ctrl=self.default_ctrl + self.action_scale * action)
+        data = self.template.replace(
+            qpos=state.qpos,
+            qvel=state.qvel,
+            qacc_warmstart=state.warmstart,
+            ctrl=self.default_ctrl + self.action_scale * action,
+        )
         data = jax.lax.fori_loop(0, self.substeps, lambda _, data: mjx.step(self.mjx_model, data), data)
         time = state.time + 1
         phase = jnp.mod(state.phase + 2 * jnp.pi * self.gait_frequency * self.control_dt, 2 * jnp.pi)
         command = jnp.where(time % self.command_period == 0, self.draw(key), state.command)
-        next_state = WalkState(data=data, command=command, phase=phase, action=action, time=time)
-        fallen = self.fallen(data)
-        terms = self.score(state, next_state, fallen)
+        next_state = WalkState(
+            qpos=data.qpos,
+            qvel=data.qvel,
+            warmstart=data.qacc_warmstart,
+            command=command,
+            phase=phase,
+            action=action,
+            time=time,
+        )
+        fallen = self.fallen(data.qpos)
+        terms = self.score(state, next_state, data, fallen)
         reward = self.control_dt * sum(self.weights[name] * value for name, value in terms.items())
         timestep = Timestep(
             obs=self.observe(next_state),
@@ -141,14 +165,13 @@ class Walk(Environment):
         )
         return next_state, timestep
 
-    def gravity(self, data: mjx.Data) -> Array:
-        return rotate(jnp.array([0.0, 0.0, -1.0]), conjugate(data.qpos[3:7]))
+    def gravity(self, qpos: Array) -> Array:
+        return rotate(jnp.array([0.0, 0.0, -1.0]), conjugate(qpos[3:7]))
 
-    def fallen(self, data: mjx.Data) -> Array:
-        return (self.gravity(data)[2] > -0.6) | (data.qpos[2] < 0.45)
+    def fallen(self, qpos: Array) -> Array:
+        return (self.gravity(qpos)[2] > -0.6) | (qpos[2] < 0.45)
 
-    def score(self, state: WalkState, next_state: WalkState, fallen: Array) -> dict[str, Array]:
-        data = next_state.data
+    def score(self, state: WalkState, next_state: WalkState, data: mjx.Data, fallen: Array) -> dict[str, Array]:
         quat = data.qpos[3:7]
         velocity = rotate(data.qvel[:3], conjugate(quat))
         spin = data.qvel[3:6]
@@ -159,7 +182,7 @@ class Walk(Environment):
             "velocity": jnp.exp(-jnp.sum(jnp.square(command[:2] - velocity[:2])) / 0.25),
             "turning": jnp.exp(-jnp.square(command[2] - spin[2]) / 0.25),
             "gait": jnp.exp(-jnp.sum(jnp.square(feet - lift)) / 0.005),
-            "upright": jnp.sum(jnp.square(self.gravity(data)[:2])),
+            "upright": jnp.sum(jnp.square(self.gravity(data.qpos)[:2])),
             "bounce": jnp.square(data.qvel[2]),
             "wobble": jnp.sum(jnp.square(spin[:2])),
             "smoothness": jnp.sum(jnp.square(next_state.action - state.action)),
@@ -168,14 +191,13 @@ class Walk(Environment):
         }
 
     def observe(self, state: WalkState) -> Array:
-        data = state.data
         return jnp.concatenate(
             [
-                0.25 * data.qvel[3:6],
-                self.gravity(data),
+                0.25 * state.qvel[3:6],
+                self.gravity(state.qpos),
                 state.command,
-                data.qpos[7:] - self.default_qpos[7:],
-                0.05 * data.qvel[6:],
+                state.qpos[7:] - self.default_qpos[7:],
+                0.05 * state.qvel[6:],
                 state.action,
                 jnp.cos(state.phase),
                 jnp.sin(state.phase),
@@ -193,7 +215,8 @@ class Walk(Environment):
         return self.episode_length
 
     def render(self, state: WalkState, height: int = 480, width: int = 640, camera: str = "track") -> Array:
-        data = mjx.get_data(self.model, state.data)
+        data = mujoco.MjData(self.model)
+        data.qpos, data.qvel = np.asarray(state.qpos), np.asarray(state.qvel)
         mujoco.mj_forward(self.model, data)
         renderer = mujoco.Renderer(self.model, height, width)
         renderer.update_scene(data, camera=camera)
