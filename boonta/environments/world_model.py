@@ -11,6 +11,14 @@ from .spaces import Space
 
 
 @struct.dataclass
+class Observation:
+    observation: Array
+    state: Array
+    context: Array
+    command: Array
+
+
+@struct.dataclass
 class WorldModelState:
     params: PyTree = struct.field(default=None, metadata={"axis": None})
     state: Array = None
@@ -49,7 +57,6 @@ class WorldModel(Environment):
         reward_fn: Callable,
         termination_fn: Callable,
         observation_fn: Callable,
-        pack: Callable,
         goal: Callable[[Array], Array] = _unchanged,
         advance: Callable[[Array], Array] = _unchanged,
     ):
@@ -60,7 +67,6 @@ class WorldModel(Environment):
             termination_fn=termination_fn,
             observation_fn=observation_fn,
         )
-        self.pack = pack
         self.goal = goal
         self.advance = advance
 
@@ -91,11 +97,11 @@ class WorldModel(Environment):
             state = state.replace(state=model_state, context=context, command=command)
         return state
 
-    def observe(self, state: WorldModelState) -> PyTree:
+    def observe(self, state: WorldModelState) -> Observation:
         observation = self.networks.apply(
             state.params, state.state, state.context, state.command, method=_Networks.observe
         )
-        return self.pack(state=state.state, observation=observation, context=state.context, command=state.command)
+        return Observation(observation=observation, state=state.state, context=state.context, command=state.command)
 
     def step(self, key: Key, state: WorldModelState, action: Array) -> tuple[WorldModelState, Timestep]:
         following, reward, termination = self.networks.apply(

@@ -23,10 +23,10 @@ from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
 from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig
-from boonta.environments.world_model import WorldModel
+from boonta.environments.world_model import Observation, WorldModel
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
-                                          SameStepAutoReset)
+                                          SameStepAutoReset, TransformObservation)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
                              EpsilonGreedy, FeatureExtractor, FixedGaussian, Gaussian,
                              Highway, MinGRUCell, Network, RTUCell,
@@ -385,7 +385,6 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
             ),
             termination_fn=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
             observation_fn=lambda state, **_: state,
-            pack=lambda state, **_: state,
         ),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,
@@ -400,7 +399,11 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         world_model_optimizer=clipped(1e-3),
         auxiliary_losses=auxiliary_losses,
     )
-    return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
+    observed = TransformObservation(
+        wrap(environment, num_envs),
+        lambda obs: Observation(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0]),
+    )
+    return podracer(algorithm, observed, num_envs, 1)
 
 
 def reppo(

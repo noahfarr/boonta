@@ -7,9 +7,9 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.mjlab import motion_tracking
-from boonta.environments.mjlab.task import NUM_JOINTS, OBSERVATION
-from boonta.environments.world_model import WorldModel
-from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.environments.mjlab.task import NUM_JOINTS
+from boonta.environments.world_model import Observation, WorldModel
+from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
 from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
 from boonta.networks.layers import Normalize
 
@@ -27,31 +27,29 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     task = motion_tracking.describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
+    anchored = cfg.network.anchored
+
+    def adapt(obs):
+        observation = obs["observation"]
+        if anchored:
+            observation = jnp.concatenate([observation, obs["anchor"]], axis=-1)
+        return Observation(
+            observation=observation,
+            state=obs["state"],
+            context=obs["context"],
+            command=obs["frame"][..., 0].astype(jnp.int32),
+        )
+
+    env = TransformObservation(env, adapt)
 
     def reward(state, following, command, **_):
         return jax.vmap(task.reward)(state, following, command)
-
-    anchored = cfg.network.anchored
 
     def observe(state, context, command, **_):
         observation = jax.vmap(task.observe)(state, context)
         if anchored:
             return jnp.concatenate([observation, jax.vmap(task.anchor)(state, command)], axis=-1)
         return observation
-
-    def pack(state, observation, context, command):
-        return {
-            "observation": observation[..., :OBSERVATION],
-            "anchor": observation[..., OBSERVATION:],
-            "state": state,
-            "context": context,
-            "frame": command[..., None].astype(jnp.float32),
-        }
-
-    def observation_of(timestep):
-        if anchored:
-            return jnp.concatenate([timestep.obs["observation"], timestep.obs["anchor"]], axis=-1)
-        return timestep.obs["observation"]
 
     def clipped(*transforms):
         return optax.chain(optax.clip_by_global_norm(cfg.optimizer.max_grad_norm), *transforms)
@@ -97,7 +95,6 @@ def make(cfg):
                 ]
             ),
             observation_fn=observe,
-            pack=pack,
             goal=jax.vmap(task.goal),
             advance=jax.vmap(task.advance),
         ),
@@ -108,11 +105,6 @@ def make(cfg):
         ),
         critic_optimizer=clipped(optax.adam(decayed(critic_steps))),
         world_model_optimizer=clipped(optax.adam(decayed(algorithm_cfg.world_model_updates))),
-        state_of=lambda timestep: timestep.obs["state"],
-        observation_of=observation_of,
-        action_of=lambda timestep: timestep.obs["executed"],
-        context_of=lambda timestep: timestep.obs["context"],
-        command_of=lambda timestep: timestep.obs["frame"][..., 0].astype(jnp.int32),
         sensor_noise=task.perturb,
     )
 

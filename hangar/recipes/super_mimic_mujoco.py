@@ -5,8 +5,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic
-from boonta.environments.world_model import WorldModel
-from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.environments.world_model import Observation, WorldModel
+from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
 from boonta.networks import FeatureExtractor, FixedGaussian, Network
 
 
@@ -20,6 +20,9 @@ def make(cfg):
     action_dim, *_ = env.action_space().shape
     obs_dim, *_ = env.observation_space().shape
     env = instantiate(cfg.environment.auto_reset, env)
+    env = TransformObservation(
+        env, lambda obs: Observation(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0])
+    )
 
     def clipped(*transforms):
         return optax.chain(optax.clip_by_global_norm(cfg.optimizer.max_grad_norm), *transforms)
@@ -62,7 +65,6 @@ def make(cfg):
                 [lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(cfg.network.heads, 1)]
             ),
             observation_fn=lambda state, **_: state,
-            pack=lambda state, **_: state,
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(

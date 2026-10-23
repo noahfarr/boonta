@@ -62,10 +62,10 @@ def main(cfg):
             length = length + playing
             failed = failed | (playing & timestep.terminated)
             playing = playing & ~timestep.done
-            pose = timestep.obs["state"][:, : 7 + NUM_JOINTS]
+            pose = timestep.obs.state[:, : 7 + NUM_JOINTS]
             return (environment_state, timestep, history, returned, length, failed, playing), (
                 pose,
-                timestep.obs["frame"][:, 0].astype(jnp.int32),
+                timestep.obs.command,
                 playing,
             )
 
@@ -94,10 +94,8 @@ def main(cfg):
         clip = list(names).index(name)
         steps = np.flatnonzero(alive[:, clip])[: int(cfg.get("seconds", 20) * FPS * STRIDE) : STRIDE]
         reference = frames[steps, clip] - 1
-        ghost = np.concatenate(
-            [library["body_pos_w"][reference, 0], library["body_quat_w"][reference, 0], library["joint_pos"][reference]],
-            axis=-1,
-        )
+        root_position, root_orientation = library["body_pos_w"][reference, 0], library["body_quat_w"][reference, 0]
+        ghost = np.concatenate([root_position, root_orientation, library["joint_pos"][reference]], axis=-1)
         video = directory / f"{name}.mp4"
         _film(poses[steps, clip], ghost, video)
         console.print(f"rendered {name} to {video}")

@@ -17,12 +17,14 @@ class MjlabState:
 
 
 class Mjlab(Environment):
-    def __init__(self, env):
+    def __init__(self, env, executed: str | None = None):
         self.env = env
         self.num_envs = env.num_envs
+        self.executed = executed
         self._observation_space = {
             group: Space(shape=shape, dtype=jnp.float32, low=-jnp.inf, high=jnp.inf)
             for group, shape in env.observation_manager.group_obs_dim.items()
+            if group != executed
         }
         self._action_space = Space(
             shape=(env.action_manager.total_action_dim,), dtype=jnp.float32, low=-jnp.inf, high=jnp.inf
@@ -56,8 +58,11 @@ class Mjlab(Environment):
         obs, reward, terminated, truncated, _ = self.env.step(
             torch.as_tensor(np.asarray(action), device=self.env.device)
         )
+        if self.executed is not None:
+            action = obs[self.executed].detach().cpu().numpy()
         return (
             self._observe(obs),
+            np.asarray(action, np.float32),
             reward.detach().cpu().numpy().astype(np.float32),
             terminated.detach().cpu().numpy(),
             truncated.detach().cpu().numpy(),
@@ -78,9 +83,15 @@ class Mjlab(Environment):
 
     def step(self, key: Key, state: MjlabState, action: Array) -> tuple[MjlabState, Timestep]:
         flags = jax.ShapeDtypeStruct((self.num_envs,), jnp.bool_)
-        obs, reward, terminated, truncated = io_callback(
+        obs, action, reward, terminated, truncated = io_callback(
             self._advance,
-            (self._observations(), jax.ShapeDtypeStruct((self.num_envs,), jnp.float32), flags, flags),
+            (
+                self._observations(),
+                self._batched(self._action_space),
+                jax.ShapeDtypeStruct((self.num_envs,), jnp.float32),
+                flags,
+                flags,
+            ),
             action,
         )
         return state, Timestep(
@@ -88,7 +99,14 @@ class Mjlab(Environment):
         )
 
 
-def make(env_id, num_envs: int = 1, device: str = "cuda:0", play: bool = False, motion_file: str | None = None):
+def make(
+    env_id,
+    num_envs: int = 1,
+    device: str = "cuda:0",
+    play: bool = False,
+    motion_file: str | None = None,
+    executed: str | None = None,
+):
     import mjlab.tasks  # noqa: F401
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.tasks.registry import load_env_cfg
@@ -99,5 +117,5 @@ def make(env_id, num_envs: int = 1, device: str = "cuda:0", play: bool = False, 
     cfg.scene.num_envs = num_envs
     if motion_file is not None:
         cfg.commands["motion"].motion_file = motion_file
-    env = Mjlab(ManagerBasedRlEnv(cfg, device=device))
+    env = Mjlab(ManagerBasedRlEnv(cfg, device=device), executed=executed)
     return Batched(env, num_envs=num_envs)
