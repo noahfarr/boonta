@@ -3,10 +3,10 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
-from ..mjlab import Mjlab
-from ..wrappers import Batched
 from . import motions
 
+TASK = "SuperMimic-Motion-Tracking-Flat-Unitree-G1"
+GAMMA = 0.99
 BIN_SECONDS = 1.0
 UNIFORM, HARDEST, REMEMBERED = 0.5, 0.4, 0.1
 SHARPNESS = 25.0
@@ -60,7 +60,7 @@ def _motion_end(env, command_name: str):
     return command.time_steps + 1 >= command.clip_end[command.clip[command.time_steps]]
 
 
-def _command(base, gamma: float, attainable: float, benchmark: bool):
+def _command(base, attainable: float, play: bool):
     from mjlab.tasks.tracking.mdp import MotionCommand, MotionCommandCfg
 
     class ReturnSampledMotion(MotionCommand):
@@ -100,7 +100,7 @@ def _command(base, gamma: float, attainable: float, benchmark: bool):
         def _adaptive_sampling(self, env_ids):
             import torch
 
-            if benchmark:
+            if play:
                 self.time_steps[env_ids] = self.clip_start[env_ids % len(self.clip_start)]
                 return
             self._tally(env_ids)
@@ -121,7 +121,7 @@ def _command(base, gamma: float, attainable: float, benchmark: bool):
             self.start_bin[env_ids] = bins
             self.returned[env_ids] = 0.0
             self.discount[env_ids] = 1.0
-            self.ceiling[env_ids] = attainable * (1.0 - gamma ** remaining.float()) / (1.0 - gamma)
+            self.ceiling[env_ids] = attainable * (1.0 - GAMMA ** remaining.float()) / (1.0 - GAMMA)
             self.fresh[env_ids] = True
 
         def _update_command(self, env_ids=None):
@@ -130,7 +130,7 @@ def _command(base, gamma: float, attainable: float, benchmark: bool):
             if env_ids is None and hasattr(self._env, "reward_buf"):
                 stale = self.fresh
                 self.returned += torch.where(stale, 0.0, self.discount * self._env.reward_buf)
-                self.discount *= torch.where(stale, 1.0, gamma)
+                self.discount *= torch.where(stale, 1.0, GAMMA)
                 self.fresh[:] = False
             super()._update_command(env_ids)
 
@@ -142,36 +142,32 @@ def _command(base, gamma: float, attainable: float, benchmark: bool):
     return ReturnSampledMotionCfg(**{field.name: getattr(base, field.name) for field in fields(base)})
 
 
-def _attainable(cfg) -> float:
+def attainable(cfg) -> float:
     return sum(term.weight for term in cfg.rewards.values() if term.weight > 0) * cfg.sim.mujoco.timestep * cfg.decimation
 
 
-def configure(library: str, num_envs: int, gamma: float, benchmark: bool = False):
+def _configure(play: bool):
     from mjlab.envs.mdp import observations as observed
     from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
     from mjlab.managers.termination_manager import TerminationTermCfg
     from mjlab.tasks.tracking.config.g1.env_cfgs import unitree_g1_flat_tracking_env_cfg
 
     cfg = unitree_g1_flat_tracking_env_cfg()
-    cfg.scene.num_envs = num_envs
     cfg.scene.sensors = ()
     feet = cfg.events["foot_friction"].params["asset_cfg"].geom_names
     torso, *_ = cfg.events["base_com"].params["asset_cfg"].body_names
     del cfg.rewards["self_collisions"]
     cfg.rewards["joint_limit"].weight = -2.0
-    attainable = _attainable(cfg)
     motion = cfg.commands["motion"]
-    motion.motion_file = str(library)
     motion.anchor_body_name = "pelvis"
     motion.sampling_mode = "adaptive"
     motion.debug_vis = False
-    if benchmark:
+    if play:
         motion.pose_range, motion.velocity_range, motion.joint_position_range = {}, {}, (0.0, 0.0)
         del cfg.events["base_com"], cfg.events["encoder_bias"]
         cfg.events["foot_friction"].params["ranges"] = (1.0, 1.0)
-        stored = np.load(library)
-        cfg.episode_length_s = float(np.max(stored["clip_end"] - stored["clip_start"])) * cfg.sim.mujoco.timestep * cfg.decimation
-    cfg.commands["motion"] = _command(motion, gamma, attainable, benchmark)
+        cfg.episode_length_s = 1e9
+    cfg.commands["motion"] = _command(motion, attainable(cfg), play)
     del cfg.terminations["ee_body_pos"]
     cfg.terminations["motion_end"] = TerminationTermCfg(
         func=_motion_end, params={"command_name": "motion"}, time_out=True
@@ -207,22 +203,17 @@ def configure(library: str, num_envs: int, gamma: float, benchmark: bool = False
     return cfg
 
 
-def make(
-    env_id: str,
-    directory: str,
-    num_envs: int = 1,
-    device: str = "cuda:0",
-    gamma: float = 0.99,
-    benchmark: bool = False,
-):
-    from mjlab.asset_zoo.robots.unitree_g1.g1_constants import G1_XML
-    from mjlab.envs import ManagerBasedRlEnv
+def _register():
+    from mjlab.tasks.registry import list_tasks, register_mjlab_task
+    from mjlab.tasks.tracking.config.g1.rl_cfg import unitree_g1_tracking_ppo_runner_cfg
 
-    library = motions.convert(directory, str(G1_XML))
-    cfg = configure(library, num_envs, gamma, benchmark)
-    env = Mjlab(ManagerBasedRlEnv(cfg, device=device))
-    env.library, env.attainable = library, _attainable(cfg)
-    return Batched(env, num_envs=num_envs)
+    if TASK not in list_tasks():
+        register_mjlab_task(
+            task_id=TASK,
+            env_cfg=_configure(play=False),
+            play_env_cfg=_configure(play=True),
+            rl_cfg=unitree_g1_tracking_ppo_runner_cfg(),
+        )
 
 
 def describe(env):
@@ -241,9 +232,12 @@ def describe(env):
     limits = robot.soft_joint_pos_limits[0].cpu().numpy()
     return Tracking(
         kinematics=mjx.put_model(skeleton),
-        motions=motions.load(env.unwrapped.library, tuple(body - 1 for body in tracked)),
+        motions=motions.load(env.unwrapped.env.cfg.commands["motion"].motion_file, tuple(body - 1 for body in tracked)),
         tracked=jnp.asarray(tracked),
         default_pose=jnp.asarray(robot.default_joint_pos[0].cpu().numpy()),
         soft_lower=jnp.asarray(limits[:, 0]),
         soft_upper=jnp.asarray(limits[:, 1]),
     )
+
+
+_register()

@@ -25,14 +25,16 @@ class Policy:
 def main(cfg):
     import orbax.checkpoint as ocp
 
+    from boonta.environments.mjlab import motion_tracking
     from boonta.utils import resolve_checkpoint
     from hangar import recipes
 
     assert cfg.checkpoint is not None
-    assert cfg.environment.kwargs.benchmark, "score with environment.kwargs.benchmark=true"
+    assert cfg.environment.kwargs.play, "score with environment.kwargs.play=true"
     podracer = recipes.make(cfg)
     algorithm, environment = podracer.algorithm, podracer.environment
-    library = np.load(environment.unwrapped.library)
+    simulator = environment.unwrapped.env
+    library = np.load(simulator.cfg.commands["motion"].motion_file)
     starts, ends = library["clip_start"], library["clip_end"]
     num_clips, num_envs = len(starts), int(cfg.environment.num_envs)
     assert num_envs >= num_clips, f"set environment.num_envs to at least the {num_clips} clips"
@@ -66,9 +68,9 @@ def main(cfg):
         return returned, length, failed
 
     returned, length, failed = jax.device_get(play(policy, jax.random.key(cfg.seed)))
-    ceiling = environment.unwrapped.attainable * (ends - starts - 1)
+    ceiling = motion_tracking.attainable(simulator.cfg) * (ends - starts - 1)
     normalized = returned[:num_clips] / ceiling
-    names = sorted(path.name for path in Path(cfg.environment.kwargs.directory).glob("*.csv"))
+    names = library["names"]
     table = Table("clip", "normalized return", "steps", "failed")
     for name, score, steps, fell in zip(names, normalized, length[:num_clips], failed[:num_clips]):
         table.add_row(name, f"{score:.3f}", f"{int(steps)}", "yes" if fell else "")

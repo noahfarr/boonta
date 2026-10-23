@@ -6,8 +6,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.super_mimic import Analytic, Learned, SuperMimic, WorldModel
-from boonta.environments.motion_tracking import tracking
-from boonta.environments.motion_tracking.task import NUM_JOINTS
+from boonta.environments.mjlab import motion_tracking
+from boonta.environments.mjlab.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
 from boonta.networks.layers import Normalize
@@ -24,7 +24,7 @@ def normalized(module):
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    task = tracking.describe(env)
+    task = motion_tracking.describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
 
     def reward(state, following, command, **_):

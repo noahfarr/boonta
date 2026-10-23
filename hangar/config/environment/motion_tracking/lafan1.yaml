@@ -1,9 +1,0 @@
-namespace: motion_tracking
-suite: motion_tracking
-env_id: lafan1
-kwargs:
-  directory: ${oc.env:HOME}/.cache/boonta/lafan1_g1/g1
-  num_envs: ${environment.num_envs}
-  device: cuda:0
-  gamma: ${algorithm.gamma}
-  benchmark: false

@@ -91,12 +91,14 @@ def convert(directory: str, model_path: str, source_rate: int = 30, rate: int = 
     library = directory / f"library_{rate}hz.npz"
     if not library.exists():
         model = mujoco.MjModel.from_xml_path(model_path)
-        clips = [_clip(model, path, source_rate, rate) for path in sorted(directory.glob("*.csv"))]
+        paths = sorted(directory.glob("*.csv"))
+        clips = [_clip(model, path, source_rate, rate) for path in paths]
         lengths = np.array([len(clip["joint_pos"]) for clip in clips])
         joined = {name: np.concatenate([clip[name] for clip in clips]).astype(np.float32) for name in clips[0]}
         np.savez(
             library,
             fps=np.array([rate]),
+            names=np.array([path.stem for path in paths]),
             clip_start=np.concatenate([[0], np.cumsum(lengths)[:-1]]),
             clip_end=np.cumsum(lengths),
             **joined,

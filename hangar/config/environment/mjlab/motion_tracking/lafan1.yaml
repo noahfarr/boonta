@@ -1,0 +1,8 @@
+namespace: mjlab
+suite: motion_tracking
+env_id: SuperMimic-Motion-Tracking-Flat-Unitree-G1
+kwargs:
+  num_envs: ${environment.num_envs}
+  device: cuda:0
+  play: false
+  motion_file: ${oc.env:HOME}/.cache/boonta/lafan1_g1/g1/library_50hz.npz

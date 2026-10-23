@@ -47,7 +47,6 @@ from . import (ale, bluffjax, brax, craftax, dune_sea, gymnasium, gymnax,
                isaaclab, isaaclab_arena, jaxmarl, jaxtari, jaxued, jumanji, kinetix,
                libero, mapox, mjlab, mujoco_playground, peanut_gb, pynes,
                xland_minigrid)
-from .motion_tracking import tracking
 
 registry = {
     "ale": ale.make,
@@ -67,7 +66,6 @@ registry = {
     "libero": libero.make,
     "mapox": mapox.make,
     "mjlab": mjlab.make,
-    "motion_tracking": tracking.make,
     "mujoco_playground": mujoco_playground.make,
     "peanut_gb": peanut_gb.make,
     "pynes": pynes.make,

@@ -6,9 +6,9 @@ from jax.experimental import io_callback
 
 from boonta.utils import Array, Key, Timestep
 
-from .environment import Environment
-from .spaces import Space
-from .wrappers import Batched
+from ..environment import Environment
+from ..spaces import Space
+from ..wrappers import Batched
 
 
 @struct.dataclass
@@ -88,12 +88,16 @@ class Mjlab(Environment):
         )
 
 
-def make(env_id, num_envs: int = 1, device: str = "cuda:0", **kwargs):
+def make(env_id, num_envs: int = 1, device: str = "cuda:0", play: bool = False, motion_file: str | None = None):
     import mjlab.tasks  # noqa: F401
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.tasks.registry import load_env_cfg
 
-    cfg = load_env_cfg(env_id)
+    from . import motion_tracking  # noqa: F401
+
+    cfg = load_env_cfg(env_id, play=play)
     cfg.scene.num_envs = num_envs
+    if motion_file is not None:
+        cfg.commands["motion"].motion_file = motion_file
     env = Mjlab(ManagerBasedRlEnv(cfg, device=device))
     return Batched(env, num_envs=num_envs)
