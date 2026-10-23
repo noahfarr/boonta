@@ -10,11 +10,16 @@ from boonta.environments.motion_tracking import tracking
 from boonta.environments.motion_tracking.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
+from boonta.networks.layers import Normalize
 
 
 def mlp(sizes, outputs=None):
     layers = [layer for size in sizes for layer in (nn.Dense(size), nn.elu)]
     return nn.Sequential(layers + ([nn.Dense(outputs)] if outputs else []))
+
+
+def normalized(module):
+    return nn.Sequential([Normalize(), module])
 
 
 def make(cfg):
@@ -45,23 +50,27 @@ def make(cfg):
         cfg=instantiate(cfg.algorithm),
         actor=Network(
             feature_extractor=FeatureExtractor(
-                observation_extractor=GoalConditioned(
-                    encoder=mlp(cfg.network.encoder, cfg.network.latent),
-                    decoder=mlp(cfg.network.decoder),
-                    goal_size=goal_size,
+                observation_extractor=normalized(
+                    GoalConditioned(
+                        encoder=mlp(cfg.network.encoder, cfg.network.latent),
+                        decoder=mlp(cfg.network.decoder),
+                        goal_size=goal_size,
+                    )
                 )
             ),
             head=FixedGaussian(nn.Dense(NUM_JOINTS), scale=cfg.network.action_noise),
         ),
         critic=Network(
-            feature_extractor=FeatureExtractor(observation_extractor=mlp(cfg.network.critic)),
+            feature_extractor=FeatureExtractor(observation_extractor=normalized(mlp(cfg.network.critic))),
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
-            dynamics=FloatingBase(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS), num_joints=NUM_JOINTS),
+            dynamics=FloatingBase(
+                normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
+            ),
             reward=Analytic(reward),
             observation=Analytic(observe),
-            termination=Learned(mlp(cfg.network.heads, 1), inputs=("state", "goal")),
+            termination=Learned(normalized(mlp(cfg.network.heads, 1)), inputs=("state", "goal")),
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(

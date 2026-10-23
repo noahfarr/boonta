@@ -220,7 +220,13 @@ class SuperMimic:
             def mean_fn(error: Array, weight: Array) -> Array:
                 return jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
 
-            terms = {"state": mean_fn(jnp.mean((predictions.state - self.state_of(second)) ** 2, axis=-1), settled)}
+            target = self.state_of(second)
+            change = target - self.state_of(first)
+            weight = settled[..., None]
+            average = jnp.sum(weight * change, axis=(0, 1)) / jnp.maximum(jnp.sum(settled), 1.0)
+            spread = jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / jnp.maximum(jnp.sum(settled), 1.0)
+            scale = jax.lax.stop_gradient(spread) + 1e-6
+            terms = {"state": mean_fn(jnp.mean((predictions.state - target) ** 2 / scale, axis=-1), settled)}
             if "reward" in learned:
                 terms["reward"] = mean_fn((predictions.reward - second.reward) ** 2, alive)
             if "observation" in learned:
@@ -306,6 +312,42 @@ class SuperMimic:
         ) -> Array:
             values = state_values_fn(critic_params, states[:-1], goals[:-1], context)
             return jnp.mean(jnp.sum((values - targets) ** 2, axis=0))
+
+        def calibrate_fn(state: SuperMimicState, key: Key) -> SuperMimicState:
+            sample_key, noise_key = jax.random.split(key)
+            window = self.buffer.sample(state.buffer_state, sample_key).experience
+            start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
+            goal, context = self.goal(self.command_of(start)), self.context_of(start)
+            first, second = jax.tree.map(
+                lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), (window.first, window.second)
+            )
+            commands = self.command_of(first)
+            history = history_fn(window, noise_key)
+            _, actor_statistics = self.actor.apply(
+                state.params,
+                jnp.concatenate([_flattened(history), goal], axis=-1),
+                temperature=1.0,
+                mutable=["statistics"],
+            )
+            _, critic_statistics = self.critic.apply(
+                state.critic_params,
+                jnp.concatenate([self.state_of(start), goal, context], axis=-1),
+                mutable=["statistics"],
+            )
+            _, world_model_statistics = self.world_model.apply(
+                state.world_model_params,
+                self.state_of(first),
+                second.action,
+                self.context_of(first),
+                commands,
+                self.goal(commands),
+                mutable=["statistics"],
+            )
+            return state.replace(
+                params={**state.params, **actor_statistics},
+                critic_params={**state.critic_params, **critic_statistics},
+                world_model_params={**state.world_model_params, **world_model_statistics},
+            )
 
         def world_model_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             window = self.buffer.sample(state.buffer_state, key).experience
@@ -397,9 +439,11 @@ class SuperMimic:
 
         transitions = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), transitions.replace(carry=None))
         state = state.replace(buffer_state=self.buffer.add(state.buffer_state, transitions))
-        world_model_key, policy_key = jax.random.split(key)
+        calibrate_key, world_model_key, policy_key = jax.random.split(key, 3)
         updated, _ = jax.lax.scan(
-            world_model_minibatch_fn, state, jax.random.split(world_model_key, self.cfg.world_model_updates)
+            world_model_minibatch_fn,
+            calibrate_fn(state, calibrate_key),
+            jax.random.split(world_model_key, self.cfg.world_model_updates),
         )
         updated, _ = jax.lax.scan(policy_minibatch_fn, updated, jax.random.split(policy_key, self.cfg.policy_updates))
         return conditional_update(updated, state, self.buffer.can_sample(state.buffer_state))
