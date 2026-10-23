@@ -51,7 +51,7 @@ def main(cfg):
     def play(policy, key):
         reset_key, rollout_key = jax.random.split(key)
         environment_state, timestep = environment.init(reset_key)
-        history = jnp.zeros((num_envs, algorithm.cfg.history, *jnp.shape(algorithm.observation_of(timestep))[1:]))
+        _, history = algorithm.init(reset_key, timestep)
 
         def step_fn(carry, key):
             environment_state, timestep, history, returned, length, failed, playing = carry
