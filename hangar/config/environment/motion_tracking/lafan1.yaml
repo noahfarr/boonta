@@ -6,3 +6,4 @@ kwargs:
   num_envs: ${environment.num_envs}
   device: cuda:0
   gamma: ${algorithm.gamma}
+  benchmark: false

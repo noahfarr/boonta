@@ -60,7 +60,7 @@ def _motion_end(env, command_name: str):
     return command.time_steps + 1 >= command.clip_end[command.clip[command.time_steps]]
 
 
-def _command(base, gamma: float, attainable: float):
+def _command(base, gamma: float, attainable: float, benchmark: bool):
     from mjlab.tasks.tracking.mdp import MotionCommand, MotionCommandCfg
 
     class ReturnSampledMotion(MotionCommand):
@@ -70,6 +70,7 @@ def _command(base, gamma: float, attainable: float):
             super().__init__(cfg, env)
             library = np.load(cfg.motion_file)
             lengths = library["clip_end"] - library["clip_start"]
+            self.clip_start = torch.as_tensor(library["clip_start"], device=self.device)
             self.clip_end = torch.as_tensor(library["clip_end"], device=self.device)
             self.clip = torch.as_tensor(np.repeat(np.arange(len(lengths)), lengths), device=self.device)
             self.frames_per_bin = int(round(BIN_SECONDS / env.step_dt))
@@ -99,6 +100,9 @@ def _command(base, gamma: float, attainable: float):
         def _adaptive_sampling(self, env_ids):
             import torch
 
+            if benchmark:
+                self.time_steps[env_ids] = self.clip_start[env_ids % len(self.clip_start)]
+                return
             self._tally(env_ids)
             hardest = torch.softmax(-SHARPNESS * self.bin_return, dim=0)
             self.remembered += hardest
@@ -138,7 +142,11 @@ def _command(base, gamma: float, attainable: float):
     return ReturnSampledMotionCfg(**{field.name: getattr(base, field.name) for field in fields(base)})
 
 
-def configure(library: str, num_envs: int, gamma: float):
+def _attainable(cfg) -> float:
+    return sum(term.weight for term in cfg.rewards.values() if term.weight > 0) * cfg.sim.mujoco.timestep * cfg.decimation
+
+
+def configure(library: str, num_envs: int, gamma: float, benchmark: bool = False):
     from mjlab.envs.mdp import observations as observed
     from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
     from mjlab.managers.termination_manager import TerminationTermCfg
@@ -147,15 +155,23 @@ def configure(library: str, num_envs: int, gamma: float):
     cfg = unitree_g1_flat_tracking_env_cfg()
     cfg.scene.num_envs = num_envs
     cfg.scene.sensors = ()
+    feet = cfg.events["foot_friction"].params["asset_cfg"].geom_names
+    torso, *_ = cfg.events["base_com"].params["asset_cfg"].body_names
     del cfg.rewards["self_collisions"]
     cfg.rewards["joint_limit"].weight = -2.0
-    attainable = sum(term.weight for term in cfg.rewards.values() if term.weight > 0) * cfg.sim.mujoco.timestep * cfg.decimation
+    attainable = _attainable(cfg)
     motion = cfg.commands["motion"]
     motion.motion_file = str(library)
     motion.anchor_body_name = "pelvis"
     motion.sampling_mode = "adaptive"
     motion.debug_vis = False
-    cfg.commands["motion"] = _command(motion, gamma, attainable)
+    if benchmark:
+        motion.pose_range, motion.velocity_range, motion.joint_position_range = {}, {}, (0.0, 0.0)
+        del cfg.events["base_com"], cfg.events["encoder_bias"]
+        cfg.events["foot_friction"].params["ranges"] = (1.0, 1.0)
+        stored = np.load(library)
+        cfg.episode_length_s = float(np.max(stored["clip_end"] - stored["clip_start"])) * cfg.sim.mujoco.timestep * cfg.decimation
+    cfg.commands["motion"] = _command(motion, gamma, attainable, benchmark)
     del cfg.terminations["ee_body_pos"]
     cfg.terminations["motion_end"] = TerminationTermCfg(
         func=_motion_end, params={"command_name": "motion"}, time_out=True
@@ -182,10 +198,7 @@ def configure(library: str, num_envs: int, gamma: float):
             {
                 "context": ObservationTermCfg(
                     func=_context,
-                    params={
-                        "feet": cfg.events["foot_friction"].params["asset_cfg"].geom_names,
-                        "torso": cfg.events["base_com"].params["asset_cfg"].body_names[0],
-                    },
+                    params={"feet": feet, "torso": torso},
                 )
             }
         ),
@@ -194,13 +207,21 @@ def configure(library: str, num_envs: int, gamma: float):
     return cfg
 
 
-def make(env_id: str, directory: str, num_envs: int = 1, device: str = "cuda:0", gamma: float = 0.99):
+def make(
+    env_id: str,
+    directory: str,
+    num_envs: int = 1,
+    device: str = "cuda:0",
+    gamma: float = 0.99,
+    benchmark: bool = False,
+):
     from mjlab.asset_zoo.robots.unitree_g1.g1_constants import G1_XML
     from mjlab.envs import ManagerBasedRlEnv
 
     library = motions.convert(directory, str(G1_XML))
-    env = Mjlab(ManagerBasedRlEnv(configure(library, num_envs, gamma), device=device))
-    env.library = library
+    cfg = configure(library, num_envs, gamma, benchmark)
+    env = Mjlab(ManagerBasedRlEnv(cfg, device=device))
+    env.library, env.attainable = library, _attainable(cfg)
     return Batched(env, num_envs=num_envs)
 
 
