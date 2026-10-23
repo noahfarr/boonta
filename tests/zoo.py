@@ -22,7 +22,8 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig, WorldModel
+from boonta.algorithms.super_mimic import (Analytic, Learned, Residual, SuperMimic, SuperMimicConfig,
+                                           WorldModel, fully_observed)
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
@@ -347,7 +348,7 @@ def sac(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
-def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), horizon=4, window=4):
+def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), horizon=4, window=4, history=1):
     width, *_ = environment.observation_space().shape
 
     def mlp(outputs):
@@ -360,6 +361,7 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         cfg=SuperMimicConfig(
             horizon=horizon,
             window=window,
+            history=history,
             gamma=0.99,
             td_lambda=0.95,
             world_model_updates=4,
@@ -373,13 +375,18 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
             head=FixedGaussian(nn.Dense(action_dim(environment)), scale=0.3),
         ),
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
-        world_model=WorldModel(dynamics=mlp(width), reward=mlp(1), observation=Identity(), termination=mlp(1)),
+        world_model=WorldModel(
+            dynamics=Residual(mlp(width)),
+            reward=Learned(mlp(1), inputs=("state", "action", "goal")),
+            observation=Analytic(fully_observed),
+            termination=Learned(mlp(1), inputs=("state", "goal")),
+        ),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,
-            min_length_time_axis=window,
+            min_length_time_axis=max(window, history),
             sample_batch_size=64,
             add_batch_size=num_envs,
-            sample_sequence_length=window,
+            sample_sequence_length=max(window, history),
             period=1,
         ),
         actor_optimizer=clipped(1e-3),

@@ -3,10 +3,9 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import SuperMimic, WorldModel
+from boonta.algorithms.super_mimic import Analytic, Learned, Residual, SuperMimic, WorldModel, fully_observed
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, Network
-from boonta.networks.layers import Identity
 
 
 def mlp(sizes, outputs=None):
@@ -44,10 +43,10 @@ def make(cfg):
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
-            dynamics=mlp(cfg.network.world_model, obs_dim),
-            reward=mlp(cfg.network.heads, 1),
-            observation=Identity(),
-            termination=mlp(cfg.network.heads, 1),
+            dynamics=Residual(mlp(cfg.network.world_model, obs_dim)),
+            reward=Learned(mlp(cfg.network.heads, 1), inputs=("state", "action", "goal")),
+            observation=Analytic(fully_observed),
+            termination=Learned(mlp(cfg.network.heads, 1), inputs=("state", "goal")),
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(

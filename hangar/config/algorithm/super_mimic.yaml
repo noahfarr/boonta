@@ -7,6 +7,7 @@ algorithm:
   _target_: boonta.algorithms.super_mimic.SuperMimicConfig
   horizon: 32
   window: 8
+  history: 1
   gamma: 0.99
   td_lambda: 0.95
   world_model_updates: 10
