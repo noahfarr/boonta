@@ -7,10 +7,10 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.mjlab import motion_tracking
-from boonta.environments.mjlab.task import NUM_JOINTS
+from boonta.environments.mjlab.task import NUM_JOINTS, OBSERVATION
+from boonta.environments.world_model import WorldModel
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.networks import (FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network,
-                             WorldModel)
+from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
 from boonta.networks.layers import Normalize
 
 
@@ -38,6 +38,15 @@ def make(cfg):
         if anchored:
             return jnp.concatenate([observation, jax.vmap(task.anchor)(state, command)], axis=-1)
         return observation
+
+    def pack(state, observation, context, command):
+        return {
+            "observation": observation[..., :OBSERVATION],
+            "anchor": observation[..., OBSERVATION:],
+            "state": state,
+            "context": context,
+            "frame": command[..., None].astype(jnp.float32),
+        }
 
     def observation_of(timestep):
         if anchored:
@@ -76,17 +85,21 @@ def make(cfg):
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
+            env,
             dynamics=FloatingBase(
                 normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
             ),
             reward=reward,
-            observation=observe,
             termination=nn.Sequential(
                 [
                     lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1),
                     normalized(mlp(cfg.network.heads, 1)),
                 ]
             ),
+            observation=observe,
+            pack=pack,
+            goal=jax.vmap(task.goal),
+            advance=jax.vmap(task.advance),
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(
@@ -100,8 +113,6 @@ def make(cfg):
         action_of=lambda timestep: timestep.obs["executed"],
         context_of=lambda timestep: timestep.obs["context"],
         command_of=lambda timestep: timestep.obs["frame"][..., 0].astype(jnp.int32),
-        goal=jax.vmap(task.goal),
-        advance=jax.vmap(task.advance),
         sensor_noise=task.perturb,
     )
 

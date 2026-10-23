@@ -23,13 +23,14 @@ from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
 from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig
+from boonta.environments.world_model import WorldModel
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
                              EpsilonGreedy, FeatureExtractor, FixedGaussian, Gaussian,
                              Highway, MinGRUCell, Network, RTUCell,
-                             SelfAttention, SquashedGaussian, Tower, WorldModel,
+                             SelfAttention, SquashedGaussian, Tower,
                              causal_attention_mask, llama, repeat)
 from boonta.networks.layers import Identity, Parameter
 from boonta.podracers import anakin, quadinaros, sebulba
@@ -375,21 +376,23 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         ),
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
         world_model=WorldModel(
+            environment,
             dynamics=nn.Sequential(
                 [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), mlp(width)]
             ),
             reward=nn.Sequential(
                 [lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1), mlp(1)]
             ),
-            observation=lambda state, **_: state,
             termination=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
+            observation=lambda state, **_: state,
+            pack=lambda state, **_: state,
         ),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,
-            min_length_time_axis=max(window, history),
+            min_length_time_axis=max(window, history + 1),
             sample_batch_size=64,
             add_batch_size=num_envs,
-            sample_sequence_length=max(window, history),
+            sample_sequence_length=max(window, history + 1),
             period=1,
         ),
         actor_optimizer=clipped(1e-3),

@@ -28,7 +28,7 @@ replay:
 
 buffer:
   sample_batch_size: 2048
-  sample_sequence_length: ${eval:'max(${algorithm.window}, ${algorithm.history})'}
+  sample_sequence_length: ${eval:'max(${algorithm.window}, ${algorithm.history} + 1)'}
 
 optimizer:
   lr: 2e-4
