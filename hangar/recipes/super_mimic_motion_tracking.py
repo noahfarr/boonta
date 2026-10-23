@@ -26,29 +26,21 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     task = motion_tracking.describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
-    anchored = cfg.network.anchored
-
-    def adapt(obs):
-        observation = obs["observation"]
-        if anchored:
-            observation = jnp.concatenate([observation, obs["anchor"]], axis=-1)
-        return WorldModelState(
-            observation=observation,
+    env = TransformObservation(
+        env,
+        lambda obs: WorldModelState(
+            observation=obs["observation"],
             state=obs["state"],
             context=obs["context"],
             command=obs["frame"][..., 0].astype(jnp.int32),
-        )
-
-    env = TransformObservation(env, adapt)
+        ),
+    )
 
     def reward(state, following, command, **_):
         return jax.vmap(task.reward)(state, following, command)
 
-    def observe(state, context, command, **_):
-        observation = jax.vmap(task.observe)(state, context)
-        if anchored:
-            return jnp.concatenate([observation, jax.vmap(task.anchor)(state, command)], axis=-1)
-        return observation
+    def observe(state, context, **_):
+        return jax.vmap(task.observe)(state, context)
 
     def clipped(*transforms):
         return optax.chain(optax.clip_by_global_norm(cfg.optimizer.max_grad_norm), *transforms)

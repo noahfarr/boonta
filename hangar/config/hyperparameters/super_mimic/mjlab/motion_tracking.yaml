@@ -6,7 +6,6 @@ algorithm:
   history: 10
 
 network:
-  anchored: false
   encoder: [2048, 1024, 512, 256]
   latent: 32
   decoder: [2048, 1024, 512, 256]

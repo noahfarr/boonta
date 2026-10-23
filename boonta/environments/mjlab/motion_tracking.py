@@ -171,7 +171,8 @@ def _action(base, noise: float):
 
 
 def attainable(cfg) -> float:
-    return sum(term.weight for term in cfg.rewards.values() if term.weight > 0) * cfg.sim.mujoco.timestep * cfg.decimation
+    weights = sum(term.weight for term in cfg.rewards.values() if term.weight > 0)
+    return weights * cfg.sim.mujoco.timestep * cfg.decimation
 
 
 def _configure(play: bool):
@@ -179,7 +180,6 @@ def _configure(play: bool):
     from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
     from mjlab.managers.termination_manager import TerminationTermCfg
     from mjlab.tasks.tracking.config.g1.env_cfgs import unitree_g1_flat_tracking_env_cfg
-    from mjlab.tasks.tracking.mdp.observations import motion_anchor_ori_b, motion_anchor_pos_b
 
     cfg = unitree_g1_flat_tracking_env_cfg()
     cfg.scene.sensors = ()
@@ -231,12 +231,6 @@ def _configure(play: bool):
             }
         ),
         "frame": group({"frame": ObservationTermCfg(func=_frame, params={"command_name": "motion"})}),
-        "anchor": group(
-            {
-                "position": ObservationTermCfg(func=motion_anchor_pos_b, params={"command_name": "motion"}),
-                "orientation": ObservationTermCfg(func=motion_anchor_ori_b, params={"command_name": "motion"}),
-            }
-        ),
         "executed": group({"executed": ObservationTermCfg(func=_executed, params={"action_name": "joint_pos"})}),
     }
     return cfg

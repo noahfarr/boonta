@@ -15,7 +15,6 @@ STATE = QPOS + QVEL + NUM_JOINTS
 OBSERVATION = NUM_JOINTS + NUM_JOINTS + 3 + 3 + NUM_JOINTS
 CONTEXT = 1 + NUM_JOINTS + 3
 GOAL_FRAME = NUM_JOINTS + NUM_JOINTS + 3 + 6 + 3 + 3
-ANCHOR = 3 + 6
 NOISE = jnp.concatenate(
     [
         jnp.full(NUM_JOINTS, 0.01),
@@ -25,7 +24,6 @@ NOISE = jnp.concatenate(
         jnp.zeros(NUM_JOINTS),
     ]
 )
-ANCHOR_NOISE = jnp.concatenate([jnp.full(3, 0.25), jnp.full(6, 0.05)])
 DOWN = jnp.array([0.0, 0.0, -1.0])
 
 
@@ -126,17 +124,8 @@ class Tracking:
         gravity = math.rotate(DOWN, math.quat_inv(qpos[3:7]))
         return jnp.concatenate([qpos[7:] + bias - self.default_pose, qvel[6:], qvel[3:6], gravity, previous])
 
-    def anchor(self, state: Array, frame: Array) -> Array:
-        qpos, _, _ = self.split(state)
-        inverse = math.quat_inv(qpos[3:7])
-        position = math.rotate(self.motions.body_position[frame, 0] - qpos[:3], inverse)
-        orientation = math.quat_to_mat(math.quat_mul(inverse, self.motions.body_orientation[frame, 0]))
-        return jnp.concatenate([position, orientation[:, :2].reshape(-1)])
-
     def perturb(self, key: Array, observation: Array) -> Array:
-        *_, width = jnp.shape(observation)
-        noise = jnp.concatenate([NOISE, ANCHOR_NOISE])[:width]
-        return observation + jax.random.uniform(key, jnp.shape(observation), minval=-1.0, maxval=1.0) * noise
+        return observation + jax.random.uniform(key, jnp.shape(observation), minval=-1.0, maxval=1.0) * NOISE
 
     def advance(self, frame: Array) -> Array:
         motions = self.motions
