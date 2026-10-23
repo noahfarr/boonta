@@ -4,7 +4,7 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import World, SuperMimic
+from boonta.algorithms.super_mimic import WorldModelState, SuperMimic
 from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
 from boonta.networks import FeatureExtractor, FixedGaussian, Network, WorldModel
 
@@ -20,7 +20,7 @@ def make(cfg):
     obs_dim, *_ = env.observation_space().shape
     env = instantiate(cfg.environment.auto_reset, env)
     env = TransformObservation(
-        env, lambda obs: World(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0])
+        env, lambda obs: WorldModelState(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0])
     )
 
     def clipped(*transforms):

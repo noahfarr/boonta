@@ -22,7 +22,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.algorithms.super_mimic import World, SuperMimic, SuperMimicConfig
+from boonta.algorithms.super_mimic import WorldModelState, SuperMimic, SuperMimicConfig
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, TransformObservation)
@@ -399,7 +399,7 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
     )
     observed = TransformObservation(
         wrap(environment, num_envs),
-        lambda obs: World(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0]),
+        lambda obs: WorldModelState(observation=obs, state=obs, context=obs[..., :0], command=obs[..., :0]),
     )
     return podracer(algorithm, observed, num_envs, 1)
 

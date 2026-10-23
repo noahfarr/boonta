@@ -30,7 +30,7 @@ class SuperMimicConfig:
 
 
 @struct.dataclass(frozen=True)
-class World:
+class WorldModelState:
     observation: Array
     state: Array
     context: Array
@@ -152,25 +152,25 @@ class SuperMimic:
             alive = jnp.concatenate([jnp.ones_like(done[:, :1]), jnp.cumprod(1.0 - done, axis=1)[:, :-1]], axis=1)
             settled = alive * (1.0 - done)
 
-            def predict_fn(world: World, action: Array) -> tuple[World, tuple]:
-                prediction = self.world_model.apply(world_model_params, world, action)
-                world, *_ = prediction
-                return world, prediction
+            def predict_fn(world_model_state: WorldModelState, action: Array) -> tuple[WorldModelState, tuple]:
+                prediction = self.world_model.apply(world_model_params, world_model_state, action)
+                world_model_state, *_ = prediction
+                return world_model_state, prediction
 
             _, predicted = jax.lax.scan(predict_fn, start.obs, jnp.swapaxes(second.action, 0, 1))
-            worlds, rewards, terminations = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predicted)
+            world_model_states, rewards, terminations = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predicted)
 
             target = second.obs.state
             change = target - first.obs.state
             weight, count = settled[..., None], jnp.maximum(jnp.sum(settled), 1.0)
             average = jnp.sum(weight * change, axis=(0, 1)) / count
             scale = jax.lax.stop_gradient(jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / count) + 1e-6
-            error = jnp.mean((worlds.state - target) ** 2 / scale, axis=-1)
+            error = jnp.mean((world_model_states.state - target) ** 2 / scale, axis=-1)
             terms = {"state": mean_fn(error, settled)}
             if "reward_fn" in learned:
                 terms["reward"] = mean_fn((rewards - second.reward) ** 2, alive)
             if "observation_fn" in learned:
-                error = jnp.mean((worlds.observation - second.obs.observation) ** 2, axis=-1)
+                error = jnp.mean((world_model_states.observation - second.obs.observation) ** 2, axis=-1)
                 terms["observation"] = mean_fn(error, settled)
             if "termination_fn" in learned:
                 labels = second.terminated.astype(jnp.float32)
@@ -185,10 +185,12 @@ class SuperMimic:
             def act_fn(carry: tuple, key: Key) -> tuple:
                 timestep, history, survival = carry
                 _, history, action, _ = self.step(acting, history, key, timestep, temperature=0.0)
-                world, reward, termination = self.world_model.apply(state.world_model_params, timestep.obs, action)
+                world_model_state, reward, termination = self.world_model.apply(
+                    state.world_model_params, timestep.obs, action
+                )
                 termination = jax.nn.sigmoid(termination)
                 flags = jnp.zeros_like(reward, bool)
-                following = Timestep(obs=world, terminated=flags, truncated=flags)
+                following = Timestep(obs=world_model_state, terminated=flags, truncated=flags)
                 return (following, history, survival * (1.0 - termination)), (timestep, reward, termination, survival)
 
             timestep = Timestep(obs=start.obs, terminated=start.terminated, truncated=start.truncated)
