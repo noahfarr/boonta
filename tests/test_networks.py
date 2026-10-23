@@ -8,9 +8,11 @@ import pytest
 
 import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
-                             FeatureExtractor, Gaussian, Highway, Network,
-                             RTUCell, SquashedGaussian, Tower, distributions,
-                             llama, repeat)
+                             FeatureExtractor, FloatingBase, Gaussian,
+                             GoalConditioned, Highway, Network, RTUCell,
+                             SquashedGaussian, Tower, WorldModel,
+                             distributions, llama, repeat)
+from boonta.networks.layers import Identity, Normalize
 from boonta.networks.blocks.ssm import binary_operator
 from boonta.networks.kernels import get_scan_implementation
 from boonta.utils import get_attention_implementation
@@ -388,3 +390,77 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     gpu(capability)
     implementation, _ = get_attention_implementation(head_dim, *lengths)
     assert implementation == expected
+
+
+def test_the_world_model_learns_only_its_networks_and_observes_the_advanced_command():
+    model = WorldModel(
+        dynamics_fn=nn.Sequential(
+            [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), nn.Dense(4)]
+        ),
+        reward_fn=lambda state, following, **_: jnp.sum(following - state, axis=-1),
+        termination_fn=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), nn.Dense(1)]),
+        observation_fn=lambda state, command, **_: state + command,
+        goal=lambda command: 2.0 * command,
+        advance=lambda command: command + 1.0,
+    )
+    state, action = jnp.ones((3, 4)), jnp.ones((3, 2))
+    context, command = jnp.zeros((3, 1)), jnp.zeros((3, 1))
+    params = model.init(KEY, state, action, context, command)
+    following, observation, advanced, reward, termination = model.apply(params, state, action, context, command)
+    assert sorted(params["params"]) == ["dynamics_fn", "termination_fn"]
+    np.testing.assert_array_equal(advanced, command + 1.0)
+    np.testing.assert_allclose(observation, following + advanced)
+    np.testing.assert_allclose(reward, jnp.sum(following - state, axis=-1))
+    assert reward.shape == termination.shape == (3,)
+
+
+def test_normalize_tracks_the_moments_of_everything_it_has_seen():
+    scale, shift = jnp.array([1.0, 10.0, 0.01]), jnp.array([5.0, -3.0, 0.0])
+    first = jax.random.normal(jax.random.key(6), (100, 3)) * scale + shift
+    second = 2.0 * jax.random.normal(jax.random.key(7), (50, 3)) * scale + shift
+    normalize = Normalize()
+    variables = normalize.init(KEY, first)
+    _, variables = normalize.apply(variables, first, mutable=["statistics"])
+    _, variables = normalize.apply(variables, second, mutable=["statistics"])
+    seen = jnp.concatenate([first, second])
+    np.testing.assert_allclose(variables["statistics"]["mean"], seen.mean(axis=0), rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(variables["statistics"]["variance"], seen.var(axis=0), rtol=1e-4)
+    normalized = normalize.apply(variables, seen)
+    np.testing.assert_allclose(normalized.mean(axis=0), 0.0, atol=1e-4)
+
+
+def test_floating_base_dynamics_turn_and_move_with_the_robot():
+    joints = 3
+    model = FloatingBase(nn.Dense(12 + 2 * joints), num_joints=joints)
+    position, orientation = jax.random.normal(jax.random.key(8), (5, 3)), jax.random.normal(jax.random.key(9), (5, 4))
+    rest = jax.random.normal(jax.random.key(10), (5, joints + 6 + joints + joints))
+    state = jnp.concatenate([position, orientation / jnp.linalg.norm(orientation, axis=-1, keepdims=True), rest], -1)
+    action, context = jax.random.normal(jax.random.key(11), (5, joints)), jnp.zeros((5, 2))
+    params = model.init(KEY, state, action, context)
+    angle, shift = 0.7, jnp.array([1.5, -2.0, 0.0])
+    turn = jnp.array([[jnp.cos(angle), -jnp.sin(angle), 0.0], [jnp.sin(angle), jnp.cos(angle), 0.0], [0.0, 0.0, 1.0]])
+    yaw = jnp.array([jnp.cos(angle / 2.0), 0.0, 0.0, jnp.sin(angle / 2.0)])
+
+    def moved(state):
+        w, x, y, z = jnp.moveaxis(state[:, 3:7], -1, 0)
+        c, s = yaw[0], yaw[3]
+        turned = jnp.stack([c * w - s * z, c * x - s * y, c * y + s * x, c * z + s * w], axis=-1)
+        velocity = 7 + joints
+        return (
+            state.at[:, :3].set(state[:, :3] @ turn.T + shift)
+            .at[:, 3:7].set(turned)
+            .at[:, velocity : velocity + 3].set(state[:, velocity : velocity + 3] @ turn.T)
+        )
+
+    following = model.apply(params, state, action, context)
+    np.testing.assert_allclose(model.apply(params, moved(state), action, context), moved(following), atol=1e-5)
+    np.testing.assert_array_equal(following[:, -joints:], action)
+
+
+def test_goal_conditioned_passes_the_goal_through_a_bounded_latent():
+    model = GoalConditioned(encoder=nn.Dense(2), decoder=Identity(), goal_size=3)
+    x = 10.0 * jax.random.normal(jax.random.key(12), (4, 8))
+    output = model.apply(model.init(KEY, x), x)
+    assert jnp.all(jnp.abs(output[:, :2]) <= 1.0)
+    np.testing.assert_array_equal(output[:, 2:], x[:, :5])
+

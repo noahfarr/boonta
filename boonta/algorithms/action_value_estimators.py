@@ -32,28 +32,54 @@ def q_lambda(
     return target_q_value
 
 
-def soft_td_lambda(
-    transitions: Transition, gamma: float, td_lambda: float
+def _lambda_returns(
+    reward: Array,
+    value: Array,
+    terminated: Array,
+    truncated: Array,
+    gamma: float,
+    td_lambda: float,
 ) -> Array:
-    soft_reward = transitions.aux["soft_reward"]
-    value = transitions.aux["value"]
-    terminated = transitions.second.terminated
-    truncated = transitions.second.truncated
-
     def scan_fn(carry: tuple, x: tuple) -> tuple[tuple, Array]:
         lambda_return, cut = carry
-        soft_reward, value, terminated, truncated = x
+        reward, value, terminated, truncated = x
         bootstrap = jnp.where(
             cut, value, td_lambda * lambda_return + (1.0 - td_lambda) * value
         )
-        lambda_return = soft_reward + gamma * (1.0 - terminated) * bootstrap
+        lambda_return = reward + gamma * (1.0 - terminated) * bootstrap
         return (lambda_return, truncated), lambda_return
 
     last_value = jnp.take(value, -1, axis=0)
     _, target_values = jax.lax.scan(
         scan_fn,
         (last_value, jnp.zeros_like(last_value, bool)),
-        (soft_reward, value, terminated, truncated),
+        (reward, value, terminated, truncated),
         reverse=True,
     )
     return target_values
+
+
+def td_lambda(transitions: Transition, gamma: float, td_lambda: float) -> Array:
+    second = transitions.second
+    return _lambda_returns(
+        second.reward,
+        transitions.aux["value"],
+        second.terminated,
+        second.truncated,
+        gamma,
+        td_lambda,
+    )
+
+
+def soft_td_lambda(
+    transitions: Transition, gamma: float, td_lambda: float
+) -> Array:
+    second = transitions.second
+    return _lambda_returns(
+        transitions.aux["soft_reward"],
+        transitions.aux["value"],
+        second.terminated,
+        second.truncated,
+        gamma,
+        td_lambda,
+    )

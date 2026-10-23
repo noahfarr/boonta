@@ -55,3 +55,16 @@ class SquashedGaussian(nn.Module):
         self, x: Array, temperature: float | Array, **kwargs
     ) -> distrax.Transformed:
         return distributions.squashed_gaussian(self.layer(x, **kwargs), temperature)
+
+
+class FixedGaussian(nn.Module):
+    layer: nn.Module
+    scale: float
+
+    def setup(self):
+        nn.share_scope(self, self.layer)
+
+    def __call__(
+        self, x: Array, temperature: float | Array, **kwargs
+    ) -> distrax.MultivariateNormalDiag:
+        return distributions.fixed_gaussian(self.layer(x, **kwargs), self.scale, temperature)

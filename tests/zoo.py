@@ -22,13 +22,14 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
+from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
-                                          SameStepAutoReset)
+                                          SameStepAutoReset, TransformObservation)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
-                             EpsilonGreedy, FeatureExtractor, Gaussian,
+                             EpsilonGreedy, FeatureExtractor, FixedGaussian, Gaussian,
                              Highway, MinGRUCell, Network, RTUCell,
-                             SelfAttention, SquashedGaussian, Tower,
+                             SelfAttention, SquashedGaussian, Tower, WorldModel,
                              causal_attention_mask, llama, repeat)
 from boonta.networks.layers import Identity, Parameter
 from boonta.podracers import anakin, quadinaros, sebulba
@@ -344,6 +345,63 @@ def sac(environment, num_envs=32, podracer=online, auxiliary_losses=()):
         auxiliary_losses=auxiliary_losses,
     )
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
+
+
+def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), horizon=4, window=4, history=1):
+    width, *_ = environment.observation_space().shape
+
+    def mlp(outputs):
+        return nn.Sequential([nn.Dense(WIDTH), nn.relu, nn.Dense(WIDTH), nn.relu, nn.Dense(outputs)])
+
+    def clipped(rate):
+        return optax.chain(optax.clip_by_global_norm(1.0), optax.adam(rate))
+
+    algorithm = SuperMimic(
+        cfg=SuperMimicConfig(
+            horizon=horizon,
+            window=window,
+            history=history,
+            gamma=0.99,
+            td_lambda=0.95,
+            world_model_updates=4,
+            policy_updates=4,
+            policy_batches=1,
+            critic_epochs=1,
+            critic_minibatches=1,
+        ),
+        actor=Network(
+            feature_extractor=encoder(),
+            head=FixedGaussian(nn.Dense(action_dim(environment)), scale=0.3),
+        ),
+        critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
+        world_model=WorldModel(
+            dynamics_fn=nn.Sequential(
+                [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), mlp(width)]
+            ),
+            reward_fn=nn.Sequential(
+                [lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1), mlp(1)]
+            ),
+            termination_fn=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
+            observation_fn=lambda state, **_: state,
+        ),
+        buffer=fbx.make_trajectory_buffer(
+            max_length_time_axis=4096 // num_envs,
+            min_length_time_axis=max(window, history + 1),
+            sample_batch_size=64,
+            add_batch_size=num_envs,
+            sample_sequence_length=max(window, history + 1),
+            period=1,
+        ),
+        actor_optimizer=clipped(1e-3),
+        critic_optimizer=clipped(1e-3),
+        world_model_optimizer=clipped(1e-3),
+        auxiliary_losses=auxiliary_losses,
+    )
+    observed = TransformObservation(
+        wrap(environment, num_envs),
+        lambda obs: {"observation": obs, "state": obs, "context": obs[..., :0], "command": obs[..., :0]},
+    )
+    return podracer(algorithm, observed, num_envs, 1)
 
 
 def reppo(
