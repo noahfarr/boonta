@@ -5,10 +5,10 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import SuperMimic, WorldModelState
+from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
-from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
+from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network, WorldModel
 from boonta.networks.layers import Normalize
 
@@ -26,18 +26,18 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     task = motion_tracking.describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
-    env = TransformObservation(
-        env,
-        lambda obs: WorldModelState(
-            observation=obs["observation"],
-            state=obs["state"],
-            context=obs["context"],
-            command=obs["frame"][..., 0].astype(jnp.int32),
-        ),
-    )
+
+    def frame(command):
+        return command[..., 0].astype(jnp.int32)
 
     def reward(state, following, command, **_):
-        return jax.vmap(task.reward)(state, following, command)
+        return jax.vmap(task.reward)(state, following, frame(command))
+
+    def goal(command):
+        return jax.vmap(task.goal)(frame(command))
+
+    def advance(command):
+        return jax.vmap(task.advance)(frame(command))[..., None].astype(command.dtype)
 
     def observe(state, context, **_):
         return jax.vmap(task.observe)(state, context)
@@ -85,8 +85,8 @@ def make(cfg):
                 ]
             ),
             observation_fn=observe,
-            goal=jax.vmap(task.goal),
-            advance=jax.vmap(task.advance),
+            goal=goal,
+            advance=advance,
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(
@@ -95,6 +95,7 @@ def make(cfg):
         ),
         critic_optimizer=clipped(optax.adam(decayed(critic_steps))),
         world_model_optimizer=clipped(optax.adam(decayed(algorithm_cfg.world_model_updates))),
+        command_key="frame",
         sensor_noise=task.perturb,
     )
 

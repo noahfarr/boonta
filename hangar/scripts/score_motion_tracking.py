@@ -62,10 +62,10 @@ def main(cfg):
             length = length + playing
             failed = failed | (playing & timestep.terminated)
             playing = playing & ~timestep.done
-            pose = timestep.obs.state[:, : 7 + NUM_JOINTS]
+            pose = timestep.obs["state"][:, : 7 + NUM_JOINTS]
             return (environment_state, timestep, history, returned, length, failed, playing), (
                 pose,
-                timestep.obs.command,
+                timestep.obs["frame"][:, 0].astype(jnp.int32),
                 playing,
             )
 

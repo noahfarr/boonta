@@ -30,14 +30,6 @@ class SuperMimicConfig:
 
 
 @struct.dataclass(frozen=True)
-class WorldModelState:
-    observation: Array
-    state: Array
-    context: Array
-    command: Array
-
-
-@struct.dataclass(frozen=True)
 class SuperMimicState:
     step: Array
     params: PyTree
@@ -73,18 +65,23 @@ class SuperMimic:
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
     world_model_optimizer: optax.GradientTransformation
+    observation_key: str = "observation"
+    state_key: str = "state"
+    context_key: str = "context"
+    command_key: str = "command"
     sensor_noise: Callable[[Key, Array], Array] = _noiseless
     value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
 
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, Array]:
         actor_key, critic_key, world_model_key, noise_key = jax.random.split(key, 4)
-        state, context, command = timestep.obs.state, timestep.obs.context, timestep.obs.command
+        obs = timestep.obs
+        state, context, command = obs[self.state_key], obs[self.context_key], obs[self.command_key]
         goal = self.world_model.goal(command)
-        history = jnp.tile(self.sensor_noise(noise_key, timestep.obs.observation), self.cfg.history)
+        history = jnp.tile(self.sensor_noise(noise_key, timestep.obs[self.observation_key]), self.cfg.history)
         params = self.actor.init(actor_key, jnp.concatenate([history, goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
-        world_model_params = self.world_model.init(world_model_key, timestep.obs, timestep.action)
+        world_model_params = self.world_model.init(world_model_key, state, timestep.action, context, command)
         return (
             SuperMimicState(
                 step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
@@ -110,14 +107,14 @@ class SuperMimic:
         temperature: float = 1.0,
     ) -> tuple[SuperMimicState, Array, Array, PyTree]:
         noise_key, action_key = jax.random.split(key)
-        observation = self.sensor_noise(noise_key, timestep.obs.observation)
+        observation = self.sensor_noise(noise_key, timestep.obs[self.observation_key])
         *_, width = jnp.shape(observation)
         history = jnp.where(
             timestep.done[..., None],
             jnp.tile(observation, self.cfg.history),
             jnp.concatenate([carry[..., width:], observation], axis=-1),
         )
-        goal = self.world_model.goal(timestep.obs.command)
+        goal = self.world_model.goal(timestep.obs[self.command_key])
         dist = self.actor.apply(state.params, jnp.concatenate([history, goal], axis=-1), temperature=temperature)
         return state, history, dist.sample(seed=action_key), {}
 
@@ -127,6 +124,13 @@ class SuperMimic:
         def state_values_fn(critic_params: PyTree, states: Array, goals: Array, contexts: Array) -> Array:
             values = self.critic.apply(critic_params, jnp.concatenate([states, goals, contexts], axis=-1))
             return jnp.squeeze(values, axis=-1)
+
+        def predict_fn(world_model_params: PyTree, obs: PyTree, action: Array) -> tuple[PyTree, Array, Array]:
+            following, observation, command, reward, termination = self.world_model.apply(
+                world_model_params, obs[self.state_key], action, obs[self.context_key], obs[self.command_key]
+            )
+            obs = {**obs, self.state_key: following, self.observation_key: observation, self.command_key: command}
+            return obs, reward, termination
 
         def merge_fn(leaf: Array) -> Array:
             outer, inner, *rest = jnp.shape(leaf)
@@ -141,7 +145,7 @@ class SuperMimic:
             positions = jnp.arange(length)
             episode_start = jax.lax.cummax(jnp.where(first.done, positions, 0), axis=1)[:, -1]
             recent = jnp.maximum(positions[-self.cfg.history - 1 :], episode_start[:, None])
-            observations = jnp.take_along_axis(first.obs.observation, recent[..., None], axis=1)
+            observations = jnp.take_along_axis(first.obs[self.observation_key], recent[..., None], axis=1)
             batch, *_ = jnp.shape(observations)
             return jnp.reshape(self.sensor_noise(key, observations), (batch, -1))
 
@@ -152,25 +156,25 @@ class SuperMimic:
             alive = jnp.concatenate([jnp.ones_like(done[:, :1]), jnp.cumprod(1.0 - done, axis=1)[:, :-1]], axis=1)
             settled = alive * (1.0 - done)
 
-            def predict_fn(world_model_state: WorldModelState, action: Array) -> tuple[WorldModelState, tuple]:
-                prediction = self.world_model.apply(world_model_params, world_model_state, action)
-                world_model_state, *_ = prediction
-                return world_model_state, prediction
+            def rollout_fn(obs: PyTree, action: Array) -> tuple[PyTree, tuple]:
+                prediction = predict_fn(world_model_params, obs, action)
+                obs, *_ = prediction
+                return obs, prediction
 
-            _, predicted = jax.lax.scan(predict_fn, start.obs, jnp.swapaxes(second.action, 0, 1))
-            world_model_states, rewards, terminations = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predicted)
+            _, predicted = jax.lax.scan(rollout_fn, start.obs, jnp.swapaxes(second.action, 0, 1))
+            predictions, rewards, terminations = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predicted)
 
-            target = second.obs.state
-            change = target - first.obs.state
+            target = second.obs[self.state_key]
+            change = target - first.obs[self.state_key]
             weight, count = settled[..., None], jnp.maximum(jnp.sum(settled), 1.0)
             average = jnp.sum(weight * change, axis=(0, 1)) / count
             scale = jax.lax.stop_gradient(jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / count) + 1e-6
-            error = jnp.mean((world_model_states.state - target) ** 2 / scale, axis=-1)
+            error = jnp.mean((predictions[self.state_key] - target) ** 2 / scale, axis=-1)
             terms = {"state": mean_fn(error, settled)}
             if "reward_fn" in learned:
                 terms["reward"] = mean_fn((rewards - second.reward) ** 2, alive)
             if "observation_fn" in learned:
-                error = jnp.mean((world_model_states.observation - second.obs.observation) ** 2, axis=-1)
+                error = jnp.mean((predictions[self.observation_key] - second.obs[self.observation_key]) ** 2, axis=-1)
                 terms["observation"] = mean_fn(error, settled)
             if "termination_fn" in learned:
                 labels = second.terminated.astype(jnp.float32)
@@ -185,12 +189,10 @@ class SuperMimic:
             def act_fn(carry: tuple, key: Key) -> tuple:
                 timestep, history, survival = carry
                 _, history, action, _ = self.step(acting, history, key, timestep, temperature=0.0)
-                world_model_state, reward, termination = self.world_model.apply(
-                    state.world_model_params, timestep.obs, action
-                )
+                obs, reward, termination = predict_fn(state.world_model_params, timestep.obs, action)
                 termination = jax.nn.sigmoid(termination)
                 flags = jnp.zeros_like(reward, bool)
-                following = Timestep(obs=world_model_state, terminated=flags, truncated=flags)
+                following = Timestep(obs=obs, terminated=flags, truncated=flags)
                 return (following, history, survival * (1.0 - termination)), (timestep, reward, termination, survival)
 
             timestep = Timestep(obs=start.obs, terminated=start.terminated, truncated=start.truncated)
@@ -200,9 +202,9 @@ class SuperMimic:
             )
             timesteps = jax.tree.map(lambda steps, final: jnp.concatenate([steps, final[None]]), timesteps, last)
             return Imagination(
-                states=timesteps.obs.state,
-                goals=jax.vmap(self.world_model.goal)(timesteps.obs.command),
-                contexts=timesteps.obs.context,
+                states=timesteps.obs[self.state_key],
+                goals=jax.vmap(self.world_model.goal)(timesteps.obs[self.command_key]),
+                contexts=timesteps.obs[self.context_key],
                 rewards=rewards,
                 terminations=terminations,
                 survivals=jnp.concatenate([survivals, last_survival[None]], axis=0),
@@ -214,7 +216,7 @@ class SuperMimic:
             history_key, imagine_key = jax.random.split(key)
             start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
             observations = history_fn(window, history_key)
-            *_, width = jnp.shape(start.obs.observation)
+            *_, width = jnp.shape(start.obs[self.observation_key])
             imagination = imagine_fn(params, state, start, observations[..., :-width], imagine_key)
             values = state_values_fn(
                 state.critic_params, imagination.states, imagination.goals, imagination.contexts
@@ -247,20 +249,25 @@ class SuperMimic:
             sample_key, noise_key = jax.random.split(key)
             window = self.buffer.sample(state.buffer_state, sample_key).experience
             start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
-            goal = self.world_model.goal(start.obs.command)
+            goal = self.world_model.goal(start.obs[self.command_key])
             first, second = jax.tree.map(merge_fn, (window.first, window.second))
-            *_, width = jnp.shape(start.obs.observation)
+            *_, width = jnp.shape(start.obs[self.observation_key])
             history = history_fn(window, noise_key)[..., width:]
             _, actor_statistics = self.actor.apply(
                 state.params, jnp.concatenate([history, goal], axis=-1), temperature=1.0, mutable=["statistics"]
             )
             _, critic_statistics = self.critic.apply(
                 state.critic_params,
-                jnp.concatenate([start.obs.state, goal, start.obs.context], axis=-1),
+                jnp.concatenate([start.obs[self.state_key], goal, start.obs[self.context_key]], axis=-1),
                 mutable=["statistics"],
             )
             _, world_model_statistics = self.world_model.apply(
-                state.world_model_params, first.obs, second.action, mutable=["statistics"]
+                state.world_model_params,
+                first.obs[self.state_key],
+                second.action,
+                first.obs[self.context_key],
+                first.obs[self.command_key],
+                mutable=["statistics"],
             )
             return state.replace(
                 params={**state.params, **actor_statistics},
