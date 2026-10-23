@@ -5,7 +5,7 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import WorldModelState, SuperMimic
+from boonta.algorithms.super_mimic import SuperMimic, WorldModelState
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation

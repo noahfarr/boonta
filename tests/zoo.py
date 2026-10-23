@@ -22,7 +22,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.algorithms.super_mimic import WorldModelState, SuperMimic, SuperMimicConfig
+from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig, WorldModelState
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, TransformObservation)
