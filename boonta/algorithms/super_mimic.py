@@ -44,7 +44,6 @@ class SuperMimicState:
 class Prediction:
     state: Array
     reward: Array
-    observation: Array
     termination: Array
 
 
@@ -82,12 +81,11 @@ class WorldModel(nn.Module):
         return Prediction(
             state=following,
             reward=self.reward(state=state, action=action, following=following, command=command, goal=goal),
-            observation=self.observe(following, context),
             termination=self.termination(state=following, command=command, goal=goal),
         )
 
-    def observe(self, state: Array, context: Array) -> Array:
-        return self.observation(state=state, context=context)
+    def observe(self, state: Array, context: Array, command: Array) -> Array:
+        return self.observation(state=state, context=context, command=command)
 
 
 def fully_observed(state: Array, **_) -> Array:
@@ -96,6 +94,10 @@ def fully_observed(state: Array, **_) -> Array:
 
 def _observed(timestep: Timestep) -> Array:
     return timestep.obs
+
+
+def _acted(timestep: Timestep) -> Array:
+    return timestep.action
 
 
 def _noiseless(key: Key, observation: Array) -> Array:
@@ -132,6 +134,7 @@ class SuperMimic:
     world_model_optimizer: optax.GradientTransformation
     state_of: Callable[[Timestep], Array] = _observed
     observation_of: Callable[[Timestep], Array] = _observed
+    action_of: Callable[[Timestep], Array] = _acted
     context_of: Callable[[Timestep], Array] = _nothing
     command_of: Callable[[Timestep], Array] = _nothing
     goal: Callable[[Array], Array] = _unchanged
@@ -152,7 +155,11 @@ class SuperMimic:
         history = jnp.repeat(observation[..., None, :], self.cfg.history, axis=-2)
         params = self.actor.init(actor_key, jnp.concatenate([_flattened(history), goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
-        world_model_params = self.world_model.init(world_model_key, state, timestep.action, context, command, goal)
+        predicting = self.world_model.init(world_model_key, state, timestep.action, context, command, goal)
+        observing = self.world_model.init(world_model_key, state, context, command, method=WorldModel.observe)
+        world_model_params = {
+            name: {**predicting.get(name, {}), **observing.get(name, {})} for name in {*predicting, *observing}
+        }
         return (
             SuperMimicState(
                 step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
@@ -213,7 +220,7 @@ class SuperMimic:
             _, predictions = jax.lax.scan(
                 predict_fn,
                 self.state_of(start),
-                (jnp.swapaxes(second.action, 0, 1), jnp.swapaxes(self.command_of(first), 0, 1)),
+                (jnp.swapaxes(self.action_of(second), 0, 1), jnp.swapaxes(self.command_of(first), 0, 1)),
             )
             predictions = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predictions)
 
@@ -230,8 +237,15 @@ class SuperMimic:
             if "reward" in learned:
                 terms["reward"] = mean_fn((predictions.reward - second.reward) ** 2, alive)
             if "observation" in learned:
+                observations = self.world_model.apply(
+                    world_model_params,
+                    predictions.state,
+                    jnp.broadcast_to(context[:, None], (*jnp.shape(settled), jnp.shape(context)[-1])),
+                    self.command_of(second),
+                    method=WorldModel.observe,
+                )
                 terms["observation"] = mean_fn(
-                    jnp.mean((predictions.observation - self.observation_of(second)) ** 2, axis=-1), settled
+                    jnp.mean((observations - self.observation_of(second)) ** 2, axis=-1), settled
                 )
             if "termination" in learned:
                 terms["termination"] = mean_fn(
@@ -260,8 +274,12 @@ class SuperMimic:
                 action = self._act(params, history, goal, 1.0).mean()
                 prediction = self.world_model.apply(state.world_model_params, imagined, action, context, command, goal)
                 termination = jax.nn.sigmoid(prediction.termination)
-                history = _pushed(history, self.sensor_noise(key, prediction.observation))
-                return (prediction.state, history, self.advance(command), survival * (1.0 - termination)), (
+                following = self.advance(command)
+                observation = self.world_model.apply(
+                    state.world_model_params, prediction.state, context, following, method=WorldModel.observe
+                )
+                history = _pushed(history, self.sensor_noise(key, observation))
+                return (prediction.state, history, following, survival * (1.0 - termination)), (
                     imagined,
                     goal,
                     prediction.reward,
@@ -337,7 +355,7 @@ class SuperMimic:
             _, world_model_statistics = self.world_model.apply(
                 state.world_model_params,
                 self.state_of(first),
-                second.action,
+                self.action_of(second),
                 self.context_of(first),
                 commands,
                 self.goal(commands),

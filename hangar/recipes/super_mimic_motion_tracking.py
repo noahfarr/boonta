@@ -30,8 +30,18 @@ def make(cfg):
     def reward(state, following, command, **_):
         return jax.vmap(task.reward)(state, following, command)
 
-    def observe(state, context, **_):
-        return jax.vmap(task.observe)(state, context)
+    anchored = cfg.network.anchored
+
+    def observe(state, context, command, **_):
+        observation = jax.vmap(task.observe)(state, context)
+        if anchored:
+            return jnp.concatenate([observation, jax.vmap(task.anchor)(state, command)], axis=-1)
+        return observation
+
+    def observation_of(timestep):
+        if anchored:
+            return jnp.concatenate([timestep.obs["observation"], timestep.obs["anchor"]], axis=-1)
+        return timestep.obs["observation"]
 
     def clipped(*transforms):
         return optax.chain(optax.clip_by_global_norm(cfg.optimizer.max_grad_norm), *transforms)
@@ -58,7 +68,7 @@ def make(cfg):
                     )
                 )
             ),
-            head=FixedGaussian(nn.Dense(NUM_JOINTS), scale=cfg.network.action_noise),
+            head=FixedGaussian(nn.Dense(NUM_JOINTS), scale=0.0),
         ),
         critic=Network(
             feature_extractor=FeatureExtractor(observation_extractor=normalized(mlp(cfg.network.critic))),
@@ -80,7 +90,8 @@ def make(cfg):
         critic_optimizer=clipped(optax.adam(decayed(critic_steps))),
         world_model_optimizer=clipped(optax.adam(decayed(algorithm_cfg.world_model_updates))),
         state_of=lambda timestep: timestep.obs["state"],
-        observation_of=lambda timestep: timestep.obs["observation"],
+        observation_of=observation_of,
+        action_of=lambda timestep: timestep.obs["executed"],
         context_of=lambda timestep: timestep.obs["context"],
         command_of=lambda timestep: timestep.obs["frame"][..., 0].astype(jnp.int32),
         goal=jax.vmap(task.goal),

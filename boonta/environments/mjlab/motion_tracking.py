@@ -11,6 +11,7 @@ BIN_SECONDS = 1.0
 UNIFORM, HARDEST, REMEMBERED = 0.5, 0.4, 0.1
 SHARPNESS = 25.0
 SMOOTHING = 0.1
+ACTION_NOISE = 0.1
 
 
 def _state(env):
@@ -53,6 +54,10 @@ def _context(env, feet: str, torso: str):
 def _frame(env, command_name: str):
     command = env.command_manager.get_term(command_name)
     return command.time_steps[:, None].float()
+
+
+def _executed(env, action_name: str):
+    return env.action_manager.get_term(action_name).executed
 
 
 def _motion_end(env, command_name: str):
@@ -142,6 +147,29 @@ def _command(base, attainable: float, play: bool):
     return ReturnSampledMotionCfg(**{field.name: getattr(base, field.name) for field in fields(base)})
 
 
+def _action(base, noise: float):
+    import torch
+    from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
+
+    class NoisyJointPositionAction(JointPositionAction):
+        def __init__(self, cfg, env):
+            super().__init__(cfg, env)
+            self.executed = torch.zeros_like(self._raw_actions)
+
+        def process_actions(self, actions):
+            self.executed = actions + noise * torch.randn_like(actions)
+            super().process_actions(self.executed)
+
+    @dataclass(kw_only=True)
+    class NoisyJointPositionActionCfg(JointPositionActionCfg):
+        def build(self, env):
+            return NoisyJointPositionAction(self, env)
+
+    return NoisyJointPositionActionCfg(
+        **{field.name: getattr(base, field.name) for field in fields(base) if field.init}
+    )
+
+
 def attainable(cfg) -> float:
     return sum(term.weight for term in cfg.rewards.values() if term.weight > 0) * cfg.sim.mujoco.timestep * cfg.decimation
 
@@ -151,6 +179,7 @@ def _configure(play: bool):
     from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
     from mjlab.managers.termination_manager import TerminationTermCfg
     from mjlab.tasks.tracking.config.g1.env_cfgs import unitree_g1_flat_tracking_env_cfg
+    from mjlab.tasks.tracking.mdp.observations import motion_anchor_ori_b, motion_anchor_pos_b
 
     cfg = unitree_g1_flat_tracking_env_cfg()
     cfg.scene.sensors = ()
@@ -162,6 +191,9 @@ def _configure(play: bool):
     motion.anchor_body_name = "pelvis"
     motion.sampling_mode = "adaptive"
     motion.debug_vis = False
+    cfg.actions["joint_pos"] = _action(cfg.actions["joint_pos"], 0.0 if play else ACTION_NOISE)
+    cfg.events["foot_friction"].mode = "reset"
+    cfg.events["encoder_bias"].mode = "reset"
     if play:
         motion.pose_range, motion.velocity_range, motion.joint_position_range = {}, {}, (0.0, 0.0)
         del cfg.events["base_com"], cfg.events["encoder_bias"]
@@ -199,6 +231,13 @@ def _configure(play: bool):
             }
         ),
         "frame": group({"frame": ObservationTermCfg(func=_frame, params={"command_name": "motion"})}),
+        "anchor": group(
+            {
+                "position": ObservationTermCfg(func=motion_anchor_pos_b, params={"command_name": "motion"}),
+                "orientation": ObservationTermCfg(func=motion_anchor_ori_b, params={"command_name": "motion"}),
+            }
+        ),
+        "executed": group({"executed": ObservationTermCfg(func=_executed, params={"action_name": "joint_pos"})}),
     }
     return cfg
 

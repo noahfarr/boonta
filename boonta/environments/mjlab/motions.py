@@ -37,18 +37,70 @@ class Motions:
     clip_end: Array
 
 
-def _clip(model, path: Path, source_rate: int, rate: int) -> dict:
-    import mujoco
-    from mjlab.scripts.csv_to_npz import MotionLoader
+def _slerp(left: np.ndarray, right: np.ndarray, fraction: np.ndarray) -> np.ndarray:
+    dot = np.sum(left * right, axis=-1, keepdims=True)
+    right = np.where(dot < 0.0, -right, right)
+    angle = np.arccos(np.clip(np.abs(dot), -1.0, 1.0))
+    sine = np.sin(angle)
+    near = sine < 1e-6
+    fraction = fraction[:, None]
+    left_weight = np.where(near, 1.0 - fraction, np.sin((1.0 - fraction) * angle) / np.where(near, 1.0, sine))
+    right_weight = np.where(near, fraction, np.sin(fraction * angle) / np.where(near, 1.0, sine))
+    blended = left_weight * left + right_weight * right
+    return blended / np.linalg.norm(blended, axis=-1, keepdims=True)
 
-    motion = MotionLoader(str(path), source_rate, rate, "cpu")
-    qpos = np.concatenate(
-        [motion.motion_base_poss.numpy(), motion.motion_base_rots.numpy(), motion.motion_dof_poss.numpy()], axis=-1
-    )
-    qvel = np.concatenate(
-        [motion.motion_base_lin_vels.numpy(), motion.motion_base_ang_vels.numpy(), motion.motion_dof_vels.numpy()],
+
+def _product(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    lw, lx, ly, lz = np.moveaxis(left, -1, 0)
+    rw, rx, ry, rz = np.moveaxis(right, -1, 0)
+    return np.stack(
+        [
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ],
         axis=-1,
     )
+
+
+def _turning(orientation: np.ndarray, step: float) -> np.ndarray:
+    change = _product(orientation[2:], orientation[:-2] * np.array([1.0, -1.0, -1.0, -1.0]))
+    change = np.where(change[:, :1] < 0.0, -change, change)
+    norm = np.linalg.norm(change[:, 1:], axis=-1, keepdims=True)
+    angle = 2.0 * np.arctan2(norm, change[:, :1])
+    turning = change[:, 1:] / np.where(norm < 1e-9, 1.0, norm) * angle / (2.0 * step)
+    return np.concatenate([turning[:1], turning, turning[-1:]], axis=0)
+
+
+def _resample(frames: np.ndarray, source_rate: int, rate: int) -> tuple[np.ndarray, np.ndarray]:
+    count, _ = frames.shape
+    duration = (count - 1) / source_rate
+    times = np.arange(0.0, duration, 1.0 / rate, dtype=np.float32)
+    phase = times / duration * (count - 1)
+    lower = np.floor(phase).astype(int)
+    upper = np.minimum(lower + 1, count - 1)
+    fraction = phase - lower
+    linear = frames[lower] * (1.0 - fraction[:, None]) + frames[upper] * fraction[:, None]
+    wxyz = frames[:, [6, 3, 4, 5]]
+    orientation = _slerp(wxyz[lower], wxyz[upper], fraction)
+    step = 1.0 / rate
+    qpos = np.concatenate([linear[:, :3], orientation, linear[:, 7:]], axis=-1)
+    qvel = np.concatenate(
+        [
+            np.gradient(linear[:, :3], step, axis=0),
+            _turning(orientation, step),
+            np.gradient(linear[:, 7:], step, axis=0),
+        ],
+        axis=-1,
+    )
+    return qpos, qvel
+
+
+def _clip(model, path: Path, source_rate: int, rate: int) -> dict:
+    import mujoco
+
+    qpos, qvel = _resample(np.loadtxt(path, delimiter=","), source_rate, rate)
     data = mujoco.MjData(model)
     bodies = range(1, model.nbody)
     frames = {"body_pos_w": [], "body_quat_w": [], "body_lin_vel_w": [], "body_ang_vel_w": []}
