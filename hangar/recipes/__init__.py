@@ -44,7 +44,7 @@ from . import (
     recurrent_sac_mujoco,
     reppo_mujoco,
     sac_mujoco,
-    super_mimic_motion_tracking,
+    super_mimic_mjlab,
     super_mimic_mujoco,
 )
 
@@ -100,7 +100,7 @@ register = {
     ("recurrent_sac", "brax", "mujoco"): recurrent_sac_mujoco.make,
     ("reppo", "brax", "mujoco"): reppo_mujoco.make,
     ("sac", "brax", "mujoco"): sac_mujoco.make,
-    ("super_mimic", "mjlab", "motion_tracking"): super_mimic_motion_tracking.make,
+    ("super_mimic", "mjlab", "motion_tracking"): super_mimic_mjlab.make,
     ("super_mimic", "mujoco_playground", "dm_control_suite"): super_mimic_mujoco.make,
 }
 
