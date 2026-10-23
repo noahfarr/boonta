@@ -8,9 +8,9 @@ from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
-from boonta.environments.world_model import Observation, WorldModel
 from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
-from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
+from boonta.networks import (FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network, Observation,
+                             WorldModel)
 from boonta.networks.layers import Normalize
 
 
@@ -83,7 +83,6 @@ def make(cfg):
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
-            env,
             dynamics_fn=FloatingBase(
                 normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
             ),

@@ -23,14 +23,13 @@ from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
 from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig
-from boonta.environments.world_model import Observation, WorldModel
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset, TransformObservation)
 from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
                              EpsilonGreedy, FeatureExtractor, FixedGaussian, Gaussian,
                              Highway, MinGRUCell, Network, RTUCell,
-                             SelfAttention, SquashedGaussian, Tower,
+                             Observation, SelfAttention, SquashedGaussian, Tower, WorldModel,
                              causal_attention_mask, llama, repeat)
 from boonta.networks.layers import Identity, Parameter
 from boonta.podracers import anakin, quadinaros, sebulba
@@ -376,7 +375,6 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         ),
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
         world_model=WorldModel(
-            environment,
             dynamics_fn=nn.Sequential(
                 [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), mlp(width)]
             ),

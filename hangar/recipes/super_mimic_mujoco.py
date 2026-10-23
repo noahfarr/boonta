@@ -5,9 +5,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.super_mimic import SuperMimic
-from boonta.environments.world_model import Observation, WorldModel
 from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
-from boonta.networks import FeatureExtractor, FixedGaussian, Network
+from boonta.networks import FeatureExtractor, FixedGaussian, Network, Observation, WorldModel
 
 
 def mlp(sizes, outputs=None):
@@ -48,7 +47,6 @@ def make(cfg):
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
-            env,
             dynamics_fn=nn.Sequential(
                 [
                     lambda state, action, context: jnp.concatenate([state, action, context], axis=-1),

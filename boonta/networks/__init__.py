@@ -20,6 +20,7 @@ from .network import Network
 from .pretrained import Pretrained
 from .stacks import llama, repeat
 from .unembed import Unembed
+from .world_model import Observation, WorldModel
 
 __all__ = [
     "FFN",
@@ -45,6 +46,7 @@ __all__ = [
     "LoRA",
     "MinGRUCell",
     "Network",
+    "Observation",
     "PI0Layer",
     "PatchEmbedding",
     "Pretrained",
@@ -67,6 +69,7 @@ __all__ = [
     "Tower",
     "repeat",
     "Unembed",
+    "WorldModel",
     "ViT",
     "ViTLayer",
     "causal_attention_mask",
