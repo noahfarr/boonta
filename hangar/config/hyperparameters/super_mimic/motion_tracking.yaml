@@ -1,0 +1,14 @@
+# @package _global_
+
+num_steps: 2_621_440_000
+
+algorithm:
+  history: 10
+
+network:
+  encoder: [2048, 1024, 512, 256]
+  latent: 32
+  decoder: [2048, 1024, 512, 256]
+  critic: [256, 128]
+  world_model: [2048, 2048, 2048]
+  heads: [256, 256]

@@ -265,7 +265,7 @@ class SuperMimic:
 
             survival = jnp.ones(jnp.shape(start.reward))
             (last, _, last_command, last_survival), (states, goals, rewards, terminations, survivals) = jax.lax.scan(
-                act_fn,
+                jax.checkpoint(act_fn),
                 (self.state_of(start), history, self.command_of(start), survival),
                 jax.random.split(key, self.cfg.horizon),
             )

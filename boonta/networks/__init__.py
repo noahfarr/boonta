@@ -12,6 +12,8 @@ from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Blo
                      sinusoidal_time_embedding)
 from . import distributions
 from .feature_extractor import FeatureExtractor
+from .floating_base import FloatingBase
+from .goal_conditioned import GoalConditioned
 from .heads import Categorical, EpsilonGreedy, FixedGaussian, Gaussian, SquashedGaussian
 from .kernels import get_scan_implementation
 from .network import Network
@@ -33,9 +35,11 @@ __all__ = [
     "EpsilonGreedy",
     "Expert",
     "FeatureExtractor",
+    "FloatingBase",
     "Gaussian",
     "Gemma",
     "GemmaLayer",
+    "GoalConditioned",
     "Identity",
     "LearnedPositionalEmbedding",
     "LoRA",
