@@ -86,17 +86,17 @@ def make(cfg):
         ),
         world_model=WorldModel(
             env,
-            dynamics=FloatingBase(
+            dynamics_fn=FloatingBase(
                 normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
             ),
-            reward=reward,
-            termination=nn.Sequential(
+            reward_fn=reward,
+            termination_fn=nn.Sequential(
                 [
                     lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1),
                     normalized(mlp(cfg.network.heads, 1)),
                 ]
             ),
-            observation=observe,
+            observation_fn=observe,
             pack=pack,
             goal=jax.vmap(task.goal),
             advance=jax.vmap(task.advance),

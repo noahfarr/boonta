@@ -64,7 +64,7 @@ def _noiseless(key: Key, observation: Array) -> Array:
 
 
 def _nothing(timestep: Timestep) -> Array:
-    batch = jnp.shape(timestep.reward)
+    batch = jnp.shape(timestep.terminated)
     return jnp.zeros((*batch, 0), jnp.float32)
 
 
@@ -94,9 +94,7 @@ class SuperMimic:
         history = jnp.tile(self.sensor_noise(noise_key, self.observation_of(timestep)), self.cfg.history)
         params = self.actor.init(actor_key, jnp.concatenate([history, goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
-        world_model_params = self.world_model.network.init(
-            world_model_key, state, timestep.action, context, command, goal
-        )
+        world_model_params = self.world_model.initialize(world_model_key, (state, context, command), timestep.action)
         return (
             SuperMimicState(
                 step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
@@ -134,7 +132,7 @@ class SuperMimic:
         return state, history, dist.sample(seed=action_key), {}
 
     def update(self, state: SuperMimicState, key: Key, transitions: Transition) -> SuperMimicState:
-        learned = state.world_model_params["params"]
+        learned = self.world_model.learned(state.world_model_params)
 
         def state_values_fn(critic_params: PyTree, states: Array, goals: Array, contexts: Array) -> Array:
             values = self.critic.apply(critic_params, jnp.concatenate([states, goals, contexts], axis=-1))
@@ -153,6 +151,13 @@ class SuperMimic:
             batch, *_ = jnp.shape(observations)
             return jnp.reshape(self.sensor_noise(key, observations), (batch, -1))
 
+        def begin_fn(params: PyTree, start: Timestep, key: Key) -> tuple[PyTree, Timestep]:
+            world, _ = self.world_model.init(key)
+            theta = (self.state_of(start), self.context_of(start), self.command_of(start))
+            world = self.world_model.update(world, key, params=params, theta=theta)
+            flags = jnp.zeros(jnp.shape(start.reward), bool)
+            return world, Timestep(obs=self.world_model.observe(world), terminated=flags, truncated=flags)
+
         def world_model_loss_fn(world_model_params: PyTree, window: Transition, key: Key) -> tuple[Array, dict]:
             first, second = jax.tree.map(lambda leaf: leaf[:, : self.cfg.window], (window.first, window.second))
             start = jax.tree.map(lambda leaf: leaf[:, 0], first)
@@ -164,13 +169,12 @@ class SuperMimic:
                 action, key = inputs
                 return self.world_model.step(key, world, action)
 
-            world, _ = self.world_model.start(
-                world_model_params, self.state_of(start), self.context_of(start), self.command_of(start)
-            )
+            begin_key, step_key = jax.random.split(key)
+            world, _ = begin_fn(world_model_params, start, begin_key)
             _, predicted = jax.lax.scan(
                 predict_fn,
                 world,
-                (jnp.swapaxes(self.action_of(second), 0, 1), jax.random.split(key, self.cfg.window)),
+                (jnp.swapaxes(self.action_of(second), 0, 1), jax.random.split(step_key, self.cfg.window)),
             )
             predicted = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predicted)
 
@@ -204,12 +208,16 @@ class SuperMimic:
                 _, history, action, _ = self.step(acting, history, act_key, timestep, temperature=0.0)
                 world, following = self.world_model.step(step_key, world, action)
                 termination = jax.nn.sigmoid(following.info["termination"])
-                carry = (world, following, history, survival * (1.0 - termination))
+                carry = (
+                    world,
+                    Timestep(obs=following.obs, terminated=following.terminated, truncated=following.truncated),
+                    history,
+                    survival * (1.0 - termination),
+                )
                 return carry, (timestep, following.reward, termination, survival)
 
-            world, timestep = self.world_model.start(
-                state.world_model_params, self.state_of(start), self.context_of(start), self.command_of(start)
-            )
+            begin_key, key = jax.random.split(key)
+            world, timestep = begin_fn(state.world_model_params, start, begin_key)
             carry = (world, timestep, history, jnp.ones(jnp.shape(start.reward)))
             (_, last, _, last_survival), (timesteps, rewards, terminations, survivals) = jax.lax.scan(
                 jax.checkpoint(act_fn), carry, jax.random.split(key, self.cfg.horizon)
@@ -267,7 +275,6 @@ class SuperMimic:
             first, second = jax.tree.map(
                 lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), (window.first, window.second)
             )
-            commands = self.command_of(first)
             *_, width = jnp.shape(self.observation_of(start))
             history = history_fn(window, noise_key)[..., width:]
             _, actor_statistics = self.actor.apply(
@@ -278,19 +285,14 @@ class SuperMimic:
                 jnp.concatenate([self.state_of(start), goal, self.context_of(start)], axis=-1),
                 mutable=["statistics"],
             )
-            _, world_model_statistics = self.world_model.network.apply(
-                state.world_model_params,
-                self.state_of(first),
-                self.action_of(second),
-                self.context_of(first),
-                commands,
-                self.world_model.goal(commands),
-                mutable=["statistics"],
-            )
             return state.replace(
                 params={**state.params, **actor_statistics},
                 critic_params={**state.critic_params, **critic_statistics},
-                world_model_params={**state.world_model_params, **world_model_statistics},
+                world_model_params=self.world_model.calibrate(
+                    state.world_model_params,
+                    (self.state_of(first), self.context_of(first), self.command_of(first)),
+                    self.action_of(second),
+                ),
             )
 
         def world_model_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:

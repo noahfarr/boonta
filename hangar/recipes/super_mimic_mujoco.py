@@ -46,22 +46,22 @@ def make(cfg):
         ),
         world_model=WorldModel(
             env,
-            dynamics=nn.Sequential(
+            dynamics_fn=nn.Sequential(
                 [
                     lambda state, action, context: jnp.concatenate([state, action, context], axis=-1),
                     mlp(cfg.network.world_model, obs_dim),
                 ]
             ),
-            reward=nn.Sequential(
+            reward_fn=nn.Sequential(
                 [
                     lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1),
                     mlp(cfg.network.heads, 1),
                 ]
             ),
-            termination=nn.Sequential(
+            termination_fn=nn.Sequential(
                 [lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(cfg.network.heads, 1)]
             ),
-            observation=lambda state, **_: state,
+            observation_fn=lambda state, **_: state,
             pack=lambda state, **_: state,
         ),
         buffer=instantiate(cfg.buffer),

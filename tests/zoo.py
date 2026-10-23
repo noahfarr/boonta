@@ -377,14 +377,14 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
         world_model=WorldModel(
             environment,
-            dynamics=nn.Sequential(
+            dynamics_fn=nn.Sequential(
                 [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), mlp(width)]
             ),
-            reward=nn.Sequential(
+            reward_fn=nn.Sequential(
                 [lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1), mlp(1)]
             ),
-            termination=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
-            observation=lambda state, **_: state,
+            termination_fn=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
+            observation_fn=lambda state, **_: state,
             pack=lambda state, **_: state,
         ),
         buffer=fbx.make_trajectory_buffer(

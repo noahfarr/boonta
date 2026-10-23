@@ -12,29 +12,29 @@ from .spaces import Space
 
 @struct.dataclass
 class WorldModelState:
-    params: PyTree = struct.field(metadata={"axis": None})
+    params: PyTree = struct.field(default=None, metadata={"axis": None})
     state: Array = None
     context: Array = None
     command: Array = None
 
 
-class _Heads(nn.Module):
-    dynamics: Callable
-    reward: Callable
-    termination: Callable
-    observation: Callable
+class _Networks(nn.Module):
+    dynamics_fn: Callable
+    reward_fn: Callable
+    termination_fn: Callable
+    observation_fn: Callable
 
     def __call__(self, state: Array, action: Array, context: Array, command: Array, goal: Array) -> tuple:
         *batch, _ = jnp.shape(state)
         if self.is_initializing():
             self.observe(state, context, command)
-        following = self.dynamics(state=state, action=action, context=context)
-        reward = self.reward(state=state, action=action, following=following, command=command, goal=goal)
-        termination = self.termination(state=following, command=command, goal=goal)
+        following = self.dynamics_fn(state=state, action=action, context=context)
+        reward = self.reward_fn(state=state, action=action, following=following, command=command, goal=goal)
+        termination = self.termination_fn(state=following, command=command, goal=goal)
         return following, jnp.reshape(reward, batch), jnp.reshape(termination, batch)
 
     def observe(self, state: Array, context: Array, command: Array) -> Array:
-        return self.observation(state=state, context=context, command=command)
+        return self.observation_fn(state=state, context=context, command=command)
 
 
 def _unchanged(command: Array) -> Array:
@@ -45,45 +45,66 @@ class WorldModel(Environment):
     def __init__(
         self,
         environment: Environment,
-        dynamics: Callable,
-        reward: Callable,
-        termination: Callable,
-        observation: Callable,
+        dynamics_fn: Callable,
+        reward_fn: Callable,
+        termination_fn: Callable,
+        observation_fn: Callable,
         pack: Callable,
         goal: Callable[[Array], Array] = _unchanged,
         advance: Callable[[Array], Array] = _unchanged,
     ):
         self.environment = environment
-        self.network = _Heads(dynamics=dynamics, reward=reward, termination=termination, observation=observation)
+        self.networks = _Networks(
+            dynamics_fn=dynamics_fn,
+            reward_fn=reward_fn,
+            termination_fn=termination_fn,
+            observation_fn=observation_fn,
+        )
         self.pack = pack
         self.goal = goal
         self.advance = advance
 
-    def init(self, key: Key) -> tuple[WorldModelState, Timestep]:
-        raise NotImplementedError("a world model starts from a known state, through start(params, state, ...)")
+    def initialize(self, key: Key, theta: tuple, action: Array) -> PyTree:
+        state, context, command = theta
+        return self.networks.init(key, state, action, context, command, self.goal(command))
 
-    def start(self, params: PyTree, state: Array, context: Array, command: Array) -> tuple[WorldModelState, Timestep]:
-        observation = self.network.apply(params, state, context, command, method=_Heads.observe)
-        *batch, _ = jnp.shape(state)
-        flags = jnp.zeros(batch, bool)
-        return WorldModelState(params=params, state=state, context=context, command=command), Timestep(
-            obs=self.pack(state=state, observation=observation, context=context, command=command),
-            action=jnp.zeros((*batch, *self.action_space().shape), self.action_space().dtype),
-            reward=jnp.zeros(batch),
-            terminated=flags,
-            truncated=flags,
-            info={"termination": jnp.full(batch, -jnp.inf)},
+    def learned(self, params: PyTree) -> set[str]:
+        return {name.removesuffix("_fn") for name in params.get("params", {})}
+
+    def calibrate(self, params: PyTree, theta: tuple, action: Array) -> PyTree:
+        state, context, command = theta
+        _, statistics = self.networks.apply(
+            params, state, action, context, command, self.goal(command), mutable=["statistics"]
         )
+        return {**params, **statistics}
+
+    def init(self, key: Key) -> tuple[WorldModelState, Timestep]:
+        return WorldModelState(), Timestep(obs=None)
+
+    def update(
+        self, state: WorldModelState, key: Key, params: PyTree = None, theta: tuple = None, **kwargs
+    ) -> WorldModelState:
+        if params is not None:
+            state = state.replace(params=params)
+        if theta is not None:
+            model_state, context, command = theta
+            state = state.replace(state=model_state, context=context, command=command)
+        return state
+
+    def observe(self, state: WorldModelState) -> PyTree:
+        observation = self.networks.apply(
+            state.params, state.state, state.context, state.command, method=_Networks.observe
+        )
+        return self.pack(state=state.state, observation=observation, context=state.context, command=state.command)
 
     def step(self, key: Key, state: WorldModelState, action: Array) -> tuple[WorldModelState, Timestep]:
-        following, reward, termination = self.network.apply(
+        following, reward, termination = self.networks.apply(
             state.params, state.state, action, state.context, state.command, self.goal(state.command)
         )
-        command = self.advance(state.command)
-        observation = self.network.apply(state.params, following, state.context, command, method=_Heads.observe)
+        state = state.replace(state=following, command=self.advance(state.command))
         flags = jnp.zeros_like(reward, bool)
-        return state.replace(state=following, command=command), Timestep(
-            obs=self.pack(state=following, observation=observation, context=state.context, command=command),
+        return state, Timestep(
+            obs=self.observe(state),
             action=action,
             reward=reward,
             terminated=flags,
