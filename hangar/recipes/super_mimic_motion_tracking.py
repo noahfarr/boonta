@@ -5,7 +5,7 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import Observation, SuperMimic
+from boonta.algorithms.super_mimic import World, SuperMimic
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics, TransformObservation
@@ -32,7 +32,7 @@ def make(cfg):
         observation = obs["observation"]
         if anchored:
             observation = jnp.concatenate([observation, obs["anchor"]], axis=-1)
-        return Observation(
+        return World(
             observation=observation,
             state=obs["state"],
             context=obs["context"],
