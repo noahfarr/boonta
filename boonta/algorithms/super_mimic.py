@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.networks import Observation, WorldModel
+from boonta.networks import WorldModel
 from boonta.utils import Timestep, Transition, canonicalize_dtype, conditional_update, remove_batch_axis
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
 
@@ -27,6 +27,14 @@ class SuperMimicConfig:
     policy_batches: int
     critic_epochs: int
     critic_minibatches: int
+
+
+@struct.dataclass(frozen=True)
+class Observation:
+    observation: Array
+    state: Array
+    context: Array
+    command: Array
 
 
 @struct.dataclass(frozen=True)
