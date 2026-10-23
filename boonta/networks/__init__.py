@@ -20,6 +20,7 @@ from .network import Network
 from .pretrained import Pretrained
 from .stacks import llama, repeat
 from .unembed import Unembed
+from .world_model import Prediction, WorldModel
 
 __all__ = [
     "FFN",
@@ -47,6 +48,7 @@ __all__ = [
     "Network",
     "PI0Layer",
     "PatchEmbedding",
+    "Prediction",
     "Pretrained",
     "Projection",
     "QueryKeyNorm",
@@ -67,6 +69,7 @@ __all__ = [
     "Tower",
     "repeat",
     "Unembed",
+    "WorldModel",
     "ViT",
     "ViTLayer",
     "causal_attention_mask",

@@ -4,9 +4,9 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import SuperMimic, WorldModel
+from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.networks import FeatureExtractor, FixedGaussian, Network
+from boonta.networks import FeatureExtractor, FixedGaussian, Network, WorldModel
 
 
 def mlp(sizes, outputs=None):

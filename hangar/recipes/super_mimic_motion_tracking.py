@@ -5,11 +5,12 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import SuperMimic, WorldModel
+from boonta.algorithms.super_mimic import SuperMimic
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network
+from boonta.networks import (FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network,
+                             WorldModel)
 from boonta.networks.layers import Normalize
 
 

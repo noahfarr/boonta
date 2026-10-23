@@ -8,6 +8,7 @@ import lox
 import optax
 from flax import struct
 
+from boonta.networks import Prediction, WorldModel
 from boonta.utils import Timestep, Transition, canonicalize_dtype, conditional_update, remove_batch_axis
 from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
 
@@ -41,13 +42,6 @@ class SuperMimicState:
 
 
 @struct.dataclass(frozen=True)
-class Prediction:
-    state: Array
-    reward: Array
-    termination: Array
-
-
-@struct.dataclass(frozen=True)
 class Imagination:
     states: Array
     goals: Array
@@ -55,25 +49,6 @@ class Imagination:
     rewards: Array
     terminations: Array
     survivals: Array
-
-
-class WorldModel(nn.Module):
-    dynamics: Callable
-    reward: Callable
-    observation: Callable
-    termination: Callable
-
-    def __call__(self, state: Array, action: Array, context: Array, command: Array, goal: Array) -> Prediction:
-        *batch, _ = jnp.shape(state)
-        following = self.dynamics(state=state, action=action, context=context)
-        reward = self.reward(state=state, action=action, following=following, command=command, goal=goal)
-        termination = self.termination(state=following, command=command, goal=goal)
-        return Prediction(
-            state=following, reward=jnp.reshape(reward, batch), termination=jnp.reshape(termination, batch)
-        )
-
-    def observe(self, state: Array, context: Array, command: Array) -> Array:
-        return self.observation(state=state, context=context, command=command)
 
 
 def _observed(timestep: Timestep) -> Array:
@@ -125,11 +100,7 @@ class SuperMimic:
         history = jnp.tile(self.sensor_noise(noise_key, self.observation_of(timestep)), self.cfg.history)
         params = self.actor.init(actor_key, jnp.concatenate([history, goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
-        predicting = self.world_model.init(world_model_key, state, timestep.action, context, command, goal)
-        observing = self.world_model.init(world_model_key, state, context, command, method=WorldModel.observe)
-        world_model_params = {
-            name: {**predicting.get(name, {}), **observing.get(name, {})} for name in {*predicting, *observing}
-        }
+        world_model_params = self.world_model.init(world_model_key, state, timestep.action, context, command, goal)
         return (
             SuperMimicState(
                 step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
