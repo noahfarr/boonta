@@ -57,49 +57,23 @@ class Imagination:
     survivals: Array
 
 
-class Residual(nn.Module):
-    network: nn.Module
-
-    def __call__(self, state: Array, action: Array, context: Array) -> Array:
-        return state + self.network(jnp.concatenate([state, action, context], axis=-1))
-
-
-class Learned(nn.Module):
-    network: nn.Module
-    inputs: tuple[str, ...]
-
-    def __call__(self, **inputs: Array) -> Array:
-        features = jnp.concatenate([inputs[name] for name in self.inputs], axis=-1)
-        return jnp.squeeze(self.network(features), axis=-1)
-
-
-class Analytic(nn.Module):
-    function: Callable
-
-    def __call__(self, **inputs: Array) -> Array:
-        return self.function(**inputs)
-
-
 class WorldModel(nn.Module):
-    dynamics: nn.Module
-    reward: nn.Module
-    observation: nn.Module
-    termination: nn.Module
+    dynamics: Callable
+    reward: Callable
+    observation: Callable
+    termination: Callable
 
     def __call__(self, state: Array, action: Array, context: Array, command: Array, goal: Array) -> Prediction:
-        following = self.dynamics(state, action, context)
+        *batch, _ = jnp.shape(state)
+        following = self.dynamics(state=state, action=action, context=context)
+        reward = self.reward(state=state, action=action, following=following, command=command, goal=goal)
+        termination = self.termination(state=following, command=command, goal=goal)
         return Prediction(
-            state=following,
-            reward=self.reward(state=state, action=action, following=following, command=command, goal=goal),
-            termination=self.termination(state=following, command=command, goal=goal),
+            state=following, reward=jnp.reshape(reward, batch), termination=jnp.reshape(termination, batch)
         )
 
     def observe(self, state: Array, context: Array, command: Array) -> Array:
         return self.observation(state=state, context=context, command=command)
-
-
-def fully_observed(state: Array, **_) -> Array:
-    return state
 
 
 def _observed(timestep: Timestep) -> Array:

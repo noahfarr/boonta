@@ -5,7 +5,7 @@ import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import Analytic, Learned, SuperMimic, WorldModel
+from boonta.algorithms.super_mimic import SuperMimic, WorldModel
 from boonta.environments.mjlab import motion_tracking
 from boonta.environments.mjlab.task import NUM_JOINTS
 from boonta.environments.wrappers import RecordEpisodeStatistics
@@ -78,9 +78,14 @@ def make(cfg):
             dynamics=FloatingBase(
                 normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
             ),
-            reward=Analytic(reward),
-            observation=Analytic(observe),
-            termination=Learned(normalized(mlp(cfg.network.heads, 1)), inputs=("state", "goal")),
+            reward=reward,
+            observation=observe,
+            termination=nn.Sequential(
+                [
+                    lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1),
+                    normalized(mlp(cfg.network.heads, 1)),
+                ]
+            ),
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(

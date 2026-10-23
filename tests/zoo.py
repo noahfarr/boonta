@@ -22,8 +22,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
-from boonta.algorithms.super_mimic import (Analytic, Learned, Residual, SuperMimic, SuperMimicConfig,
-                                           WorldModel, fully_observed)
+from boonta.algorithms.super_mimic import SuperMimic, SuperMimicConfig, WorldModel
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
@@ -376,10 +375,14 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         ),
         critic=Network(feature_extractor=encoder(), head=nn.Dense(1)),
         world_model=WorldModel(
-            dynamics=Residual(mlp(width)),
-            reward=Learned(mlp(1), inputs=("state", "action", "goal")),
-            observation=Analytic(fully_observed),
-            termination=Learned(mlp(1), inputs=("state", "goal")),
+            dynamics=nn.Sequential(
+                [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), mlp(width)]
+            ),
+            reward=nn.Sequential(
+                [lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1), mlp(1)]
+            ),
+            observation=lambda state, **_: state,
+            termination=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(1)]),
         ),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,

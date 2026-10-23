@@ -1,9 +1,10 @@
 import flax.linen as nn
+import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import Analytic, Learned, Residual, SuperMimic, WorldModel, fully_observed
+from boonta.algorithms.super_mimic import SuperMimic, WorldModel
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, Network
 
@@ -43,10 +44,22 @@ def make(cfg):
             head=nn.Dense(1),
         ),
         world_model=WorldModel(
-            dynamics=Residual(mlp(cfg.network.world_model, obs_dim)),
-            reward=Learned(mlp(cfg.network.heads, 1), inputs=("state", "action", "goal")),
-            observation=Analytic(fully_observed),
-            termination=Learned(mlp(cfg.network.heads, 1), inputs=("state", "goal")),
+            dynamics=nn.Sequential(
+                [
+                    lambda state, action, context: jnp.concatenate([state, action, context], axis=-1),
+                    mlp(cfg.network.world_model, obs_dim),
+                ]
+            ),
+            reward=nn.Sequential(
+                [
+                    lambda state, action, goal, **_: jnp.concatenate([state, action, goal], axis=-1),
+                    mlp(cfg.network.heads, 1),
+                ]
+            ),
+            observation=lambda state, **_: state,
+            termination=nn.Sequential(
+                [lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), mlp(cfg.network.heads, 1)]
+            ),
         ),
         buffer=instantiate(cfg.buffer),
         actor_optimizer=clipped(
