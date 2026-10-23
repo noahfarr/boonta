@@ -47,6 +47,16 @@ class Prediction:
     termination: Array
 
 
+@struct.dataclass(frozen=True)
+class Imagination:
+    states: Array
+    goals: Array
+    context: Array
+    rewards: Array
+    terminations: Array
+    survivals: Array
+
+
 class Residual(nn.Module):
     network: nn.Module
 
@@ -113,13 +123,41 @@ def _unchanged(command: Array) -> Array:
     return command
 
 
+def _filled(observation: Array, length: int) -> Array:
+    return jnp.repeat(observation[..., None, :], length, axis=-2)
+
+
 def _pushed(history: Array, observation: Array) -> Array:
     return jnp.concatenate([history[..., 1:, :], observation[..., None, :]], axis=-2)
 
 
-def _flattened(history: Array) -> Array:
+def _conditioned(history: Array, goal: Array) -> Array:
     *batch, length, width = jnp.shape(history)
-    return jnp.reshape(history, (*batch, length * width))
+    return jnp.concatenate([jnp.reshape(history, (*batch, length * width)), goal], axis=-1)
+
+
+def _valued(states: Array, goals: Array, context: Array) -> Array:
+    *batch, _ = jnp.shape(states)
+    return jnp.concatenate([states, goals, jnp.broadcast_to(context, (*batch, jnp.shape(context)[-1]))], axis=-1)
+
+
+def _first(tree: PyTree) -> PyTree:
+    return jax.tree.map(lambda leaf: leaf[:, 0], tree)
+
+
+def _last(tree: PyTree) -> PyTree:
+    return jax.tree.map(lambda leaf: leaf[:, -1], tree)
+
+
+def _merged(tree: PyTree) -> PyTree:
+    return jax.tree.map(lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), tree)
+
+
+def _stepped(
+    optimizer: optax.GradientTransformation, params: PyTree, optimizer_state: optax.OptState, grads: PyTree
+) -> tuple[PyTree, optax.OptState]:
+    updates, optimizer_state = optimizer.update(grads["params"], optimizer_state, params["params"])
+    return {**params, "params": optax.apply_updates(params["params"], updates)}, optimizer_state
 
 
 @dataclass
@@ -143,18 +181,13 @@ class SuperMimic:
     value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
 
-    def _act(self, params: PyTree, history: Array, goal: Array, temperature: float):
-        return self.actor.apply(params, jnp.concatenate([_flattened(history), goal], axis=-1), temperature=temperature)
-
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, Array]:
         actor_key, critic_key, world_model_key, noise_key = jax.random.split(key, 4)
-        state, context = self.state_of(timestep), self.context_of(timestep)
-        command = self.command_of(timestep)
+        state, context, command = self.state_of(timestep), self.context_of(timestep), self.command_of(timestep)
         goal = self.goal(command)
-        observation = self.sensor_noise(noise_key, self.observation_of(timestep))
-        history = jnp.repeat(observation[..., None, :], self.cfg.history, axis=-2)
-        params = self.actor.init(actor_key, jnp.concatenate([_flattened(history), goal], axis=-1), temperature=1.0)
-        critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
+        history = _filled(self.sensor_noise(noise_key, self.observation_of(timestep)), self.cfg.history)
+        params = self.actor.init(actor_key, _conditioned(history, goal), temperature=1.0)
+        critic_params = self.critic.init(critic_key, _valued(state, goal, context))
         predicting = self.world_model.init(world_model_key, state, timestep.action, context, command, goal)
         observing = self.world_model.init(world_model_key, state, context, command, method=WorldModel.observe)
         world_model_params = {
@@ -186,26 +219,34 @@ class SuperMimic:
     ) -> tuple[SuperMimicState, Array, Array, PyTree]:
         noise_key, action_key = jax.random.split(key)
         observation = self.sensor_noise(noise_key, self.observation_of(timestep))
-        fresh = jnp.repeat(observation[..., None, :], self.cfg.history, axis=-2)
-        history = jnp.where(timestep.done[..., None, None], fresh, _pushed(carry, observation))
-        dist = self._act(state.params, history, self.goal(self.command_of(timestep)), temperature)
+        history = jnp.where(
+            timestep.done[..., None, None], _filled(observation, self.cfg.history), _pushed(carry, observation)
+        )
+        goal = self.goal(self.command_of(timestep))
+        dist = self.actor.apply(state.params, _conditioned(history, goal), temperature=temperature)
         return state, history, dist.sample(seed=action_key), {}
 
     def update(self, state: SuperMimicState, key: Key, transitions: Transition) -> SuperMimicState:
         learned = state.world_model_params["params"]
 
         def state_values_fn(critic_params: PyTree, states: Array, goals: Array, context: Array) -> Array:
-            *batch, _ = jnp.shape(states)
-            context = jnp.broadcast_to(context, (*batch, jnp.shape(context)[-1]))
-            values = self.critic.apply(critic_params, jnp.concatenate([states, goals, context], axis=-1))
-            return jnp.squeeze(values, axis=-1)
+            return jnp.squeeze(self.critic.apply(critic_params, _valued(states, goals, context)), axis=-1)
 
-        def world_model_loss_fn(
-            world_model_params: PyTree, state: SuperMimicState, window: Transition
-        ) -> tuple[Array, dict]:
+        def mean_fn(error: Array, weight: Array) -> Array:
+            return jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
+
+        def history_fn(window: Transition, key: Key) -> Array:
+            first = window.first
+            _, length = jnp.shape(first.reward)
+            positions = jnp.arange(length)
+            episode_start = jax.lax.cummax(jnp.where(first.done, positions, 0), axis=1)[:, -1]
+            recent = jnp.maximum(positions[-self.cfg.history :], episode_start[:, None])
+            observations = jnp.take_along_axis(self.observation_of(first), recent[..., None], axis=1)
+            return self.sensor_noise(key, observations)
+
+        def world_model_loss_fn(world_model_params: PyTree, window: Transition) -> tuple[Array, dict]:
             first, second = jax.tree.map(lambda leaf: leaf[:, : self.cfg.window], (window.first, window.second))
-            start = jax.tree.map(lambda leaf: leaf[:, 0], first)
-            context = self.context_of(start)
+            context = self.context_of(_first(first))
             done = (second.terminated | second.truncated).astype(jnp.float32)
             alive = jnp.concatenate([jnp.ones_like(done[:, :1]), jnp.cumprod(1.0 - done, axis=1)[:, :-1]], axis=1)
             settled = alive * (1.0 - done)
@@ -219,20 +260,16 @@ class SuperMimic:
 
             _, predictions = jax.lax.scan(
                 predict_fn,
-                self.state_of(start),
+                self.state_of(_first(first)),
                 (jnp.swapaxes(self.action_of(second), 0, 1), jnp.swapaxes(self.command_of(first), 0, 1)),
             )
             predictions = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), predictions)
 
-            def mean_fn(error: Array, weight: Array) -> Array:
-                return jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
-
             target = self.state_of(second)
             change = target - self.state_of(first)
-            weight = settled[..., None]
-            average = jnp.sum(weight * change, axis=(0, 1)) / jnp.maximum(jnp.sum(settled), 1.0)
-            spread = jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / jnp.maximum(jnp.sum(settled), 1.0)
-            scale = jax.lax.stop_gradient(spread) + 1e-6
+            weight, count = settled[..., None], jnp.maximum(jnp.sum(settled), 1.0)
+            average = jnp.sum(weight * change, axis=(0, 1)) / count
+            scale = jax.lax.stop_gradient(jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / count) + 1e-6
             terms = {"state": mean_fn(jnp.mean((predictions.state - target) ** 2 / scale, axis=-1), settled)}
             if "reward" in learned:
                 terms["reward"] = mean_fn((predictions.reward - second.reward) ** 2, alive)
@@ -248,30 +285,19 @@ class SuperMimic:
                     jnp.mean((observations - self.observation_of(second)) ** 2, axis=-1), settled
                 )
             if "termination" in learned:
+                labels = second.terminated.astype(jnp.float32)
                 terms["termination"] = mean_fn(
-                    optax.sigmoid_binary_cross_entropy(
-                        predictions.termination, second.terminated.astype(jnp.float32)
-                    ),
-                    alive,
+                    optax.sigmoid_binary_cross_entropy(predictions.termination, labels), alive
                 )
             return sum(terms.values()), terms
 
-        def history_fn(window: Transition, key: Key) -> Array:
-            first = window.first
-            _, length = jnp.shape(first.reward)
-            positions = jnp.arange(length)
-            episode_start = jax.lax.cummax(jnp.where(first.done, positions, 0), axis=1)[:, -1]
-            recent = jnp.maximum(positions[-self.cfg.history :], episode_start[:, None])
-            observations = jnp.take_along_axis(self.observation_of(first), recent[..., None], axis=1)
-            return self.sensor_noise(key, observations)
-
-        def imagine_fn(params: PyTree, state: SuperMimicState, start: Timestep, history: Array, key: Key) -> tuple:
+        def imagine_fn(params: PyTree, state: SuperMimicState, start: Timestep, history: Array, key: Key) -> Imagination:
             context = self.context_of(start)
 
             def act_fn(carry: tuple, key: Key) -> tuple:
                 imagined, history, command, survival = carry
                 goal = self.goal(command)
-                action = self._act(params, history, goal, 1.0).mean()
+                action = self.actor.apply(params, _conditioned(history, goal), temperature=1.0).mean()
                 prediction = self.world_model.apply(state.world_model_params, imagined, action, context, command, goal)
                 termination = jax.nn.sigmoid(prediction.termination)
                 following = self.advance(command)
@@ -279,41 +305,36 @@ class SuperMimic:
                     state.world_model_params, prediction.state, context, following, method=WorldModel.observe
                 )
                 history = _pushed(history, self.sensor_noise(key, observation))
-                return (prediction.state, history, following, survival * (1.0 - termination)), (
-                    imagined,
-                    goal,
-                    prediction.reward,
-                    termination,
-                    survival,
-                )
+                carry = (prediction.state, history, following, survival * (1.0 - termination))
+                return carry, (imagined, goal, prediction.reward, termination, survival)
 
-            survival = jnp.ones(jnp.shape(start.reward))
+            carry = (self.state_of(start), history, self.command_of(start), jnp.ones(jnp.shape(start.reward)))
             (last, _, last_command, last_survival), (states, goals, rewards, terminations, survivals) = jax.lax.scan(
-                jax.checkpoint(act_fn),
-                (self.state_of(start), history, self.command_of(start), survival),
-                jax.random.split(key, self.cfg.horizon),
+                jax.checkpoint(act_fn), carry, jax.random.split(key, self.cfg.horizon)
             )
-            states = jnp.concatenate([states, last[None]], axis=0)
-            goals = jnp.concatenate([goals, self.goal(last_command)[None]], axis=0)
-            survivals = jnp.concatenate([survivals, last_survival[None]], axis=0)
-            return states, goals, context, rewards, terminations, survivals
+            return Imagination(
+                states=jnp.concatenate([states, last[None]], axis=0),
+                goals=jnp.concatenate([goals, self.goal(last_command)[None]], axis=0),
+                context=context,
+                rewards=rewards,
+                terminations=terminations,
+                survivals=jnp.concatenate([survivals, last_survival[None]], axis=0),
+            )
 
         def actor_loss_fn(
             params: PyTree, state: SuperMimicState, window: Transition, key: Key
-        ) -> tuple[Array, tuple]:
+        ) -> tuple[Array, tuple[Array, Imagination]]:
             history_key, imagine_key = jax.random.split(key)
             history = history_fn(window, history_key)
-            start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
-            states, goals, context, rewards, terminations, survivals = imagine_fn(
-                params, state, start, history, imagine_key
-            )
-            values = state_values_fn(state.critic_params, states, goals, context)
+            imagination = imagine_fn(params, state, _last(window.first), history, imagine_key)
+            values = state_values_fn(state.critic_params, imagination.states, imagination.goals, imagination.context)
             discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
-            imagined_return = jnp.sum(discounts[:-1, None] * survivals[:-1] * rewards, axis=0)
+            survivals = imagination.survivals
+            imagined_return = jnp.sum(discounts[:-1, None] * survivals[:-1] * imagination.rewards, axis=0)
             imagined_return = jnp.mean(imagined_return + discounts[-1] * survivals[-1] * values[-1])
             loss = -imagined_return
 
-            inputs = jnp.concatenate([_flattened(history), goals[0]], axis=-1)
+            inputs = _conditioned(history, imagination.goals[0])
             dist, variables = self.actor.apply(params, inputs, temperature=1.0, mutable=True)
 
             def apply(params: PyTree) -> PyTree:
@@ -323,7 +344,7 @@ class SuperMimic:
                 loss = loss + auxiliary_loss(
                     params=params, apply=apply, transitions=window, dist=dist, variables=variables
                 )
-            return loss, (imagined_return, states, goals, context, rewards, terminations)
+            return loss, (imagined_return, imagination)
 
         def critic_loss_fn(
             critic_params: PyTree, states: Array, goals: Array, context: Array, targets: Array
@@ -334,23 +355,18 @@ class SuperMimic:
         def calibrate_fn(state: SuperMimicState, key: Key) -> SuperMimicState:
             sample_key, noise_key = jax.random.split(key)
             window = self.buffer.sample(state.buffer_state, sample_key).experience
-            start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
-            goal, context = self.goal(self.command_of(start)), self.context_of(start)
-            first, second = jax.tree.map(
-                lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), (window.first, window.second)
-            )
+            start = _last(window.first)
+            goal = self.goal(self.command_of(start))
+            first, second = _merged((window.first, window.second))
             commands = self.command_of(first)
-            history = history_fn(window, noise_key)
             _, actor_statistics = self.actor.apply(
                 state.params,
-                jnp.concatenate([_flattened(history), goal], axis=-1),
+                _conditioned(history_fn(window, noise_key), goal),
                 temperature=1.0,
                 mutable=["statistics"],
             )
             _, critic_statistics = self.critic.apply(
-                state.critic_params,
-                jnp.concatenate([self.state_of(start), goal, context], axis=-1),
-                mutable=["statistics"],
+                state.critic_params, _valued(self.state_of(start), goal, self.context_of(start)), mutable=["statistics"]
             )
             _, world_model_statistics = self.world_model.apply(
                 state.world_model_params,
@@ -370,41 +386,39 @@ class SuperMimic:
         def world_model_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             window = self.buffer.sample(state.buffer_state, key).experience
             (loss, terms), grads = jax.value_and_grad(world_model_loss_fn, has_aux=True)(
-                state.world_model_params, state, window
+                state.world_model_params, window
             )
-            updates, optimizer_state = self.world_model_optimizer.update(
-                grads["params"], state.world_model_optimizer_state, state.world_model_params["params"]
+            world_model_params, world_model_optimizer_state = _stepped(
+                self.world_model_optimizer, state.world_model_params, state.world_model_optimizer_state, grads
             )
             lox.log({"world_model/loss": loss, **{f"world_model/{name}": term for name, term in terms.items()}})
             return state.replace(
-                world_model_params={
-                    **state.world_model_params,
-                    "params": optax.apply_updates(state.world_model_params["params"], updates),
-                },
-                world_model_optimizer_state=optimizer_state,
+                world_model_params=world_model_params, world_model_optimizer_state=world_model_optimizer_state
             ), None
 
         def policy_minibatch_fn(state: SuperMimicState, key: Key) -> tuple[SuperMimicState, None]:
             sample_key, imagine_key, shuffle_key = jax.random.split(key, 3)
-            windows = jax.vmap(lambda key: self.buffer.sample(state.buffer_state, key).experience)(
-                jax.random.split(sample_key, self.cfg.policy_batches)
+            window = _merged(
+                jax.vmap(lambda key: self.buffer.sample(state.buffer_state, key).experience)(
+                    jax.random.split(sample_key, self.cfg.policy_batches)
+                )
             )
-            window = jax.tree.map(lambda leaf: jnp.reshape(leaf, (-1, *jnp.shape(leaf)[2:])), windows)
-            (_, (imagined_return, states, goals, context, rewards, terminations)), grads = jax.value_and_grad(
-                actor_loss_fn, has_aux=True
-            )(state.params, state, window, imagine_key)
-            updates, actor_optimizer_state = self.actor_optimizer.update(
-                grads["params"], state.actor_optimizer_state, state.params["params"]
+            (_, (imagined_return, imagination)), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
+                state.params, state, window, imagine_key
             )
-            states, goals, rewards, terminations = jax.lax.stop_gradient((states, goals, rewards, terminations))
+            params, actor_optimizer_state = _stepped(
+                self.actor_optimizer, state.params, state.actor_optimizer_state, grads
+            )
+            imagination = jax.lax.stop_gradient(imagination)
+            states, goals, context = imagination.states, imagination.goals, imagination.context
             values = state_values_fn(state.critic_params, states, goals, context)
             imagined = Transition(
                 first=Timestep(obs=states[:-1]),
                 second=Timestep(
                     obs=states[1:],
-                    reward=rewards,
-                    terminated=terminations,
-                    truncated=jnp.zeros_like(terminations, bool),
+                    reward=imagination.rewards,
+                    terminated=imagination.terminations,
+                    truncated=jnp.zeros_like(imagination.terminations, bool),
                 ),
                 aux={"value": values[1:]},
             )
@@ -415,17 +429,9 @@ class SuperMimic:
             def critic_minibatch_fn(carry: tuple, indices: Array) -> tuple[tuple, Array]:
                 critic_params, critic_optimizer_state = carry
                 loss, grads = jax.value_and_grad(critic_loss_fn)(
-                    critic_params,
-                    states[:, indices],
-                    goals[:, indices],
-                    context[indices],
-                    targets[:, indices],
+                    critic_params, states[:, indices], goals[:, indices], context[indices], targets[:, indices]
                 )
-                updates, critic_optimizer_state = self.critic_optimizer.update(
-                    grads["params"], critic_optimizer_state, critic_params["params"]
-                )
-                critic_params = {**critic_params, "params": optax.apply_updates(critic_params["params"], updates)}
-                return (critic_params, critic_optimizer_state), loss
+                return _stepped(self.critic_optimizer, critic_params, critic_optimizer_state, grads), loss
 
             def critic_epoch_fn(carry: tuple, key: Key) -> tuple[tuple, Array]:
                 order = jax.random.permutation(key, num_rollouts)[: minibatch_size * self.cfg.critic_minibatches]
@@ -438,18 +444,17 @@ class SuperMimic:
                 (state.critic_params, state.critic_optimizer_state),
                 jax.random.split(shuffle_key, self.cfg.critic_epochs),
             )
-            critic_loss = jnp.mean(critic_losses)
             lox.log(
                 {
                     "actor/imagined_return": imagined_return,
-                    "actor/imagined_reward": jnp.mean(rewards),
-                    "actor/survival": jnp.mean(jnp.prod(1.0 - terminations, axis=0)),
-                    "critic/loss": critic_loss,
+                    "actor/imagined_reward": jnp.mean(imagination.rewards),
+                    "actor/survival": jnp.mean(jnp.prod(1.0 - imagination.terminations, axis=0)),
+                    "critic/loss": jnp.mean(critic_losses),
                     "critic/value": jnp.mean(targets),
                 }
             )
             return state.replace(
-                params={**state.params, "params": optax.apply_updates(state.params["params"], updates)},
+                params=params,
                 critic_params=critic_params,
                 actor_optimizer_state=actor_optimizer_state,
                 critic_optimizer_state=critic_optimizer_state,
