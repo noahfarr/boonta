@@ -7,10 +7,11 @@ import numpy as np
 import pytest
 
 import zoo
+from boonta.algorithms.super_mimic import FloatingBase, GoalConditioned, WorldModel
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
-                             FeatureExtractor, FloatingBase, Gaussian,
-                             GoalConditioned, Highway, Network, RTUCell,
-                             SquashedGaussian, Tower, WorldModel,
+                             FeatureExtractor, Gaussian,
+                             Highway, Network, RTUCell,
+                             SquashedGaussian, Tower,
                              distributions, llama, repeat)
 from boonta.networks.layers import Identity, Normalize
 from boonta.networks.blocks.ssm import binary_operator

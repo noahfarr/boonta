@@ -94,10 +94,6 @@ After each step the update stores back the collections the network had at init, 
 
 [`Normalize`](layers/normalize.py) keeps a running mean and variance of its input in a `statistics` collection and updates them only when that collection is mutable. An algorithm updates them on purpose, from real data, rather than in every forward pass: SuperMimic applies its networks once per update with `mutable=["statistics"]` on a replay window, so imagined states never move the statistics.
 
-## World models
-
-[`WorldModel`](world_model.py) predicts one step of an environment: `(state, action, context, command)` to the next state, its observation, the advanced command, the reward and the termination logit. It is built from `dynamics_fn`, `reward_fn`, `termination_fn` and `observation_fn`, each any callable that takes its inputs by name, plus `goal` and `advance` for the command. A component is learned or analytic: an analytic one is a plain function, such as a known reward, and a learned one is a network, typically an `nn.Sequential` that starts with a lambda choosing and concatenating its inputs. Only learned components have parameters, so `"reward_fn" in params["params"]` tells an algorithm whether to fit one. [`FloatingBase`](floating_base.py) is a dynamics component for a floating-base robot that predicts increments in the robot's heading frame, so it does not depend on where the robot stands or which way it faces. [`GoalConditioned`](goal_conditioned.py) encodes the last `goal_size` inputs into a tanh-bounded latent and decodes it together with the rest, as SuperMimic's policy does.
-
 ## Add a network part
 
 - **A feature extractor or head** is a plain Flax module. Build it in the recipe. A head should wrap its output layer in one of the heads above.

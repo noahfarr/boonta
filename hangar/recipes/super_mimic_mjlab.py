@@ -11,9 +11,9 @@ from flax import struct
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import SuperMimic
+from boonta.algorithms.super_mimic import FloatingBase, GoalConditioned, SuperMimic, WorldModel
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.networks import FeatureExtractor, FixedGaussian, FloatingBase, GoalConditioned, Network, WorldModel
+from boonta.networks import FeatureExtractor, FixedGaussian, Network
 from boonta.networks.layers import Normalize
 from boonta.utils import Array
 
