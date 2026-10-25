@@ -1,13 +1,13 @@
 import sys
 
-from boonta.datasets import lafan
+from hangar.recipes.super_mimic_mjlab import convert_motions
 
 
 def main():
     from mjlab.asset_zoo.robots.unitree_g1.g1_constants import G1_XML
 
     directory, *_ = sys.argv[1:]
-    print(lafan.convert(directory, str(G1_XML)))
+    print(convert_motions(directory, str(G1_XML)))
 
 
 if __name__ == "__main__":

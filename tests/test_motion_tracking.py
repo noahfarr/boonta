@@ -34,12 +34,12 @@ def tracking():
 def test_the_motion_library_interpolates_rotations_like_scipy():
     from scipy.spatial.transform import Rotation, Slerp
 
-    from boonta.datasets import lafan
+    from hangar.recipes.super_mimic_mjlab import _resample
 
     count, source_rate = 40, 30
     rotations = Rotation.random(count, random_state=0)
     frames = np.concatenate([np.zeros((count, 3)), rotations.as_quat(), np.zeros((count, 29))], axis=-1)
-    qpos, _ = lafan._resample(frames, source_rate, 50)
+    qpos, _ = _resample(frames, source_rate, 50)
     steps, _ = qpos.shape
     times = np.arange(steps) / 50
     expected = Slerp(np.arange(count) / source_rate, rotations)(times).as_quat()[:, [3, 0, 1, 2]]
