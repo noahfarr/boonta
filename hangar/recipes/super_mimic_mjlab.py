@@ -213,12 +213,6 @@ def load_motions(library: str, bodies: tuple[int, ...]) -> Motions:
 
 @dataclass(frozen=True)
 class Tracking:
-    """The differentiable tracking task SuperMimic's world model computes on imagined states.
-
-    mujoco/G1-specific, so it lives here in the recipe rather than in ``boonta.networks``
-    (pure JAX) or ``boonta.environments`` (adapter only).
-    """
-
     kinematics: "mjx.Model"  # noqa: F821 -- mjx imported lazily to keep mujoco optional
     motions: Motions
     tracked: Array
