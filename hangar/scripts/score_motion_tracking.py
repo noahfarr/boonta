@@ -10,8 +10,8 @@ from hydra.core.hydra_config import HydraConfig
 from rich.console import Console
 from rich.table import Table
 
-from boonta.environments.mjlab.task import NUM_JOINTS
 from hangar import resolvers  # noqa: F401
+from hangar.recipes.super_mimic_mjlab import NUM_JOINTS
 
 FPS, STRIDE = 25, 2
 
@@ -29,9 +29,9 @@ class Policy:
 def main(cfg):
     import orbax.checkpoint as ocp
 
-    from boonta.environments.mjlab import motion_tracking
     from boonta.utils import resolve_checkpoint
     from hangar import recipes
+    from hangar.recipes.super_mimic_mjlab import attainable
 
     assert cfg.checkpoint is not None
     assert cfg.environment.kwargs.play, "score with environment.kwargs.play=true"
@@ -77,7 +77,7 @@ def main(cfg):
         return returned, length, failed, trajectory
 
     returned, length, failed, (poses, frames, alive) = jax.device_get(play(policy, jax.random.key(cfg.seed)))
-    ceiling = motion_tracking.attainable(simulator.cfg) * (ends - starts - 1)
+    ceiling = attainable(simulator.cfg) * (ends - starts - 1)
     normalized = returned[:num_clips] / ceiling
     names = library["names"]
     table = Table("clip", "normalized return", "steps", "failed")

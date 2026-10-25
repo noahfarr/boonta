@@ -111,8 +111,6 @@ def make(
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.tasks.registry import load_env_cfg
 
-    from . import motion_tracking  # noqa: F401
-
     cfg = load_env_cfg(env_id, play=play)
     cfg.scene.num_envs = num_envs
     if motion_file is not None:

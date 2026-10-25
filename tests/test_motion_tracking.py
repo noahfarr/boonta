@@ -22,23 +22,24 @@ simulated = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def tracking():
     from boonta import environments
-    from boonta.environments.mjlab import motion_tracking
+    from hangar.recipes.super_mimic_mjlab import TASK, describe, register
 
+    register()
     kwargs = {"num_envs": 16, "motion_file": str(LIBRARY), "executed": "executed"}
-    environment = environments.make("mjlab", motion_tracking.TASK, kwargs=kwargs)
-    return environment, motion_tracking.describe(environment)
+    environment = environments.make("mjlab", TASK, kwargs=kwargs)
+    return environment, describe(environment)
 
 
 @pytest.mark.skipif(missing("scipy"), reason="needs scipy")
 def test_the_motion_library_interpolates_rotations_like_scipy():
     from scipy.spatial.transform import Rotation, Slerp
 
-    from boonta.environments.mjlab import motions
+    from boonta.datasets import lafan
 
     count, source_rate = 40, 30
     rotations = Rotation.random(count, random_state=0)
     frames = np.concatenate([np.zeros((count, 3)), rotations.as_quat(), np.zeros((count, 29))], axis=-1)
-    qpos, _ = motions._resample(frames, source_rate, 50)
+    qpos, _ = lafan._resample(frames, source_rate, 50)
     steps, _ = qpos.shape
     times = np.arange(steps) / 50
     expected = Slerp(np.arange(count) / source_rate, rotations)(times).as_quat()[:, [3, 0, 1, 2]]
