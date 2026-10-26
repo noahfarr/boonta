@@ -240,7 +240,7 @@ class SuperMimic:
 
         def state_values_fn(critic_params: PyTree, states: Array, goals: Array, contexts: Array) -> Array:
             values = self.critic.apply(critic_params, jnp.concatenate([states, goals, contexts], axis=-1))
-            return jnp.squeeze(values, axis=-1)
+            return jnp.squeeze(values.astype(jnp.float32), axis=-1)
 
         def predict_fn(world_model_params: PyTree, obs: PyTree, action: Array) -> tuple[PyTree, Array, Array]:
             following, observation, command, reward, termination = self.world_model.apply(
