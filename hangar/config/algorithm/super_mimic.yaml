@@ -2,6 +2,7 @@
 
 defaults:
   - /buffer: trajectory
+  - override /podracer: sebulba
 
 algorithm:
   _target_: boonta.algorithms.super_mimic.SuperMimicConfig
@@ -38,6 +39,7 @@ optimizer:
   final_scale: 0.03
 
 network:
+  dtype: null
   action_noise: 0.1
   actor: [512, 256, 128]
   critic: [256, 128]

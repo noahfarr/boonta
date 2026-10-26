@@ -502,9 +502,15 @@ def register_tasks():
         )
 
 
-def mlp(sizes, outputs=None):
-    layers = [layer for size in sizes for layer in (nn.Dense(size), nn.elu)]
-    return nn.Sequential(layers + ([nn.Dense(outputs)] if outputs else []))
+def mlp(sizes, outputs=None, dtype=None):
+    def dense(size):
+        return nn.Dense(size, dtype=dtype, param_dtype=jnp.float32)
+
+    layers = [layer for size in sizes for layer in (dense(size), nn.elu)]
+    if outputs:
+        layers.append(dense(outputs))
+    layers.append(lambda x: x.astype(jnp.float32))
+    return nn.Sequential(layers)
 
 
 def normalized(module):
@@ -516,6 +522,7 @@ def make(cfg):
     env = environments.make(**cfg.environment)
     task = describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
+    compute_dtype = jnp.dtype(cfg.network.dtype) if cfg.network.dtype else None
 
     def frame(command):
         return command[..., 0].astype(jnp.int32)
@@ -551,27 +558,41 @@ def make(cfg):
             feature_extractor=FeatureExtractor(
                 observation_extractor=normalized(
                     GoalConditioned(
-                        encoder=mlp(cfg.network.encoder, cfg.network.latent),
-                        decoder=mlp(cfg.network.decoder),
+                        encoder=mlp(cfg.network.encoder, cfg.network.latent, compute_dtype),
+                        decoder=mlp(cfg.network.decoder, dtype=compute_dtype),
                         goal_size=goal_size,
                     )
                 )
             ),
-            head=FixedGaussian(nn.Dense(NUM_JOINTS), scale=0.0),
+            head=FixedGaussian(
+                nn.Dense(NUM_JOINTS, dtype=compute_dtype, param_dtype=jnp.float32),
+                scale=0.0,
+            ),
         ),
         critic=Network(
-            feature_extractor=FeatureExtractor(observation_extractor=normalized(mlp(cfg.network.critic))),
-            head=nn.Dense(1),
+            feature_extractor=FeatureExtractor(
+                observation_extractor=normalized(
+                    mlp(cfg.network.critic, dtype=compute_dtype)
+                )
+            ),
+            head=nn.Dense(1, dtype=compute_dtype, param_dtype=jnp.float32),
         ),
         world_model=WorldModel(
             dynamics_fn=FloatingBase(
-                normalized(mlp(cfg.network.world_model, 12 + 2 * NUM_JOINTS)), num_joints=NUM_JOINTS
+                normalized(
+                    mlp(
+                        cfg.network.world_model,
+                        12 + 2 * NUM_JOINTS,
+                        compute_dtype,
+                    )
+                ),
+                num_joints=NUM_JOINTS,
             ),
             reward_fn=reward,
             termination_fn=nn.Sequential(
                 [
                     lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1),
-                    normalized(mlp(cfg.network.heads, 1)),
+                    normalized(mlp(cfg.network.heads, 1, compute_dtype)),
                 ]
             ),
             observation_fn=observe,
