@@ -46,7 +46,35 @@ class Render:
         environment.close(environment_state)
         return trajectory, done
 
+    def rollout_eager(self, algorithm, environment, algorithm_state, key):
+        """Render stateful environments as they advance instead of replaying snapshots."""
+        init_key, key = jax.random.split(key)
+        environment_state, timestep = environment.init(init_key)
+        _, carry = algorithm.init(init_key, timestep)
+        frames = []
+
+        for step_key in jax.random.split(key, environment.time_limit() + 1):
+            algorithm_key, environment_key = jax.random.split(step_key)
+            algorithm_state, carry, action, _ = algorithm.step(
+                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
+            )
+            environment_state, timestep = environment.step(
+                environment_key, environment_state, action
+            )
+            frame = environment.render(environment_state, **self.kwargs)
+            frames.append(np.asarray(jax.device_get(frame), dtype=np.uint8))
+            if bool(jax.device_get(jnp.all(timestep.done[0]))):
+                break
+
+        return np.stack(frames)
+
     def craft(self, key, algorithm, environment, state, logs) -> Video:
+        if getattr(environment, "supports_eager_device_interop", False):
+            frames = self.rollout_eager(
+                algorithm, environment, state.algorithm_state, key
+            )
+            return Video(self.name, frames, fps=self.fps)
+
         trajectory, done = jax.device_get(
             jax.jit(partial(self.rollout, algorithm, environment))(
                 state.algorithm_state, key

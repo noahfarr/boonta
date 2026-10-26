@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.population import Population
@@ -87,7 +88,8 @@ class Sebulba:
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
 
-        algorithm_state, carry, action, aux = self.algorithm.step(
+        algorithm_step = getattr(self, "_algorithm_step", self.algorithm.step)
+        algorithm_state, carry, action, aux = algorithm_step(
             state.algorithm_state, state.carry, algorithm_key, state.timestep, temperature
         )
         environment_state, timestep = self.environment.step(
@@ -120,6 +122,17 @@ class Sebulba:
         call_key, rollout_key = jax.random.split(key)
         state = self.pit(call_key, state)
         keys = jax.random.split(rollout_key, self.config.num_steps)
+        if getattr(self, "_eager_device_interop", False):
+            transitions = []
+            for rollout_key in keys:
+                state, transition = self.rollout(
+                    state, rollout_key, temperature=1.0
+                )
+                transitions.append(transition)
+            transitions = jax.tree.map(
+                lambda *values: jnp.stack(values), *transitions
+            )
+            return state, transitions
         return jax.lax.scan(partial(self.rollout, temperature=1.0), state, keys)
 
     def update(
@@ -141,8 +154,11 @@ class Sebulba:
         environment_key, algorithm_key, pit_key, hook_key = jax.random.split(key, 4)
         devices = list(self.config.actor.devices.flat)
         num_devices = len(devices)
+        environment_init = self.environment.init
+        if not getattr(self, "_eager_device_interop", False):
+            environment_init = jax.jit(environment_init)
         environments = [
-            jax.jit(self.environment.init)(
+            environment_init(
                 jax.device_put(jax.random.fold_in(environment_key, index), device)
             )
             for index, device in enumerate(devices)
@@ -176,15 +192,19 @@ class Sebulba:
                 environment_state=environment_state,
                 carry=take(carry, index, num_devices),
             )
-            rollout_state = jax.jit(begin)(
-                *jax.device_put(
-                    (
-                        jax.random.fold_in(hook_key, index),
-                        actor_state.board(algorithm_state, pit_state),
-                    ),
-                    device,
+            begin_key = jax.random.fold_in(hook_key, index)
+            begin_state = actor_state.board(algorithm_state, pit_state)
+            if getattr(self, "_eager_device_interop", False):
+                # MJLab owns a mutable simulator outside JAX. Its eager path
+                # already runs reset/step without a surrounding JIT, and
+                # compiling this identity-like hook would copy the entire
+                # algorithm state (including its replay buffer) just to apply
+                # the lap/pit hooks.
+                rollout_state = begin(begin_key, begin_state)
+            else:
+                rollout_state = jax.jit(begin)(
+                    *jax.device_put((begin_key, begin_state), device)
                 )
-            )
             num_laps += jax.device_get(rollout_state.algorithm_state.step) - start
             actors.append(ActorState.alight(rollout_state))
         algorithm_state = algorithm_state.replace(step=algorithm_state.step + num_laps)
@@ -326,7 +346,8 @@ class Sebulba:
         state, _ = jax.lax.scan(
             partial(self.rollout, temperature=0.0), state, rollout_keys
         )
-        self.environment.close(state.environment_state)
+        if not getattr(self, "_eager_device_interop", False):
+            self.environment.close(state.environment_state)
         return state
 
     def close(self, state) -> PyTree:
@@ -344,6 +365,18 @@ def make(
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)
+
+    eager_device_interop = getattr(environment, "supports_eager_device_interop", False)
+    if eager_device_interop:
+        if config.actor.size != 1:
+            raise ValueError(
+                "MJLab device interop currently requires exactly one actor device "
+                "because its simulator state is owned by one environment instance."
+            )
+        if any(device.platform != "gpu" for device in config.actor.devices.flat):
+            raise ValueError("MJLab device interop requires a GPU actor device.")
+        podracer._eager_device_interop = True
+        podracer._algorithm_step = jax.jit(algorithm.step)
 
     assert (
         environment.num_envs % config.learner.size == 0
@@ -372,9 +405,8 @@ def make(
         axes,
     )
 
-    podracer.unroll = jax.jit(
-        lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))
-    )
+    unroll = lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))
+    podracer.unroll = unroll if eager_device_interop else jax.jit(unroll)
     podracer.update = jax.jit(
         lox.spool(podracer.update),
         out_shardings=((podracer.shardings, replicated), replicated),

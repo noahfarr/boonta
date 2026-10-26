@@ -17,8 +17,13 @@ class MjlabState:
 
 
 class Mjlab(Environment):
+    # Sebulba uses this marker to keep environment interaction outside its JAX
+    # scan while still compiling the policy and learner.
+    supports_eager_device_interop = True
+
     def __init__(self, env, executed: str | None = None):
         self.env = env
+        self._closed = False
         self.num_envs = env.num_envs
         self.executed = executed
         self._observation_space = {
@@ -39,6 +44,16 @@ class Mjlab(Environment):
     def time_limit(self) -> int:
         return int(self.env.max_episode_length)
 
+    def render(self, state: MjlabState, **kwargs):
+        del state
+        return self.env.render(**kwargs)
+
+    def close(self, state: MjlabState) -> None:
+        del state
+        if not self._closed:
+            self.env.close()
+            self._closed = True
+
     def _batched(self, space: Space, dtype=None) -> jax.ShapeDtypeStruct:
         return jax.ShapeDtypeStruct((self.num_envs, *space.shape), dtype or space.dtype)
 
@@ -48,6 +63,49 @@ class Mjlab(Environment):
     def _observe(self, obs) -> dict[str, np.ndarray]:
         return {group: obs[group].detach().cpu().numpy() for group in self._observation_space}
 
+    @staticmethod
+    def _from_torch(tensor):
+        # Clone because MJLab reuses its buffers; the DLPack import itself can
+        # then share this owned tensor without the unsupported copy=True path.
+        return jax.dlpack.from_dlpack(tensor.clone())
+
+    def _observe_device(self, obs) -> dict[str, Array]:
+        return {group: self._from_torch(obs[group]) for group in self._observation_space}
+
+    def _reset_device(self, key: Key):
+        seed = jax.random.randint(key, (), 0, jnp.iinfo(jnp.int32).max)
+        obs, _ = self.env.reset(seed=int(jax.device_get(seed)))
+        observations = self._observe_device(obs)
+        flags = jnp.zeros((self.num_envs,), dtype=jnp.bool_)
+        timestep = Timestep(
+            obs=observations,
+            action=jnp.zeros((self.num_envs, *self._action_space.shape), self._action_space.dtype),
+            reward=jnp.zeros((self.num_envs,), jnp.float32),
+            terminated=~flags,
+            truncated=flags,
+            info={},
+        )
+        return MjlabState(), timestep
+
+    def _advance_device(self, action: Array):
+        import torch
+
+        action_tensor = torch.from_dlpack(action).to(
+            device=self.env.device, dtype=torch.float32
+        ).clone()
+        obs, reward, terminated, truncated, _ = self.env.step(action_tensor)
+        executed = action
+        if self.executed is not None:
+            executed = self._from_torch(obs[self.executed])
+        return MjlabState(), Timestep(
+            obs=self._observe_device(obs),
+            action=executed,
+            reward=self._from_torch(reward.to(dtype=torch.float32)),
+            terminated=self._from_torch(terminated),
+            truncated=self._from_torch(truncated),
+            info={},
+        )
+
     def _reset(self, seed):
         obs, _ = self.env.reset(seed=int(seed))
         return self._observe(obs)
@@ -55,8 +113,9 @@ class Mjlab(Environment):
     def _advance(self, action):
         import torch
 
+        action_array = np.asarray(action).copy()
         obs, reward, terminated, truncated, _ = self.env.step(
-            torch.as_tensor(np.asarray(action), device=self.env.device)
+            torch.as_tensor(action_array, device=self.env.device)
         )
         if self.executed is not None:
             action = obs[self.executed].detach().cpu().numpy()
@@ -69,6 +128,8 @@ class Mjlab(Environment):
         )
 
     def init(self, key: Key) -> tuple[MjlabState, Timestep]:
+        if not isinstance(key, jax.core.Tracer):
+            return self._reset_device(key)
         seed = jax.random.randint(key, (), 0, jnp.iinfo(jnp.int32).max)
         obs = io_callback(self._reset, self._observations(), seed)
         flags = jnp.zeros((self.num_envs,), bool)
@@ -82,6 +143,8 @@ class Mjlab(Environment):
         )
 
     def step(self, key: Key, state: MjlabState, action: Array) -> tuple[MjlabState, Timestep]:
+        if not isinstance(action, jax.core.Tracer):
+            return self._advance_device(action)
         flags = jax.ShapeDtypeStruct((self.num_envs,), jnp.bool_)
         obs, action, reward, terminated, truncated = io_callback(
             self._advance,
@@ -106,6 +169,7 @@ def make(
     play: bool = False,
     motion_file: str | None = None,
     executed: str | None = None,
+    render_mode: str | None = None,
 ):
     import mjlab.tasks  # noqa: F401
     from mjlab.envs import ManagerBasedRlEnv
@@ -115,5 +179,8 @@ def make(
     cfg.scene.num_envs = num_envs
     if motion_file is not None:
         cfg.commands["motion"].motion_file = motion_file
-    env = Mjlab(ManagerBasedRlEnv(cfg, device=device), executed=executed)
+    env = Mjlab(
+        ManagerBasedRlEnv(cfg, device=device, render_mode=render_mode),
+        executed=executed,
+    )
     return Batched(env, num_envs=num_envs)

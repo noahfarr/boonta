@@ -338,7 +338,7 @@ def _command(base, attainable_return: float, play: bool):
             import torch
 
             ended = env_ids[self.start_bin[env_ids] >= 0]
-            if len(ended) == 0:
+            if len(ended) == 0 or not hasattr(self._env, "reward_buf"):
                 return
             final = self.returned[ended] + self.discount[ended] * self._env.reward_buf[ended]
             bins = self.start_bin[ended]
