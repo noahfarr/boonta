@@ -1,6 +1,5 @@
 import math as pymath
 from dataclasses import dataclass, fields
-from pathlib import Path
 
 import flax.linen as nn
 import jax
@@ -11,13 +10,14 @@ from flax import struct
 from hydra.utils import instantiate
 
 from boonta import environments
-from boonta.algorithms.super_mimic import FloatingBase, GoalConditioned, SuperMimic, WorldModel
+from boonta.algorithms.super_mimic import (FloatingBase, GoalConditioned,
+                                           SuperMimic, WorldModel)
 from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, FixedGaussian, Network
 from boonta.networks.layers import Normalize
 from boonta.utils import Array
 
-TASK = "SuperMimic-Motion-Tracking-Flat-Unitree-G1"
+TASK = "Boonta-SuperMimic-Motion-Tracking-Flat-Unitree-G1"
 GAMMA = 0.99
 BIN_SECONDS = 1.0
 UNIFORM, HARDEST, REMEMBERED = 0.5, 0.4, 0.1
@@ -27,10 +27,6 @@ ACTION_NOISE = 0.1
 
 NUM_JOINTS = 29
 QPOS, QVEL = 7 + NUM_JOINTS, 6 + NUM_JOINTS
-STATE = QPOS + QVEL + NUM_JOINTS
-OBSERVATION = NUM_JOINTS + NUM_JOINTS + 3 + 3 + NUM_JOINTS
-CONTEXT = 1 + NUM_JOINTS + 3
-GOAL_FRAME = NUM_JOINTS + NUM_JOINTS + 3 + 6 + 3 + 3
 NOISE = jnp.concatenate(
     [
         jnp.full(NUM_JOINTS, 0.01),
@@ -71,127 +67,6 @@ class Motions:
     clip: Array
     clip_start: Array
     clip_end: Array
-
-
-def _slerp(left: np.ndarray, right: np.ndarray, fraction: np.ndarray) -> np.ndarray:
-    dot = np.sum(left * right, axis=-1, keepdims=True)
-    right = np.where(dot < 0.0, -right, right)
-    angle = np.arccos(np.clip(np.abs(dot), -1.0, 1.0))
-    sine = np.sin(angle)
-    near = sine < 1e-6
-    fraction = fraction[:, None]
-    left_weight = np.where(near, 1.0 - fraction, np.sin((1.0 - fraction) * angle) / np.where(near, 1.0, sine))
-    right_weight = np.where(near, fraction, np.sin(fraction * angle) / np.where(near, 1.0, sine))
-    blended = left_weight * left + right_weight * right
-    return blended / np.linalg.norm(blended, axis=-1, keepdims=True)
-
-
-def _quaternion_product(left: np.ndarray, right: np.ndarray) -> np.ndarray:
-    lw, lx, ly, lz = np.moveaxis(left, -1, 0)
-    rw, rx, ry, rz = np.moveaxis(right, -1, 0)
-    return np.stack(
-        [
-            lw * rw - lx * rx - ly * ry - lz * rz,
-            lw * rx + lx * rw + ly * rz - lz * ry,
-            lw * ry - lx * rz + ly * rw + lz * rx,
-            lw * rz + lx * ry - ly * rx + lz * rw,
-        ],
-        axis=-1,
-    )
-
-
-def _turning(orientation: np.ndarray, step: float) -> np.ndarray:
-    change = _quaternion_product(orientation[2:], orientation[:-2] * np.array([1.0, -1.0, -1.0, -1.0]))
-    change = np.where(change[:, :1] < 0.0, -change, change)
-    norm = np.linalg.norm(change[:, 1:], axis=-1, keepdims=True)
-    angle = 2.0 * np.arctan2(norm, change[:, :1])
-    turning = change[:, 1:] / np.where(norm < 1e-9, 1.0, norm) * angle / (2.0 * step)
-    return np.concatenate([turning[:1], turning, turning[-1:]], axis=0)
-
-
-def _resample(frames: np.ndarray, source_rate: int, rate: int) -> tuple[np.ndarray, np.ndarray]:
-    count, _ = frames.shape
-    duration = (count - 1) / source_rate
-    times = np.arange(0.0, duration, 1.0 / rate, dtype=np.float32)
-    phase = times / duration * (count - 1)
-    lower = np.floor(phase).astype(int)
-    upper = np.minimum(lower + 1, count - 1)
-    fraction = phase - lower
-    linear = frames[lower] * (1.0 - fraction[:, None]) + frames[upper] * fraction[:, None]
-    wxyz = frames[:, [6, 3, 4, 5]]
-    orientation = _slerp(wxyz[lower], wxyz[upper], fraction)
-    step = 1.0 / rate
-    qpos = np.concatenate([linear[:, :3], orientation, linear[:, 7:]], axis=-1)
-    qvel = np.concatenate(
-        [
-            np.gradient(linear[:, :3], step, axis=0),
-            _turning(orientation, step),
-            np.gradient(linear[:, 7:], step, axis=0),
-        ],
-        axis=-1,
-    )
-    return qpos, qvel
-
-
-def _motion_clip(model, path: Path, source_rate: int, rate: int) -> dict:
-    import mujoco
-
-    qpos, qvel = _resample(np.loadtxt(path, delimiter=","), source_rate, rate)
-    data = mujoco.MjData(model)
-    bodies = range(1, model.nbody)
-    frames = {"body_pos_w": [], "body_quat_w": [], "body_lin_vel_w": [], "body_ang_vel_w": []}
-    velocity = np.zeros(6)
-    for position, rate_of_change in zip(qpos, qvel):
-        data.qpos[:] = position
-        data.qvel[:] = rate_of_change
-        data.qvel[3:6] = data.qvel[3:6] @ _rotation(position[3:7])
-        mujoco.mj_kinematics(model, data)
-        mujoco.mj_comPos(model, data)
-        mujoco.mj_comVel(model, data)
-        twists = []
-        for body in bodies:
-            mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_XBODY, body, velocity, 0)
-            twists.append(velocity.copy())
-        twists = np.stack(twists)
-        frames["body_pos_w"].append(data.xpos[1:].copy())
-        frames["body_quat_w"].append(data.xquat[1:].copy())
-        frames["body_lin_vel_w"].append(twists[:, 3:])
-        frames["body_ang_vel_w"].append(twists[:, :3])
-    return {
-        "joint_pos": qpos[:, 7:],
-        "joint_vel": qvel[:, 6:],
-        **{name: np.stack(values) for name, values in frames.items()},
-    }
-
-
-def _rotation(quaternion: np.ndarray) -> np.ndarray:
-    import mujoco
-
-    matrix = np.zeros(9)
-    mujoco.mju_quat2Mat(matrix, quaternion)
-    return matrix.reshape(3, 3)
-
-
-def convert_motions(directory: str, model_path: str, source_rate: int = 30, rate: int = 50) -> Path:
-    import mujoco
-
-    directory = Path(directory)
-    library = directory / f"library_{rate}hz.npz"
-    if not library.exists():
-        model = mujoco.MjModel.from_xml_path(model_path)
-        paths = sorted(directory.glob("*.csv"))
-        clips = [_motion_clip(model, path, source_rate, rate) for path in paths]
-        lengths = np.array([len(clip["joint_pos"]) for clip in clips])
-        joined = {name: np.concatenate([clip[name] for clip in clips]).astype(np.float32) for name in clips[0]}
-        np.savez(
-            library,
-            fps=np.array([rate]),
-            names=np.array([path.stem for path in paths]),
-            clip_start=np.concatenate([[0], np.cumsum(lengths)[:-1]]),
-            clip_end=np.cumsum(lengths),
-            **joined,
-        )
-    return library
 
 
 def load_motions(library: str, bodies: tuple[int, ...]) -> Motions:
@@ -519,7 +394,8 @@ def _command(base, attainable_return: float, play: bool):
 
 
 def _action(base, noise: float):
-    from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
+    from mjlab.envs.mdp.actions import (JointPositionAction,
+                                        JointPositionActionCfg)
 
     class NoisyJointPositionAction(JointPositionAction):
         def __init__(self, cfg, env):
@@ -551,9 +427,11 @@ def attainable(cfg) -> float:
 
 def _configure(play: bool):
     from mjlab.envs.mdp import observations as observed
-    from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
+    from mjlab.managers.observation_manager import (ObservationGroupCfg,
+                                                    ObservationTermCfg)
     from mjlab.managers.termination_manager import TerminationTermCfg
-    from mjlab.tasks.tracking.config.g1.env_cfgs import unitree_g1_flat_tracking_env_cfg
+    from mjlab.tasks.tracking.config.g1.env_cfgs import \
+        unitree_g1_flat_tracking_env_cfg
 
     cfg = unitree_g1_flat_tracking_env_cfg()
     cfg.scene.sensors = ()
@@ -610,9 +488,10 @@ def _configure(play: bool):
     return cfg
 
 
-def register():
+def register_tasks():
     from mjlab.tasks.registry import list_tasks, register_mjlab_task
-    from mjlab.tasks.tracking.config.g1.rl_cfg import unitree_g1_tracking_ppo_runner_cfg
+    from mjlab.tasks.tracking.config.g1.rl_cfg import \
+        unitree_g1_tracking_ppo_runner_cfg
 
     if TASK not in list_tasks():
         register_mjlab_task(
@@ -633,7 +512,7 @@ def normalized(module):
 
 
 def make(cfg):
-    register()
+    register_tasks()
     env = environments.make(**cfg.environment)
     task = describe(env)
     goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))

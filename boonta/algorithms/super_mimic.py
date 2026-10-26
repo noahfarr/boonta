@@ -286,7 +286,7 @@ class SuperMimic:
             weight, count = settled[..., None], jnp.maximum(jnp.sum(settled), 1.0)
             average = jnp.sum(weight * change, axis=(0, 1)) / count
             scale = jax.lax.stop_gradient(jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / count) + 1e-6
-            error = jnp.mean((predictions[self.state_key] - target) ** 2 / scale, axis=-1)
+            error = jnp.mean((predictions[self.state_key] - target) ** 2, axis=-1)
             terms = {"state": mean_fn(error, settled)}
             if "reward_fn" in learned:
                 terms["reward"] = mean_fn((rewards - second.reward) ** 2, alive)
