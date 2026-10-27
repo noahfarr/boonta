@@ -85,7 +85,7 @@ class TrueSkill:
         left, right = reward[:, 0], reward[:, 1]
         return np.where(left > right, 1.0, np.where(left < right, 0.0, 0.5))
 
-    def subjects(self, state: PyTree) -> dict[str, PyTree]:
+    def subjects(self, podracer_state: PyTree) -> dict[str, PyTree]:
         def walk(node, path):
             if not isinstance(node, Mapping) or "params" in node:
                 yield ":".join(path) or "learner", node
@@ -93,12 +93,11 @@ class TrueSkill:
             for key, child in node.items():
                 yield from walk(child, path + [str(key)])
 
-        return dict(walk(state.algorithm_state.params, []))
+        return dict(walk(podracer_state.algorithm_state.params, []))
 
-    def craft(
-        self, key: Key, algorithm: object, environment: object, state: PyTree, logs: dict
-    ) -> Metrics:
-        subjects = self.subjects(state)
+    def craft(self, key, podracer, podracer_state, logs) -> Metrics:
+        algorithm, environment = podracer.algorithm, podracer.environment
+        subjects = self.subjects(podracer_state)
         for name in (*subjects, *self.opponents):
             self.ratings.setdefault(name, RATER.create_rating())
 

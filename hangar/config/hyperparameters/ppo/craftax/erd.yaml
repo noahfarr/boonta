@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/craftax
+  - _self_
+
+# Fresh starts come from 8192 worlds sampled once, instead of generating a world for every environment every step
+environment:
+  auto_reset:
+    fresh_fn:
+      _target_: boonta.environments.wrappers.archive_auto_reset.pool
+      _partial_: true
+      size: 8192

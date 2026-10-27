@@ -1,0 +1,4 @@
+_target_: boonta.environments.wrappers.PooledAutoReset
+num_envs: ${environment.num_envs}
+size: 1024
+seed: ${seed}

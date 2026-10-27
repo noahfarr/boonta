@@ -3,11 +3,13 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import lox
 
 from boonta.utils import Array, Key, Timestep
 
 from .environment import Environment
 from .spaces import Space
+from .wrappers.wrapper import Wrapper
 
 
 class Craftax(Environment):
@@ -48,6 +50,9 @@ class Craftax(Environment):
         )
         return state, timestep
 
+    def observe(self, state: Any) -> Array:
+        return self._env.get_obs(state)
+
     def observation_space(self) -> Space:
         params = self._env.default_params
         space = self._env.observation_space(params)
@@ -80,3 +85,70 @@ def make(env_id, **kwargs):
 
     env = craftax_env.make_craftax_env_from_name(env_id, auto_reset=False, **kwargs)
     return Craftax(env)
+
+
+def avalanche(key):
+    key = (key ^ (key >> 16)) * jnp.uint32(0x85EBCA6B)
+    key = (key ^ (key >> 13)) * jnp.uint32(0xC2B2AE35)
+    return key ^ (key >> 16)
+
+
+def progress(env, survival: bool = False, counts: bool = False):
+    def cell(env_state):
+        inventory = env_state.inventory
+        held = jnp.stack(
+            [
+                inventory.wood,
+                inventory.stone,
+                inventory.coal,
+                inventory.iron,
+                inventory.diamond,
+                inventory.sapling,
+            ],
+            axis=-1,
+        )
+        held = jnp.digitize(held, jnp.array([1, 2, 5])) if counts else held > 0
+        features = [env_state.achievements.astype(jnp.int32), held.astype(jnp.int32)]
+        if survival:
+            vitals = jnp.stack(
+                [
+                    env_state.player_health,
+                    env_state.player_food,
+                    env_state.player_drink,
+                    env_state.player_energy,
+                ],
+                axis=-1,
+            )
+            features.append(jnp.digitize(vitals, jnp.array([4, 7])).astype(jnp.int32))
+            features.append((env_state.light_level < 0.5).astype(jnp.int32)[..., None])
+        key = jnp.zeros(env_state.achievements.shape[:-1], jnp.uint32)
+        for value in jnp.unstack(jnp.concatenate(features, axis=-1), axis=-1):
+            key = avalanche(key * jnp.uint32(16777619) ^ value.astype(jnp.uint32))
+        return avalanche(key).astype(jnp.int32)
+
+    return cell
+
+
+class LogAchievements(Wrapper):
+    def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
+        state, timestep = self._env.step(key, state, action)
+        info = timestep.info
+        finished = timestep.done & info.get("rho", True)
+        lox.log(
+            {
+                f"rho/{name.lower()}": jnp.where(finished, value / 100.0, jnp.nan)
+                for name, value in info.items()
+                if name.startswith("Achievements/")
+            }
+            | {"rho/score": jnp.where(finished, info["score"], jnp.nan)}
+        )
+        return state, timestep
+
+    def update(self, state, key, **kwargs):
+        return self._env.update(state, key, **kwargs)
+
+    def action_mask(self, state):
+        return self._env.action_mask(state)
+
+    def observe(self, state):
+        return self._env.observe(state)

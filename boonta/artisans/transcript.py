@@ -39,13 +39,14 @@ class Transcript:
         environment.close(environment_state)
         return actions
 
-    def craft(self, key, algorithm, environment, state, logs) -> Text:
+    def craft(self, key, podracer, podracer_state, logs) -> Text:
+        algorithm, environment = podracer.algorithm, podracer.environment
         actions = np.asarray(
             jax.jit(
                 partial(
                     self.rollout, algorithm, environment, environment.time_limit() + 1
                 )
-            )(state.algorithm_state, key)
+            )(podracer_state.algorithm_state, key)
         )
         *_, num_envs = actions.shape
         transcript = "\n\n".join(

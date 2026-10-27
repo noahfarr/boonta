@@ -1,0 +1,5 @@
+# @package _global_.curriculum.selector.allocation
+_target_: boonta.curricula.prd.Blend
+uniform_share: 0.5
+inner:
+  _target_: boonta.curricula.prd.WaterFilling

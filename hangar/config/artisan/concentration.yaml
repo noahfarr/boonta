@@ -1,0 +1,4 @@
+# @package artisans.concentration
+_target_: boonta.artisans.Concentration
+name: concentration
+min_visits: 20.0

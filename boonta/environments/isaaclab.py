@@ -131,6 +131,14 @@ class IsaacLab(Environment):
     def time_limit(self) -> int:
         return self._horizon
 
+    def render(self, state: EnvState, **kwargs) -> Array:
+        visualizer, *_ = [
+            visualizer
+            for visualizer in self._env.unwrapped.sim.visualizers
+            if hasattr(visualizer, "render_rgb_array")
+        ]
+        return np.asarray(visualizer.render_rgb_array(), dtype=np.uint8)[..., :3]
+
 
 def make(
     env_id,
@@ -138,9 +146,16 @@ def make(
     device: str = "cuda:0",
     headless: bool = True,
     enable_cameras: bool = False,
+    visualizer: str | None = None,
     **kwargs,
 ):
-    launch(device=device, headless=headless, enable_cameras=enable_cameras)
+    visualizers = {} if visualizer is None else {"visualizer": [visualizer], "visualizer_explicit": True}
+    launch(
+        device=device,
+        headless=headless,
+        enable_cameras=enable_cameras or visualizer is not None,
+        **visualizers,
+    )
 
     import gymnasium as gym
     import isaaclab_tasks  # noqa: F401 -- registers Isaac-* task ids with gymnasium

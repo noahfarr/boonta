@@ -22,7 +22,7 @@ def main(cfg):
 
     assert cfg.checkpoint is not None
     podracer = recipes.make(cfg)
-    algorithm, environment = podracer.algorithm, podracer.environment
+    environment = podracer.environment
     logger = MultiLogger(
         [
             instantiate(
@@ -55,13 +55,14 @@ def main(cfg):
                 value
             ).reshape(1, 1)
             for name, value in logs.items()
+            if "/" in name
         }
         artisans = [instantiate(v) for v in (cfg.artisans or {}).values()]
         for key, artisan in zip(
             jax.random.split(craft_key, max(len(artisans), 1)), artisans
         ):
             logger.log_artifact(
-                artisan.craft(key, algorithm, environment, state, logs), step
+                artisan.craft(key, podracer, state, logs), step
             )
         logger.log(data, steps=jnp.array([step, step]))
     finally:
