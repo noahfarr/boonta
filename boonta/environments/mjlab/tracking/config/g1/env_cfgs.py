@@ -1,6 +1,7 @@
 from ... import mdp
 
 ACTION_NOISE = 0.1
+MAX_CONSTRAINTS = 512
 
 
 def unitree_g1_flat_tracking_env_cfg(play: bool = False):
@@ -14,6 +15,7 @@ def unitree_g1_flat_tracking_env_cfg(play: bool = False):
 
     cfg = base.unitree_g1_flat_tracking_env_cfg()
     cfg.scene.sensors = ()
+    cfg.sim.njmax = MAX_CONSTRAINTS
     feet = cfg.events["foot_friction"].params["asset_cfg"].geom_names
     torso, *_ = cfg.events["base_com"].params["asset_cfg"].body_names
     del cfg.rewards["self_collisions"]

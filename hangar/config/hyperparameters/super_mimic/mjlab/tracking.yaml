@@ -3,7 +3,7 @@
 num_steps: 2_621_440_000
 
 algorithm:
-  history: 10
+  num_observations: 10
 
 network:
   encoder: [2048, 1024, 512, 256]

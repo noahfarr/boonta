@@ -17,9 +17,9 @@ from .action_value_estimators import td_lambda
 
 @struct.dataclass(frozen=True)
 class SuperMimicConfig:
-    horizon: int
-    window: int
-    history: int
+    num_imagined_steps: int
+    num_model_steps: int
+    num_observations: int
     gamma: float
     td_lambda: float
     world_model_updates: int
@@ -51,14 +51,6 @@ class Imagination:
     survivals: Array
 
 
-def _same(command: Array) -> Array:
-    return command
-
-
-def _noiseless(key: Key, observation: Array) -> Array:
-    return observation
-
-
 @dataclass
 class SuperMimic:
     cfg: SuperMimicConfig
@@ -73,9 +65,9 @@ class SuperMimic:
     state_key: str = "state"
     context_key: str = "context"
     command_key: str = "command"
-    sensor_noise: Callable[[Key, Array], Array] = _noiseless
-    goal: Callable[[Array], Array] = _same
-    advance: Callable[[Array], Array] = _same
+    sensor_noise: Callable[[Key, Array], Array] = lambda key, observation: observation
+    goal: Callable[[Array], Array] = lambda command: command
+    advance: Callable[[Array], Array] = lambda command: command
     value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
 
@@ -93,7 +85,7 @@ class SuperMimic:
         obs = timestep.obs
         state, context, command = obs[self.state_key], obs[self.context_key], obs[self.command_key]
         goal = self.goal(command)
-        history = jnp.tile(self.sensor_noise(noise_key, timestep.obs[self.observation_key]), self.cfg.history)
+        history = jnp.tile(self.sensor_noise(noise_key, timestep.obs[self.observation_key]), self.cfg.num_observations)
         params = self.actor.init(actor_key, jnp.concatenate([history, goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
         world_model_params = self.world_model.init(
@@ -128,7 +120,7 @@ class SuperMimic:
         *_, width = jnp.shape(observation)
         history = jnp.where(
             timestep.done[..., None],
-            jnp.tile(observation, self.cfg.history),
+            jnp.tile(observation, self.cfg.num_observations),
             jnp.concatenate([carry[..., width:], observation], axis=-1),
         )
         goal = self.goal(timestep.obs[self.command_key])
@@ -154,21 +146,18 @@ class SuperMimic:
             outer, inner, *rest = jnp.shape(leaf)
             return jnp.reshape(leaf, (outer * inner, *rest))
 
-        def mean_fn(error: Array, weight: Array) -> Array:
-            return jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
-
         def history_fn(window: Transition, key: Key) -> Array:
             first = window.first
             _, length = jnp.shape(first.reward)
             positions = jnp.arange(length)
             episode_start = jax.lax.cummax(jnp.where(first.done, positions, 0), axis=1)[:, -1]
-            recent = jnp.maximum(positions[-self.cfg.history - 1 :], episode_start[:, None])
+            recent = jnp.maximum(positions[-self.cfg.num_observations - 1 :], episode_start[:, None])
             observations = jnp.take_along_axis(first.obs[self.observation_key], recent[..., None], axis=1)
             batch, *_ = jnp.shape(observations)
             return jnp.reshape(self.sensor_noise(key, observations), (batch, -1))
 
         def world_model_loss_fn(world_model_params: PyTree, window: Transition) -> tuple[Array, dict]:
-            first, second = jax.tree.map(lambda leaf: leaf[:, : self.cfg.window], (window.first, window.second))
+            first, second = jax.tree.map(lambda leaf: leaf[:, : self.cfg.num_model_steps], (window.first, window.second))
             start = jax.tree.map(lambda leaf: leaf[:, 0], first)
             done = (second.terminated | second.truncated).astype(jnp.float32)
             alive = jnp.concatenate([jnp.ones_like(done[:, :1]), jnp.cumprod(1.0 - done, axis=1)[:, :-1]], axis=1)
@@ -187,16 +176,27 @@ class SuperMimic:
             weight, count = settled[..., None], jnp.maximum(jnp.sum(settled), 1.0)
             average = jnp.sum(weight * change, axis=(0, 1)) / count
             scale = jax.lax.stop_gradient(jnp.sum(weight * (change - average) ** 2, axis=(0, 1)) / count) + 1e-6
-            error = jnp.mean((predictions[self.state_key] - target) ** 2, axis=-1)
-            terms = {"state": mean_fn(error, settled)}
-            if "reward_fn" in learned:
-                terms["reward"] = mean_fn((rewards - second.reward) ** 2, alive)
-            if "observation_fn" in learned:
-                error = jnp.mean((predictions[self.observation_key] - second.obs[self.observation_key]) ** 2, axis=-1)
-                terms["observation"] = mean_fn(error, settled)
-            if "termination_fn" in learned:
-                labels = second.terminated.astype(jnp.float32)
-                terms["termination"] = mean_fn(optax.sigmoid_binary_cross_entropy(terminations, labels), alive)
+            labels = second.terminated.astype(jnp.float32)
+            observed = second.obs[self.observation_key]
+            candidates = {
+                "state": ("dynamics_fn", jnp.mean((predictions[self.state_key] - target) ** 2, axis=-1), settled),
+                "reward": ("reward_fn", (rewards - second.reward) ** 2, alive),
+                "observation": (
+                    "observation_fn",
+                    jnp.mean((predictions[self.observation_key] - observed) ** 2, axis=-1),
+                    settled,
+                ),
+                "termination": (
+                    "termination_fn",
+                    optax.sigmoid_binary_cross_entropy(terminations, labels),
+                    alive,
+                ),
+            }
+            terms = {
+                name: jnp.sum(weight * error) / jnp.maximum(jnp.sum(weight), 1.0)
+                for name, (component, error, weight) in candidates.items()
+                if component in learned
+            }
             return sum(terms.values()), terms
 
         def imagine_fn(
@@ -216,7 +216,7 @@ class SuperMimic:
             timestep = Timestep(obs=start.obs, terminated=start.terminated, truncated=start.truncated)
             carry = (timestep, history, jnp.ones(jnp.shape(start.reward)))
             (last, _, last_survival), (timesteps, rewards, terminations, survivals) = jax.lax.scan(
-                jax.checkpoint(act_fn), carry, jax.random.split(key, self.cfg.horizon)
+                jax.checkpoint(act_fn), carry, jax.random.split(key, self.cfg.num_imagined_steps)
             )
             timesteps = jax.tree.map(lambda steps, final: jnp.concatenate([steps, final[None]]), timesteps, last)
             return Imagination(
@@ -239,7 +239,7 @@ class SuperMimic:
             values = state_values_fn(
                 state.critic_params, imagination.states, imagination.goals, imagination.contexts
             )
-            discounts = self.cfg.gamma ** jnp.arange(self.cfg.horizon + 1, dtype=jnp.float32)
+            discounts = self.cfg.gamma ** jnp.arange(self.cfg.num_imagined_steps + 1, dtype=jnp.float32)
             survivals = imagination.survivals
             imagined_return = jnp.sum(discounts[:-1, None] * survivals[:-1] * imagination.rewards, axis=0)
             imagined_return = jnp.mean(imagined_return + discounts[-1] * survivals[-1] * values[-1])
@@ -364,7 +364,7 @@ class SuperMimic:
                 {
                     "actor/imagined_return": imagined_return,
                     "actor/imagined_reward": jnp.mean(imagination.rewards),
-                    "actor/survival": jnp.mean(jnp.prod(1.0 - imagination.terminations, axis=0)),
+                    "actor/termination": jnp.mean(imagination.terminations),
                     "critic/loss": jnp.mean(critic_losses),
                     "critic/value": jnp.mean(targets),
                 }
