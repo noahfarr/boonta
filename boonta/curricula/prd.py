@@ -33,6 +33,7 @@ class SuccessorRepresentation:
     gamma: float = 1.0
     rate: float = 0.1
     columns: int | None = None
+    writers: int | None = None
 
     def init(self, archive_size: int) -> Successor:
         width = archive_size if self.columns is None else max(1, self.columns)
@@ -137,6 +138,16 @@ class SuccessorRepresentation:
             jnp.full(archive_size, -1.0).at[scatter_rows].max(write_priorities, mode="drop")
         )
         write_mask = (leaving_slots >= 0) & (write_priorities == highest_priority[leaving_rows])
+        if self.writers is not None and self.writers < jnp.shape(leaving_slots)[0]:
+            # Only a cell's writer keeps its row, so the rest of the work runs on the writers alone. Beyond
+            # `writers` of them, a random subset skips this step.
+            _, writing = jax.lax.top_k(
+                jnp.where(write_mask, 1.0 + write_priorities, 0.0), self.writers
+            )
+            leaving_slots, landing_slots, onward_mask, write_mask = (
+                leaf[writing] for leaf in (leaving_slots, landing_slots, onward_mask, write_mask)
+            )
+            leaving_rows, landing_rows = jnp.clip(leaving_slots, 0), jnp.clip(landing_slots, 0)
         own_columns = columns[leaving_rows]
         landing_columns = columns[landing_rows]
         landed_mask = landing_columns == leaving_rows[..., None]

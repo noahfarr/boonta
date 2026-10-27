@@ -99,6 +99,9 @@ mujoco-playground = [
 plot = [
     "matplotlib",
 ]
+navix = [
+    "navix",
+]
 pynes = [
     "pynes",
 ]

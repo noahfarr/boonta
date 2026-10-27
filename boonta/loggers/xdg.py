@@ -26,7 +26,7 @@ class XdgLogger:
         if sys.platform != "darwin" and not os.environ.get("DISPLAY"):
             return
         self.directory.mkdir(parents=True, exist_ok=True)
-        suffix = "png" if isinstance(artifact, Image) else "gif"
+        suffix = "png" if isinstance(artifact, Image) else Video.suffix()
         path = artifact.encode(self.directory / f"{artifact.name}-{step}.{suffix}")
         subprocess.Popen([opener, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -1,0 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
+namespace: navix
+suite: door_key
+env_id: Navix-DoorKey-8x8-v0

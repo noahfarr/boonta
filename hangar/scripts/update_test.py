@@ -82,16 +82,20 @@ def episode_returns(algorithm, algorithm_state, game, num_episodes, key):
     reset_key, run_key = jax.random.split(key)
     states, timesteps = jax.vmap(game.init)(jax.random.split(reset_key, num_episodes))
 
-    def body(carry, key):
-        states, timesteps, alive, total = carry
-        act_key, step_key = jax.random.split(key)
+    def running(carry):
+        *_, alive, _, time = carry
+        return jnp.any(alive) & (time < game.time_limit())
+
+    def body(carry):
+        states, timesteps, alive, total, time = carry
+        act_key, step_key = jax.random.split(jax.random.fold_in(run_key, time))
         _, _, actions, _ = algorithm.step(algorithm_state, None, act_key, timesteps, temperature=1.0)
         states, timesteps = jax.vmap(game.step)(jax.random.split(step_key, num_episodes), states, actions)
         total = total + alive * timesteps.reward
-        return (states, timesteps, alive & ~timesteps.done, total), None
+        return states, timesteps, alive & ~timesteps.done, total, time + 1
 
-    carry = (states, timesteps, jnp.ones(num_episodes, bool), jnp.zeros(num_episodes))
-    (*_, total), _ = jax.lax.scan(body, carry, jax.random.split(run_key, game.time_limit()))
+    carry = (states, timesteps, jnp.ones(num_episodes, bool), jnp.zeros(num_episodes), jnp.int32(0))
+    *_, total, _ = jax.lax.while_loop(running, body, carry)
     return jnp.mean(total)
 
 

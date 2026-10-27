@@ -177,6 +177,25 @@ def widen(cell_fn: Callable[[PyTree], Array]) -> Callable[[PyTree], Array]:
     return widened
 
 
+def reinitialize(env, num_envs: int) -> Callable[[Key], PyTree]:
+    def fresh(key: Key) -> PyTree:
+        states, _ = jax.vmap(env.init)(jax.random.split(key, num_envs))
+        return states
+
+    return fresh
+
+
+def pool(env, num_envs: int, size: int, seed: int = 0) -> Callable[[Key], PyTree]:
+    """Draws fresh states from `size` of them sampled once, instead of resetting every environment every step."""
+    states, _ = jax.jit(jax.vmap(env.init))(jax.random.split(jax.random.key(seed), size))
+
+    def fresh(key: Key) -> PyTree:
+        drawn = jax.random.randint(key, (num_envs,), 0, size)
+        return jax.tree.map(lambda leaf: jnp.take(leaf, drawn, axis=0), states)
+
+    return fresh
+
+
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
@@ -218,8 +237,10 @@ class ArchiveAutoReset(AutoReset):
         eligibility_fn: Callable = anywhere,
         gamma: float = 0.99,
         refresh_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
+        fresh_fn: Callable = reinitialize,
     ):
         super().__init__(env, num_envs=num_envs)
+        self.fresh = fresh_fn(env=env, num_envs=num_envs)
         action_space = env.action_space()
         discrete = jnp.issubdtype(getattr(action_space, "dtype", jnp.int32), jnp.integer)
         num_actions = getattr(action_space, "num_actions", 1) if discrete else 1
@@ -296,9 +317,7 @@ class ArchiveAutoReset(AutoReset):
         )
         done = episode_mask | truncation_mask
         restart_mask = done & (state.assigned_slots >= 0)
-        env_states, _ = jax.vmap(self._env.init)(
-            jax.random.split(reset_key, self.num_envs)
-        )
+        env_states = self.fresh(reset_key)
 
         def load_snapshots():
             archived_states = self.archive.take(

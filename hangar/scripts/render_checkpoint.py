@@ -92,7 +92,7 @@ def main():
         for frame in frames
     ]
     path = Video("episode", np.stack(frames), fps=30).encode(
-        directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.gif"
+        directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.{Video.suffix()}"
     )
     if shutil.which("xdg-open") and os.environ.get("DISPLAY"):
         subprocess.Popen(["xdg-open", path])

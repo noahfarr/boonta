@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/navix
+  - _self_
+
+# Fresh starts come from 1024 layouts sampled once, instead of resetting every environment every step
+environment:
+  auto_reset:
+    fresh_fn:
+      _target_: boonta.environments.wrappers.archive_auto_reset.pool
+      _partial_: true
+      size: 1024
