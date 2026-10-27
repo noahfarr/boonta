@@ -18,6 +18,7 @@ from .network import Network
 from .pretrained import Pretrained
 from .stacks import llama, repeat
 from .unembed import Unembed
+from .world_model import WorldModel
 
 __all__ = [
     "FFN",
@@ -65,6 +66,7 @@ __all__ = [
     "Unembed",
     "ViT",
     "ViTLayer",
+    "WorldModel",
     "causal_attention_mask",
     "distributions",
     "get_scan_implementation",

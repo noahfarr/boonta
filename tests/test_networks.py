@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 import zoo
-from boonta.algorithms.super_mimic import FloatingBase, GoalConditioned, WorldModel
+from hangar.recipes.super_mimic_mjlab import FloatingBase, GoalConditioned
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
                              FeatureExtractor, Gaussian,
                              Highway, Network, RTUCell,
-                             SquashedGaussian, Tower,
+                             SquashedGaussian, Tower, WorldModel,
                              distributions, llama, repeat)
 from boonta.networks.layers import Identity, Normalize
 from boonta.networks.blocks.ssm import binary_operator
@@ -393,25 +393,24 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     assert implementation == expected
 
 
-def test_the_world_model_learns_only_its_networks_and_observes_the_advanced_command():
+def test_the_world_model_learns_only_its_networks_and_observes_the_successor_command():
     model = WorldModel(
         dynamics_fn=nn.Sequential(
-            [lambda state, action, context: jnp.concatenate([state, action, context], axis=-1), nn.Dense(4)]
+            [lambda state, action, context, **_: jnp.concatenate([state, action, context], axis=-1), nn.Dense(4)]
         ),
-        reward_fn=lambda state, following, **_: jnp.sum(following - state, axis=-1),
+        reward_fn=lambda state, next_state, **_: jnp.sum(next_state - state, axis=-1),
         termination_fn=nn.Sequential([lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1), nn.Dense(1)]),
-        observation_fn=lambda state, command, **_: state + command,
-        goal=lambda command: 2.0 * command,
-        advance=lambda command: command + 1.0,
+        observation_fn=lambda state, successor, **_: state + successor,
     )
     state, action = jnp.ones((3, 4)), jnp.ones((3, 2))
     context, command = jnp.zeros((3, 1)), jnp.zeros((3, 1))
-    params = model.init(KEY, state, action, context, command)
-    following, observation, advanced, reward, termination = model.apply(params, state, action, context, command)
+    goal, successor = 2.0 * command, command + 1.0
+    conditions = {"context": context, "command": command, "goal": goal, "successor": successor}
+    params = model.init(KEY, state, action, **conditions)
+    next_state, observation, reward, termination = model.apply(params, state, action, **conditions)
     assert sorted(params["params"]) == ["dynamics_fn", "termination_fn"]
-    np.testing.assert_array_equal(advanced, command + 1.0)
-    np.testing.assert_allclose(observation, following + advanced)
-    np.testing.assert_allclose(reward, jnp.sum(following - state, axis=-1))
+    np.testing.assert_allclose(observation, next_state + successor)
+    np.testing.assert_allclose(reward, jnp.sum(next_state - state, axis=-1))
     assert reward.shape == termination.shape == (3,)
 
 
@@ -437,7 +436,7 @@ def test_floating_base_dynamics_turn_and_move_with_the_robot():
     rest = jax.random.normal(jax.random.key(10), (5, joints + 6 + joints + joints))
     state = jnp.concatenate([position, orientation / jnp.linalg.norm(orientation, axis=-1, keepdims=True), rest], -1)
     action, context = jax.random.normal(jax.random.key(11), (5, joints)), jnp.zeros((5, 2))
-    params = model.init(KEY, state, action, context)
+    params = model.init(KEY, state, action, context=context)
     angle, shift = 0.7, jnp.array([1.5, -2.0, 0.0])
     turn = jnp.array([[jnp.cos(angle), -jnp.sin(angle), 0.0], [jnp.sin(angle), jnp.cos(angle), 0.0], [0.0, 0.0, 1.0]])
     yaw = jnp.array([jnp.cos(angle / 2.0), 0.0, 0.0, jnp.sin(angle / 2.0)])
@@ -453,9 +452,9 @@ def test_floating_base_dynamics_turn_and_move_with_the_robot():
             .at[:, velocity : velocity + 3].set(state[:, velocity : velocity + 3] @ turn.T)
         )
 
-    following = model.apply(params, state, action, context)
-    np.testing.assert_allclose(model.apply(params, moved(state), action, context), moved(following), atol=1e-5)
-    np.testing.assert_array_equal(following[:, -joints:], action)
+    next_state = model.apply(params, state, action, context)
+    np.testing.assert_allclose(model.apply(params, moved(state), action, context), moved(next_state), atol=1e-5)
+    np.testing.assert_array_equal(next_state[:, -joints:], action)
 
 
 def test_goal_conditioned_passes_the_goal_through_a_bounded_latent():

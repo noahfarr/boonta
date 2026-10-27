@@ -1,6 +1,6 @@
 namespace: mjlab
 suite: motion_tracking
-env_id: Boonta-SuperMimic-Motion-Tracking-Flat-Unitree-G1
+env_id: Boonta-Tracking-Flat-Unitree-G1
 kwargs:
   num_envs: ${environment.num_envs}
   device: cuda:0

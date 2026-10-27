@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from hangar import resolvers  # noqa: F401
-from hangar.recipes.super_mimic_mjlab import NUM_JOINTS
 
 FPS, STRIDE = 25, 2
 
@@ -31,7 +30,7 @@ def main(cfg):
 
     from boonta.utils import resolve_checkpoint
     from hangar import recipes
-    from hangar.recipes.super_mimic_mjlab import attainable
+    from boonta.environments.mjlab.tracking.mdp import attainable
 
     assert cfg.checkpoint is not None
     assert cfg.environment.kwargs.play, "score with environment.kwargs.play=true"
@@ -46,6 +45,7 @@ def main(cfg):
     params = ocp.StandardCheckpointer().restore(os.path.abspath(str(path)))["params"]
     policy = Policy(params=params)
     num_steps = int(np.max(ends - starts))
+    *_, num_joints = simulator.scene["robot"].data.default_joint_pos.shape
 
     @jax.jit
     def play(policy, key):
@@ -62,7 +62,7 @@ def main(cfg):
             length = length + playing
             failed = failed | (playing & timestep.terminated)
             playing = playing & ~timestep.done
-            pose = timestep.obs["state"][:, : 7 + NUM_JOINTS]
+            pose = timestep.obs["state"][:, : 7 + num_joints]
             return (environment_state, timestep, history, returned, length, failed, playing), (
                 pose,
                 timestep.obs["frame"][:, 0].astype(jnp.int32),

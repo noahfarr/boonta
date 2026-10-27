@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from collections.abc import Callable
 from dataclasses import dataclass
 
 import flax.linen as nn
@@ -14,122 +13,6 @@ from boonta.utils.typing import Array, Buffer, BufferState, Key, PyTree
 
 from .action_value_estimators import td_lambda
 
-
-class WorldModel(nn.Module):
-    dynamics_fn: Callable
-    reward_fn: Callable
-    termination_fn: Callable
-    observation_fn: Callable
-    goal: Callable[[Array], Array] = lambda command: command
-    advance: Callable[[Array], Array] = lambda command: command
-
-    def __call__(
-        self, state: Array, action: Array, context: Array, command: Array
-    ) -> tuple[Array, Array, Array, Array, Array]:
-        *batch, _ = jnp.shape(state)
-        goal = self.goal(command)
-        following = self.dynamics_fn(state=state, action=action, context=context)
-        reward = self.reward_fn(state=state, action=action, following=following, command=command, goal=goal)
-        termination = self.termination_fn(state=following, command=command, goal=goal)
-        command = self.advance(command)
-        observation = self.observation_fn(state=following, context=context, command=command)
-        return following, observation, command, jnp.reshape(reward, batch), jnp.reshape(termination, batch)
-
-
-class GoalConditioned(nn.Module):
-    encoder: nn.Module
-    decoder: nn.Module
-    goal_size: int
-
-    def __call__(self, x: Array) -> Array:
-        latent = jnp.tanh(self.encoder(x[..., -self.goal_size :]))
-        return self.decoder(jnp.concatenate([latent, x[..., : -self.goal_size]], axis=-1))
-
-
-def _quaternion_product(left: Array, right: Array) -> Array:
-    lw, lx, ly, lz = jnp.moveaxis(left, -1, 0)
-    rw, rx, ry, rz = jnp.moveaxis(right, -1, 0)
-    return jnp.stack(
-        [
-            lw * rw - lx * rx - ly * ry - lz * rz,
-            lw * rx + lx * rw + ly * rz - lz * ry,
-            lw * ry - lx * rz + ly * rw + lz * rx,
-            lw * rz + lx * ry - ly * rx + lz * rw,
-        ],
-        axis=-1,
-    )
-
-
-def _matrix(quaternion: Array) -> Array:
-    w, x, y, z = jnp.moveaxis(quaternion, -1, 0)
-    rows = [
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ]
-    return jnp.stack([jnp.stack(row, axis=-1) for row in rows], axis=-2)
-
-
-def _heading(quaternion: Array) -> Array:
-    w, x, y, z = jnp.moveaxis(quaternion, -1, 0)
-    angle = jnp.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-    zero = jnp.zeros_like(angle)
-    return jnp.stack([jnp.cos(angle / 2.0), zero, zero, jnp.sin(angle / 2.0)], axis=-1)
-
-
-def _exponential(rotation: Array) -> Array:
-    angle = jnp.sqrt(jnp.sum(rotation**2, axis=-1, keepdims=True) + 1e-12)
-    return jnp.concatenate([jnp.cos(angle / 2.0), jnp.sin(angle / 2.0) * rotation / angle], axis=-1)
-
-
-def _apply(matrix: Array, vector: Array) -> Array:
-    return jnp.einsum("...ij,...j->...i", matrix, vector)
-
-
-class FloatingBase(nn.Module):
-    network: nn.Module
-    num_joints: int
-
-    def __call__(self, state: Array, action: Array, context: Array) -> Array:
-        n = self.num_joints
-        *batch, _ = jnp.shape(state)
-        position, orientation, joints = state[..., :3], state[..., 3:7], state[..., 7 : 7 + n]
-        velocity, turning = state[..., 7 + n : 10 + n], state[..., 10 + n : 13 + n]
-        joint_velocity = state[..., 13 + n : 13 + 2 * n]
-        previous = state[..., 13 + 2 * n :]
-        heading = _matrix(_heading(orientation))
-        tilt = jnp.einsum("...ji,...jk->...ik", heading, _matrix(orientation))[..., :, :2]
-        features = jnp.concatenate(
-            [
-                position[..., 2:],
-                jnp.reshape(tilt, (*batch, 6)),
-                jnp.einsum("...ji,...j->...i", heading, velocity),
-                turning,
-                joints,
-                joint_velocity,
-                previous,
-                action,
-                context,
-            ],
-            axis=-1,
-        )
-        change = self.network(features)
-        shift, rotation, acceleration, spin = (change[..., 3 * i : 3 * (i + 1)] for i in range(4))
-        joint_change, joint_acceleration = change[..., 12 : 12 + n], change[..., 12 + n : 12 + 2 * n]
-        following = _quaternion_product(orientation, _exponential(rotation))
-        following = following / jnp.linalg.norm(following, axis=-1, keepdims=True)
-        return jnp.concatenate(
-            [
-                position + _apply(heading, shift),
-                following,
-                joints + joint_change,
-                velocity + _apply(heading, acceleration),
-                turning + spin,
-                joint_velocity + joint_acceleration,
-                action,
-            ],
-            axis=-1,
-        )
 
 
 @struct.dataclass(frozen=True)
@@ -168,6 +51,10 @@ class Imagination:
     survivals: Array
 
 
+def _same(command: Array) -> Array:
+    return command
+
+
 def _noiseless(key: Key, observation: Array) -> Array:
     return observation
 
@@ -177,7 +64,7 @@ class SuperMimic:
     cfg: SuperMimicConfig
     actor: nn.Module
     critic: nn.Module
-    world_model: WorldModel
+    world_model: nn.Module
     buffer: Buffer
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
@@ -187,18 +74,31 @@ class SuperMimic:
     context_key: str = "context"
     command_key: str = "command"
     sensor_noise: Callable[[Key, Array], Array] = _noiseless
+    goal: Callable[[Array], Array] = _same
+    advance: Callable[[Array], Array] = _same
     value_estimator: Callable = td_lambda
     auxiliary_losses: tuple[Callable, ...] = ()
+
+    def condition(self, obs: PyTree) -> dict[str, Array]:
+        command = obs[self.command_key]
+        return {
+            "context": obs[self.context_key],
+            "command": command,
+            "goal": self.goal(command),
+            "successor": self.advance(command),
+        }
 
     def init(self, key: Key, timestep: Timestep) -> tuple[SuperMimicState, Array]:
         actor_key, critic_key, world_model_key, noise_key = jax.random.split(key, 4)
         obs = timestep.obs
         state, context, command = obs[self.state_key], obs[self.context_key], obs[self.command_key]
-        goal = self.world_model.goal(command)
+        goal = self.goal(command)
         history = jnp.tile(self.sensor_noise(noise_key, timestep.obs[self.observation_key]), self.cfg.history)
         params = self.actor.init(actor_key, jnp.concatenate([history, goal], axis=-1), temperature=1.0)
         critic_params = self.critic.init(critic_key, jnp.concatenate([state, goal, context], axis=-1))
-        world_model_params = self.world_model.init(world_model_key, state, timestep.action, context, command)
+        world_model_params = self.world_model.init(
+            world_model_key, state, timestep.action, **self.condition(obs)
+        )
         return (
             SuperMimicState(
                 step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
@@ -231,7 +131,7 @@ class SuperMimic:
             jnp.tile(observation, self.cfg.history),
             jnp.concatenate([carry[..., width:], observation], axis=-1),
         )
-        goal = self.world_model.goal(timestep.obs[self.command_key])
+        goal = self.goal(timestep.obs[self.command_key])
         dist = self.actor.apply(state.params, jnp.concatenate([history, goal], axis=-1), temperature=temperature)
         return state, history, dist.sample(seed=action_key), {}
 
@@ -243,10 +143,11 @@ class SuperMimic:
             return jnp.squeeze(values.astype(jnp.float32), axis=-1)
 
         def predict_fn(world_model_params: PyTree, obs: PyTree, action: Array) -> tuple[PyTree, Array, Array]:
-            following, observation, command, reward, termination = self.world_model.apply(
-                world_model_params, obs[self.state_key], action, obs[self.context_key], obs[self.command_key]
+            conditions = self.condition(obs)
+            next_state, observation, reward, termination = self.world_model.apply(
+                world_model_params, obs[self.state_key], action, **conditions
             )
-            obs = {**obs, self.state_key: following, self.observation_key: observation, self.command_key: command}
+            obs = {**obs, self.state_key: next_state, self.observation_key: observation, self.command_key: conditions["successor"]}
             return obs, reward, termination
 
         def merge_fn(leaf: Array) -> Array:
@@ -309,8 +210,8 @@ class SuperMimic:
                 obs, reward, termination = predict_fn(state.world_model_params, timestep.obs, action)
                 termination = jax.nn.sigmoid(termination)
                 flags = jnp.zeros_like(reward, bool)
-                following = Timestep(obs=obs, terminated=flags, truncated=flags)
-                return (following, history, survival * (1.0 - termination)), (timestep, reward, termination, survival)
+                next_obs = Timestep(obs=obs, terminated=flags, truncated=flags)
+                return (next_obs, history, survival * (1.0 - termination)), (timestep, reward, termination, survival)
 
             timestep = Timestep(obs=start.obs, terminated=start.terminated, truncated=start.truncated)
             carry = (timestep, history, jnp.ones(jnp.shape(start.reward)))
@@ -320,7 +221,7 @@ class SuperMimic:
             timesteps = jax.tree.map(lambda steps, final: jnp.concatenate([steps, final[None]]), timesteps, last)
             return Imagination(
                 states=timesteps.obs[self.state_key],
-                goals=jax.vmap(self.world_model.goal)(timesteps.obs[self.command_key]),
+                goals=jax.vmap(self.goal)(timesteps.obs[self.command_key]),
                 contexts=timesteps.obs[self.context_key],
                 rewards=rewards,
                 terminations=terminations,
@@ -366,7 +267,7 @@ class SuperMimic:
             sample_key, noise_key = jax.random.split(key)
             window = self.buffer.sample(state.buffer_state, sample_key).experience
             start = jax.tree.map(lambda leaf: leaf[:, -1], window.first)
-            goal = self.world_model.goal(start.obs[self.command_key])
+            goal = self.goal(start.obs[self.command_key])
             first, second = jax.tree.map(merge_fn, (window.first, window.second))
             *_, width = jnp.shape(start.obs[self.observation_key])
             history = history_fn(window, noise_key)[..., width:]
@@ -382,8 +283,7 @@ class SuperMimic:
                 state.world_model_params,
                 first.obs[self.state_key],
                 second.action,
-                first.obs[self.context_key],
-                first.obs[self.command_key],
+                **self.condition(first.obs),
                 mutable=["statistics"],
             )
             return state.replace(

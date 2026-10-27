@@ -22,9 +22,8 @@ simulated = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def tracking():
     from boonta import environments
-    from hangar.recipes.super_mimic_mjlab import TASK, describe, register
-
-    register()
+    from boonta.environments.mjlab.tracking.config.g1 import TASK
+    from hangar.recipes.super_mimic_mjlab import describe
     kwargs = {"num_envs": 16, "motion_file": str(LIBRARY), "executed": "executed"}
     environment = environments.make("mjlab", TASK, kwargs=kwargs)
     return environment, describe(environment)
