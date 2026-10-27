@@ -31,11 +31,12 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 - On-policy: [PPO](https://arxiv.org/abs/1707.06347) · [REPPO](https://arxiv.org/abs/2507.11019) · [PQN](https://arxiv.org/abs/2407.04811) · [GRPO](https://arxiv.org/abs/2402.03300)
 - Off-policy: [DQN](https://arxiv.org/abs/1312.5602) · [SAC](https://arxiv.org/abs/1801.01290)
 - Offline: BC · [IQL](https://arxiv.org/abs/2110.06169)
+- Model-based: [SuperMimic](https://arxiv.org/abs/2610.28480)
 - Recurrent: PPO · [PuPO](https://github.com/PufferAI/PufferLib) · PQN · GRPO · DQN · SAC · BC
 - Multi-agent: [IPPO](https://arxiv.org/abs/2011.09533) · [MAPPO](https://arxiv.org/abs/2103.01955) · [MMD](https://arxiv.org/abs/2206.05825) · [PSRO](https://arxiv.org/abs/1711.00832)
 
 **Environments**
-- Control: [Gymnax](https://github.com/RobertTLange/gymnax) · [Brax](https://github.com/google/brax) · [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) · [Isaac Lab](https://github.com/isaac-sim/IsaacLab)
+- Control: [Gymnax](https://github.com/RobertTLange/gymnax) · [Brax](https://github.com/google/brax) · [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) · [mjlab](https://github.com/mujocolab/mjlab) · [Isaac Lab](https://github.com/isaac-sim/IsaacLab)
 - Grid worlds and open-ended: [Jumanji](https://github.com/instadeepai/jumanji) · [XLand-MiniGrid](https://github.com/dunnolab/xland-minigrid) · [Craftax](https://github.com/MichaelTMatthews/Craftax)
 - Levels: [Kinetix](https://github.com/FLAIROx/Kinetix) · [JaxUED](https://github.com/DramaCow/jaxued)
 - Multi-agent: [JaxMARL](https://github.com/FLAIROx/JaxMARL) · [Mapox](https://github.com/gabe00122/mapox) · [BluffJAX](https://github.com/AryamanReddi99/bluffjax) · [ConnectX](https://www.kaggle.com/competitions/connectx)
@@ -83,7 +84,7 @@ uv sync --no-dev --extra hangar     # the core, plus Hydra to run the configs in
 | `wandb` | wandb, pandas, joblib, tqdm | `WandbLogger` and `boonta.utils.wandb` |
 | `chat` | Textual, plus `huggingface` | the chat scripts in `hangar/scripts` |
 
-Environment suites that need their own packages come as extras too, such as `craftax`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra gymnax --extra craftax`. Plain `uv sync` also installs the `dev` group: pytest and the packages the tests import.
+Environment suites that need their own packages come as extras too, such as `craftax`. Some of them pin incompatible versions of shared packages, so uv refuses to install them together: `mjlab` (which brings PyTorch and MuJoCo 3.11) conflicts with `mujoco-playground`, `isaaclab`, `isaaclab-arena` and `kinetix`. `uv sync` installs exactly the extras it is given, so pass every one you use in one command, for example `uv sync --extra hangar --extra gymnax --extra craftax`. Plain `uv sync` also installs the `dev` group: pytest and the packages the tests import.
 
 ## Guides
 

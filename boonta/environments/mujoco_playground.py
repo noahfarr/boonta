@@ -17,6 +17,7 @@ class MuJoCoPlayground(Environment):
         state = self._env.reset(key)
         steps = jnp.zeros(key.shape[:-1], dtype=jnp.int32)
         state = state.replace(info={**state.info, "steps": steps})
+
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
@@ -32,9 +33,7 @@ class MuJoCoPlayground(Environment):
         )
         return state, timestep
 
-    def step(
-        self, key: Key, state: Any, action: Array
-    ) -> tuple[Any, Timestep]:
+    def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
         state = self._env.step(state, action)
         steps = state.info["steps"] + 1
         terminated = state.done.astype(jnp.bool)

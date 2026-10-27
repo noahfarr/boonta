@@ -62,6 +62,10 @@ def energy(weight):
 
 The recurrent carry is rollout state, like the environment state, so the podracer owns it and not the algorithm. `init(key, timestep)` returns `(state, carry)`, where the carry is what a fresh rollout starts from, and `None` for an algorithm without one. `step(state, carry, key, timestep, temperature)` returns `(state, carry, action, aux)`. The podracer records the carry that entered each step in `Transition.carry`. A recurrent `update` replays the rollout from `transitions.start`, the carry of the first step, and `transitions.tail()` returns the last two timesteps and the carry that entered the last step, which is enough to bootstrap the final value. Because the carry is not in `algorithm_state`, a checkpoint holds only what was learned, and an evaluation starts every episode from a fresh carry. See `RecurrentPPO` in [`recurrent_ppo.py`](recurrent_ppo.py).
 
+## Model-based algorithms
+
+[`SuperMimic`](super_mimic.py) fits a [world model](../networks/README.md#world-models) to windows of its replay buffer and improves its policy by backpropagating an imagined return through it. It reads the timestep's observation as a dict and takes the keys from the recipe: `observation_key` is what the policy sees, `state_key` what the world model predicts forward, `context_key` the episode's fixed parameters and `command_key` the task's progress, such as a reference frame. An imagined step is the same dict with those keys replaced, wrapped in a `Timestep`, and the policy acts on it through SuperMimic's own `step`, so imagined and simulated steps look alike. Its observation history is the carry, which it drops before storing transitions, since a replay window rebuilds it.
+
 ## Add an algorithm
 
 The steps below follow `BC`, the smallest algorithm, in [`bc.py`](bc.py).

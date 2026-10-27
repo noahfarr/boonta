@@ -1,5 +1,6 @@
 import ast
 import os
+import shutil
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,6 +122,26 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def gpu():
+    return None if shutil.which("nvidia-smi") else "needs an NVIDIA GPU"
+
+
+def converted(path):
+    return None if Path(path).expanduser().exists() else f"needs {path}, from hangar/scripts/convert_motions.py"
+
+
+def tiny_super_mimic(directory):
+    return [
+        "buffer.sample_batch_size=16",
+        "algorithm.horizon=4",
+        "algorithm.world_model_updates=1",
+        "algorithm.policy_batches=1",
+        "algorithm.critic_epochs=1",
+        "algorithm.critic_minibatches=1",
+        *(f"++network.{name}=[32]" for name in ("actor", "encoder", "decoder", "critic", "world_model", "heads")),
+    ]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -154,6 +175,18 @@ CASES = [
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
+    (
+        "super_mimic",
+        "mujoco_playground/dm_control_suite/cartpole_balance",
+        installed("mujoco_playground"),
+        tiny_super_mimic,
+    ),
+    (
+        "super_mimic",
+        "mjlab/motion_tracking/lafan1",
+        installed("mjlab") or gpu() or converted("~/.cache/boonta/lafan1_g1/g1/library_50hz.npz"),
+        tiny_super_mimic,
+    ),
     ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "jaxtari/pong", installed("jaxtari"), few_resets),
