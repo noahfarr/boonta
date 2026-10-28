@@ -1,0 +1,33 @@
+# @package _global_
+
+cell:
+  _target_: boonta.networks.MinGRUCell
+  features: 128
+  dtype: ${oc.select:network.dtype,null}
+
+torso:
+  _target_: boonta.networks.SSM
+
+network:
+  dtype: bfloat16
+
+num_steps: 1_000_000_000
+
+environment:
+  num_envs: 512
+
+podracer:
+  config:
+    num_steps: 64
+
+algorithm:
+  num_minibatches: 8
+  update_epochs: 2
+  gamma: 0.99
+  gae_lambda: 0.95
+  entropy_coefficient: 0.003
+  normalize_advantage: True
+
+optimizer:
+  lr: 3e-4
+  max_grad_norm: 0.5

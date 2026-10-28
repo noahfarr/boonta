@@ -3,11 +3,13 @@ defaults:
   - _self_
 
 namespace: dune_sea
-suite: walk
-env_id: walk
-num_envs: 4096
+suite: tag
+env_id: tag
+num_envs: 1024
 kwargs:
-  impl: warp
-  worlds: ${environment.num_envs}
+  height: 40
+  width: 40
+  num_agents: 12
+  view_size: 7
 auto_reset:
-  ratio: 16
+  ratio: 8

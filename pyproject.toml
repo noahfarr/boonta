@@ -116,9 +116,7 @@ xland-minigrid = [
     "xminigrid",
 ]
 dune-sea = [
-    "mujoco>=3.16.0",
-    "mujoco-mjx>=3.16.0",
-    "mujoco-warp>=3.16.0",
+    "raylib==6.0.1.0",
 ]
 
 [tool.uv]

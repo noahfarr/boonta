@@ -121,10 +121,6 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
-def cpu_physics(directory):
-    return [*few_resets(directory), "environment.kwargs.impl=jax"]
-
-
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -133,7 +129,6 @@ CASES = [
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
-    ("ppo", "dune_sea/walk", installed("mujoco"), cpu_physics),
     ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("dqn", MINATAR, None, False),
@@ -163,6 +158,10 @@ CASES = [
     ("recurrent_pupo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
     ("ppo", "jaxtari/pong", installed("jaxtari"), few_resets),
     ("ppo", "xland_minigrid/minigrid/empty_5x5", installed("xminigrid"), False),
+    ("ippo", "dune_sea/hide_and_seek", None, few_resets),
+    ("ippo", "dune_sea/tag", None, few_resets),
+    ("recurrent_ippo", "dune_sea/hide_and_seek", None, few_resets),
+    ("recurrent_ippo", "dune_sea/tag", None, few_resets),
     ("ippo", "dune_sea/connectx", None, False),
     ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
     ("ippo", "bluffjax/goofspiel", installed("bluffjax"), False),
