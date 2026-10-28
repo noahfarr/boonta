@@ -40,12 +40,11 @@ class Tag(DuneSea):
             time_limit,
             generate,
             growth_steps=growth_steps,
-            teams=[0] * num_agents,
+            teams=list(range(num_agents)),
             eaters=[True] * num_agents,
             thieves=[True] * num_agents,
             catch_amount=tag_amount,
             energy_cost=energy_cost,
-            tag_from_behind=True,
         )
 
     def step(

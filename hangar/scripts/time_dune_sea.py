@@ -59,7 +59,7 @@ def components(env, num_envs, ratio):
 
     parts = {
         "observe": lambda state, key: observe(state)["view"].sum(),
-        "move": lambda state, key: moved(state, key).sum(),
+        "move": lambda state, key: sum(part.sum() for part in moved(state, key)),
         "interact": interacted,
         "map generation (all envs)": generated,
         "step": stepped(batch),

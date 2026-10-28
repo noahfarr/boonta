@@ -12,7 +12,7 @@ from boonta.environments.dune_sea.render import render
 from boonta.environments.dune_sea import Cell as StateCell
 from boonta.environments.dune_sea.dune_sea import (DuneSea, BROADCAST, CATCH_AMOUNT,
                                                     ENERGY_COST, FORWARD,
-                                                    INTERACT, NOOP, PLACE,
+                                                    INTERACT, NOOP, PLACE, RIGHT,
                                                     TURN_LEFT)
 from boonta.environments.dune_sea.state import (GROWTH_STEPS, MATURE_ENERGY, MAX_PLANT_ENERGY,
                                                 SEED_ENERGY)
@@ -233,14 +233,16 @@ def test_an_agent_without_energy_is_inert_and_neither_blocks_nor_shows():
     assert bool(timestep.terminated[1])
 
 
-def test_a_thief_takes_energy_from_the_agent_it_faces():
+def test_a_thief_takes_energy_from_the_agent_it_bumps():
     cells = make_cell(EMPTY, EMPTY)
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
-        Sandbox, cells, agents([[1, 0], [1, 1]], [0, 2], energy=[0.9, 0.2]), **roles
+        Sandbox, cells, agents([[1, 0], [1, 1]], [2, 2], energy=[0.9, 0.2]), **roles
     )
 
-    state, timestep = step(env, state, NOOP, INTERACT)
+    state, timestep = step(env, state, NOOP, FORWARD)
+
+    assert state.agent.position[1].tolist() == [1, 1]
 
     assert state.agent.energy[0] == pytest.approx(0.9 - CATCH_AMOUNT - ENERGY_COST)
     assert state.agent.energy[1] == pytest.approx(0.2 + CATCH_AMOUNT - ENERGY_COST)
@@ -251,16 +253,29 @@ def test_a_thief_cannot_take_more_than_the_victim_has():
     cells = make_cell(EMPTY, EMPTY)
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
-        Sandbox, cells, agents([[1, 0], [1, 1]], [0, 2], energy=[0.3, 0.2]), **roles
+        Sandbox, cells, agents([[1, 0], [1, 1]], [2, 2], energy=[0.3, 0.2]), **roles
     )
 
-    state, _ = step(env, state, NOOP, INTERACT)
+    state, _ = step(env, state, NOOP, FORWARD)
 
     assert state.agent.energy[0] == 0
     assert state.agent.energy[1] == pytest.approx(0.2 + 0.3 - ENERGY_COST)
 
 
-def test_only_thieves_steal_and_only_eaters_eat():
+def test_only_thieves_steal():
+    cells = make_cell(EMPTY, EMPTY)
+    roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
+    env, state = world(
+        Sandbox, cells, agents([[1, 0], [1, 1]], [0, 0], energy=[0.5, 0.5]), **roles
+    )
+
+    state, _ = step(env, state, FORWARD, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.5 - ENERGY_COST)
+    assert state.agent.energy[1] == pytest.approx(0.5 - ENERGY_COST)
+
+
+def test_only_eaters_eat():
     cells = make_cell(EMPTY, plant(1, 2, 0.4))
     roles = dict(teams=[0, 1], eaters=[True, False], thieves=[False, True])
     env, state = world(
@@ -362,7 +377,7 @@ def test_hiders_start_with_dirt_and_seekers_with_none():
     assert timestep.obs["inventory"].tolist() == [4.0, 4.0, 0.0, 0.0, 0.0]
 
 
-def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
+def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_bump():
     env = dune_sea.make(
         "hide_and_seek",
         height=12,
@@ -375,10 +390,10 @@ def test_a_catch_in_hide_and_seek_removes_a_hider_in_one_interaction():
     state, _ = env.init(KEY)
     position = jnp.array([[5, 5], [5, 6]])
     state = state.replace(
-        agent=state.agent.replace(position=position, direction=jnp.array([0, 2]), energy=jnp.array([1.0, 0.4]))
+        agent=state.agent.replace(position=position, direction=jnp.array([2, 2]), energy=jnp.array([1.0, 0.4]))
     )
 
-    state, timestep = jax.jit(env.step)(KEY, state, jnp.array([NOOP, INTERACT], jnp.int32))
+    state, timestep = jax.jit(env.step)(KEY, state, jnp.array([NOOP, FORWARD], jnp.int32))
 
     assert state.agent.energy[0] == 0
     assert bool(timestep.terminated.all())
@@ -611,17 +626,16 @@ def tagging(cells, agent, **kwargs):
         agent,
         thieves=[True] * count,
         catch_amount=0.3,
-        tag_from_behind=True,
         **kwargs,
     )
 
 
-def test_a_tag_lands_only_on_an_agent_that_is_facing_away():
+def test_a_bump_tags_unless_the_victim_is_looking_at_the_tagger():
     cells = make_cell(EMPTY, EMPTY)
-    for victim_direction, lands in ((0, True), (2, False), (1, False), (3, False)):
+    for victim_direction, lands in ((0, True), (2, False), (1, True), (3, True)):
         env, state = tagging(cells, agents([[1, 0], [1, 1]], [0, victim_direction], energy=[0.5, 0.5]))
 
-        state, _ = step(env, state, INTERACT, NOOP)
+        state, _ = step(env, state, FORWARD, NOOP)
 
         assert (float(state.agent.energy[1]) < 0.5 - ENERGY_COST - 0.1) == lands
         assert (float(state.agent.energy[0]) > 0.5 + 0.1) == lands
@@ -631,11 +645,23 @@ def test_a_tag_moves_energy_from_the_tagged_agent_to_the_tagger():
     cells = make_cell(EMPTY, EMPTY)
     env, state = tagging(cells, agents([[1, 0], [1, 1]], [0, 0], energy=[0.4, 0.8]))
 
-    state, timestep = step(env, state, INTERACT, NOOP)
+    state, timestep = step(env, state, FORWARD, NOOP)
+
+    assert state.agent.position[0].tolist() == [1, 0]
 
     assert state.agent.energy[0] == pytest.approx(0.4 + 0.3 - ENERGY_COST)
     assert state.agent.energy[1] == pytest.approx(0.8 - 0.3 - ENERGY_COST)
     assert timestep.reward[0] == pytest.approx(0.3 - ENERGY_COST)
+
+
+def test_a_bump_to_the_side_tags_too():
+    cells = make_cell(EMPTY, EMPTY)
+    env, state = tagging(cells, agents([[1, 1], [2, 1]], [0, 0], energy=[0.4, 0.8]))
+
+    state, _ = step(env, state, RIGHT, NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.4 + 0.3 - ENERGY_COST)
+    assert state.agent.energy[1] == pytest.approx(0.8 - 0.3 - ENERGY_COST)
 
 
 def test_the_view_shows_which_way_the_others_face_relative_to_the_viewer():
@@ -652,11 +678,11 @@ def test_the_view_shows_which_way_the_others_face_relative_to_the_viewer():
     assert view[3, 3, 7] == 1
 
 
-def test_tag_defaults_make_every_agent_a_tagger_who_starts_half_charged():
+def test_tag_defaults_make_every_agent_a_tagger_on_its_own_team_who_starts_half_charged():
     env = dune_sea.make("tag")
     state, timestep = env.init(KEY)
 
-    assert env.thieves.all() and env.tag_from_behind
+    assert env.thieves.all() and env.teams.tolist() == list(range(env.num_agents))
     assert float(state.agent.energy.max()) == pytest.approx(0.5)
     assert timestep.obs["view"].shape[-1] == 11
 

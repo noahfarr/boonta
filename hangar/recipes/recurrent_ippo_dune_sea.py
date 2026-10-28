@@ -26,10 +26,10 @@ class ViewAndEnergy(nn.Module):
         view = Flatten(start_dim=-3)(obs["view"].astype(dtype))
         energy = obs["energy"].astype(dtype)[..., None]
         inventory = jnp.log1p(obs["inventory"].astype(jnp.float32)).astype(dtype)[..., None]
-        team = obs["team"].astype(dtype)[..., None]
+        thief = obs["thief"].astype(dtype)[..., None]
         dense = partial(nn.Dense, self.features, dtype=self.dtype, param_dtype=self.param_dtype)
         return nn.Sequential([dense(), nn.relu])(
-            jnp.concatenate([view, energy, inventory, team], axis=-1)
+            jnp.concatenate([view, energy, inventory, thief], axis=-1)
         )
 
 

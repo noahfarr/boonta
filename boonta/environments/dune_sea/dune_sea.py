@@ -54,7 +54,6 @@ class DuneSea(Environment):
         thieves: Sequence[bool],
         energy_cost: float = ENERGY_COST,
         catch_amount: float = CATCH_AMOUNT,
-        tag_from_behind: bool = False,
         growth_steps: int | None = None,
     ):
         self.height = height
@@ -66,7 +65,6 @@ class DuneSea(Environment):
         self.energy_cost = energy_cost
         self.catch_amount = catch_amount
         self.growth = None if growth_steps is None else (MAX_PLANT_ENERGY - SEED_ENERGY) / growth_steps
-        self.tag_from_behind = tag_from_behind
         self.num_actions = NUM_ACTIONS
         self.num_channels = NUM_CHANNELS
         self.teams = jnp.asarray(teams, jnp.int32)
@@ -86,34 +84,56 @@ class DuneSea(Environment):
         )
         return state, timestep
 
-    def move(self, state: DuneSeaState, action: Array, turn_order: Array) -> Array:
+    def move(
+        self, state: DuneSeaState, action: Array, turn_order: Array
+    ) -> tuple[Array, Array]:
         grid_size = jnp.array([self.height, self.width])
         alive = state.agent.energy > 0
+        indices = jnp.arange(self.num_agents)
 
-        def stride(positions, agent_index):
+        def stride(carry, agent_index):
+            positions, loss = carry
             position = positions[agent_index]
             agent_action = action[agent_index]
             move_direction = DIRECTIONS[
                 (state.agent.direction[agent_index] + MOVE_OFFSET[agent_action]) % 4
             ]
             moving = STEP_SIZE[agent_action] > 0
+            target = position + move_direction
+            in_bounds = jnp.all((target >= 0) & (target < grid_size))
+            y, x = jnp.clip(target, 0, grid_size - 1)
 
-            def is_free(cell):
-                in_bounds = jnp.all((cell >= 0) & (cell < grid_size))
-                y, x = jnp.clip(cell, 0, grid_size - 1)
-                occupied = jnp.any(jnp.all(positions == cell, axis=-1) & alive)
-                return (
-                    in_bounds
-                    & (state.cells.wall[y, x] == 0)
-                    & ~occupied
-                )
+            at_target = (
+                alive
+                & (indices != agent_index)
+                & jnp.all(positions == target, axis=-1)
+            )
+            victim = jnp.argmax(at_target)
+            remaining = state.agent.energy[victim] - loss[victim]
+            gazed_at = positions[victim] + DIRECTIONS[state.agent.direction[victim]]
+            can_tag = (
+                moving
+                & in_bounds
+                & at_target.any()
+                & self.thieves[agent_index]
+                & (self.catch_amount > 0)
+                & (remaining > 0)
+                & ~jnp.all(gazed_at == position)
+            )
+            stolen = jnp.where(can_tag, jnp.minimum(self.catch_amount, remaining), 0.0)
 
-            first = position + move_direction
-            position = jnp.where(moving & is_free(first), first, position)
-            return positions.at[agent_index].set(position), None
+            free = in_bounds & (state.cells.wall[y, x] == 0) & ~at_target.any()
+            position = jnp.where(moving & free, target, position)
+            carry = positions.at[agent_index].set(position), loss.at[victim].add(stolen)
+            return carry, stolen
 
-        positions, _ = jax.lax.scan(stride, state.agent.position, turn_order)
-        return positions
+        (positions, loss), stolen = jax.lax.scan(
+            stride,
+            (state.agent.position, jnp.zeros(self.num_agents, jnp.float32)),
+            turn_order,
+        )
+        gain = jnp.zeros_like(stolen).at[turn_order].set(stolen)
+        return positions, gain - loss
 
     def interact(
         self,
@@ -127,7 +147,7 @@ class DuneSea(Environment):
         indices = jnp.arange(self.num_agents)
 
         def act(carry, agent_index):
-            wall, energy_grid, bush, loss = carry
+            wall, energy_grid, bush = carry
             facing_position = (
                 positions[agent_index] + DIRECTIONS[state.agent.direction[agent_index]]
             )
@@ -140,35 +160,15 @@ class DuneSea(Environment):
                 & (indices != agent_index)
                 & jnp.all(positions == facing_position, axis=-1)
             )
-            victim = jnp.argmax(at_facing)
-            remaining = state.agent.energy[victim] - loss[victim]
-            can_steal = (
-                interacting
-                & (self.catch_amount > 0)
-                & self.thieves[agent_index]
-                & at_facing.any()
-                & (remaining > 0)
-                & (
-                    state.agent.direction[victim] == state.agent.direction[agent_index]
-                    if self.tag_from_behind
-                    else True
-                )
-            )
-            stolen = jnp.where(
-                can_steal, jnp.minimum(self.catch_amount, remaining), 0.0
-            )
 
-            can_mine = interacting & ~can_steal & (wall[y, x] > 0)
+            can_mine = interacting & (wall[y, x] > 0)
             can_collect = (
                 interacting
-                & ~can_steal
                 & ~can_mine
                 & self.eaters[agent_index]
                 & (energy_grid[y, x] > 0)
             )
-            can_clear = (
-                interacting & ~can_steal & ~can_mine & ~can_collect & (bush[y, x] > 0)
-            )
+            can_clear = interacting & ~can_mine & ~can_collect & (bush[y, x] > 0)
             can_place = (
                 (action[agent_index] == PLACE)
                 & in_bounds
@@ -178,7 +178,7 @@ class DuneSea(Environment):
                 & (bush[y, x] == 0)
                 & ~at_facing.any()
             )
-            gain = stolen + jnp.where(can_collect, energy_grid[y, x], 0.0)
+            gain = jnp.where(can_collect, energy_grid[y, x], 0.0)
             wall = wall.at[y, x].set(
                 jnp.where(can_mine, 0.0, jnp.where(can_place, 1.0, wall[y, x]))
             )
@@ -186,29 +186,22 @@ class DuneSea(Environment):
                 jnp.where(can_collect, 0.0, energy_grid[y, x])
             )
             bush = bush.at[y, x].set(jnp.where(can_clear, 0.0, bush[y, x]))
-            loss = loss.at[victim].add(stolen)
-            return (wall, energy_grid, bush, loss), (can_mine, can_place, gain)
+            return (wall, energy_grid, bush), (can_mine, can_place, gain)
 
-        (wall, energy_grid, bush, loss), (mined, placed, gain) = jax.lax.scan(
+        (wall, energy_grid, bush), (mined, placed, gain) = jax.lax.scan(
             act,
-            (
-                state.cells.wall,
-                state.cells.energy,
-                state.cells.bush,
-                jnp.zeros(self.num_agents, jnp.float32),
-            ),
+            (state.cells.wall, state.cells.energy, state.cells.bush),
             turn_order,
         )
         in_agent_order = (
             lambda values: jnp.zeros_like(values).at[turn_order].set(values)
         )
-        energy_change = in_agent_order(gain) - loss
         inventory_change = in_agent_order(mined).astype(jnp.int32) - in_agent_order(
             placed
         ).astype(jnp.int32)
         return (
             state.cells.replace(wall=wall, energy=energy_grid, bush=bush),
-            energy_change,
+            in_agent_order(gain),
             inventory_change,
         )
 
@@ -220,14 +213,14 @@ class DuneSea(Environment):
         action = jnp.where(alive, chosen, NOOP)
         action = jnp.where(action >= self.num_actions, NOOP, action)
         turn_order = jax.random.permutation(key, self.num_agents)
-        positions = self.move(state, action, turn_order)
+        positions, tag_change = self.move(state, action, turn_order)
         cells, energy_change, inventory_change = self.interact(
             state, action, positions, turn_order
         )
 
         if self.growth is not None:
             cells = cells.replace(energy=self.ripen(state.cells.energy, cells.energy))
-        energy_change = energy_change + self.drain(state, positions, cells)
+        energy_change = energy_change + tag_change + self.drain(state, positions, cells)
         upkeep = jnp.where(alive, self.energy_cost, 0.0)
         energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
@@ -355,7 +348,7 @@ class DuneSea(Environment):
             "view": views,
             "energy": state.agent.energy / MAX_ENERGY,
             "inventory": state.agent.inventory,
-            "team": self.teams,
+            "thief": self.thieves,
         }
         return jax.tree.map(lambda leaf: leaf.astype(OBSERVATION_DTYPE), observation)
 
@@ -378,7 +371,7 @@ class DuneSea(Environment):
             "inventory": Space(
                 shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=jnp.inf
             ),
-            "team": Space(
+            "thief": Space(
                 shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=1.0
             ),
         }
