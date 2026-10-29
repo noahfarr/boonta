@@ -12,17 +12,19 @@ class Render:
         self,
         name: str = "render",
         fps: int = 16,
+        num_episodes: int = 1,
         kwargs: dict | None = None,
     ):
         self.name = name
         self.fps = fps
+        self.num_episodes = num_episodes
         self.kwargs = kwargs or {}
 
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
         _, carry = algorithm.init(init_key, timestep)
-        num_steps = environment.time_limit() + 1
+        num_steps = self.num_episodes * (environment.time_limit() + 1)
 
         def step(loop, key):
             algorithm_state, carry, environment_state, timestep = loop
@@ -52,7 +54,10 @@ class Render:
                 state.algorithm_state, key
             )
         )
-        num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)
+        (ends,) = np.nonzero(done)
+        num_frames = len(done)
+        if len(ends) >= self.num_episodes:
+            num_frames = ends[self.num_episodes - 1] + 1
         frames = [
             np.asarray(
                 environment.render(

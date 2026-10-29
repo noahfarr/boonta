@@ -12,13 +12,15 @@ class Tower(Block):
     num_layers: int = 1
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         if carry is None:
             batch_size, _, *features = x.shape
             carry = self.initialize_carry(jax.random.key(0), (batch_size, *features))
 
         def layer(block, activations, state, mask):
-            state, activations = block(state, activations, mask)
+            state, activations = block(state, activations, mask, **kwargs)
             return activations, state
 
         x, carries = nn.scan(

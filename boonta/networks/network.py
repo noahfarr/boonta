@@ -44,7 +44,7 @@ class Network(nn.Module):
             self.sow("intermediates", "features", x, reduce_fn=lambda _, value: value)
             return head(x, **kwargs)
 
-        carry, x = self.torso(carry, x, done, **kwargs)
+        carry, x = self.torso(carry, x, done, action=action, **kwargs)
         self.sow("intermediates", "features", x, reduce_fn=lambda _, value: value)
         return carry, head(x, **kwargs)
 

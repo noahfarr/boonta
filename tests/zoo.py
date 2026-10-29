@@ -25,9 +25,10 @@ from boonta.algorithms.sac import SAC, SACConfig
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
-from boonta.networks import (RNN, SSM, ActorCritic, Categorical,
-                             EpsilonGreedy, FeatureExtractor, Gaussian,
-                             Highway, MinGRUCell, Network, RTUCell,
+from boonta.networks import (RNN, SALT, SSM, ActorCritic, Categorical,
+                             DeltaNet, EpsilonGreedy, FeatureExtractor, GatedDeltaNet,
+                             Gaussian, Highway, LinearAttention, MinGRUCell,
+                             Network, RTUCell,
                              SelfAttention, SquashedGaussian, Tower,
                              causal_attention_mask, llama, repeat)
 from boonta.networks.layers import Identity, Parameter
@@ -37,6 +38,7 @@ from boonta.utils import mesh
 from dummies import Episodes, demonstrations, flatten
 
 WIDTH = 32
+NUM_ACTIONS = 5
 
 
 def discrete(environment) -> bool:
@@ -82,6 +84,37 @@ def attention(context_length=4, dtype=None):
     )
 
 
+def delta_net(dtype=None, kind=DeltaNet):
+    return LinearAttention(
+        cell=kind(
+            features=WIDTH,
+            num_key_heads=2,
+            num_value_heads=2,
+            key_dim=8,
+            value_dim=16,
+            dtype=dtype,
+        ),
+        chunk_size=2,
+    )
+
+
+gated_delta_net = partial(delta_net, kind=GatedDeltaNet)
+
+
+def salt(dtype=None):
+    return LinearAttention(
+        cell=SALT(
+            features=WIDTH,
+            action_encoder=nn.Embed(NUM_ACTIONS, WIDTH // 2),
+            num_heads=2,
+            key_dim=8,
+            value_dim=16,
+            dtype=dtype,
+        ),
+        chunk_size=2,
+    )
+
+
 def highway(dtype=None):
     return Tower(block=Highway(blocks=min_gru(dtype), dtype=dtype), num_layers=2)
 
@@ -100,6 +133,9 @@ TORSOS = {
     "rtu": rtu,
     "attention-one-rollout": partial(attention, 4),
     "attention-longer-than-a-rollout": partial(attention, 6),
+    "delta_net": delta_net,
+    "gated_delta_net": gated_delta_net,
+    "salt": salt,
     "highway": highway,
     "llama": llama_stack,
     "repeat": repeated,

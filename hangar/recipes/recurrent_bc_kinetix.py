@@ -94,8 +94,8 @@ class Threaded(Block):
     inner: nn.Module
 
     @nn.compact
-    def __call__(self, carry, x, done):
-        carry, features = self.inner(carry, x["features"], done)
+    def __call__(self, carry, x, done, **kwargs):
+        carry, features = self.inner(carry, x["features"], done, **kwargs)
         return carry, {"features": features, "mask": x["mask"]}
 
     @nn.nowrap

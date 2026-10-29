@@ -32,7 +32,9 @@ class SSM(Block):
     cell: SSMCellBase
 
     @nn.compact
-    def __call__(self, carry: Carry, inputs: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, inputs: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         batch_size, _, *features = inputs.shape
         initial_carry = self.cell.initialize_carry(
             jax.random.key(0), (batch_size, *features)

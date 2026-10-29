@@ -6,7 +6,9 @@ from .block import Block
 
 
 class Identity(Block):
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         return None, x
 
     @nn.nowrap

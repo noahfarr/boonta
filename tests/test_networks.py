@@ -8,9 +8,11 @@ import pytest
 
 import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
-                             FeatureExtractor, Gaussian, Highway, Network,
-                             RTUCell, SquashedGaussian, Tower, distributions,
-                             llama, repeat)
+                             FeatureExtractor, Gaussian, Highway,
+                             LinearAttentionInputs, Network, RTUCell,
+                             SquashedGaussian, Tower, distributions, llama,
+                             repeat)
+from boonta.networks.blocks.linear_attention import chunkwise, recurrent
 from boonta.networks.blocks.ssm import binary_operator
 from boonta.networks.kernels import get_scan_implementation
 from boonta.utils import get_attention_implementation
@@ -23,6 +25,10 @@ def sequence(dtype=jnp.float32):
     return jax.random.normal(jax.random.key(1), (BATCH, LENGTH, zoo.WIDTH)).astype(dtype)
 
 
+def actions():
+    return jax.random.randint(jax.random.key(3), (BATCH, LENGTH), 0, zoo.NUM_ACTIONS)
+
+
 def starts(*steps):
     done = jnp.zeros((BATCH, LENGTH), bool).at[:, 0].set(True)
     for step in steps:
@@ -30,12 +36,15 @@ def starts(*steps):
     return done
 
 
-def run(torso, params, x, done, size):
+def run(torso, params, x, done, size, action=None):
+    if action is None:
+        action = actions()
     carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
     outputs = []
     for start in range(0, x.shape[1], size):
+        window = slice(start, start + size)
         carry, output = torso.apply(
-            params, carry, x[:, start : start + size], done[:, start : start + size]
+            params, carry, x[:, window], done[:, window], action=action[:, window]
         )
         outputs.append(output)
     return carry, jnp.concatenate(outputs, axis=1)
@@ -45,7 +54,13 @@ def build(name, dtype=None):
     torso = zoo.TORSOS[name](dtype=dtype)
     x, done = sequence(dtype or jnp.float32), starts()
     carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
-    return torso, torso.init(jax.random.key(2), carry, x[:, :CHUNK], done[:, :CHUNK])
+    return torso, torso.init(
+        jax.random.key(2),
+        carry,
+        x[:, :CHUNK],
+        done[:, :CHUNK],
+        action=actions()[:, :CHUNK],
+    )
 
 
 @pytest.mark.parametrize("name", zoo.TORSOS)
@@ -62,11 +77,13 @@ def test_an_episode_start_forgets_everything_before_it(name):
     torso, params = build(name)
     x = sequence()
     _, outputs = run(torso, params, x, starts(5), 1)
-    _, fresh = run(torso, params, x[:, 5:], starts()[:, : LENGTH - 5], 1)
+    _, fresh = run(
+        torso, params, x[:, 5:], starts()[:, : LENGTH - 5], 1, actions()[:, 5:]
+    )
     np.testing.assert_allclose(outputs[:, 5:], fresh, rtol=1e-4, atol=1e-5)
 
 
-def dense_dtypes(torso, params, *inputs):
+def dense_dtypes(torso, params, *inputs, **kwargs):
     seen = []
 
     def record(call, args, kwargs, context):
@@ -75,7 +92,7 @@ def dense_dtypes(torso, params, *inputs):
         return call(*args, **kwargs)
 
     with nn.intercept_methods(record):
-        torso.apply(params, *inputs)
+        torso.apply(params, *inputs, **kwargs)
     return seen
 
 
@@ -85,7 +102,9 @@ def test_half_precision_runs_every_dense_in_half_and_keeps_the_carry_dtype(name)
     x, done = sequence(jnp.bfloat16), starts()
     initial = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
 
-    dtypes = dense_dtypes(torso, params, initial, x[:, :CHUNK], done[:, :CHUNK])
+    dtypes = dense_dtypes(
+        torso, params, initial, x[:, :CHUNK], done[:, :CHUNK], action=actions()[:, :CHUNK]
+    )
     assert dtypes and all(dtype == jnp.bfloat16 for dtype in dtypes)
     carry, _ = run(torso, params, x, done, CHUNK)
     assert jax.tree.map(lambda leaf: leaf.dtype, carry) == jax.tree.map(
@@ -322,10 +341,10 @@ def test_the_network_forwards_temperature_past_every_torso(name):
     network = Network(
         feature_extractor=FeatureExtractor(nn.Dense(zoo.WIDTH)),
         torso=zoo.TORSOS[name](),
-        head=Categorical(nn.Dense(5)),
+        head=Categorical(nn.Dense(zoo.NUM_ACTIONS)),
     )
     x = sequence()[:, :CHUNK]
-    action = jnp.zeros((BATCH, CHUNK), jnp.int32)
+    action = actions()[:, :CHUNK]
     reward = jnp.zeros((BATCH, CHUNK))
     done = starts()[:, :CHUNK]
     carry = network.initialize_carry(KEY, (BATCH, zoo.WIDTH))
@@ -388,3 +407,153 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     gpu(capability)
     implementation, _ = get_attention_implementation(head_dim, *lengths)
     assert implementation == expected
+
+
+def linear_inputs(decay, erase, batch=2, length=37, heads=3, key_dim=8, value_dim=5):
+    keys = jax.random.split(jax.random.key(7), 6)
+    key = jax.random.normal(keys[1], (batch, length, heads, key_dim))
+    return LinearAttentionInputs(
+        query=jax.random.normal(keys[0], (batch, length, heads, key_dim)),
+        key=key / jnp.linalg.norm(key, axis=-1, keepdims=True),
+        value=jax.random.normal(keys[2], (batch, length, heads, value_dim)),
+        log_decay=-2.0 * jax.random.uniform(keys[3], (batch, length, heads)) * decay,
+        erase_gate=jax.random.uniform(keys[4], (batch, length, heads)) * erase,
+        write_gate=jax.random.uniform(keys[5], (batch, length, heads)),
+    )
+
+
+def per_token(inputs, done, state):
+    query, key, value, log_decay, erase_gate, write_gate = (
+        np.asarray(x, np.float64)
+        for x in (
+            inputs.query,
+            inputs.key,
+            inputs.value,
+            inputs.log_decay,
+            inputs.erase_gate,
+            inputs.write_gate,
+        )
+    )
+    state = np.asarray(state, np.float64)
+    outputs = np.zeros_like(value)
+    for step in range(value.shape[1]):
+        state = np.where(np.asarray(done)[:, step, None, None, None], 0.0, state)
+        state = state * np.exp(log_decay[:, step])[..., None, None]
+        erased = np.einsum("bhk,bhkv->bhv", key[:, step], state) * erase_gate[:, step, :, None]
+        written = value[:, step] * write_gate[:, step, :, None] - erased
+        state = state + np.einsum("bhk,bhv->bhkv", key[:, step], written)
+        outputs[:, step] = np.einsum("bhk,bhkv->bhv", query[:, step], state)
+    return outputs, state
+
+
+@pytest.mark.parametrize("erase", [False, True], ids=["additive", "erasing"])
+@pytest.mark.parametrize("decay", [False, True], ids=["constant", "decayed"])
+@pytest.mark.parametrize("chunk_size", [0, 1, 4, 16, 64], ids=lambda size: f"chunk{size}")
+def test_linear_attention_matches_a_per_token_recurrence(decay, erase, chunk_size):
+    inputs = linear_inputs(decay, erase)
+    done = jax.random.uniform(jax.random.key(8), inputs.value.shape[:2]) < 0.1
+    state = jax.random.normal(jax.random.key(9), (2, 3, 8, 5))
+    expected, expected_state = per_token(inputs, done, state)
+    if chunk_size:
+        outputs, final = chunkwise(inputs, done, state, chunk_size)
+    else:
+        outputs, final = recurrent(inputs, done, state)
+    np.testing.assert_allclose(outputs, expected, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(final, expected_state, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("name", ["delta_net", "gated_delta_net", "salt"])
+def test_a_linear_attention_forgets_everything_before_an_episode_start_inside_a_chunk(name):
+    torso, params = build(name)
+    x, action = sequence(), actions()
+    carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    _, outputs = torso.apply(params, carry, x, starts(5), action=action)
+    _, fresh = torso.apply(
+        params, carry, x[:, 5:], starts()[:, : LENGTH - 5], action=action[:, 5:]
+    )
+    np.testing.assert_allclose(outputs[:, 5:], fresh, rtol=1e-4, atol=1e-5)
+
+
+def salt_steps(inputs, done, state):
+    query, key, value, log_decay, erase_gate, write_gate = (
+        np.asarray(x, np.float64)
+        for x in (
+            inputs.query,
+            inputs.key,
+            inputs.value,
+            inputs.log_decay,
+            inputs.erase_gate,
+            inputs.write_gate,
+        )
+    )
+    state = np.asarray(state, np.float64)
+    readouts = np.zeros_like(value[:, 1::2])
+    eye = np.eye(key.shape[-1])
+    for step in range(readouts.shape[1]):
+        action, observation = 2 * step, 2 * step + 1
+        state = np.where(np.asarray(done)[:, step, None, None, None], 0.0, state)
+        alpha = np.exp(log_decay[:, action])[..., None, None]
+        gamma = write_gate[:, action, :, None, None]
+        beta = write_gate[:, observation, :, None, None]
+        k_u, v_u = key[:, action], value[:, action]
+        k_s, v_s = key[:, observation], value[:, observation]
+        contraction = eye - beta * np.einsum("bhi,bhj->bhij", k_s, k_s)
+        state = contraction @ (alpha * state + gamma * np.einsum("bhk,bhv->bhkv", k_u, v_u))
+        state = state + beta * np.einsum("bhk,bhv->bhkv", k_s, v_s)
+        readouts[:, step] = np.einsum("bhk,bhkv->bhv", query[:, observation], state)
+    return readouts, state
+
+
+def test_salt_runs_the_action_write_and_the_state_delta_step_of_its_recurrence():
+    torso, params = build("salt")
+    x, action, done = sequence(), actions(), starts(5)
+    carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    cell = {"params": params["params"]["cell"]}
+    _, inputs = torso.cell.apply(cell, carry.cell, x, done, action=action)
+    readouts, state = salt_steps(inputs, done, carry.state)
+    expected = torso.cell.apply(
+        cell, jnp.asarray(readouts, jnp.float32), x, method=torso.cell.output
+    )
+    final, outputs = torso.apply(params, carry, x, done, action=action)
+    np.testing.assert_allclose(outputs, expected, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(final.state, state, rtol=1e-4, atol=1e-4)
+
+
+def acting(torso):
+    network = Network(
+        feature_extractor=FeatureExtractor(nn.Dense(zoo.WIDTH)),
+        torso=llama(torso, num_layers=2, features=zoo.WIDTH),
+        head=Categorical(nn.Dense(zoo.NUM_ACTIONS)),
+    )
+    x, done = sequence(), starts(5)
+    reward = jnp.zeros((BATCH, LENGTH))
+    carry = network.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    params = network.init(
+        jax.random.key(9), x, actions(), reward, done, carry=carry, temperature=1.0
+    )
+
+    def logits(action):
+        _, distribution = network.apply(
+            params, x, action, reward, done, carry=carry, temperature=1.0
+        )
+        return distribution.logits
+
+    return logits(actions()), logits((actions() + 1) % zoo.NUM_ACTIONS)
+
+
+def test_actions_reach_a_salt_cell_through_the_network_and_a_stack():
+    acted, shifted = acting(zoo.salt())
+    assert not np.allclose(acted, shifted, atol=1e-6)
+
+
+@pytest.mark.parametrize("name", ["delta_net", "gated_delta_net"])
+def test_a_delta_net_ignores_the_action(name):
+    acted, shifted = acting(zoo.TORSOS[name]())
+    np.testing.assert_array_equal(acted, shifted)
+
+
+def test_only_the_gated_delta_net_decays_its_memory():
+    _, gated = build("gated_delta_net")
+    _, plain = build("delta_net")
+    assert {"alpha", "log_rate", "step_bias"} <= set(gated["params"]["cell"])
+    assert {"alpha", "log_rate", "step_bias"}.isdisjoint(plain["params"]["cell"])

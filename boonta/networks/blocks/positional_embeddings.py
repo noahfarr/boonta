@@ -64,7 +64,9 @@ class SinusoidalPositionalEmbedding(Block):
     max_wavelength: float = 10_000.0
 
     @nn.compact
-    def __call__(self, carry: Array, x: Array, done: Array) -> tuple[Array, Array]:
+    def __call__(
+        self, carry: Array, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Array, Array]:
         assert (
             self.features % 2 == 0
         ), f"features must be even, but was features: {self.features}"
@@ -90,7 +92,9 @@ class LearnedPositionalEmbedding(Block):
     param_dtype: Dtype = jnp.float32
 
     @nn.compact
-    def __call__(self, carry: Array, x: Array, done: Array) -> tuple[Array, Array]:
+    def __call__(
+        self, carry: Array, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Array, Array]:
         carry, positions = episode_positions(carry, done)
         embedding = nn.Embed(
             self.max_length,

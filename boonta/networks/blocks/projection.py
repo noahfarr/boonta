@@ -18,7 +18,9 @@ class Projection(Block):
     activation: Callable[[Array], Array] | None = None
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         x = nn.Dense(
             self.features,
             dtype=self.dtype,

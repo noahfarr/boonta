@@ -1,0 +1,8 @@
+namespace: dune_sea
+suite: dead_reckoning
+env_id: dead_reckoning
+kwargs:
+  radius: 3
+  egocentric: false
+  glimpse: 0.0
+  slip_probability: 0.0

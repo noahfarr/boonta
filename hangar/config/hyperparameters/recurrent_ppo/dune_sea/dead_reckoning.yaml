@@ -1,0 +1,8 @@
+# @package _global_
+
+environment:
+  num_envs: 2048
+
+podracer:
+  config:
+    num_steps: 32

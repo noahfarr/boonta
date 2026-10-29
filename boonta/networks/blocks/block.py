@@ -4,7 +4,9 @@ from boonta.utils.typing import Array, Carry, Key
 
 
 class Block(nn.Module):
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         raise NotImplementedError
 
     @nn.nowrap

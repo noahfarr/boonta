@@ -12,11 +12,13 @@ class Stack(Block):
     blocks: Sequence[Block]
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         def step(state: tuple[Carry, Array], inputs) -> tuple[Carry, Array]:
             carry, x = state
             block_carry, block = inputs
-            block_carry, x = block(block_carry, x, done)
+            block_carry, x = block(block_carry, x, done, **kwargs)
             return (*carry, block_carry), x
 
         carries = broadcast_carry(carry, len(self.blocks))

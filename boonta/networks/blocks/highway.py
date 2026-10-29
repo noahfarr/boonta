@@ -13,7 +13,9 @@ class Highway(Block):
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         *_, features = x.shape
         gate = nn.sigmoid(
             nn.Dense(
@@ -25,7 +27,7 @@ class Highway(Block):
             )(x)
         )
         skip = x
-        carry, x = self.blocks(carry, x, done)
+        carry, x = self.blocks(carry, x, done, **kwargs)
         return carry, gate * x + (1 - gate) * skip
 
     @nn.nowrap

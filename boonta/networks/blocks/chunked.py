@@ -10,7 +10,9 @@ class Chunked(Block):
     block: Block
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         batch_size, sequence_length, num_tokens, features = x.shape
         x = x.reshape(batch_size, sequence_length * num_tokens, features)
         done = (

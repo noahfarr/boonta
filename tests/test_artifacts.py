@@ -301,20 +301,28 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
     assert len(np.unique(video.data.reshape(frames, -1), axis=0)) > 1
 
 
-def test_the_render_artisan_stops_when_the_first_episode_ends():
+def corridor_video(**kwargs):
     environment = zoo.wrap(corridor(), NUM_ENVS)
     environment.time_limit = lambda: 12
-    environment.render = lambda state: np.zeros((1, 1, 3))
+    environment.render = lambda state: np.full((1, 1, 3), state.position)
 
     def step(state, carry, key, timestep, temperature=1.0):
         return state, carry, timestep.obs.argmax(-1) % 2, {}
 
     algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
     state = SimpleNamespace(algorithm_state=None)
-    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+    video = Render(**kwargs).craft(jax.random.key(0), algorithm, environment, state, {})
+    return video.data[:, 0, 0, 0]
 
-    frames, *_ = video.data.shape
-    assert frames == corridor().shortest
+
+def test_the_render_artisan_stops_when_the_first_episode_ends():
+    positions = corridor_video()
+    assert len(positions) == corridor().shortest
+
+
+def test_the_render_artisan_keeps_playing_until_enough_episodes_have_ended():
+    one = corridor_video()
+    np.testing.assert_array_equal(corridor_video(num_episodes=3), np.tile(one, 3))
 
 
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(

@@ -60,7 +60,7 @@ class SelfAttention(Block):
 
     @nn.compact
     def __call__(
-        self, carry: SelfAttentionCarry | None, x: Array, done: Array
+        self, carry: SelfAttentionCarry | None, x: Array, done: Array, **kwargs: Array
     ) -> tuple[SelfAttentionCarry, Array]:
         batch_size, sequence_length, *_ = x.shape
         context_length = self.context_length or sequence_length

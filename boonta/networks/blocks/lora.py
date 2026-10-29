@@ -14,10 +14,12 @@ class LoRA(Block):
     alpha: float = 1.0
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         base = self.variable("frozen_params", "base", init_fn(self.params)).value
         params = LoRAParams(rank=self.rank, alpha=self.alpha)(base)
-        return self.block.apply({"params": params}, carry, x, done)
+        return self.block.apply({"params": params}, carry, x, done, **kwargs)
 
     @nn.nowrap
     def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> Carry:

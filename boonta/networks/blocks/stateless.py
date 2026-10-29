@@ -11,7 +11,9 @@ class Stateless(Block):
     layer: Callable
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         return None, self.layer(x)
 
     @nn.nowrap

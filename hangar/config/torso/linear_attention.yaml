@@ -1,0 +1,2 @@
+_target_: boonta.networks.LinearAttention
+cell: ${cell}

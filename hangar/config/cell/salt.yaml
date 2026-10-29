@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - override /torso: linear_attention
+
+cell:
+  _target_: boonta.networks.SALT
+  features: 128
+  num_heads: 2
+  key_dim: 32
+  value_dim: 64
+  action_encoder:
+    _target_: flax.linen.Embed
+    num_embeddings: ${get_action_dim:${environment}}
+    features: 16

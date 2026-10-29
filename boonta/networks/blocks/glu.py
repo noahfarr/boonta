@@ -19,7 +19,9 @@ class GLU(Block):
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         dense = partial(
             nn.Dense,
             use_bias=False,

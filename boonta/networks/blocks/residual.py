@@ -9,9 +9,11 @@ class Residual(Block):
     blocks: Block
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         skip = x
-        carry, x = self.blocks(carry, x, done)
+        carry, x = self.blocks(carry, x, done, **kwargs)
         return carry, skip + x
 
     @nn.nowrap

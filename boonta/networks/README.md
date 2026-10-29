@@ -53,7 +53,7 @@ A recurrent model is built from three config groups in [`hangar/config/`](../../
 | `torso` | runs a cell over a sequence | set by the cell: `rnn`, `ssm`, or `default` (the cell itself) |
 | `stack` | layers of torsos | `default` (one layer), `highway`, `llama`, `repeat` |
 
-Each cell file picks its torso. `gru` and `rtu` run in an [`RNN`](blocks/rnn.py), a sequential scan. `min_gru` runs in an [`SSM`](blocks/ssm.py), a parallel scan. `self_attention` is its own torso. For example:
+Each cell file picks its torso. `gru` and `rtu` run in an [`RNN`](blocks/rnn.py), a sequential scan. `min_gru` runs in an [`SSM`](blocks/ssm.py), a parallel scan. `delta_net`, `gated_delta_net` and `salt` run in a [`LinearAttention`](blocks/linear_attention.py), a chunkwise delta-rule recurrence. `self_attention` is its own torso. For example:
 
 ```bash
 uv run boonta algorithm=recurrent_ppo cell=min_gru stack=highway num_layers=2
@@ -95,7 +95,7 @@ After each step the update stores back the collections the network had at init, 
 ## Add a network part
 
 - **A feature extractor or head** is a plain Flax module. Build it in the recipe. A head should wrap its output layer in one of the heads above.
-- **A cell** for `RNN` subclasses `RNNCellBase`: `__call__(carry, x)` returns `(carry, y)`, plus `initialize_carry`. Flax's own `nn.GRUCell` fits as is. A cell for `SSM` subclasses `SSMCellBase`: `__call__(x)` returns the scan's `(a, b)` and `output(carries, x)` reads the result. Add a config file to `hangar/config/cell/` that names the torso it runs in.
+- **A cell** for `RNN` subclasses `RNNCellBase`: `__call__(carry, x)` returns `(carry, y)`, plus `initialize_carry`. Flax's own `nn.GRUCell` fits as is. A cell for `SSM` subclasses `SSMCellBase`: `__call__(x)` returns the scan's `(a, b)` and `output(carries, x)` reads the result. A cell for `LinearAttention` subclasses `LinearAttentionCellBase`: `__call__(carry, x, done, **kwargs)` returns `LinearAttentionInputs` and `output(outputs, x)` projects the readouts. A cell may write several tokens per step, as `SALT` writes the previous action and then the observation; the step's output is read after its last token. The torso hands every block the network's `action` as a keyword, and blocks that do not use it ignore it. Add a config file to `hangar/config/cell/` that names the torso it runs in.
 - **A torso or stack** subclasses `Block`. Export it in [`__init__.py`](__init__.py).
 
 Then test it.

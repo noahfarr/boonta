@@ -43,7 +43,9 @@ class PPO:
     advantage_estimator: Callable = generalized_advantage_estimator
 
     def init(self, key: Key, timestep: Timestep) -> tuple[PPOState, PyTree]:
-        params = self.network.init(key, timestep.obs, temperature=1.0)
+        params = self.network.init(
+            key, timestep.obs, timestep.action, done=timestep.done, temperature=1.0
+        )
         optimizer_state = self.optimizer.init(params["params"])
 
         state = PPOState(
@@ -63,7 +65,11 @@ class PPO:
         temperature: float = 1.0,
     ) -> tuple[PPOState, PyTree, Array, PyTree]:
         dist, value = self.network.apply(
-            state.params, timestep.obs, temperature=temperature
+            state.params,
+            timestep.obs,
+            timestep.action,
+            done=timestep.done,
+            temperature=temperature,
         )
         action, log_prob = dist.sample_and_log_prob(seed=key)
         return (
@@ -81,6 +87,8 @@ class PPO:
             (dist, value), variables = self.network.apply(
                 params,
                 transitions.first.obs,
+                transitions.first.action,
+                done=transitions.first.done,
                 temperature=1.0,
                 mutable=True,
             )
@@ -122,7 +130,11 @@ class PPO:
 
             def apply(params: PyTree) -> PyTree:
                 dist, _ = self.network.apply(
-                    params, transitions.first.obs, temperature=1.0
+                    params,
+                    transitions.first.obs,
+                    transitions.first.action,
+                    done=transitions.first.done,
+                    temperature=1.0,
                 )
                 return dist
 
@@ -205,10 +217,10 @@ class PPO:
         num_steps, num_envs, *_ = transitions.second.reward.shape
         batch_size = num_steps * num_envs
 
-        obs = jax.tree.map(
-            lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second.obs
+        last = jax.tree.map(lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second)
+        _, value = self.network.apply(
+            state.params, last.obs, last.action, done=last.done, temperature=1.0
         )
-        _, value = self.network.apply(state.params, obs, temperature=1.0)
         value = remove_feature_axis(value)
         advantages, returns = self.advantage_estimator(
             transitions,

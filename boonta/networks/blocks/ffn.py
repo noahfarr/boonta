@@ -19,7 +19,9 @@ class FFN(Block):
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self, carry: Carry, x: Array, done: Array, **kwargs: Array
+    ) -> tuple[Carry, Array]:
         x = nn.Dense(
             self.hidden_dim or self.features * self.expansion_factor,
             dtype=self.dtype,

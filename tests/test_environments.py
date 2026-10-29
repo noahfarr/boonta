@@ -187,6 +187,7 @@ ADAPTERS = [
     pytest.param("bluffjax", "werewolf", {}, id="bluffjax_werewolf", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("dune_sea", "chain_of_forks", {"depth": 6}, id="chain_of_forks"),
     pytest.param("dune_sea", "t_maze", {"length": 4}, id="t_maze"),
+    pytest.param("dune_sea", "dead_reckoning", {"radius": 2, "glimpse": 0.2}, id="dead_reckoning"),
     pytest.param(
         "jaxued", "Maze", {}, id="jaxued_maze",
         marks=pytest.mark.skipif(missing("jaxued"), reason="needs jaxued"),
