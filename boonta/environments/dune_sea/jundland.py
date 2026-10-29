@@ -379,15 +379,15 @@ class Jundland(Environment):
         indices = jnp.arange(self.num_agents)
         alive = agent.energy > 0
         parents = alive & (agent.energy > agent.threshold)
-        rank = jnp.cumsum(parents) - 1
-        empty = jnp.nonzero(~alive, size=self.num_agents, fill_value=self.num_agents)[0]
-        slot = jnp.where(parents, empty[jnp.clip(rank, 0, self.num_agents - 1)], self.num_agents)
+        matched = (jnp.cumsum(parents) - 1)[:, None] == (jnp.cumsum(~alive) - 1)[None, :]
+        matched = matched & parents[:, None] & ~alive[None, :]
+        slot = jnp.where(matched.any(-1), jnp.argmax(matched, -1), self.num_agents)
 
-        sides = jnp.argsort(jax.random.uniform(side_key, (self.num_agents, len(DIRECTIONS))), -1)
-        cells = agent.position[:, None] + DIRECTIONS[sides]
+        cells = agent.position[:, None] + DIRECTIONS
         occupied = (jnp.all(cells[:, :, None] == agent.position[None, None], -1) & alive).any(-1)
         free = (sample(wall, cells, 1.0) == 0) & ~occupied
-        spot = cells[indices, jnp.argmax(free, -1)]
+        scores = jnp.where(free, jax.random.uniform(side_key, free.shape), -1.0)
+        spot = cells[indices, jnp.argmax(scores, -1)]
         ready = parents & free.any(-1) & (slot < self.num_agents)
         clash = (jnp.all(spot[:, None] == spot[None], -1) & ready[None] & (indices[None] < indices[:, None])).any(-1)
         breeding = ready & ~clash
