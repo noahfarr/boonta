@@ -214,7 +214,7 @@ def main():
         "space autoplay, +/- speed, r reset, esc quit. "
         "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )
-    parser.add_argument("--env", choices=("hide_and_seek", "tag"), default="hide_and_seek")
+    parser.add_argument("--env", choices=("forage", "hide_and_seek", "maze", "shelter", "tag"), default="hide_and_seek")
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--height", type=int, default=48)
     parser.add_argument("--agents", type=int, default=8)

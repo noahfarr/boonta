@@ -1,3 +1,4 @@
+import collections
 import functools
 
 import jax
@@ -7,7 +8,11 @@ import pytest
 
 from boonta.environments import dune_sea
 from boonta.environments.dune_sea import Agent
+from boonta.environments.dune_sea.forage import Forage
 from boonta.environments.dune_sea.hide_and_seek import HideAndSeek
+from boonta.environments.dune_sea.generators import maze_generator
+from boonta.environments.dune_sea.maze import Maze
+from boonta.environments.dune_sea.shelter import Shelter
 from boonta.environments.dune_sea.render import render
 from boonta.environments.dune_sea import Cell as StateCell
 from boonta.environments.dune_sea.dune_sea import (DuneSea, BROADCAST, CATCH_AMOUNT,
@@ -770,7 +775,7 @@ def test_shore_plants_fade_with_the_opacity_they_are_given():
 
 
 def test_every_environment_shares_one_observation_and_action_layout():
-    envs = [dune_sea.make(name) for name in ("tag", "hide_and_seek")]
+    envs = [dune_sea.make(name) for name in ("forage", "maze", "shelter", "tag", "hide_and_seek")]
 
     def layout(env):
         space = env.observation_space()
@@ -778,3 +783,236 @@ def test_every_environment_shares_one_observation_and_action_layout():
         return shapes, env.action_space().num_actions
 
     assert len({str(layout(env)) for env in envs}) == 1
+
+
+def test_foragers_eat_and_nobody_can_steal():
+    cells = make_cell(EMPTY, plant(1, 1, 0.4))
+    env, state = world(Forage, cells, agents([[1, 0], [2, 0]], [0, 0]))
+
+    assert env.thieves.tolist() == [False, False]
+    assert env.teams.tolist() == [0, 1]
+    state, _ = step(env, state, INTERACT, FORWARD)
+
+    assert state.agent.energy[0] == pytest.approx(0.5 + 0.4 - env.energy_cost)
+    assert state.agent.energy[1] == pytest.approx(0.5 - env.energy_cost)
+
+
+def sheltering(wall, position, **kwargs):
+    size = wall.shape[0]
+    cells = make_cell(wall, jnp.zeros((size, size)))
+    env = Shelter(
+        height=size,
+        width=size,
+        num_agents=1,
+        generator=lambda key, height, width, num_agents: (cells, agents([position], [0], energy=0.5)),
+        storm_period=10,
+        storm_length=4,
+        storm_warning=2,
+        storm_drain=0.1,
+        energy_cost=0.0,
+        **kwargs,
+    )
+    state, _ = env.init(KEY)
+    return env, state
+
+
+def test_a_storm_drains_an_agent_in_the_open_but_not_in_calm_weather():
+    env, state = sheltering(jnp.zeros((5, 5)), [2, 2])
+
+    calm, _ = step(env, state.replace(time=jnp.int32(0)), NOOP)
+    stormy, _ = step(env, state.replace(time=jnp.int32(5)), NOOP)
+
+    assert calm.agent.energy[0] == pytest.approx(0.5)
+    assert stormy.agent.energy[0] == pytest.approx(0.4)
+
+
+def test_an_agent_walled_in_on_all_four_sides_is_safe_from_the_storm():
+    wall = jnp.zeros((5, 5)).at[1, 2].set(1.0).at[3, 2].set(1.0).at[2, 1].set(1.0).at[2, 3].set(1.0)
+    env, state = sheltering(wall, [2, 2])
+
+    state, _ = step(env, state.replace(time=jnp.int32(5)), NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.5)
+
+
+def test_every_wall_beside_the_agent_softens_the_storm():
+    drained = []
+    for count in range(5):
+        wall = jnp.zeros((5, 5))
+        for row, column in [(1, 2), (3, 2), (2, 1), (2, 3)][:count]:
+            wall = wall.at[row, column].set(1.0)
+        env, state = sheltering(wall, [2, 2])
+        state, _ = step(env, state.replace(time=jnp.int32(5)), NOOP)
+        drained.append(0.5 - float(state.agent.energy[0]))
+
+    assert drained == pytest.approx([0.1, 0.075, 0.05, 0.025, 0.0])
+
+
+def test_the_edge_of_the_map_counts_as_a_wall_and_a_gap_leaves_the_agent_exposed():
+    corner = jnp.zeros((3, 3)).at[1, 0].set(1.0).at[0, 1].set(1.0)
+    env, state = sheltering(corner, [0, 0])
+    gap = jnp.zeros((5, 5)).at[1, 2].set(1.0).at[3, 2].set(1.0).at[2, 1].set(1.0)
+    open_env, open_state = sheltering(gap, [2, 2])
+
+    state, _ = step(env, state.replace(time=jnp.int32(5)), NOOP)
+    open_state, _ = step(open_env, open_state.replace(time=jnp.int32(5)), NOOP)
+
+    assert state.agent.energy[0] == pytest.approx(0.5)
+    assert open_state.agent.energy[0] == pytest.approx(0.475)
+
+
+def test_the_storm_is_announced_before_it_arrives():
+    env, state = sheltering(jnp.zeros((5, 5)), [2, 2])
+    ramp = [float(env.weather(state.replace(time=jnp.int32(time)))[0]) for time in (2, 4, 5, 6, 9)]
+
+    assert ramp == pytest.approx([0.0, 0.5, 1.0, 1.0, 0.0])
+    assert float(env.observe(state.replace(time=jnp.int32(5)))["storm"][0]) == 1.0
+
+
+def test_an_agent_can_wall_itself_in_with_the_dirt_it_carries():
+    cells = make_cell(jnp.zeros((3, 3)).at[0, 0].set(1.0).at[2, 0].set(1.0), jnp.zeros((3, 3)))
+    env = Shelter(
+        height=3,
+        width=3,
+        num_agents=1,
+        generator=lambda key, height, width, num_agents: (cells, agents([[1, 0]], [0], energy=0.5)),
+        energy_cost=0.0,
+        initial_dirt=2,
+    )
+    state, _ = env.init(KEY)
+
+    assert state.agent.inventory[0] == 2
+    state, _ = step(env, state, PLACE)
+
+    assert state.cells.wall[1, 1] == 1
+    assert bool(env.walled(state.agent.position, state.cells.wall)[0] == 4)
+
+
+def reachable(free, source):
+    seen = np.zeros_like(free)
+    stack = [tuple(source)]
+    while stack:
+        row, column = stack.pop()
+        if seen[row, column] or not free[row, column]:
+            continue
+        seen[row, column] = True
+        stack += [(row + 1, column), (row - 1, column), (row, column + 1), (row, column - 1)]
+    return seen
+
+
+@pytest.mark.parametrize("braid", [0.0, 0.3])
+def test_every_open_cell_of_a_maze_can_be_reached_and_the_prize_is_among_them(braid):
+    cells, agent = jax.jit(lambda key: maze_generator(key, 15, 15, 3, braid))(KEY)
+    free = np.asarray(cells.wall) == 0
+
+    for position in np.asarray(agent.position):
+        assert reachable(free, position).sum() == free.sum()
+    assert (np.asarray(cells.energy) > 0).sum() == 1
+    assert free[np.asarray(cells.energy) > 0].all()
+
+
+def test_a_maze_without_braid_has_one_path_between_any_two_cells():
+    cells, _ = maze_generator(KEY, 15, 15, 1, 0.0)
+
+    assert int((cells.wall == 0).sum()) == 7 * 7 + (7 * 7 - 1)
+
+
+def test_braiding_opens_loops():
+    openings = lambda braid: (maze_generator(KEY, 15, 15, 1, braid)[0].wall == 0).sum()
+
+    assert openings(0.5) > openings(0.0)
+
+
+def test_a_maze_walls_in_its_edge():
+    cells, _ = maze_generator(KEY, 15, 15, 1)
+    wall = np.asarray(cells.wall)
+
+    assert wall[0].all() and wall[-1].all() and wall[:, 0].all() and wall[:, -1].all()
+
+
+def steps_from(free, sources):
+    distance = {tuple(int(i) for i in source): 0 for source in sources}
+    frontier = list(distance)
+    while frontier:
+        row, column = frontier.pop(0)
+        for neighbour in ((row + 1, column), (row - 1, column), (row, column + 1), (row, column - 1)):
+            if free[neighbour] and neighbour not in distance:
+                distance[neighbour] = distance[(row, column)] + 1
+                frontier.append(neighbour)
+    return distance
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_the_prize_is_far_from_every_agent(seed):
+    cells, agent = maze_generator(jax.random.key(seed), 21, 21, 3, 0.1, 12)
+    prize = tuple(int(i) for i in np.argwhere(np.asarray(cells.energy) > 0)[0])
+    distance = steps_from(np.asarray(cells.wall) == 0, np.asarray(agent.position))
+
+    assert distance[prize] >= 12
+
+
+def test_the_prize_does_not_sit_in_the_same_kind_of_cell_every_time():
+    def dead_end(seed):
+        cells, _ = maze_generator(jax.random.key(seed), 21, 21, 3, 0.1)
+        wall = np.asarray(cells.wall)
+        row, column = np.argwhere(np.asarray(cells.energy) > 0)[0]
+        return wall[row - 1 : row + 2, column - 1 : column + 2][[0, 1, 1, 2], [1, 0, 2, 1]].sum() == 3
+
+    assert 0 < sum(dead_end(seed) for seed in range(40)) < 40
+
+
+def test_mazes_are_drawn_uniformly_from_all_the_mazes_there_are():
+    walls = np.asarray(
+        jax.jit(jax.vmap(lambda key: maze_generator(key, 5, 7, 1, 0.0)[0].wall))(
+            jax.random.split(KEY, 3000)
+        )
+    )
+    counts = np.array(list(collections.Counter(w.tobytes() for w in walls).values()))
+
+    assert len(counts) == 15
+    assert counts.min() > 0.7 * 200 and counts.max() < 1.3 * 200
+
+
+def test_a_maze_wall_cannot_be_mined_or_built_on():
+    wall = jnp.zeros((3, 3)).at[1, 1].set(1.0)
+    cells = make_cell(wall, EMPTY)
+    env, state = world(Maze, cells, agents([[1, 0]], [0], inventory=1))
+
+    after, _ = step(env, state, INTERACT)
+    placed, _ = step(env, state.replace(agent=state.agent.replace(position=jnp.array([[0, 1]]))), PLACE)
+
+    assert after.cells.wall[1, 1] == 1.0
+    assert after.agent.inventory[0] == 1
+    assert placed.agent.inventory[0] == 1
+
+
+def test_a_maze_needs_odd_sides():
+    with pytest.raises(AssertionError):
+        Maze(height=20, width=21)
+
+
+def test_a_maze_ends_for_everyone_once_the_prize_is_taken():
+    wall = jnp.zeros((3, 3))
+    cells = make_cell(wall, plant(1, 1, 0.5))
+    env, state = world(Maze, cells, agents([[1, 0], [2, 0]], [0, 0]))
+
+    state, timestep = step(env, state, INTERACT, NOOP)
+
+    assert timestep.terminated.tolist() == [True, True]
+
+
+def test_a_maze_goes_on_while_the_prize_is_left():
+    wall = jnp.zeros((3, 3))
+    cells = make_cell(wall, plant(1, 1, 0.5))
+    env, state = world(Maze, cells, agents([[1, 0], [2, 0]], [0, 0]))
+
+    state, timestep = step(env, state, NOOP, NOOP)
+
+    assert timestep.terminated.tolist() == [False, False]
+
+
+def test_the_agents_of_a_maze_start_with_room_for_the_whole_prize():
+    env = dune_sea.make("maze")
+    state, _ = env.init(KEY)
+
+    assert float(state.agent.energy.max()) + MAX_PLANT_ENERGY <= 1.0

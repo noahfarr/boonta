@@ -80,13 +80,13 @@ class DuneSea(Environment):
             reward=jnp.zeros(self.num_agents, jnp.float32),
             terminated=jnp.zeros(self.num_agents, bool),
             truncated=jnp.zeros(self.num_agents, bool),
-            info={},
+            info=self.tally(jnp.zeros(self.num_agents, jnp.float32)),
         )
         return state, timestep
 
     def move(
         self, state: DuneSeaState, action: Array, turn_order: Array
-    ) -> tuple[Array, Array]:
+    ) -> tuple[Array, Array, Array]:
         grid_size = jnp.array([self.height, self.width])
         alive = state.agent.energy > 0
         indices = jnp.arange(self.num_agents)
@@ -133,7 +133,13 @@ class DuneSea(Environment):
             turn_order,
         )
         gain = jnp.zeros_like(stolen).at[turn_order].set(stolen)
-        return positions, gain - loss
+        return positions, gain, loss
+
+    def tally(self, taken: Array) -> dict[str, Array]:
+        return {
+            "tags": (taken > 0).sum().astype(jnp.float32),
+            "stolen": taken.sum(),
+        }
 
     def interact(
         self,
@@ -213,14 +219,14 @@ class DuneSea(Environment):
         action = jnp.where(alive, chosen, NOOP)
         action = jnp.where(action >= self.num_actions, NOOP, action)
         turn_order = jax.random.permutation(key, self.num_agents)
-        positions, tag_change = self.move(state, action, turn_order)
+        positions, taken, lost = self.move(state, action, turn_order)
         cells, energy_change, inventory_change = self.interact(
             state, action, positions, turn_order
         )
 
         if self.growth is not None:
             cells = cells.replace(energy=self.ripen(state.cells.energy, cells.energy))
-        energy_change = energy_change + tag_change + self.drain(state, positions, cells)
+        energy_change = energy_change + taken - lost + self.drain(state, positions, cells)
         upkeep = jnp.where(alive, self.energy_cost, 0.0)
         energy = jnp.clip(state.agent.energy + energy_change - upkeep, 0.0, MAX_ENERGY)
         agent = Agent(
@@ -238,7 +244,7 @@ class DuneSea(Environment):
             reward=reward,
             terminated=state.agent.energy <= 0.0,
             truncated=jnp.full(self.num_agents, state.time >= self._time_limit),
-            info={},
+            info=self.tally(taken),
         )
         return state, timestep
 
@@ -250,6 +256,9 @@ class DuneSea(Environment):
         return jnp.where(replanted, SEED_ENERGY, energy)
 
     def drain(self, state: DuneSeaState, positions: Array, cells: Cell) -> Array:
+        return jnp.zeros(self.num_agents, jnp.float32)
+
+    def weather(self, state: DuneSeaState) -> Array:
         return jnp.zeros(self.num_agents, jnp.float32)
 
     def field_of_view(self, state: DuneSeaState) -> Array:
@@ -349,6 +358,7 @@ class DuneSea(Environment):
             "energy": state.agent.energy / MAX_ENERGY,
             "inventory": state.agent.inventory,
             "thief": self.thieves,
+            "storm": self.weather(state),
         }
         return jax.tree.map(lambda leaf: leaf.astype(OBSERVATION_DTYPE), observation)
 
@@ -372,6 +382,9 @@ class DuneSea(Environment):
                 shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=jnp.inf
             ),
             "thief": Space(
+                shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=1.0
+            ),
+            "storm": Space(
                 shape=(self.num_agents,), dtype=OBSERVATION_DTYPE, low=0.0, high=1.0
             ),
         }

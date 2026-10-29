@@ -7,7 +7,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.wrappers import RecordMultiAgentEpisodeStatistics
+from boonta.environments.wrappers import (LogInfo,
+                                             RecordMultiAgentEpisodeStatistics)
 from boonta.networks import ActorCritic, Categorical, Network
 from boonta.networks.layers import Flatten
 from boonta.utils.typing import Dtype
@@ -27,9 +28,10 @@ class ViewAndEnergy(nn.Module):
         energy = obs["energy"].astype(dtype)[..., None]
         inventory = jnp.log1p(obs["inventory"].astype(jnp.float32)).astype(dtype)[..., None]
         thief = obs["thief"].astype(dtype)[..., None]
+        storm = obs["storm"].astype(dtype)[..., None]
         dense = partial(nn.Dense, self.features, dtype=self.dtype, param_dtype=self.param_dtype)
         return nn.Sequential([dense(), nn.relu])(
-            jnp.concatenate([view, energy, inventory, thief], axis=-1)
+            jnp.concatenate([view, energy, inventory, thief, storm], axis=-1)
         )
 
 
@@ -67,5 +69,6 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
+    env = LogInfo(env, keys=("tags", "stolen", "sheltered", "exposed"), tags=())
     env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
