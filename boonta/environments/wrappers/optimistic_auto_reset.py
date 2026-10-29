@@ -18,11 +18,16 @@ class OptimisticAutoReset(AutoReset):
         state, timestep = super().step(step_key, state, action)
 
         num_resets = self.num_envs // self.ratio
-        fresh, initial = jax.vmap(self._env.init)(
-            jax.random.split(reset_key, num_resets)
-        )
-
         done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
+
+        def reset():
+            return jax.vmap(self._env.init)(jax.random.split(reset_key, num_resets))
+
+        def skip():
+            return jax.tree.map(lambda leaf: jnp.zeros(leaf.shape, leaf.dtype), jax.eval_shape(reset))
+
+        fresh, initial = jax.lax.cond(done.any(), reset, skip)
+
         chosen = jax.random.choice(
             choice_key,
             self.num_envs,

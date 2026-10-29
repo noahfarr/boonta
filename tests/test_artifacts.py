@@ -290,7 +290,7 @@ def test_the_render_artisan_plays_the_whole_episode_and_stops_when_it_ends():
     from boonta.environments import dune_sea
 
     def video(**kwargs):
-        environment = zoo.wrap(dune_sea.make("tag", height=12, width=12, num_agents=2, time_limit=20, starting_energy=1.0, **kwargs), NUM_ENVS)
+        environment = zoo.wrap(dune_sea.make("jundland", height=12, width=12, num_agents=2, time_limit=20, **kwargs), NUM_ENVS)
         num_actions = environment.action_space().num_actions
 
         def step(state, carry, key, timestep, temperature=1.0):
@@ -301,7 +301,7 @@ def test_the_render_artisan_plays_the_whole_episode_and_stops_when_it_ends():
         return Render(kwargs={"scale": 1}).craft(jax.random.key(0), algorithm, environment, state, {})
 
     assert video().data.shape[0] == 20
-    assert video(energy_cost=0.25).data.shape[0] == 4
+    assert video(starting_energy=3.5).data.shape[0] == 4
 
 
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
@@ -484,7 +484,7 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
 
 TRAINED_WITH = [
     "algorithm=ippo",
-    "environment=dune_sea/tag",
+    "environment=dune_sea/jundland",
     "environment.kwargs.num_agents=8",
     "logger=[dashboard,orbax]",
     "artisan=checkpoint",
@@ -499,7 +499,7 @@ def test_the_evaluation_command_keeps_what_shapes_the_model_and_drops_what_only_
 
     assert command == (
         "uv run boonta evaluate checkpoint=/runs/a algorithm=ippo "
-        "environment=dune_sea/tag environment.kwargs.num_agents=8"
+        "environment=dune_sea/jundland environment.kwargs.num_agents=8"
     )
 
 

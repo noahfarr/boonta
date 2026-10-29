@@ -1,18 +1,9 @@
-from .dune_sea import DuneSea
-from .forage import Forage
-from .hide_and_seek import HideAndSeek
-from .generators import Generator, cave_generator, maze_generator
-from .maze import Maze
-from .shelter import Shelter
-from .tag import Tag
-from .state import Agent, Cell, DuneSeaState
+from .generators import Generator, cave_generator
+from .jundland import Jundland
+from .state import Agent, Cell, JundlandState
 
 registry = {
-    "forage": Forage,
-    "hide_and_seek": HideAndSeek,
-    "maze": Maze,
-    "shelter": Shelter,
-    "tag": Tag,
+    "jundland": Jundland,
 }
 
 
@@ -23,15 +14,9 @@ def make(env_id: str, **kwargs):
 __all__ = [
     "Agent",
     "Cell",
-    "DuneSea",
-    "Forage",
-    "DuneSeaState",
-    "HideAndSeek",
     "Generator",
+    "Jundland",
+    "JundlandState",
     "cave_generator",
-    "Maze",
-    "maze_generator",
-    "Shelter",
-    "Tag",
     "make",
 ]

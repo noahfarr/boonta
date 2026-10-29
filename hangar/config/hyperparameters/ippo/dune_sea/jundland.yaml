@@ -3,10 +3,10 @@
 network:
   dtype: bfloat16
 
-num_steps: 100_000_000
+num_steps: 1_000_000_000
 
 environment:
-  num_envs: 1024
+  num_envs: 64
 
 podracer:
   config:
@@ -15,10 +15,10 @@ podracer:
 algorithm:
   num_minibatches: 32
   update_epochs: 2
-  gamma: 0.99
+  gamma: 0.995
   gae_lambda: 0.95
-  entropy_coefficient: 0.003
-  normalize_advantage: True
+  entropy_coefficient: 0.03
+  normalize_advantage: False
 
 optimizer:
   lr: 3e-4

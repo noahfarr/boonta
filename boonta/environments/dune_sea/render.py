@@ -9,19 +9,11 @@ from .sprites import team_sprites, wanderer_sprites
 from .state import MATURE_ENERGY, MAX_ENERGY
 
 if TYPE_CHECKING:
-    from .state import DuneSeaState
+    from .state import Agent, JundlandState
 
 DIRECTORY = Path(__file__).parent / "assets" / "glionox_desert"
 TILE = 16
 PATCH_SHEET = "sandstone.png"
-STORM_COLOR = (232, 198, 142)
-WIND = (1.4, 5.0)
-DUST_FAR = 0.11
-DUST_NEAR = 0.22
-HIGH_HAZE = 0.07
-HIGH_STREAKS = 0.10
-SHADOW_STRENGTH = 0.20
-SHADOW_OFFSET = (12, 8)
 DEEP_ROCK_SHEET = "slate.png"
 PATCH_FEATURE = 7.0
 PATCH_COVERAGE = 0.30
@@ -101,27 +93,6 @@ def smooth_noise(height: int, width: int, feature: float, seed: int) -> np.ndarr
     spectrum = generator.normal(size=(height, width // 2 + 1)) + 1j * generator.normal(size=(height, width // 2 + 1))
     field = np.fft.irfft2(spectrum * falloff, s=(height, width))
     return ((field - field.mean()) / (field.std() + 1e-9)).astype(np.float32)
-
-
-@cache
-def storm_fields(height: int, width: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    def field(feature_y: float, feature_x: float, seed: int) -> np.ndarray:
-        generator = np.random.default_rng(seed)
-        frequency_y = np.fft.fftfreq(height)[:, None]
-        frequency_x = np.fft.rfftfreq(width)[None, :]
-        falloff = np.exp(-2.0 * np.pi**2 * ((feature_y * frequency_y) ** 2 + (feature_x * frequency_x) ** 2))
-        spectrum = generator.normal(size=(height, width // 2 + 1)) + 1j * generator.normal(size=(height, width // 2 + 1))
-        values = np.fft.irfft2(spectrum * falloff, s=(height, width))
-        return (values - values.mean()) / (values.std() + 1e-9)
-
-    def along_the_wind(values: np.ndarray) -> np.ndarray:
-        slope = WIND[0] / WIND[1]
-        return np.stack([np.roll(values[:, x], int(round(slope * x))) for x in range(width)], axis=1)
-
-    far = np.clip(along_the_wind(field(1.1, 10.0, 21)) - 1.0, 0.0, 1.0)
-    near = np.clip(along_the_wind(field(0.9, 16.0, 23)) - 1.1, 0.0, 1.0)
-    cloud = 0.5 + 0.5 * np.tanh(field(30.0, 80.0, 22))
-    return far.astype(np.float32), near.astype(np.float32), cloud.astype(np.float32)
 
 
 @cache
@@ -285,7 +256,7 @@ def paint_sprite(
     return image
 
 
-def paint_scenery(image: np.ndarray, state: "DuneSeaState") -> np.ndarray:
+def paint_scenery(image: np.ndarray, state: "JundlandState", window: tuple[slice, slice]) -> np.ndarray:
     height, width = state.cells.wall.shape
     wall = np.asarray(state.cells.wall) > 0
     rolls = scenery_rolls(height, width)
@@ -294,10 +265,10 @@ def paint_scenery(image: np.ndarray, state: "DuneSeaState") -> np.ndarray:
         ~wall
         & (np.asarray(state.cells.bush) == 0)
         & (np.asarray(state.cells.energy) == 0)
-    )
-    stone_chance = np.where(near_rock, 0.12, 0.012)
+    )[window]
+    stone_chance = np.where(near_rock, 0.12, 0.012)[window]
     brush_chance, cactus_chance = 0.022, 0.006
-    roll, pick = rolls[0], rolls[1]
+    roll, pick = rolls[0][window], rolls[1][window]
     kinds = (
         (SCENERY_STONES, free & (roll < stone_chance)),
         (SCENERY_BRUSH, free & (roll >= stone_chance) & (roll < stone_chance + brush_chance)),
@@ -308,34 +279,6 @@ def paint_scenery(image: np.ndarray, state: "DuneSeaState") -> np.ndarray:
         for index, name in enumerate(names):
             image = paint_sprite(image, name, where_ & (variant == index))
     return image
-
-
-def drift(layer: np.ndarray, phase: np.float32, speed: float) -> np.ndarray:
-    shift = np.round(phase * np.float32(speed) * np.array(WIND, np.float32)).astype(np.int32)
-    return np.roll(layer, (shift[0], shift[1]), axis=(0, 1))
-
-
-def veil(image: np.ndarray, keep: np.ndarray, haze: np.ndarray) -> np.ndarray:
-    for channel, colour in enumerate(STORM_COLOR):
-        plane = image[..., channel]
-        plane *= keep
-        plane += haze * np.float32(colour)
-    return image
-
-
-def paint_ground_storm(image: np.ndarray, phase: np.float32, strength: float) -> np.ndarray:
-    far, near, cloud = storm_fields(*image.shape[:2])
-    strength = np.float32(strength)
-    shadow = np.roll(drift(cloud, phase, 0.4), SHADOW_OFFSET, axis=(0, 1))
-    dark = 1.0 - strength * np.float32(SHADOW_STRENGTH) * np.clip((shadow - 0.55) / 0.35, 0.0, 1.0)
-    dust = strength * (np.float32(DUST_FAR) * drift(far, phase, 0.7) + np.float32(DUST_NEAR) * drift(near, phase, 1.0))
-    return veil(image, dark * (1.0 - dust), dust)
-
-
-def paint_high_storm(image: np.ndarray, phase: np.float32, strength: float) -> np.ndarray:
-    _, near, cloud = storm_fields(*image.shape[:2])
-    dust = np.float32(strength) * (np.float32(HIGH_HAZE) * drift(cloud, phase, 0.4) + np.float32(HIGH_STREAKS) * drift(near, phase, 1.6))
-    return veil(image, 1.0 - dust, dust)
 
 
 def energy_bar(energy: float, frame: np.ndarray | None = None) -> np.ndarray:
@@ -352,16 +295,16 @@ def energy_bar(energy: float, frame: np.ndarray | None = None) -> np.ndarray:
 
 
 def paint_agents(
-    image: np.ndarray, state: "DuneSeaState", teams: np.ndarray | None = None, offsets: np.ndarray | None = None
+    image: np.ndarray, agent: "Agent", teams: np.ndarray | None = None, offsets: np.ndarray | None = None
 ) -> np.ndarray:
     marked = teams is not None and bool(np.asarray(teams).any())
     bank = team_bank() if marked else agent_bank()
     coords = (np.arange(TILE) + 0.5) / TILE
     radius = np.hypot(coords[:, None] - 0.5, coords[None, :] - 0.5)
     ring = (radius >= 0.40) & (radius < 0.46)
-    position = np.asarray(state.agent.position)
+    position = np.asarray(agent.position)
     num_agents = position.shape[0]
-    robes = np.arange(num_agents) % bank.shape[0]
+    robes = np.zeros(num_agents, np.int32)
     if marked:
         team_ids = np.asarray(teams, np.int32)
         within = np.array([(team_ids[:i] == team_ids[i]).sum() for i in range(num_agents)])
@@ -372,7 +315,7 @@ def paint_agents(
     team_ids = np.zeros(num_agents, np.int32) if teams is None else np.asarray(teams, np.int32)
     offsets = np.zeros((num_agents, 2), np.int32) if offsets is None else np.asarray(offsets)
     limit = np.array(image.shape[:2]) - TILE
-    direction, broadcast, energy = (np.asarray(x) for x in (state.agent.direction, state.agent.broadcast, state.agent.energy))
+    direction, broadcast, energy = (np.asarray(x) for x in (agent.direction, agent.broadcast, agent.energy))
     for agent in range(num_agents):
         if not energy[agent] > 0:
             continue
@@ -394,52 +337,58 @@ def paint_agents(
 def paint_field_of_view(image: np.ndarray, field_of_view: np.ndarray, teams: np.ndarray) -> np.ndarray:
     field_of_view = np.asarray(field_of_view, bool)
     team_ids = np.asarray(teams, np.int32)
-    for team in sorted(set(team_ids.tolist())):
-        seen = (field_of_view & (team_ids == team)[:, None, None]).any(axis=0)
-        mask = np.repeat(np.repeat(seen, TILE, axis=0), TILE, axis=1)
-        color = TEAM_COLORS[team % len(TEAM_COLORS)]
-        image[mask] = image[mask] * (1.0 - FIELD_OF_VIEW_ALPHA) + color * FIELD_OF_VIEW_ALPHA
+    order = np.argsort(team_ids, kind="stable")
+    unique, starts = np.unique(team_ids[order], return_index=True)
+    seen = np.logical_or.reduceat(field_of_view[order], starts, axis=0).astype(np.float32)
+    later = np.cumsum(seen[::-1], axis=0)[::-1] - seen
+    weights = seen * FIELD_OF_VIEW_ALPHA * (1.0 - FIELD_OF_VIEW_ALPHA) ** later
+    keep = (1.0 - FIELD_OF_VIEW_ALPHA) ** seen.sum(0)
+    tint = np.einsum("thw,tc->hwc", weights, TEAM_COLORS[unique % len(TEAM_COLORS)])
+    height, width = keep.shape
+    tiles = image.reshape(height, TILE, width, TILE, 3)
+    tiles *= keep[:, None, :, None, None].astype(np.float32)
+    tiles += tint[:, None, :, None, :].astype(np.float32)
     return image
 
 
 def render(
-    state: "DuneSeaState",
+    state: "JundlandState",
     scale: int,
     teams: np.ndarray,
     field_of_view: np.ndarray,
-    storm: float = 1.0,
     offsets: np.ndarray | None = None,
-    blend: float = 1.0,
+    corner: tuple[int, int] = (0, 0),
+    size: tuple[int, int] | None = None,
 ) -> np.ndarray:
     cells = state.cells
     wall = np.asarray(cells.wall) > 0
     height, width = wall.shape
-    bush = np.asarray(cells.bush)
-    energy = np.asarray(cells.energy)
-    phase = np.float32(int(state.time)) - np.float32(1.0) + np.float32(blend)
-    image = terrain(wall.tobytes(), height, width).copy()
-    if storm:
-        image = paint_ground_storm(image, phase, storm)
-    image = paint_scenery(image, state)
+    top, left = corner
+    rows_shown, columns_shown = size or (height, width)
+    window = (slice(top, top + rows_shown), slice(left, left + columns_shown))
+    frame = (slice(top * TILE, (top + rows_shown) * TILE), slice(left * TILE, (left + columns_shown) * TILE))
+    bush = np.asarray(cells.bush)[window] > 0
+    energy = np.asarray(cells.energy)[window]
+    image = terrain(wall.tobytes(), height, width)[frame].copy()
+    image = paint_scenery(image, state, window)
     rows, columns = np.meshgrid(np.arange(height), np.arange(width), indexing="ij")
     image = paint_sprite(image, ENERGY_SPRITE, (energy > 0) & (energy < MATURE_ENERGY))
     image = paint_sprite(image, RIPE_SPRITE, energy >= MATURE_ENERGY)
-    variety = (rows * ROW_STRIDE + columns * COLUMN_STRIDE) % len(BUSH_SPRITES)
-    position = np.asarray(state.agent.position)
-    alive = np.asarray(state.agent.energy) > 0
-    occupied = np.zeros((height, width), bool)
-    occupied[position[alive, 0], position[alive, 1]] = True
-    bush = bush > 0
+    variety = ((rows * ROW_STRIDE + columns * COLUMN_STRIDE) % len(BUSH_SPRITES))[window]
+    position = np.asarray(state.agent.position) - np.array(corner)
+    inside = ((position >= 0) & (position < np.array([rows_shown, columns_shown]))).all(-1)
+    shown = (np.asarray(state.agent.energy) > 0) & inside
+    occupied = np.zeros((rows_shown, columns_shown), bool)
+    occupied[position[shown, 0], position[shown, 1]] = True
     for index, name in enumerate(BUSH_SPRITES):
         image = paint_sprite(image, name, bush & occupied & (variety == index), BUSH_ALPHA)
-    image = paint_field_of_view(image, field_of_view, teams)
-    image = paint_agents(image, state, teams, offsets)
+    image = paint_field_of_view(image, np.asarray(field_of_view)[:, window[0], window[1]], teams)
+    visible = state.agent.replace(position=position, energy=np.where(shown, np.asarray(state.agent.energy), 0.0))
+    image = paint_agents(image, visible, teams, offsets)
     for index, name in enumerate(BUSH_SPRITES):
         here = bush & (variety == index)
         image = paint_sprite(image, name, here & ~occupied, BUSH_ALPHA)
         image = paint_sprite(image, name, here & occupied, BUSH_ALPHA, levels=(0,), rows=BUSH_FOREGROUND_ROWS)
-    if storm:
-        image = paint_high_storm(image, phase, storm)
     image = np.clip(image, 0, 255, out=image).astype(np.uint8)
     if scale > 1:
         from PIL import Image

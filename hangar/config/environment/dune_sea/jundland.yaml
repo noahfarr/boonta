@@ -3,14 +3,13 @@ defaults:
   - _self_
 
 namespace: dune_sea
-suite: hide_and_seek
-env_id: hide_and_seek
-num_envs: 1024
+suite: jundland
+env_id: jundland
+num_envs: 64
 kwargs:
-  height: 64
-  width: 64
-  num_hiders: 10
-  num_seekers: 10
+  height: 128
+  width: 128
+  num_agents: 128
   view_size: 7
 auto_reset:
   ratio: 8

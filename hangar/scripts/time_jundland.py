@@ -31,7 +31,6 @@ def components(env, num_envs, ratio):
     observe = jax.vmap(env.observe)
     move = jax.vmap(env.move)
     interact = jax.vmap(env.interact)
-    drain = jax.vmap(lambda state, positions: env.drain(state, positions, state.cells))
 
     def actions(key):
         return jax.random.randint(key, (num_envs, env.num_agents), 0, env.num_actions)
@@ -50,8 +49,8 @@ def components(env, num_envs, ratio):
         return run
 
     def interacted(state, key):
-        cells, energy, inventory = interact(state, actions(key), state.agent.position, order(key))
-        return energy.sum() + cells.wall.sum()
+        cells, harvest, mined, placed = interact(state, actions(key), state.agent.position, order(key))
+        return harvest.sum() + cells.wall.sum()
 
     def generated(state, key):
         state, timestep = batch.init(key)
@@ -61,26 +60,24 @@ def components(env, num_envs, ratio):
         "observe": lambda state, key: observe(state)["view"].sum(),
         "move": lambda state, key: sum(part.sum() for part in moved(state, key)),
         "interact": interacted,
-        "map generation (all envs)": generated,
+        "map generation": generated,
         "step": stepped(batch),
         f"step with pooled reset (ratio {ratio})": stepped(pooled),
     }
-    parts["drain"] = lambda state, key: drain(state, state.agent.position).sum()
     return parts
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", default="hide_and_seek")
     parser.add_argument("--kwargs", default="{}")
     parser.add_argument("--num-envs", type=int, default=4096)
     parser.add_argument("--ratio", type=int, default=32)
     parser.add_argument("--steps", type=int, default=20)
     args = parser.parse_args()
 
-    env = dune_sea.make(args.env, **json.loads(args.kwargs))
+    env = dune_sea.make("jundland", **json.loads(args.kwargs))
     state, _ = Vectorize(env, args.num_envs).init(jax.random.key(0))
-    print(f"{args.env} on {jax.devices()[0].platform}, {args.num_envs} envs, {env.num_agents} agents")
+    print(f"jundland on {jax.devices()[0].platform}, {args.num_envs} envs, {env.num_agents} agents")
     results = {
         name: milliseconds(function, state, args.steps, jax.random.key(1))
         for name, function in components(env, args.num_envs, args.ratio).items()

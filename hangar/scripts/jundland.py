@@ -8,7 +8,7 @@ import numpy as np  # noqa: E402
 import pyray as pr  # noqa: E402
 
 from boonta import environments  # noqa: E402
-from boonta.environments.dune_sea.dune_sea import (  # noqa: E402
+from boonta.environments.dune_sea.jundland import (  # noqa: E402
     BACKWARD,
     BROADCAST,
     FORWARD,
@@ -51,16 +51,12 @@ class Viewer:
     def __init__(self, args):
         self.env = environments.make(
             "dune_sea",
-            args.env,
+            "jundland",
             kwargs={
                 "width": args.width,
                 "height": args.height,
                 "time_limit": args.time_limit,
-                **(
-                    {"num_hiders": args.agents // 2, "num_seekers": args.agents - args.agents // 2}
-                    if args.env == "hide_and_seek"
-                    else {"num_agents": args.agents}
-                ),
+                "num_agents": args.agents,
             },
         )
         self.window_size = (args.window_width, args.window_height)
@@ -74,7 +70,7 @@ class Viewer:
         self.step_env = jax.jit(self.env.step)
         self.previous = None
         self.moved_at = 0.0
-        self.paint = jax.jit(lambda state, previous, blend: self.env.render(state, 1, previous=previous, blend=blend))
+        self.paint = jax.jit(lambda state, previous, blend: self.env.render(state, 1, previous=previous, blend=blend, camera=None))
         self.camera = pr.Camera2D(pr.Vector2(0, 0), pr.Vector2(0, 0), 0.0, float(args.zoom))
         self.reset_world()
 
@@ -191,7 +187,7 @@ class Viewer:
         frame = np.asarray(self.paint_state(self.state))
         pr.set_trace_log_level(pr.TraceLogLevel.LOG_WARNING)
         pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_RESIZABLE)
-        pr.init_window(*self.window_size, "dune_sea")
+        pr.init_window(*self.window_size, "jundland")
         pr.set_target_fps(60)
         image = pr.gen_image_color(frame.shape[1], frame.shape[0], pr.BLACK)
         texture = pr.load_texture_from_image(image)
@@ -209,15 +205,14 @@ class Viewer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Walk agent 0 around a dune_sea grid world. "
+        description="Walk agent 0 around Jundland. "
         "w/s forward/back, a/d step left/right, q/e turn, x interact, b broadcast, p place, n wait, "
         "space autoplay, +/- speed, r reset, esc quit. "
         "Drag to pan, scroll to zoom, f to fit the map, c to centre on agent 0."
     )
-    parser.add_argument("--env", choices=("forage", "hide_and_seek", "maze", "shelter", "tag"), default="hide_and_seek")
-    parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--height", type=int, default=48)
-    parser.add_argument("--agents", type=int, default=8)
+    parser.add_argument("--width", type=int, default=128)
+    parser.add_argument("--height", type=int, default=128)
+    parser.add_argument("--agents", type=int, default=128)
     parser.add_argument("--time-limit", type=int, default=1024)
     parser.add_argument("--zoom", type=float, default=2.0)
     parser.add_argument("--window-width", type=int, default=1280)

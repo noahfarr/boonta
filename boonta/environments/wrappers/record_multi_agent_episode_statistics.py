@@ -16,9 +16,10 @@ class RecordMultiAgentEpisodeStatisticsState(WrapperState):
 
 
 class RecordMultiAgentEpisodeStatistics(Wrapper):
-    def __init__(self, env, gamma: float = 0.99):
+    def __init__(self, env, gamma: float = 0.99, per_agent: bool = True):
         super().__init__(env)
         self._gamma = gamma
+        self._per_agent = per_agent
 
     def init(
         self, key: Key
@@ -69,7 +70,7 @@ class RecordMultiAgentEpisodeStatistics(Wrapper):
                 done, new_episode_length, jnp.nan
             ),
         }
-        for agent in range(self._env.num_agents):
+        for agent in range(self._env.num_agents if self._per_agent else 0):
             logs[f"episode_statistics/agent_{agent}/episode_return"] = jnp.where(
                 done, new_episode_return[..., agent], jnp.nan
             )

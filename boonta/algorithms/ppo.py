@@ -14,6 +14,21 @@ from boonta.utils.typing import Array, Key, PyTree
 from .advantage_estimators import generalized_advantage_estimator
 
 
+def tally_gradients(grads: PyTree) -> dict[str, Array]:
+    leaves = jax.tree_util.tree_flatten_with_path(grads)[0]
+
+    def norm(keep: Callable) -> Array:
+        squares = [jnp.sum(jnp.square(leaf.astype(jnp.float32))) for path, leaf in leaves if keep(path)]
+        return jnp.sqrt(sum(squares, jnp.float32(0.0)))
+
+    named = lambda name: lambda path: any(getattr(key, "key", None) == name for key in path)
+    return {
+        "optimizer/grad_norm": norm(lambda path: True),
+        "actor/grad_norm": norm(named("actor")),
+        "critic/grad_norm": norm(named("critic")),
+    }
+
+
 @struct.dataclass(frozen=True)
 class PPOConfig:
     num_minibatches: int
@@ -176,6 +191,7 @@ class PPO:
                 "critic/loss": critic_loss,
                 "critic/explained_variance": explained_variance,
                 "critic/value": value.mean(),
+                **tally_gradients(grads["params"]),
             }
             lox.log(logs)
 

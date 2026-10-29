@@ -13,6 +13,7 @@ from boonta.utils import (Timestep, Transition, canonicalize_dtype,
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
+from .ppo import tally_gradients
 
 
 @struct.dataclass(frozen=True)
@@ -249,6 +250,7 @@ class RecurrentPPO:
                     "critic/loss": critic_loss,
                     "critic/explained_variance": explained_variance,
                     "critic/value": values.mean(),
+                    **tally_gradients(grads["params"]),
                 }
             )
 

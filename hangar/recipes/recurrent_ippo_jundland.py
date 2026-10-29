@@ -27,11 +27,11 @@ class ViewAndEnergy(nn.Module):
         view = Flatten(start_dim=-3)(obs["view"].astype(dtype))
         energy = obs["energy"].astype(dtype)[..., None]
         inventory = jnp.log1p(obs["inventory"].astype(jnp.float32)).astype(dtype)[..., None]
-        thief = obs["thief"].astype(dtype)[..., None]
-        storm = obs["storm"].astype(dtype)[..., None]
+        scent = obs["scent"].astype(dtype)
+        genes = obs["genes"].astype(dtype)
         dense = partial(nn.Dense, self.features, dtype=self.dtype, param_dtype=self.param_dtype)
         return nn.Sequential([dense(), nn.relu])(
-            jnp.concatenate([view, energy, inventory, thief, storm], axis=-1)
+            jnp.concatenate([view, energy, inventory, scent, genes], axis=-1)
         )
 
 
@@ -69,6 +69,6 @@ def make(cfg):
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
-    env = LogInfo(env, keys=("tags", "stolen", "sheltered", "exposed"), tags=())
-    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = LogInfo(env, keys=("num_alive", "deaths", "births", "lifespan", "threshold", "gift", "energy", "plants", "harvests", "mature_harvests", "thefts", "broadcasts", "placements"), tags=())
+    env = RecordMultiAgentEpisodeStatistics(env, gamma=cfg.algorithm.gamma, per_agent=False)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
