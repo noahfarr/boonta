@@ -191,8 +191,8 @@ class Pool(Anakin):
         moved = (target > current * np.sqrt(2) * cfg.hysteresis) | (target < current / np.sqrt(2) / cfg.hysteresis)
         return jnp.where(moved, snapped, state.bucket)
 
-    def bucket_step(self, index: int, state: PoolState, key: Key) -> PoolState:
-        """One rollout and update of bucket `self.config.buckets[index]`; logs scalars only."""
+    def bucket_step(self, index: int, probe: bool, state: PoolState, key: Key) -> PoolState:
+        """One rollout and update of bucket `self.config.buckets[index]` (with the probe if `probe`); logs scalars."""
         cfg = self.config
         bucket = cfg.buckets[index]
         rollout_key, update_key = jax.random.split(key)
@@ -219,15 +219,7 @@ class Pool(Anakin):
             out, logs = lox.spool(algorithm.update)(before, update_key, transitions)
             return out, dict(logs)
 
-        if self.probing:
-            probed_shape = jax.eval_shape(lambda: update(True)[1])
-            def without_probe():
-                out, logs = update(False)
-                filled = {k: jnp.full(v.shape, jnp.nan, v.dtype) for k, v in probed_shape.items()}
-                return out, {k: logs.get(k, filled[k]) for k in sorted(filled)}
-            after, update_logs = jax.lax.cond(state.updates % cfg.probe_every == 0, lambda: (lambda o, l: (o, {k: l[k] for k in sorted(l)}))(*update(True)), without_probe)
-        else:
-            after, update_logs = update(False)
+        after, update_logs = update(probe)
 
         scale = self.noise_scale(after, cfg.noise_source)
         flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), transitions.first.obs)
@@ -249,7 +241,6 @@ class Pool(Anakin):
             carry=put(state.carry, sub.carry),
             algorithm_state=after,
             lap_state=sub.lap_state,
-            credit=state.credit - bucket,
             offset=(state.offset + bucket) % self.size,
             updates=state.updates + 1,
         )
@@ -283,20 +274,41 @@ class Pool(Anakin):
         lox.log(logs)
         return state
 
-    def train(self, state: PoolState, key: Key, num_updates: int) -> PyTree:
+    def train(self, state: PoolState, key: Key, num_updates: int) -> tuple[PoolState, PyTree]:
+        """`num_updates` slots. A host loop, so that the GPU never evaluates a conditional: XLA reads a conditional's
+        predicate back to the host, which with one `lax.cond` per slot cost a sync per 256 environments and made the
+        pool about 7× slower than Anakin on A100s shared by several runs. Here there is one sync per update, to read
+        the next bucket. The keys and the accounting are those of a scan over slots."""
         if self.plain:
-            return Anakin.train(self, state, key, num_updates)
+            return self.anakin_train(state, key, num_updates)
+        buckets = self.config.buckets
+        credit, bucket, updates = (int(x) for x in jax.device_get((state.credit, state.bucket, state.updates)))
+        keys = jax.random.split(key, num_updates)
+        logs = []
+        for slot in range(num_updates):
+            credit += self.unit
+            if credit < buckets[bucket]:
+                continue
+            probe = self.probing and updates % self.config.probe_every == 0
+            state, slot_logs = self.compiled(bucket, probe)(state, keys[slot])
+            credit -= buckets[bucket]
+            updates += 1
+            logs.append(slot_logs)
+            bucket = int(jax.device_get(state.bucket))
+        state = state.replace(credit=jnp.asarray(credit, jnp.int32))
+        names = sorted({name for entry in logs for name in entry})
+        stacked = {}
+        for name in names:
+            values = [np.asarray(entry[name], np.float32).reshape(-1) if name in entry else np.full(1, np.nan, np.float32)
+                      for entry in logs]
+            stacked[name] = np.concatenate(values) if values else np.full(1, np.nan, np.float32)
+        return state, stacked
 
-        branches = [partial(self.bucket_step, index) for index in range(len(self.config.buckets))]
-
-        def slot(state: PoolState, key):
-            state = state.replace(credit=state.credit + self.unit)
-            due = state.credit >= jnp.asarray(self.config.buckets, jnp.int32)[state.bucket]
-            state = jax.lax.cond(due, lambda s: jax.lax.switch(s.bucket, branches, s, key), lambda s: s, state)
-            return state, None
-
-        state, _ = jax.lax.scan(slot, state, jax.random.split(key, num_updates))
-        return state
+    def compiled(self, index: int, probe: bool):
+        if (index, probe) not in self.steps:
+            step = lox.spool(lox.strip(partial(self.bucket_step, index, probe), tags=["evaluation"]))
+            self.steps[(index, probe)] = jax.jit(step, donate_argnums=(0,))
+        return self.steps[(index, probe)]
 
 
 def make(
@@ -307,9 +319,10 @@ def make(
     lap: Lap | None = None,
 ) -> Pool:
     podracer = Pool(config, algorithm, environment, pit, lap)
+    podracer.steps = {}
 
     initialize, close = podracer.init, podracer.close
-    train = lox.spool(lox.strip(podracer.train, tags=["evaluation"]), unify=True)
+    train = lox.spool(lox.strip(partial(Anakin.train, podracer), tags=["evaluation"]))
     evaluate = lox.spool(lox.strip(Anakin.evaluate.__get__(podracer), tags=["training"]))
 
     replicated = NamedSharding(config.mesh, P())
@@ -318,10 +331,11 @@ def make(
         lambda axis: NamedSharding(config.mesh, P(axis)) if axis else replicated, axes
     )
     podracer.init = jax.jit(initialize, out_shardings=shardings)
-    podracer.train = jax.jit(
+    # Plain (single default bucket, BB-8 off): Anakin's jitted train. Otherwise the host loop of Pool.train.
+    podracer.anakin_train = jax.jit(
         train,
         static_argnums=(2,),
-        donate_argnames=("state",),
+        donate_argnums=(0,),
         in_shardings=(shardings, replicated),
         out_shardings=(shardings, replicated),
     )
