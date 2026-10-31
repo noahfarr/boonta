@@ -17,6 +17,11 @@ c) { for g in breakout asterix; do for s in 0 1 2; do
        echo "mkdir -p $O && $S $R/bb8_runs/e2_tuned/ppo_$g/$s --steps 7864320 --tests grid --optimizer sgd --base-lr $2 --output $O/ppo_sgd_${g}_$s.json > $O/ppo_sgd_${g}_$s.log 2>&1"
        echo "mkdir -p $O && $S $R/bb8_runs/e2_tuned/ppo_$g/$s --steps 7864320 --tests grid --optimizer lion --base-lr $3 --output $O/ppo_lion_${g}_$s.json > $O/ppo_lion_${g}_$s.log 2>&1"
      done; done
+     # Grid extension below 0.125x where the best step sat on the grid's lower edge (PPO 40% and 80%, PQN 40%).
+     for g in breakout asterix; do for s in 0 1 2; do
+       echo "mkdir -p $O && $S $R/bb8_runs/e2_tuned/ppo_$g/$s --steps 7864320 15990784 --tests grid --multipliers 0.015625 0.03125 0.0625 --output $O/ppo_adam_${g}_$s.ext.json > $O/ppo_adam_${g}_$s.ext.log 2>&1"
+       echo "mkdir -p $O && $S $R/bb8_runs/e2/pqn_$g/$s --steps $PQN_STEP --tests grid --multipliers 0.015625 0.03125 0.0625 --output $O/pqn_${g}_$s.ext.json > $O/pqn_${g}_$s.ext.log 2>&1"
+     done; done
      # KL of the full-batch 1x update on Space Invaders (calibration of KL_max; Breakout and Asterix have the grid).
      for s in 0 1 2; do
        echo "mkdir -p $O && $S $R/bb8_runs/e2_tuned/ppo_space_invaders/$s --steps $PPO_STEPS --tests tune --tune-multipliers 1 --seeds 2 --output $O/klcal_space_invaders_$s.json > $O/klcal_space_invaders_$s.log 2>&1"
