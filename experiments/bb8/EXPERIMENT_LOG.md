@@ -97,3 +97,50 @@ With the probe off, training is bitwise identical to `main` everywhere. That was
   - **`fresh` (the gradient's own contribution to the update) grows** like the raw gradient. PPO total: 3.8–64×. PQN: Asterix 5.5×, Breakout 1.0× (flat). The actor's `fresh` noise scale is larger than its raw one (3k–30k environments, above the batch), because Adam's preconditioning boosts low-variance-per-ν coordinates.
 - Reading: the prediction "the noise scale grows over training" holds for the raw gradient and for `fresh`, in every PPO game and in PQN Asterix (4/4 seeds), and weakly for PQN Breakout. It does not hold for the noise scale of the full Adam update with momentum. Which of these the law in Phase 2 should use is the open question. It is put to the user before PREDICTIONS.md is written.
 - Comparison with the PSR-branch evidence (12.5k samples early, 60–76k later, which is about 780 → 4,000–4,750 environments): Breakout total-loss raw gradient 111 → 681 environments (1.8k → 11k transitions). That is the same growth but 5–7× smaller. The configs differ: advantage normalization is off here, and lr, clip, γ, λ and epochs are untuned defaults, not the `prd` Breakout file.
+
+## 2026-10-31 (afternoon) Continuation: answers and fixes before Phase 2
+
+The user answered the three decisions. (1) The rest of the plan arrived. (2) "On the update" means the **fresh** update; raw and full are diagnostics. (3) Stay on 42 A100s, record the GPU type per run, never mix hardware within a comparison. Every run in this study ran on A100-SXM4-80GB; each job prints `nvidia-smi` at its start.
+
+### Tuned PPO config
+- `hangar/config/hyperparameters/ppo/gymnax/minatar/bb8_tuned.yaml`, selected with `hyperparameters=ppo/gymnax/minatar/bb8_tuned`. It holds prd's Breakout values: 8192 envs, lr 2.4e-3, γ 0.989, λ 0.77, clip 0.14, 4 epochs, 16 minibatches, entropy 0.003, max grad norm 1.5, advantage normalization on. prd's stale `rollout.num_steps` is not copied, and the resolved `podracer.config.num_steps` is 16 (checked for Breakout and Asterix).
+- Surprise: `hyperparameters/ppo/gymnax/minatar/` did not exist (`minatar.yaml` is a file). The first override pointed at a missing file and Hydra silently resolved it as "no hyperparameters", because the defaults entry is `optional`. Creating the directory fixed it, and the default cascade still finds `minatar.yaml` (checked).
+- Budget: 8192 × 16 = 131,072 steps per update. `num_steps=19922944 num_epochs=76` gives 152 updates, 2 per epoch, and 76 logged points. E1 checkpoints: epochs 8, 30 and 61 (2,097,152 / 7,864,320 / 15,990,784 steps = 10.5% / 39.5% / 80.3%).
+
+### Freeway
+With 8192 environments each environment takes 2,432 steps in the whole 20M budget, less than one Freeway episode (2,500 steps; all environments start together). No training episode finishes, so neither longer epochs nor carrying statistics across windows can give a training return. **Freeway is dropped from Phase 4** and is kept in E2 for the noise scale only.
+
+### E2 tuned (experiment 55186, `jobs/e2_tuned.txt`, A100; 4 at a time; 4:00–4:20 per run)
+All 16 runs reach 19,922,944 steps. Final training return (last ~10% of epochs): Breakout 26/54/55/84, Asterix 68–69, Space Invaders 157–165, Freeway NaN (see above). Table `e2_tuned/growth.md`, figure `e2_tuned/noise_scale.png`. Fresh noise scale, early → late (median of 4 seeds, environments), and the late/early ratio:
+- actor: Breakout 1.5k → 15k (9.7×), Asterix 19k → 141k (7.7×), Space Invaders 2.8k → 107k (41×), Freeway 2.6k → 16k (6.4×). 4/4 seeds grow in every game.
+- critic: 12 → 442 (33×), 47 → 3.4k (75×), 14 → 664 (42×), 79 → 2.6k (31×). 4/4 everywhere.
+- total: 5.4×, 16×, 21×, 7.5×. 4/4 everywhere.
+- full update (frozen momentum): actor 1.3–2.6×, total 1.9–3.9×, critic 0.65–14×. Far flatter than fresh, but growing. See below for why it stays flat.
+- The actor's fresh noise scale is mostly above the batch (8192 environments), already from early training on. A single-batch estimate there is a small difference of large numbers; the large-probe E1 values below are the reliable ones.
+
+Why the full update is flat. With the optimizer state frozen, update(g_i) = −lr · (β1 m + (1 − β1) g_i) / (√ν̂ + ε) up to bias corrections. The momentum term β1 m is the same for every group: it adds the constant ‖β1 m / √ν̂‖² to the signal ‖E[U]‖² and nothing to the noise tr Cov[U]. With β1 = 0.9 it is about 9× the gradient's own contribution in amplitude, so the ratio is pinned near noise / momentum², which moves little over training. The fresh update removes the constant term, and its noise scale is that of the gradient in Adam's metric.
+
+## Phase 2 (E1)
+
+### Script: `one_update.py` (adapted from exp/psr-breakout's `hangar/scripts/one_update.py`)
+- The update is the algorithm's own `update`, with `num_minibatches = max(1, columns / minibatch envs)`: the minibatch size stays fixed, and the number of epochs (PPO 4, PQN 1) stays fixed. The optimizer is rebuilt with a traced learning rate. Check: at the full batch and multiplier 1, the result is **bitwise equal** to the algorithm's update (CPU), even with the traced learning rate.
+- Fractions: 64, 256, 1024, 2560 and 8192 environments (0.78 / 3.1 / 12.5 / 31.25 / 100%), so that the 512-environment minibatch divides the batch. **Deviation:** the two smallest batches are smaller than one minibatch, so they run as a single minibatch of 1,024 or 4,096 transitions; the minibatch size cannot be kept there. PQN: 32, 128, 512, 1280 and 4096 of 4096 (minibatch 256 environments; the two smallest are one smaller minibatch).
+- Multipliers 0.125–8× (7 points), 4 update seeds (minibatch shuffles and column subsets), ΔJ over 4096 episodes from reset with common random numbers (the same reset keys, Gumbel noise and environment keys before and after). PPO: stochastic policy. PQN: ε-greedy at the checkpoint's ε (0.01 at 40%), and greedy separately.
+- Matched KL (PPO): bisection (8 steps) on the multiplier until the KL equals the median KL of the full-batch 1× update.
+- Large-probe noise scale: 8 consecutive rollouts (65,536 columns, environment-major so a probe group holds whole environments across rollouts), through the Phase 1 probe. Raw, fresh and full for actor, critic and total. The single-batch estimate is recorded too.
+- First submission (55187, 3 processes on one GPU): 7 of 9 processes ran out of memory in the large probe (19–32 GB each). **Decision:** E1 runs one process per GPU. Retried as 55188, which also runs the GPU bitwise checks of Phase 3.
+- PQN greedy ΔJ is degenerate on Breakout: gymnax MinAtar is close to deterministic under a greedy policy, so the 4096 greedy episodes are near copies, and ΔJ takes a few discrete values (0, −1, −23…). The "best" greedy step is then just one small enough to leave every greedy action unchanged. It is reported as degenerate, not fitted.
+- Space Invaders is the held-out game for tuning the SGD and Lion base learning rates (55189, together with PPO Asterix).
+
+## Phase 3 (implemented while E1 ran)
+
+- `boonta/podracers/pool.py` (`podracer=bb8_pool`, `hangar/config/podracer/bb8_pool.yaml`): pool of `max(buckets)` environment states, and one compiled rollout-and-update branch per bucket (a `lax.switch`). It gathers N environments round-robin, steps only those, and scatters them back.
+  - Accounting by slots of `unit` = 256 environments × T: an update of bucket N runs when the credit reaches N, and the bucket only changes right after an update, so every step taken is budgeted. The exact count is in `algorithm_state.step`, which `train.py` now also writes as `pool/env_steps_total` for pool runs (a guarded addition, which changes nothing for Anakin).
+  - Per bucket the algorithm gets `num_minibatches = max(1, N / minibatch_envs)`, and the optimizer is `chain(original, scale(m))`. For Adam that is exactly lr · m, and the recipes are unchanged.
+- Schedules: `fixed`, `doubling` (equal fractions of `budget`), and `noise`. `noise` uses the target κ · B_noise, clipped to [256, 8192], snapped in log scale, with hysteresis: it moves only when the target crosses the geometric boundary next to the current bucket by a factor of 1.5.
+- Step options: `none`, `lr` (m = m_max B/(B + B_noise)), `lr_sqrt`, `kl` (m adapts multiplicatively, at most ×2 per update, so the realized KL tracks KL_max (B/(B + B_noise))²), and `kl_constant`.
+- The probe runs every `probe_every` = 8 updates (a `lax.cond`), with the moving average in between. B_noise is the fresh actor (PPO) or TD (PQN) noise scale, and the critic's is logged as well.
+- Running advantage normalization (`algorithm.bb8.running_advantage_normalization`): moments weighted by transitions and forgotten at exp(−n/524,288). The pool uses it whenever B < `running_normalization_below` (8192 for PPO).
+- Logs per update, reduced to scalars inside the branch: `pool/{bucket, noise_scale_envs, noise_scale_critic_envs, step_target, multiplier, kl, update_norm, env_steps}`. Episode statistics are logged as mean, sum and count, so per-epoch returns can be weighted by episodes (`training/episode_return_sum / _count`).
+- Bugs found while building it: `copy.copy` of a `Wrapper` recurses through `Wrapper.__getattr__` (`boonta/environments/wrappers/wrapper.py:24-25`) because `_env` is not set on the new object yet. Worked around in `pool.with_num_envs` by copying `__dict__`. Proposed fix on main: `__getattr__` should raise `AttributeError` for `_env` (and dunder names) instead of recursing.
+- Checks (CPU): every mode runs (noise/lr, noise/kl, doubling/lr_sqrt, fixed/kl_constant, PQN noise/lr). Steps taken 9,984 of the 10,240 budgeted in the smoke test; the difference is the credit still waiting (less than one batch). **With BB-8 off and the bucket fixed at the default N, the pool is bitwise identical to Anakin** for PPO (tuned, 26 leaves) and PQN (32 leaves). The GPU check is in 55188.
