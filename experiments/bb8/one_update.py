@@ -54,7 +54,7 @@ def build(run, extra=()):
 
 
 def restore(path, template):
-    """The checkpoint's algorithm state. Checkpoints written before the probe's `difference` space was added hold the
+    """The checkpoint's algorithm state. Checkpoints written before the `difference` and `trust_region` spaces hold the
     old probe layout (gradient, update, fresh); those are restored with that layout and their probe statistics are
     replaced by fresh zeros (E1 does not use them)."""
     with ocp.StandardCheckpointer() as checkpointer:
@@ -63,10 +63,36 @@ def restore(path, template):
         except ValueError:
             old = jax.tree_util.tree_map_with_path(lambda p, x: x, template.bb8)
             for key in ("noise", "signal"):
-                old[key] = {name: {k: v for k, v in spaces.items() if k != "difference"}
+                old[key] = {name: {k: v for k, v in spaces.items() if k in ("gradient", "update", "fresh")}
                             for name, spaces in template.bb8[key].items()}
             restored = checkpointer.restore(path, target=template.replace(bb8=old))
     return restored.replace(bb8=template.bb8)
+
+
+def desynchronize(podracer, state, key, max_noops):
+    """Random no-op starts: environment e takes U{0..max_noops} no-op actions (action 0 in MinAtar) after reset, so
+    the environments are out of phase before the policy warm-up. Steps are masked per environment."""
+    if max_noops <= 0:
+        return state
+    environment = podracer.environment
+    offset_key, step_key = jax.random.split(key)
+    num_envs = jax.tree.leaves(state.timestep.reward)[0].shape[0]
+    offsets = jax.random.randint(offset_key, (num_envs,), 0, max_noops + 1)
+
+    @jax.jit
+    def run(state):
+        def body(carry, t):
+            environment_state, timestep = carry
+            action = jnp.zeros_like(timestep.action)
+            stepped_state, stepped = environment.step(jax.random.fold_in(step_key, t), environment_state, action)
+            keep = t < offsets
+            select = lambda new, old: jnp.where(keep.reshape(-1, *([1] * (new.ndim - 1))), new, old)
+            return (jax.tree.map(select, stepped_state, environment_state), jax.tree.map(select, stepped, timestep)), None
+
+        (environment_state, timestep), _ = jax.lax.scan(body, (state.environment_state, state.timestep), jnp.arange(max_noops))
+        return state.replace(environment_state=environment_state, timestep=timestep)
+
+    return run(state)
 
 
 def make_optimizer(kind, learning_rate, max_grad_norm):
@@ -182,6 +208,7 @@ def main(args):
         params = algorithm_state.params
         origin, _ = ravel_pytree(params["params"])
         state = template.replace(algorithm_state=algorithm_state)
+        state = desynchronize(podracer, state, jax.random.fold_in(warm_key, 1), args.noops)
         state = advance(state, jax.random.split(warm_key, args.warmup))
         state, batch = rollout(state, jax.random.split(batch_key, T))
         bigs = [batch]
@@ -293,6 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("--seeds", type=int, default=4, help="update seeds (minibatch shuffles and column subsets)")
     parser.add_argument("--episodes", type=int, default=4096)
     parser.add_argument("--warmup", type=int, default=1000)
+    parser.add_argument("--noops", type=int, default=0, help="random no-op starts, at most this many per environment")
     parser.add_argument("--big", type=int, default=8, help="rollouts in the large probe batch")
     parser.add_argument("--bisections", type=int, default=8)
     parser.add_argument("--key-offset", type=int, default=0)

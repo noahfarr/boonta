@@ -1,25 +1,37 @@
 """BB-8 (Batch-Balanced on-policy RL): measuring the gradient noise scale of an on-policy update.
 
-The probe splits a batch of `num_envs` environment columns into `num_groups` groups of whole T-step segments. The
-segments inside a group are correlated, but the groups are independent. It takes each group's loss gradient at the
-pre-update parameters, maps it through `optimizer.update` with the optimizer state frozen, and estimates, for the
-raw gradients and for the would-be updates,
+Units. The sample is a **segment**: one environment's T consecutive steps in one rollout (one column of a (T, N)
+batch). A batch of one rollout has B = N segments; a large batch of R rollouts stacked with `stack_rollouts` has
+B = R · N segments. Noise scales are in segments ("environments" in the logs and the report, since one rollout is one
+segment per environment), and in transitions after multiplying by T.
 
-    noise  = b · Σ_i ‖x_i − x̄‖² / (m − 1)       an estimate of tr(Σ) per environment segment
-    signal = ‖x̄‖² − noise / B                    an estimate of ‖E[x]‖²
-    B_simple = noise / signal                      in environments; times T in transitions
+Estimator (`noise_and_signal`, the only implementation; the online probe, the E1 large probe and the bias test all go
+through `probe`, which calls it). The batch is split into m groups of b = B / m whole segments (`group_columns`; with
+`stack_rollouts` a group holds whole environments across rollouts, so groups stay independent). From the m group
+means x_i of a quantity x (a gradient or an update) and a squared norm ‖·‖²_M:
 
-with b = B / m environments per group. Signal and noise are smoothed separately by an exponential moving average
-before the ratio is taken.
+    noise  = b · Σ_i ‖x_i − x̄‖²_M / (m − 1)      unbiased tr(M Σ) per segment
+    signal = ‖x̄‖²_M − noise / B                   unbiased ‖E[x]‖²_M
+    B_simple = noise / signal                       in segments
 
-`update` is the full would-be update u(g_i), which includes the part of Adam's step that comes from its frozen
-first moment. That part is the same for every group, so it adds to the signal and not to the noise. `fresh` is the
-update linearized at g = 0, J_u(0) g_i ≈ (u(ε g_i) − u(0)) / ε: with every optimizer statistic frozen (for Adam, the second moment too) it is
-linear in g, −lr (1 − β1) / c1 · g / (√ν̂ + ε) for Adam. `difference` is u(g_i) − u(0), which lets the group's own g²
-into Adam's second moment; at small groups that damps the noisiest groups and biases the noise scale low. For
-optimizers whose update is not differentiable at 0 (Lion's sign), `fresh` is zero and `difference` is the measure.
+Signal and noise are smoothed separately by an exponential moving average before the ratio is taken.
+
+Spaces (what x is), per loss:
+- `gradient`: the raw group gradient, Euclidean metric.
+- `update`: optimizer.update(g_i) with the optimizer state frozen. Contains the frozen first moment's step, which is
+  the same for every group: it adds to the signal and not to the noise, so this ratio stays flat.
+- `fresh` (the noise scale BB-8 is about): the update map linearized at g = 0 with the whole optimizer state frozen,
+  J_u(0) g_i, by `jax.jvp`. For Adam: −lr (1 − β1) / c1 · g / (√(β2 ν̂) + ε), linear in g. Gradient clipping is the
+  identity at g = 0, so it is excluded by construction. Coordinates whose second moment is exactly 0 (parameters
+  that have never had a gradient, so g is 0 there too) have a 0/0 tangent; it is set to 0 and counted
+  (`bb8/<loss>/fresh_undefined`). For Lion the tangent of sign at 0 is 0, so `fresh` is undefined; use `difference`.
+- `difference`: u(g_i) − u(0). Lets the group's own g² into Adam's second moment, which damps noisy (small) groups
+  and biases the noise scale low at small B. A diagnostic only.
+- `trust_region` (PPO): the fresh updates in the Fisher metric of the policy, ‖d‖²_F = E_s[Var_{a~π}(J_logits d)],
+  computed by a JVP of the logits along d on a sample of the batch's states (2 KL to second order).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import jax
@@ -28,8 +40,7 @@ import optax
 
 from boonta.utils.typing import Array, PyTree
 
-SPACES = ("gradient", "update", "fresh", "difference")
-FRESH_STEP = 1e-3
+SPACES = ("gradient", "update", "fresh", "difference", "trust_region")
 
 
 @dataclass(frozen=True)
@@ -37,21 +48,31 @@ class BB8Config:
     noise_scale_probe: bool = False
     num_groups: int = 64
     decay: float = 0.9
+    # States sampled for the trust-region (Fisher) metric.
+    fisher_states: int = 1024
     # PPO: normalize advantages by running moments instead of the batch's (for batches smaller than the default).
     running_advantage_normalization: bool = False
     # Running moments forget at rate exp(-n / horizon) per n transitions.
     advantage_horizon: float = 524_288.0
 
 
+def stack_rollouts(rollouts: list[PyTree]) -> PyTree:
+    """R rollouts of (T, N, ...) leaves to (T, N · R, ...), environment-major: column e · R + k is environment e in
+    rollout k, so a group of contiguous columns holds whole environments across all rollouts."""
+    return jax.tree.map(
+        lambda *leaves: jnp.stack(leaves, axis=2).reshape(leaves[0].shape[0], -1, *leaves[0].shape[2:]), *rollouts
+    )
+
+
 def group_columns(tree: PyTree, num_groups: int) -> PyTree:
-    """(T, N, ...) leaves to (num_groups, T · N / num_groups, ...): contiguous environment columns per group."""
+    """(T, B, ...) leaves to (num_groups, T · B / num_groups, ...): contiguous segments (columns) per group."""
 
     def split(leaf):
-        num_steps, num_envs, *rest = leaf.shape
-        assert num_envs % num_groups == 0, f"{num_envs} environments do not split into {num_groups} groups"
-        leaf = leaf.reshape(num_steps, num_groups, num_envs // num_groups, *rest)
+        num_steps, num_columns, *rest = leaf.shape
+        assert num_columns % num_groups == 0, f"{num_columns} segments do not split into {num_groups} groups"
+        leaf = leaf.reshape(num_steps, num_groups, num_columns // num_groups, *rest)
         leaf = jnp.moveaxis(leaf, 1, 0)
-        return leaf.reshape(num_groups, num_steps * (num_envs // num_groups), *rest)
+        return leaf.reshape(num_groups, num_steps * (num_columns // num_groups), *rest)
 
     return jax.tree.map(split, tree)
 
@@ -60,26 +81,28 @@ def squared_norm(tree: PyTree) -> Array:
     return sum(jnp.sum(jnp.square(leaf.astype(jnp.float32))) for leaf in jax.tree.leaves(tree))
 
 
-def noise_and_signal(stacked: PyTree, batch_size: float) -> tuple[Array, Array]:
-    """Unbiased tr(Σ) per sample and ‖E[x]‖² from `m` group means of `batch_size / m` samples each."""
-    leaves = jax.tree.leaves(stacked)
-    num_groups = leaves[0].shape[0]
-    group_size = batch_size / num_groups
-    mean = jax.tree.map(lambda leaf: jnp.mean(leaf.astype(jnp.float32), axis=0), stacked)
-    spread = sum(
-        jnp.sum(jnp.square(leaf.astype(jnp.float32) - centre))
-        for leaf, centre in zip(leaves, jax.tree.leaves(mean))
-    )
-    noise = group_size * spread / (num_groups - 1)
-    signal = squared_norm(mean) - noise / batch_size
+def noise_and_signal(group_means: PyTree, num_segments: float, metric: Callable | None = None) -> tuple[Array, Array]:
+    """Noise (tr(M Σ) per segment) and signal (‖E[x]‖²_M) from m group means of num_segments / m segments each.
+
+    `group_means` has a leading axis of m groups; `metric` maps a pytree (no group axis) to its squared norm
+    (Euclidean by default).
+    """
+    metric = metric or squared_norm
+    num_groups = jax.tree.leaves(group_means)[0].shape[0]
+    segments_per_group = num_segments / num_groups
+    mean = jax.tree.map(lambda leaf: jnp.mean(leaf.astype(jnp.float32), axis=0), group_means)
+    deviations = jax.tree.map(lambda leaf, centre: leaf.astype(jnp.float32) - centre[None], group_means, mean)
+    spread = jnp.sum(jax.vmap(metric)(deviations))
+    noise = segments_per_group * spread / (num_groups - 1)
+    signal = metric(mean) - noise / num_segments
     return noise, signal
 
 
 def frozen_updates(
     optimizer: optax.GradientTransformation, stacked: PyTree, optimizer_state: optax.OptState, params: PyTree
-) -> tuple[PyTree, PyTree, PyTree]:
-    """Each group's would-be update with the optimizer state held fixed; the update linearized at a zero gradient
-    applied to the group's gradient (fresh); and the update minus the update of a zero gradient (difference)."""
+) -> tuple[PyTree, PyTree, PyTree, Array]:
+    """For each group gradient, with the optimizer state frozen: the would-be update u(g_i); the fresh update
+    J_u(0) g_i (JVP at zero); the difference u(g_i) − u(0); and the fraction of undefined (0/0) fresh coordinates."""
 
     def update(grads):
         updates, _ = optimizer.update(grads, optimizer_state, params)
@@ -89,11 +112,11 @@ def frozen_updates(
     updates = jax.vmap(update)(stacked)
     baseline = update(zeros)
     difference = jax.tree.map(lambda u, u0: u - u0[None], updates, baseline)
-    # The linearization by a small step: jax.jvp at 0 is NaN through clip_by_global_norm (√ of a zero norm). At this
-    # scale clipping never triggers and the group's own g² in Adam's second moment is negligible (ε² (1 − β2) g²).
-    scaled = jax.vmap(update)(jax.tree.map(lambda g: FRESH_STEP * g, stacked))
-    fresh = jax.tree.map(lambda u, u0: (u - u0[None]) / FRESH_STEP, scaled, baseline)
-    return updates, fresh, difference
+    fresh = jax.vmap(lambda g: jax.jvp(update, (zeros,), (g,))[1])(stacked)
+    undefined = sum(jnp.sum(~jnp.isfinite(leaf)) for leaf in jax.tree.leaves(fresh))
+    total = sum(leaf.size for leaf in jax.tree.leaves(fresh))
+    fresh = jax.tree.map(lambda leaf: jnp.where(jnp.isfinite(leaf), leaf, 0.0), fresh)
+    return updates, fresh, difference, undefined / total
 
 
 def init_state(cfg: BB8Config, names: tuple[str, ...]) -> PyTree:
@@ -122,6 +145,19 @@ def init(names: tuple[str, ...]) -> PyTree:
     return {"count": jnp.zeros((), jnp.int32), "noise": zeros, "signal": jax.tree.map(jnp.zeros_like, zeros)}
 
 
+def fisher_metric(apply_logits: Callable, params: PyTree, states: PyTree) -> Callable:
+    """‖d‖²_F = E_s[Var_{a~π(·|s)}((J_logits d)_a)]: twice the KL of a step d to second order (categorical policy)."""
+    logits = apply_logits(params, states)
+    probabilities = jax.nn.softmax(logits, axis=-1)
+
+    def metric(direction):
+        _, tangent = jax.jvp(lambda p: apply_logits(p, states), (params,), (direction,))
+        centred = tangent - jnp.sum(probabilities * tangent, axis=-1, keepdims=True)
+        return jnp.mean(jnp.sum(probabilities * jnp.square(centred), axis=-1))
+
+    return metric
+
+
 def probe(
     cfg: BB8Config,
     state: PyTree,
@@ -129,22 +165,33 @@ def probe(
     optimizer: optax.GradientTransformation,
     optimizer_state: optax.OptState,
     params: PyTree,
-    num_envs: int,
+    num_segments: int,
     num_steps: int,
+    fisher: Callable | None = None,
 ) -> tuple[PyTree, dict[str, Array]]:
     """Noise and signal of each loss's group gradients and would-be updates; returns the smoothed state and logs.
 
-    `gradients` maps a loss name to its group gradients, stacked on a leading axis of `cfg.num_groups`.
+    `gradients` maps a loss name to its group gradients, stacked on a leading axis of `cfg.num_groups`;
+    `num_segments` is B (columns of the batch); `fisher` is the policy's Fisher metric, or None.
     """
     count = state["count"] + 1
     correction = 1.0 - cfg.decay ** count.astype(jnp.float32)
     noise_state, signal_state, logs = {}, {}, {}
     for name, stacked in gradients.items():
-        updates, fresh, difference = frozen_updates(optimizer, stacked, optimizer_state, params)
+        updates, fresh, difference, undefined = frozen_updates(optimizer, stacked, optimizer_state, params)
         logs[f"bb8/{name}/group_gradient_norm"] = jnp.mean(jax.vmap(lambda g: jnp.sqrt(squared_norm(g)))(stacked))
+        logs[f"bb8/{name}/fresh_undefined"] = undefined
         noise_state[name], signal_state[name] = {}, {}
-        for space, values in zip(SPACES, (stacked, updates, fresh, difference)):
-            noise, signal = noise_and_signal(values, num_envs)
+        for space in SPACES:
+            if space == "trust_region":
+                if fisher is None:
+                    noise_state[name][space] = state["noise"][name][space]
+                    signal_state[name][space] = state["signal"][name][space]
+                    continue
+                noise, signal = noise_and_signal(fresh, num_segments, fisher)
+            else:
+                values = {"gradient": stacked, "update": updates, "fresh": fresh, "difference": difference}[space]
+                noise, signal = noise_and_signal(values, num_segments)
             smoothed_noise = cfg.decay * state["noise"][name][space] + (1.0 - cfg.decay) * noise
             smoothed_signal = cfg.decay * state["signal"][name][space] + (1.0 - cfg.decay) * signal
             noise_state[name][space], signal_state[name][space] = smoothed_noise, smoothed_signal

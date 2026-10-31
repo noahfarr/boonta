@@ -35,7 +35,8 @@ def main(args):
     state = one_update.restore(path, template.algorithm_state)
     rollout = jax.jit(lambda s, keys: jax.lax.scan(lambda c, k: podracer.rollout(c, k, 1.0), s, keys))
     advance = jax.jit(lambda s, keys: jax.lax.scan(lambda c, k: (podracer.rollout(c, k, 1.0)[0], None), s, keys)[0])
-    pool = advance(template.replace(algorithm_state=state), jax.random.split(jax.random.key(1), args.warmup))
+    pool = one_update.desynchronize(podracer, template.replace(algorithm_state=state), jax.random.key(3), args.noops)
+    pool = advance(pool, jax.random.split(jax.random.key(1), args.warmup))
     clipped = algorithm.optimizer
     adam_only = optax.adam(float(cfg.optimizer.lr))
     adam_state = state.optimizer_state[1]  # chain(clip_by_global_norm, adam): (EmptyState, adam state)
@@ -52,7 +53,7 @@ def main(args):
             return {k: v for k, v in logs.items() if k.startswith("bb8/") and k.endswith(("/noise", "/signal"))}
         return run
 
-    variants = {"clipped": probe_with(clipped, state.optimizer_state), "unclipped": probe_with(adam_only, adam_state)}
+    variants = {"trained": probe_with(clipped, state.optimizer_state)}  # fresh is a JVP at 0: clipping is excluded
     sums = {}
     for r, key in enumerate(jax.random.split(jax.random.key(2), args.rollouts)):
         pool, batch = rollout(pool, jax.random.split(key, T))
@@ -67,14 +68,14 @@ def main(args):
     for variant in variants:
         for size in args.sizes:
             for name in names:
-                for space in ("gradient", "fresh", "difference", "update"):
+                for space in ("gradient", "fresh", "difference", "update", "trust_region"):
                     noise = np.mean(sums[(variant, size, f"bb8/{name}/{space}/noise")])
                     signal = np.mean(sums[(variant, size, f"bb8/{name}/{space}/signal")])
                     count = len(sums[(variant, size, f"bb8/{name}/{space}/noise")])
                     result[f"{variant}/{size}/{name}/{space}"] = {"noise_scale_envs": noise / signal, "batches": count}
     Path(args.output).write_text(json.dumps(result, indent=1))
     for name in names:
-        for space in ("gradient", "fresh", "difference"):
+        for space in ("gradient", "fresh", "difference", "trust_region"):
             print(name, space, "  ".join(f"{v} B={s}: {result[f'{v}/{s}/{name}/{space}']['noise_scale_envs']:.0f}"
                                          for v in variants for s in args.sizes))
 
@@ -87,4 +88,5 @@ if __name__ == "__main__":
     parser.add_argument("--sizes", type=int, nargs="+", default=[256, 512, 1024, 2048, 8192])
     parser.add_argument("--rollouts", type=int, default=4)
     parser.add_argument("--warmup", type=int, default=1000)
+    parser.add_argument("--noops", type=int, default=0)
     main(parser.parse_args())

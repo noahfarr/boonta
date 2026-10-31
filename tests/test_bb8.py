@@ -84,7 +84,7 @@ def test_a_frozen_adam_update_has_the_noise_scale_of_the_preconditioned_gradient
     for key in jax.random.split(jax.random.key(6), 32):
         grads = group_means(sample(key))
         noise, signal = bb8.noise_and_signal(grads * preconditioner, NUM_ENVS)
-        _, fresh, _ = bb8.frozen_updates(optimizer, grads, optimizer_state, params)
+        _, fresh, _, _ = bb8.frozen_updates(optimizer, grads, optimizer_state, params)
         fresh_noise, fresh_signal = bb8.noise_and_signal(fresh, NUM_ENVS)
         noises.append(noise), signals.append(signal)
         fresh_noises.append(fresh_noise), fresh_signals.append(fresh_signal)
@@ -108,7 +108,61 @@ def test_the_fresh_update_freezes_adams_second_moment_so_it_does_not_depend_on_t
     adam = optax.ScaleByAdamState(count=jnp.asarray(100, jnp.int32), mu=jnp.zeros(DIM), nu=nu)
     grads = jax.random.normal(jax.random.key(7), (8, DIM))
     clipped = optax.chain(optax.clip_by_global_norm(0.5), optimizer)  # as the recipes build it
-    _, fresh, difference = bb8.frozen_updates(clipped, grads, (optax.EmptyState(), (adam, optax.EmptyState())), params)
+    _, fresh, difference, _ = bb8.frozen_updates(clipped, grads, (optax.EmptyState(), (adam, optax.EmptyState())), params)
     linear = -1e-3 * 0.1 / (1 - 0.9**101) * grads / (jnp.sqrt(0.999 * nu / (1 - 0.999**101)) + 1e-8)
     np.testing.assert_allclose(fresh, linear, rtol=1e-3)
     assert float(jnp.max(jnp.abs(difference))) < 0.5 * float(jnp.max(jnp.abs(fresh)))
+
+
+def caller_batches(path, key, num_groups, num_segments, num_steps, num_rollouts):
+    """The group means each caller builds: online (one rollout), large (R rollouts stacked env-major), subset (column
+    subsets of a larger batch, as the bias test does). Returns a list of (group means, B)."""
+    base, *keys = jax.random.split(key, num_rollouts + 1)  # `base` fixes the mean gradient for every rollout
+    if path == "online":
+        batch = segments_with_mean(base, keys[0], num_steps, num_segments)
+        return [(bb8.group_columns(batch, num_groups).mean(axis=1), num_segments)]
+    if path == "large":
+        per = num_segments // num_rollouts
+        batch = bb8.stack_rollouts([segments_with_mean(base, k, num_steps, per) for k in keys])
+        return [(bb8.group_columns(batch, num_groups).mean(axis=1), num_segments)]
+    batch = segments_with_mean(base, keys[0], num_steps, 2 * num_segments)
+    return [(bb8.group_columns(batch[:, i * num_segments:(i + 1) * num_segments], num_groups).mean(axis=1), num_segments)
+            for i in range(2)]
+
+
+def segments_with_mean(base, key, num_steps, num_envs, dim=16, true_scale=100.0):
+    """Per-step gradients (T, N, dim) with mean from `base` and a per-segment noise scale of `true_scale` segments: a
+    shared draw per segment (std s) plus step noise (std s √T), so the per-segment covariance is 2 s² I for any T."""
+    mean = jax.random.normal(base, (dim,))
+    std = jnp.sqrt(true_scale * jnp.sum(mean**2) / (2 * dim))
+    segment_key, step_key = jax.random.split(key)
+    z = std * jax.random.normal(segment_key, (num_envs, dim))
+    xi = std * jnp.sqrt(num_steps) * jax.random.normal(step_key, (num_steps, num_envs, dim))
+    return mean + z[None] + xi
+
+
+CALLERS = [("online", 1), ("subset", 1), ("large", 1), ("large", 4)]
+
+
+@pytest.mark.parametrize("path, num_rollouts", CALLERS)
+@pytest.mark.parametrize("num_groups", [16, 64])
+@pytest.mark.parametrize("num_segments", [256, 8192])
+@pytest.mark.parametrize("num_steps", [1, 16])
+def test_every_caller_recovers_the_noise_scale_in_segments(path, num_rollouts, num_groups, num_segments, num_steps):
+    """The estimate (in segments) does not depend on the caller, m, B, T or the number of rollouts."""
+    noises, signals = [], []
+    repeats = 48 if num_segments == 256 else 12
+    for key in jax.random.split(jax.random.key(11), repeats):
+        for group_means, batch in caller_batches(path, key, num_groups, num_segments, num_steps, num_rollouts):
+            noise, signal = bb8.noise_and_signal(group_means, batch)
+            noises.append(noise)
+            signals.append(signal)
+    assert float(np.mean(noises) / np.mean(signals)) == pytest.approx(100.0, rel=0.12)
+
+
+def test_the_probe_reports_transitions_as_segments_times_t():
+    group_means = bb8.group_columns(segments_with_mean(jax.random.key(0), jax.random.key(1), 16, 256), 16).mean(axis=1)
+    state, logs = bb8.probe(bb8.BB8Config(noise_scale_probe=True, num_groups=16), bb8.init(("x",)), {"x": group_means},
+                            optax.sgd(1.0), optax.sgd(1.0).init(jnp.zeros(16)), jnp.zeros(16), 256, 16)
+    assert float(logs["bb8/x/gradient/noise_scale_transitions"]) == pytest.approx(
+        16 * float(logs["bb8/x/gradient/noise_scale_envs"]), rel=1e-6)

@@ -264,6 +264,16 @@ class PPO:
 
         grads = jax.vmap(gradients)(bb8.group_columns(transitions, cfg.num_groups))
         grads["total"] = jax.tree.map(jnp.add, grads["actor"], grads["critic"])
+
+        def apply_logits(inner: PyTree, states: PyTree) -> Array:
+            dist, _ = self.network.apply({**state.params, "params": inner}, states, temperature=1.0)
+            return dist.logits
+
+        observations = jax.tree.map(lambda leaf: flatten(leaf, start_dim=0, end_dim=1), transitions.first.obs)
+        count = jax.tree.leaves(observations)[0].shape[0]
+        stride = max(1, count // cfg.fisher_states)
+        states = jax.tree.map(lambda leaf: leaf[::stride][: cfg.fisher_states], observations)
+        fisher = bb8.fisher_metric(apply_logits, state.params["params"], states)
         probe_state, logs = bb8.probe(
             cfg,
             state.bb8,
@@ -273,6 +283,7 @@ class PPO:
             state.params["params"],
             num_envs,
             num_steps,
+            fisher=fisher,
         )
         lox.log(logs)
         return state.replace(bb8={**state.bb8, **probe_state})
