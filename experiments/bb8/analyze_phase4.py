@@ -9,11 +9,15 @@ before any Phase 4 run finished, plus what the pool needs):
   logs them (pool), else training/episode_return (Anakin, already episode-weighted). x-axis: environment steps actually
   taken (pool/env_steps_total for pool runs, the logged step otherwise).
 - a run is refused if it stops short of its budget by more than one largest batch (8192 × 16 steps; the pool can leave
-  less than one batch of credit unused) or has no metrics.
+  less than one batch of credit unused) or has no metrics, unless it was stopped for entropy collapse (stalled.json):
+  then its curve is extended flat at its last value to the budget, and it counts as a stall.
 - final: mean of the curve over the last 10% of epochs. threshold: 95% of the best fixed arm's mean final (fixed arms:
   the tuned/default fixed arm and the fixed_N grid), per algorithm and game.
 - steps to threshold: first step where the trailing mean over 5 epochs reaches the threshold; censored at the budget.
-  stall: a run that never reaches it.
+  stall: a run that never reaches it (entropy-stopped runs included; reported separately as "stopped").
+- wall-clock to threshold: cumulative seconds over epochs (epoch steps / logged SPS, compilation included) at the
+  first epoch that reaches the threshold; censored at the run's total.
+- frontier: per algorithm and game, IQM steps to threshold against IQM wall-clock to threshold, one point per arm.
 - AUC: trapezoidal area under the curve over steps / budget.
 - oracle fixed: the fixed_N arm with the lowest IQM steps to threshold, per algorithm and game.
 - IQM over seeds (trim 25%); intervals: 10,000 bootstrap resamples of seeds within each arm (and within each game for
@@ -87,8 +91,13 @@ def load(run):
     else:
         curve = get("training/episode_return")
         steps = data["steps"].astype(float)
+    sps = get("monitor/SPS")
+    seconds = np.zeros_like(steps)
+    if sps is not None:
+        seconds[1:] = np.cumsum(np.diff(steps) / np.maximum(sps[1:], 1e-9))
     extras = {k: get(k) for k in ("pool/bucket", "pool/multiplier", "pool/kl", "pool/noise_scale_envs",
                                   "pool/noise_scale_critic_envs", "pool/step_target", "pool/update_norm") if k in data.files}
+    extras["seconds"] = seconds
     return steps, curve, extras
 
 
@@ -109,11 +118,19 @@ def main(root, out):
             problems.append(f"{run}: no metrics.npz")
             continue
         steps, curve, extras = load(run)
-        if steps[-1] < budget - SLACK:
+        stopped = (run / "stalled.json").exists()
+        if steps[-1] < budget - SLACK and not stopped:
             problems.append(f"{run}: stops at {steps[-1]:,.0f} of {budget:,}")
             continue
+        if stopped and steps[-1] < budget:
+            # Extend flat at the last value on the epoch grid of the planned run.
+            grid = np.linspace(0, budget, int(round(len(steps) * budget / max(steps[-1], 1))))
+            last = curve[np.flatnonzero(np.isfinite(curve))[-1]] if np.isfinite(curve).any() else np.nan
+            curve = np.concatenate([curve, np.full(max(0, len(grid) - len(steps)), last)])
+            steps = np.concatenate([steps, grid[len(steps):]])
+            extras["seconds"] = np.concatenate([extras["seconds"], np.full(len(steps) - len(extras["seconds"]), extras["seconds"][-1])])
         runs[(algorithm, game, arm)].append({"seed": int(seed), "run": str(run), "steps": steps, "curve": curve,
-                                             "extras": extras, "wall": wall_clock(run)})
+                                             "extras": extras, "wall": wall_clock(run), "stopped": stopped})
     if problems:
         (out / "refused.txt").write_text("\n".join(problems) + "\n")
         print(f"refused {len(problems)} runs, see refused.txt")
@@ -139,12 +156,14 @@ def main(root, out):
                            "final": final_of(r),
                            "auc": float(np.trapezoid(r["curve"][finite], r["steps"][finite]) / budget),
                            "steps_to_threshold": float(r["steps"][hit[0]]) if len(hit) else float(budget),
-                           "reached": bool(len(hit)), "wall_clock_s": r["wall"],
+                           "wall_to_threshold_s": float(r["extras"]["seconds"][hit[0]]) if len(hit) else float(r["extras"]["seconds"][-1]),
+                           "reached": bool(len(hit)), "stopped": r["stopped"], "wall_clock_s": r["wall"],
                            "mean_bucket": float(np.nanmean(r["extras"]["pool/bucket"])) if "pool/bucket" in r["extras"] else float("nan")}
                     rows.append(row)
                 arm_rows = [row for row in rows if (row["algorithm"], row["game"], row["arm"]) == (algorithm, game, arm)]
-                entry = {"seeds": len(arm_rows), "stalls": sum(not row["reached"] for row in arm_rows)}
-                for name in ("steps_to_threshold", "auc", "final", "wall_clock_s"):
+                entry = {"seeds": len(arm_rows), "stalls": sum(not row["reached"] for row in arm_rows),
+                         "stopped": sum(row["stopped"] for row in arm_rows)}
+                for name in ("steps_to_threshold", "wall_to_threshold_s", "auc", "final", "wall_clock_s"):
                     values = [row[name] for row in arm_rows if np.isfinite(row[name])]
                     entry[name] = bootstrap(values) if values else None
                 per_arm[arm] = entry
@@ -200,9 +219,11 @@ def main(root, out):
         for game, g in a["games"].items():
             lines += [f"### {algorithm.upper()} {game}: threshold {g['threshold']:.2f} (95% of {g['best_fixed_by_final']}); "
                       f"oracle fixed = {g['oracle_fixed']}", "",
-                      "| Arm | Seeds | Stalls | Steps to threshold (M) | AUC | Final | Wall-clock (min) |", "|---|---|---|---|---|---|---|"]
+                      "| Arm | Seeds | Stalls (stopped) | Steps to threshold (M) | Wall-clock to threshold (min) | AUC | Final | Wall-clock (min) |",
+                      "|---|---|---|---|---|---|---|---|"]
             for arm, e in g["arms"].items():
-                lines.append(f"| {arm} | {e['seeds']} | {e['stalls']} | {fmt(e['steps_to_threshold'], 1e6)} | {fmt(e['auc'])} | "
+                lines.append(f"| {arm} | {e['seeds']} | {e['stalls']} ({e['stopped']}) | {fmt(e['steps_to_threshold'], 1e6)} | "
+                             f"{fmt(e['wall_to_threshold_s'], 60, 1)} | {fmt(e['auc'])} | "
                              f"{fmt(e['final'])} | {fmt(e['wall_clock_s'], 60, 1)} |")
             lines.append("")
         lines += [f"### {algorithm.upper()} aggregate over games: steps to threshold / budget (IQM, stratified bootstrap)", "",
@@ -238,6 +259,33 @@ def main(root, out):
                 axis.legend(fontsize=6)
         figure.tight_layout()
         figure.savefig(out / f"curves_{algorithm}.png", dpi=120)
+
+        figure, axes = plt.subplots(1, len(games), figsize=(5.5 * len(games), 4.5), squeeze=False)
+        for column, game in enumerate(games):
+            axis = axes[0, column]
+            arms = summary[algorithm]["games"][game]["arms"]
+            points = []
+            for arm, e in arms.items():
+                if e["steps_to_threshold"] is None or e["wall_to_threshold_s"] is None:
+                    continue
+                x, y = e["wall_to_threshold_s"][0] / 60, e["steps_to_threshold"][0] / 1e6
+                points.append((x, y, arm))
+                axis.errorbar(x, y, xerr=[[x - e["wall_to_threshold_s"][1] / 60], [e["wall_to_threshold_s"][2] / 60 - x]],
+                              yerr=[[y - e["steps_to_threshold"][1] / 1e6], [e["steps_to_threshold"][2] / 1e6 - y]],
+                              fmt="o", ms=4, lw=0.6, capsize=2)
+                axis.annotate(arm, (x, y), fontsize=6, xytext=(3, 3), textcoords="offset points")
+            frontier = sorted(p for p in points if not any(q[0] <= p[0] and q[1] <= p[1] and q != p for q in points))
+            if frontier:
+                axis.plot([p[0] for p in frontier], [p[1] for p in frontier], "k--", lw=0.8, label="frontier")
+            axis.set_xlabel("wall-clock to threshold (min, IQM)")
+            axis.set_ylabel("steps to threshold (M, IQM)")
+            axis.set_title(f"{algorithm.upper()} {game}", fontsize=10)
+            axis.grid(alpha=0.3)
+            axis.legend(fontsize=7)
+            summary[algorithm]["games"][game]["frontier"] = [p[2] for p in frontier]
+        figure.tight_layout()
+        figure.savefig(out / f"frontier_{algorithm}.png", dpi=120)
+    (out / "summary.json").write_text(json.dumps(summary, indent=1))
 
 
 if __name__ == "__main__":
