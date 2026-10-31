@@ -234,7 +234,7 @@ def main(args):
             for seed in range(args.seeds):
                 for fraction in FRACTIONS:
                     chosen = subset(fraction, seed)
-                    for multiplier in MULTIPLIERS:
+                    for multiplier in args.multipliers:
                         measure("grid", chosen, base_lr * multiplier, seed, {"fraction": fraction, "multiplier": multiplier})
                 print(f"  grid seed {seed}: {time.time() - started:.0f} s", flush=True)
         if "tune" in args.tests:
@@ -272,6 +272,8 @@ if __name__ == "__main__":
     parser.add_argument("--tests", nargs="+", default=["grid", "matched_kl"])
     parser.add_argument("--optimizer", default="adam", choices=["adam", "sgd", "lion"])
     parser.add_argument("--base-lr", type=float, default=None, help="default: the run's optimizer.lr")
+    parser.add_argument("--multipliers", type=float, nargs="+", default=list(MULTIPLIERS),
+                        help="grid multipliers (an extension run with other values is merged by analyze_e1.py)")
     parser.add_argument("--tune-multipliers", type=float, nargs="*", default=[])
     parser.add_argument("--seeds", type=int, default=4, help="update seeds (minibatch shuffles and column subsets)")
     parser.add_argument("--episodes", type=int, default=4096)

@@ -47,10 +47,24 @@ def curves(cube, multipliers):
 
 def load(directory):
     for path in sorted(Path(directory).glob("*.json")):
-        if path.name.startswith("tune_"):
+        if path.name.startswith(("tune_", "klcal_")) or path.name.endswith(".ext.json"):
             continue
         report = json.loads(path.read_text())
-        arrays = np.load(path.with_suffix(".npz"))
+        arrays = dict(np.load(path.with_suffix(".npz")))
+        extension = path.with_name(path.stem + ".ext.json")
+        if extension.exists():
+            # Extra multipliers at some checkpoints: same batch, subsets and episodes (keys derive from the step).
+            more = json.loads(extension.read_text())
+            more_arrays = np.load(extension.with_suffix("").with_suffix(".ext.npz"))
+            for step, entry in more["checkpoints"].items():
+                base = report["checkpoints"][step]
+                assert abs(base["j_before"] - entry["j_before"]) < 1e-6, f"{extension}: not the same evaluation at {step}"
+                offset = len(base["conditions"])
+                for index, condition in enumerate(entry["conditions"]):
+                    base["conditions"].append(condition)
+                    for suffix in ("", "/greedy"):
+                        if f"{step}/{index}{suffix}" in more_arrays:
+                            arrays[f"{step}/{offset + index}{suffix}"] = more_arrays[f"{step}/{index}{suffix}"]
         algorithm, optimizer, *rest = path.stem.split("_")
         if algorithm == "pqn":
             game, seed = "_".join([optimizer, *rest[:-1]]), rest[-1]
