@@ -144,3 +144,85 @@ Why the full update is flat. With the optimizer state frozen, update(g_i) = −l
 - Logs per update, reduced to scalars inside the branch: `pool/{bucket, noise_scale_envs, noise_scale_critic_envs, step_target, multiplier, kl, update_norm, env_steps}`. Episode statistics are logged as mean, sum and count, so per-epoch returns can be weighted by episodes (`training/episode_return_sum / _count`).
 - Bugs found while building it: `copy.copy` of a `Wrapper` recurses through `Wrapper.__getattr__` (`boonta/environments/wrappers/wrapper.py:24-25`) because `_env` is not set on the new object yet. Worked around in `pool.with_num_envs` by copying `__dict__`. Proposed fix on main: `__getattr__` should raise `AttributeError` for `_env` (and dunder names) instead of recursing.
 - Checks (CPU): every mode runs (noise/lr, noise/kl, doubling/lr_sqrt, fixed/kl_constant, PQN noise/lr). Steps taken 9,984 of the 10,240 budgeted in the smoke test; the difference is the credit still waiting (less than one batch). **With BB-8 off and the bucket fixed at the default N, the pool is bitwise identical to Anakin** for PPO (tuned, 26 leaves) and PQN (32 leaves). The GPU check is in 55188.
+
+## 2026-10-31 (evening) After the intermediate report
+
+### Phase 4 pilot v1 (55190 with a scan of lax.cond slots; 55193 with the host loop), 1 seed per arm, Breakout: findings
+- GPU throughput. A `lax.cond` per 256-environment slot made XLA read a predicate to the host each slot: the pool ran
+  about 7× slower than Anakin on a shared A100. The fix is a host loop with one jitted step per (bucket, probe) and one
+  sync per update. Results are identical (the CPU smoke test reproduces the scan version exactly). Cost: about
+  0.9–1.2 GPU-minutes per PPO pool run, with 6 runs sharing a GPU.
+- Entropy collapse. BB-8 κ = 0.25 with KL adaptation sat at bucket 512 because its online noise scale read 175–500
+  environments. The multiplier went to its cap of 16, entropy fell from 0.23 to 0.002, and the return stalled at 6.5.
+  The doubling arm showed the same low readings at small buckets. That pointed to a measurement problem (below).
+
+### Measurement fixes (addendum item 1)
+- **The online fresh noise scale was biased low at small B.** Offline on one checkpoint (Breakout seed 0, 40%), with the
+  old fresh (= u(g) − u(0)): actor 536 / 741 / 2310 environments at B = 256 / 1024 / 8192. The raw gradient was flat
+  (5062 / 3020 / 2965). Clipping was not involved (clipped and unclipped were identical; the clip never fired). The
+  cause: `optimizer.update(g_i)` also updates Adam's second moment with the group's own g², which damps the noisy
+  small groups.
+- **Fix: `fresh` is now the JVP of the update map at g = 0 with the whole optimizer state frozen** (`bb8.frozen_updates`).
+  Clipping is the identity at 0, so it is excluded by construction. JVP at 0 is NaN only where Adam's ν is exactly 0
+  (parameters that never had a gradient, so g is 0 there as well); those tangents are set to 0 and counted
+  (`bb8/<loss>/fresh_undefined`). The old quantity is kept as `difference`. Lion's fresh is undefined (sign has a zero
+  derivative at 0); Lion uses `difference`. With the JVP fresh, the same offline test is flat in B: actor 742 vs 849,
+  total 148 vs 151, critic 8 vs 8 (short warm-up, CPU smoke test; GPU job 55214 has the full test).
+- **One estimator.** `bb8.noise_and_signal(group_means, num_segments, metric)` is the only implementation. Units: the
+  sample is a segment (one environment's T steps in one rollout); B counts segments, so B = N for one rollout and
+  B = R · N for R rollouts stacked environment-major by `bb8.stack_rollouts`; noise scales are in segments
+  ("environments") and × T in transitions. The online probe (PPO/PQN `probe_noise_scale`), the E1 large probe and the
+  bias test all go through `bb8.probe`. Test `test_every_caller_recovers_the_noise_scale_in_segments`: synthetic
+  gradients with a known noise scale of 100 segments, through the data path of each caller (online, column subsets,
+  R = 1 and 4 rollouts stacked) × m ∈ {16, 64} × B ∈ {256, 8192} × T ∈ {1, 16}: 32 cases, all within 12%.
+- **Root cause of the 290 vs 18k gap.** Not units: the invariance test rules out T × R = 64 and m = 64. Two causes:
+  (1) warm-up and synchronization. After 300 steps from a synchronized reset, the actor's raw noise scale was 272;
+  after 1000 steps it was 2965, the same order as E1. (2) The old nonlinear fresh, as above.
+- **Desynchronization.** Random no-op starts (`--noops K`: environment e takes U{0..K} no-ops after reset, then the policy
+  warm-up) in `one_update.desynchronize`, used by E1 and the bias test. Warm-up sensitivity (300 / 1000 / 3000, with
+  and without 1000 no-ops) is GPU job 55214. From now on every offline measurement uses 1000 no-ops + 1000 warm-up.
+- **Trust-region noise scale (PPO).** Space `trust_region`: the fresh updates in the policy's Fisher metric,
+  ‖d‖²_F = E_s[Var_{a~π}((J_logits d)_a)] (twice the KL to second order). It is computed with a JVP of the logits
+  along d on 1024 states of the batch (a fixed stride). Noise = b Σ ‖u_i − ū‖²_F / (m − 1), signal = ‖ū‖²_F − noise/B,
+  through the same estimator.
+- Restoring checkpoints written before these spaces existed: `one_update.restore` retries with the old probe layout
+  and replaces the probe statistics by zeros (E1 does not use them).
+
+### E1 v2 (addendum item 2)
+- Held-out surrogate proxy: 16 more rollouts (16 × 8192 segments) from the pre-update policy, after the probe rollouts
+  and independent of the update's batch, with GAE from the pre-update critic, unnormalized. Proxy =
+  E[(π′(a|s)/π(a|s) − 1) A], kept in 1024 blocks of 128 columns for the bootstrap. Every condition uses the same
+  held-out batch.
+- Rerun (`jobs/phase2v2_adam.txt`, 55213; `jobs/phase2v2_other.txt` next) with: 10 multipliers 1/64–8×, 1000 no-ops +
+  1000 warm-up, JVP fresh, trust region, proxy, episode ΔJ at every checkpoint, and matched KL. The old SGD/Lion job
+  (55192) was killed, since it had neither the new noise scales nor the proxy; SGD and Lion are in the rerun.
+- First reading (Breakout seed 0): the actor's JVP-fresh noise scale on the large batch is 96k environments at 10% and
+  negative (signal estimate below 0) at 40%. In Adam's metric the actor's mean update is not resolved at B = 65,536.
+
+### BB-8 fixes (addendum item 3)
+- `PoolConfig.multiplier_cap` = 1 (never above the tuned learning rate); `early_multiplier_cap` (1, or 2 if E1 supports
+  it) in the first `early_fraction` = 10% of the budget.
+- KL modes (`kl`, `kl_constant`, `kl_decay`): the update trains on 3/4 of the batch's columns, and the controller's KL is
+  measured on the held-out quarter. All N environments are stepped and counted, so these arms pay 25% of their samples
+  for the measurement. Disclosed in the report.
+- `train.py`: optional `stop_entropy_fraction` (off by default). When the epoch's `actor/entropy` falls below that
+  fraction of the first epoch's, the run writes `stalled.json` and stops. The Phase 4 analysis counts it as a stall and
+  extends its curve flat at its last value. Checked with a fraction above 1, which stops at epoch 0.
+- `PoolConfig.noise_space` chooses which smoothed noise scale drives the schedule and the step.
+- New step modes for the baselines: `anneal` (linear to 0 over the budget), `kl_decay` (KL target decaying linearly to 0).
+
+### Bug fix (addendum item 5)
+- `Wrapper.__getattr__` and `WrapperState.__getattr__` (`boonta/environments/wrappers/wrapper.py`) now raise
+  `AttributeError` for the wrapped attribute itself (`_env`, `env_state`) and for dunder names. Before, `copy.copy`,
+  `copy.deepcopy` and `pickle` recursed without end, because the object being built had no `_env` yet. Test
+  `test_a_wrapper_and_its_state_can_be_copied_and_pickled` fails without the fix and passes with it. Environment,
+  podracer, bb8 and PPO/PQN algorithm tests: 264 passed, 41 skipped. The pool's workaround is removed.
+
+### Phase 4 additions (addendum item 4, prepared)
+- `jobs/make_phase4.sh`: PPO arms tuned_fixed, tuned_anneal, kl_alone, kl_decay, fixed_{256..8192} with step
+  adaptation, fixed_{256,512}_anneal, doubling, naive, bb8_k0.25, bb8_k1. Every PPO arm has the entropy stop. PQN arms:
+  default_fixed, default_anneal, fixed_{256..8192} with lr adaptation, naive, bb8_k0.25.
+- `analyze_phase4.py`: wall-clock to threshold (cumulative epoch steps / SPS, compilation included), stalls including
+  entropy stops, and the frontier plot (IQM steps to threshold against IQM wall-clock to threshold, Pareto frontier
+  marked).
+- Pilot: 4 seeds per arm, Breakout and Asterix, after E1 v2 picks the noise scale, the step option and the early cap.
