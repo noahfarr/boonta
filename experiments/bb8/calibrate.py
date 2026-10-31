@@ -18,15 +18,27 @@ from pathlib import Path
 import numpy as np
 
 
-def n0(directory, prefix, name):
+def n0(directory, prefix, name, space="fresh"):
     values = []
     for path in glob.glob(f"{directory}/{prefix}/*/metrics.npz"):
         data = np.load(path)
         n = len(data["steps"])
-        noise = np.nanmean(data[f"bb8/{name}/fresh/noise"].reshape(n, -1), -1)[2:]
-        signal = np.nanmean(data[f"bb8/{name}/fresh/signal"].reshape(n, -1), -1)[2:]
+        noise = np.nanmean(data[f"bb8/{name}/{space}/noise"].reshape(n, -1), -1)[2:]
+        signal = np.nanmean(data[f"bb8/{name}/{space}/signal"].reshape(n, -1), -1)[2:]
         values.append(float(np.nanmedian(np.where(signal > 0, noise / signal, np.nan))))
     return float(np.median(values)), len(values)
+
+
+def e1_n0(e1, game, space):
+    """Median over E1 checkpoints and seeds of the large-probe noise scale of the actor (desynchronized, B = 65,536):
+    used instead of E2's in-training estimates, which were measured with the old (nonlinear) fresh update."""
+    values = []
+    for path in glob.glob(f"{e1}/ppo_adam_{game}_*.json") + glob.glob(f"{e1}/klcal_{game}_*.json"):
+        for entry in json.loads(Path(path).read_text())["checkpoints"].values():
+            value = entry["noise_big"].get(f"bb8/actor/{space}/noise_scale_envs")
+            if value is not None and np.isfinite(value) and value > 0:
+                values.append(value)
+    return (float(np.median(values)) if values else float("nan")), len(values)
 
 
 def kl_med(e1, game):
@@ -40,10 +52,14 @@ def kl_med(e1, game):
 
 
 def main(args):
-    lines = [f"# Written by calibrate.py. STEP chosen from Phase 2: {args.step}.", f"STEP={args.step}"]
+    lines = [f"# Written by calibrate.py. Chosen from E1: STEP={args.step}, NOISE_SPACE={args.noise_space}, "
+             f"PQN_NOISE_SPACE={args.pqn_noise_space}, EARLY_CAP={args.early_cap}. N0 source: {args.n0_source}.",
+             f"STEP={args.step}", f"NOISE_SPACE={args.noise_space}", f"PQN_NOISE_SPACE={args.pqn_noise_space}",
+             f"EARLY_CAP={args.early_cap}"]
     report = {}
     for game in ("breakout", "asterix", "space_invaders"):
-        noise, seeds = n0(args.e2_tuned, f"ppo_{game}", "actor")
+        noise, seeds = (n0(args.e2_tuned, f"ppo_{game}", "actor", args.noise_space) if args.n0_source == "e2"
+                        else e1_n0(args.e1, game, args.noise_space))
         kl, count = kl_med(args.e1, game)
         m_max = (8192 + noise) / 8192
         lines += [f"MMAX_{game}={m_max:.4f}", f"KLMED_{game}={kl:.6f}", f"KLMAX_{game}={kl * m_max**2:.6f}"]
@@ -65,5 +81,9 @@ if __name__ == "__main__":
     parser.add_argument("--e2", required=True)
     parser.add_argument("--e1", required=True)
     parser.add_argument("--step", required=True, choices=["lr", "lr_sqrt", "kl"])
+    parser.add_argument("--noise-space", default="fresh", choices=["fresh", "trust_region", "gradient"])
+    parser.add_argument("--pqn-noise-space", default="fresh", choices=["fresh", "gradient"])
+    parser.add_argument("--early-cap", type=float, default=1.0)
+    parser.add_argument("--n0-source", default="e1", choices=["e1", "e2"])
     parser.add_argument("--output", default="experiments/bb8/calibration.env")
     main(parser.parse_args())
