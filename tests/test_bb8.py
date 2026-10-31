@@ -67,6 +67,7 @@ def test_the_smoothed_probe_matches_and_an_sgd_update_has_the_noise_scale_of_its
     assert gradient == pytest.approx(true_scale, rel=0.1)
     assert float(logs["bb8/loss/update/noise_scale_envs"]) == pytest.approx(gradient, rel=1e-4)
     assert float(logs["bb8/loss/fresh/noise_scale_envs"]) == pytest.approx(gradient, rel=1e-4)
+    assert float(logs["bb8/loss/difference/noise_scale_envs"]) == pytest.approx(gradient, rel=1e-4)
 
 
 def test_a_frozen_adam_update_has_the_noise_scale_of_the_preconditioned_gradient():
@@ -83,7 +84,7 @@ def test_a_frozen_adam_update_has_the_noise_scale_of_the_preconditioned_gradient
     for key in jax.random.split(jax.random.key(6), 32):
         grads = group_means(sample(key))
         noise, signal = bb8.noise_and_signal(grads * preconditioner, NUM_ENVS)
-        _, fresh = bb8.frozen_updates(optimizer, grads, optimizer_state, params)
+        _, fresh, _ = bb8.frozen_updates(optimizer, grads, optimizer_state, params)
         fresh_noise, fresh_signal = bb8.noise_and_signal(fresh, NUM_ENVS)
         noises.append(noise), signals.append(signal)
         fresh_noises.append(fresh_noise), fresh_signals.append(fresh_signal)
@@ -97,3 +98,17 @@ def test_groups_are_whole_environment_columns():
     environments = np.asarray(groups) % 8
     assert groups.shape == (2, 16)
     assert set(environments[0]) == {0, 1, 2, 3} and set(environments[1]) == {4, 5, 6, 7}
+
+
+def test_the_fresh_update_freezes_adams_second_moment_so_it_does_not_depend_on_the_group_size():
+    """With ν fixed the fresh update is linear in g, so a large group gradient is not damped by its own g²."""
+    params = jnp.zeros(DIM)
+    optimizer = optax.adam(1e-3)
+    nu = jnp.full(DIM, 1e-4)  # small second moment: (1 - β2) g² of a noisy group (g ~ 1) would dominate it
+    adam = optax.ScaleByAdamState(count=jnp.asarray(100, jnp.int32), mu=jnp.zeros(DIM), nu=nu)
+    grads = jax.random.normal(jax.random.key(7), (8, DIM))
+    clipped = optax.chain(optax.clip_by_global_norm(0.5), optimizer)  # as the recipes build it
+    _, fresh, difference = bb8.frozen_updates(clipped, grads, (optax.EmptyState(), (adam, optax.EmptyState())), params)
+    linear = -1e-3 * 0.1 / (1 - 0.9**101) * grads / (jnp.sqrt(0.999 * nu / (1 - 0.999**101)) + 1e-8)
+    np.testing.assert_allclose(fresh, linear, rtol=1e-3)
+    assert float(jnp.max(jnp.abs(difference))) < 0.5 * float(jnp.max(jnp.abs(fresh)))

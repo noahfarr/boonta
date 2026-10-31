@@ -13,8 +13,11 @@ with b = B / m environments per group. Signal and noise are smoothed separately 
 before the ratio is taken.
 
 `update` is the full would-be update u(g_i), which includes the part of Adam's step that comes from its frozen
-first moment. That part is the same for every group, so it adds to the signal and not to the noise. `fresh` is
-u(g_i) − u(0), the part of the update that the group's gradient causes.
+first moment. That part is the same for every group, so it adds to the signal and not to the noise. `fresh` is the
+update linearized at g = 0, J_u(0) g_i ≈ (u(ε g_i) − u(0)) / ε: with every optimizer statistic frozen (for Adam, the second moment too) it is
+linear in g, −lr (1 − β1) / c1 · g / (√ν̂ + ε) for Adam. `difference` is u(g_i) − u(0), which lets the group's own g²
+into Adam's second moment; at small groups that damps the noisiest groups and biases the noise scale low. For
+optimizers whose update is not differentiable at 0 (Lion's sign), `fresh` is zero and `difference` is the measure.
 """
 
 from dataclasses import dataclass
@@ -25,7 +28,8 @@ import optax
 
 from boonta.utils.typing import Array, PyTree
 
-SPACES = ("gradient", "update", "fresh")
+SPACES = ("gradient", "update", "fresh", "difference")
+FRESH_STEP = 1e-3
 
 
 @dataclass(frozen=True)
@@ -73,17 +77,23 @@ def noise_and_signal(stacked: PyTree, batch_size: float) -> tuple[Array, Array]:
 
 def frozen_updates(
     optimizer: optax.GradientTransformation, stacked: PyTree, optimizer_state: optax.OptState, params: PyTree
-) -> tuple[PyTree, PyTree]:
-    """Each group's would-be update with the optimizer state held fixed, and that minus the update of a zero gradient."""
+) -> tuple[PyTree, PyTree, PyTree]:
+    """Each group's would-be update with the optimizer state held fixed; the update linearized at a zero gradient
+    applied to the group's gradient (fresh); and the update minus the update of a zero gradient (difference)."""
 
     def update(grads):
         updates, _ = optimizer.update(grads, optimizer_state, params)
         return updates
 
+    zeros = jax.tree.map(jnp.zeros_like, params)
     updates = jax.vmap(update)(stacked)
-    baseline = update(jax.tree.map(jnp.zeros_like, params))
-    fresh = jax.tree.map(lambda u, u0: u - u0[None], updates, baseline)
-    return updates, fresh
+    baseline = update(zeros)
+    difference = jax.tree.map(lambda u, u0: u - u0[None], updates, baseline)
+    # The linearization by a small step: jax.jvp at 0 is NaN through clip_by_global_norm (√ of a zero norm). At this
+    # scale clipping never triggers and the group's own g² in Adam's second moment is negligible (ε² (1 − β2) g²).
+    scaled = jax.vmap(update)(jax.tree.map(lambda g: FRESH_STEP * g, stacked))
+    fresh = jax.tree.map(lambda u, u0: (u - u0[None]) / FRESH_STEP, scaled, baseline)
+    return updates, fresh, difference
 
 
 def init_state(cfg: BB8Config, names: tuple[str, ...]) -> PyTree:
@@ -130,10 +140,10 @@ def probe(
     correction = 1.0 - cfg.decay ** count.astype(jnp.float32)
     noise_state, signal_state, logs = {}, {}, {}
     for name, stacked in gradients.items():
-        updates, fresh = frozen_updates(optimizer, stacked, optimizer_state, params)
+        updates, fresh, difference = frozen_updates(optimizer, stacked, optimizer_state, params)
         logs[f"bb8/{name}/group_gradient_norm"] = jnp.mean(jax.vmap(lambda g: jnp.sqrt(squared_norm(g)))(stacked))
         noise_state[name], signal_state[name] = {}, {}
-        for space, values in zip(SPACES, (stacked, updates, fresh)):
+        for space, values in zip(SPACES, (stacked, updates, fresh, difference)):
             noise, signal = noise_and_signal(values, num_envs)
             smoothed_noise = cfg.decay * state["noise"][name][space] + (1.0 - cfg.decay) * noise
             smoothed_signal = cfg.decay * state["signal"][name][space] + (1.0 - cfg.decay) * signal

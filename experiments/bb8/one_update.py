@@ -53,6 +53,22 @@ def build(run, extra=()):
     return cfg, recipes.make(cfg)
 
 
+def restore(path, template):
+    """The checkpoint's algorithm state. Checkpoints written before the probe's `difference` space was added hold the
+    old probe layout (gradient, update, fresh); those are restored with that layout and their probe statistics are
+    replaced by fresh zeros (E1 does not use them)."""
+    with ocp.StandardCheckpointer() as checkpointer:
+        try:
+            return checkpointer.restore(path, target=template)
+        except ValueError:
+            old = jax.tree_util.tree_map_with_path(lambda p, x: x, template.bb8)
+            for key in ("noise", "signal"):
+                old[key] = {name: {k: v for k, v in spaces.items() if k != "difference"}
+                            for name, spaces in template.bb8[key].items()}
+            restored = checkpointer.restore(path, target=template.replace(bb8=old))
+    return restored.replace(bb8=template.bb8)
+
+
 def make_optimizer(kind, learning_rate, max_grad_norm):
     inner = {
         "adam": lambda: optax.adam(learning_rate),
@@ -159,8 +175,7 @@ def main(args):
         init_key, warm_key, batch_key, big_key, eval_key = jax.random.split(key, 5)
         template = podracer.init(init_key)
         path = os.path.abspath(run / "checkpoints" / "latest" / str(step) / "algorithm_state")
-        with ocp.StandardCheckpointer() as checkpointer:
-            algorithm_state = checkpointer.restore(path, target=template.algorithm_state)
+        algorithm_state = restore(path, template.algorithm_state)
         if args.optimizer != "adam":
             algorithm_state = algorithm_state.replace(
                 optimizer_state=make_optimizer(args.optimizer, base_lr, max_grad_norm).init(algorithm_state.params["params"]))
