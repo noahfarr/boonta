@@ -10,6 +10,10 @@ class WrapperState:
     env_state: Any
 
     def __getattr__(self, name):
+        # Only called for missing attributes. While copy or pickle builds a new object, `env_state` itself is missing,
+        # and forwarding it (or a dunder lookup such as __setstate__) would recurse without end.
+        if name == "env_state" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
         return getattr(self.env_state, name)
 
     @property
@@ -22,6 +26,9 @@ class Wrapper(Environment):
         self._env = env
 
     def __getattr__(self, name):
+        # See WrapperState.__getattr__: `_env` is missing on an object that copy or pickle is still building.
+        if name == "_env" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
         return getattr(self._env, name)
 
     @property

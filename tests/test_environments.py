@@ -1114,3 +1114,18 @@ def test_ppo_learns_cartpole_through_gymnasium_on_every_podracer(podracer):
     evaluation = np.nanmean(np.asarray(logs["episode_statistics/episode_return"]))
     assert best >= 150  # a random policy scores about 22
     assert 0 < evaluation <= 500
+
+
+def test_a_wrapper_and_its_state_can_be_copied_and_pickled():
+    """copy.copy used to recurse forever: Wrapper.__getattr__ forwarded `_env` while the copy had none yet."""
+    import copy
+    import pickle
+
+    from boonta.environments.wrappers import RecordEpisodeStatistics, SameStepAutoReset
+
+    environment = RecordEpisodeStatistics(SameStepAutoReset(Corridor(), num_envs=4))
+    for clone in (copy.copy(environment), copy.deepcopy(environment), pickle.loads(pickle.dumps(environment))):
+        assert clone.num_envs == 4 and clone.unwrapped.__class__ is environment.unwrapped.__class__
+    state, _ = environment.init(jax.random.key(0))
+    for clone in (copy.copy(state), copy.deepcopy(state)):
+        assert jax.tree.structure(clone) == jax.tree.structure(state)

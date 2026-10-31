@@ -26,6 +26,7 @@ estimate is used. Before the first estimate B_noise is taken as B.
 With a single bucket, no probe and `step: none`, `train` is Anakin's own.
 """
 
+import copy
 import dataclasses
 from dataclasses import dataclass
 from functools import partial
@@ -78,10 +79,7 @@ class PoolState(AnakinState):
 
 def with_num_envs(environment, num_envs):
     """A copy of the wrapper chain whose vectorizing wrapper steps `num_envs` environments."""
-    # copy.copy would recurse through Wrapper.__getattr__ before `_env` exists on the copy.
-    copied = object.__new__(type(environment))
-    copied.__dict__.update(vars(environment))
-    environment = copied
+    environment = copy.copy(environment)
     if "num_envs" in vars(environment):
         environment.num_envs = num_envs
     inner = vars(environment).get("_env")
