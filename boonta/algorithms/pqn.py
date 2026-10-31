@@ -18,6 +18,8 @@ from boonta.utils import (
 )
 from boonta.utils.typing import Array, Key, PyTree
 
+from . import bb8
+from .bb8 import BB8Config
 from .action_value_estimators import q_lambda
 
 
@@ -27,6 +29,7 @@ class PQNConfig:
     update_epochs: int
     gamma: float
     q_lambda: float
+    bb8: BB8Config = struct.field(pytree_node=False, default=BB8Config())
 
 
 @struct.dataclass(frozen=True)
@@ -34,6 +37,7 @@ class PQNState:
     step: Array
     params: PyTree
     optimizer_state: optax.OptState
+    bb8: PyTree = None
 
 
 @dataclass
@@ -53,6 +57,7 @@ class PQN:
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
+            bb8=bb8.init(("td",)) if self.cfg.bb8.noise_scale_probe else None,
         )
 
         return state, None
@@ -123,6 +128,8 @@ class PQN:
         transitions = transitions.replace(
             aux={**transitions.aux, "target_q_value": target_q_value}
         )
+        if self.cfg.bb8.noise_scale_probe:
+            state = self.probe_noise_scale(state, transitions, loss_fn)
 
         transitions = jax.tree.map(
             lambda x: flatten(x, start_dim=0, end_dim=1), transitions
@@ -177,3 +184,28 @@ class PQN:
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
         return state
+
+    def probe_noise_scale(
+        self, state: PQNState, transitions: Transition, loss_fn: Callable
+    ) -> PQNState:
+        """Logs the noise scale of the TD loss at the pre-update parameters (see `bb8`)."""
+        cfg = self.cfg.bb8
+        num_steps, num_envs = transitions.second.reward.shape
+
+        def gradients(batch: Transition) -> dict[str, PyTree]:
+            grads, _ = jax.grad(loss_fn, has_aux=True, allow_int=True)(state.params, batch)
+            return {"td": grads["params"]}
+
+        grads = jax.vmap(gradients)(bb8.group_columns(transitions, cfg.num_groups))
+        probe_state, logs = bb8.probe(
+            cfg,
+            state.bb8,
+            grads,
+            self.optimizer,
+            state.optimizer_state,
+            state.params["params"],
+            num_envs,
+            num_steps,
+        )
+        lox.log(logs)
+        return state.replace(bb8=probe_state)

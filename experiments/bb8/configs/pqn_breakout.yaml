@@ -1,0 +1,55 @@
+num_steps: 79953920
+seed: ${trial:}
+num_processes: 1
+checkpoint: null
+num_epochs: 61
+score: training/episode_return
+loggers:
+  file:
+    _target_: boonta.loggers.FileLogger
+    directory: ${hydra:runtime.output_dir}
+    filename: metrics.npz
+artisans:
+  checkpoint:
+    _target_: boonta.artisans.Checkpointer
+podracer:
+  _target_: boonta.podracers.anakin.make
+  _partial_: true
+  config:
+    _target_: boonta.podracers.anakin.AnakinConfig
+    mesh:
+      _target_: boonta.utils.mesh
+      count: ${device_count:}
+    num_steps: 16
+algorithm:
+  _target_: boonta.algorithms.pqn.PQNConfig
+  num_minibatches: 16
+  update_epochs: 1
+  gamma: 0.99
+  q_lambda: 0.65
+  bb8:
+    _target_: boonta.algorithms.bb8.BB8Config
+    noise_scale_probe: false
+    num_groups: 64
+    decay: 0.9
+environment:
+  num_envs: 4096
+  auto_reset:
+    _target_: boonta.environments.wrappers.SameStepAutoReset
+    num_envs: ${environment.num_envs}
+  namespace: gymnax
+  suite: minatar
+  env_id: Breakout-MinAtar
+optimizer:
+  lr: 0.0005
+  max_grad_norm: 10.0
+exploration:
+  start: 1.0
+  end: 0.01
+  fraction: 0.2
+curriculum:
+  _target_: boonta.curricula.default
+  _partial_: true
+scoring:
+  _target_: builtins.max
+  _partial_: true

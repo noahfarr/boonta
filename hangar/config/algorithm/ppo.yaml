@@ -11,6 +11,11 @@ algorithm:
   gamma: 0.99
   gae_lambda: 0.95
   normalize_advantage: False
+  bb8:
+    _target_: boonta.algorithms.bb8.BB8Config
+    noise_scale_probe: False
+    num_groups: 64
+    decay: 0.9
 
 podracer:
   config:

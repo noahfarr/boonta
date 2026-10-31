@@ -1,0 +1,67 @@
+num_steps: 19988480
+seed: ${trial:}
+num_processes: 1
+checkpoint: null
+num_epochs: 61
+score: training/episode_return
+loggers:
+  file:
+    _target_: boonta.loggers.FileLogger
+    directory: ${hydra:runtime.output_dir}
+    filename: metrics.npz
+artisans:
+  checkpoint:
+    _target_: boonta.artisans.Checkpointer
+podracer:
+  _target_: boonta.podracers.anakin.make
+  _partial_: true
+  config:
+    _target_: boonta.podracers.anakin.AnakinConfig
+    mesh:
+      _target_: boonta.utils.mesh
+      count: ${device_count:}
+    num_steps: 16
+algorithm:
+  _target_: boonta.algorithms.ppo.PPOConfig
+  num_minibatches: 16
+  update_epochs: 2
+  clip_coefficient: 0.2
+  clip_value_loss: true
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.99
+  gae_lambda: 0.95
+  normalize_advantage: false
+  bb8:
+    _target_: boonta.algorithms.bb8.BB8Config
+    noise_scale_probe: false
+    num_groups: 64
+    decay: 0.9
+environment:
+  num_envs: 4096
+  auto_reset:
+    _target_: boonta.environments.wrappers.SameStepAutoReset
+    num_envs: ${environment.num_envs}
+  namespace: gymnax
+  suite: minatar
+  env_id: Freeway-MinAtar
+optimizer:
+  lr: 0.00025
+  max_grad_norm: 0.5
+curriculum:
+  _target_: boonta.curricula.default
+  _partial_: true
+scoring:
+  _target_: builtins.max
+  _partial_: true
+search_space:
+  optimizer.lr:
+    distribution: log_normal
+    min: 2.5e-05
+    max: 0.0025
+    center: 0.00025
+  algorithm.entropy_coefficient:
+    distribution: log_normal
+    min: 0.001
+    max: 0.3
+    center: 0.01

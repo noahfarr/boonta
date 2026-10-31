@@ -11,6 +11,8 @@ from flax import struct
 from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
+from . import bb8
+from .bb8 import BB8Config
 from .advantage_estimators import generalized_advantage_estimator
 
 
@@ -25,6 +27,7 @@ class PPOConfig:
     gamma: float
     gae_lambda: float
     normalize_advantage: bool = False
+    bb8: BB8Config = struct.field(pytree_node=False, default=BB8Config())
 
 
 @struct.dataclass(frozen=True)
@@ -32,6 +35,7 @@ class PPOState:
     step: Array
     params: PyTree
     optimizer_state: optax.OptState
+    bb8: PyTree = None
 
 
 @dataclass
@@ -50,6 +54,7 @@ class PPO:
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
+            bb8=bb8.init(("actor", "critic", "total")) if self.cfg.bb8.noise_scale_probe else None,
         )
 
         return state, None
@@ -222,6 +227,8 @@ class PPO:
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "returns": returns}
         )
+        if self.cfg.bb8.noise_scale_probe:
+            state = self.probe_noise_scale(state, transitions, loss_fn)
 
         transitions = jax.tree.map(
             lambda x: flatten(x, start_dim=0, end_dim=1), transitions
@@ -231,3 +238,36 @@ class PPO:
         state, _ = jax.lax.scan(epoch_fn, state, keys)
 
         return state
+
+    def probe_noise_scale(
+        self, state: PPOState, transitions: Transition, loss_fn: Callable
+    ) -> PPOState:
+        """Logs the noise scale of the actor, critic and total loss at the pre-update parameters (see `bb8`)."""
+        cfg = self.cfg.bb8
+        num_steps, num_envs, *_ = transitions.second.reward.shape
+
+        def components(params: PyTree, batch: Transition) -> dict[str, Array]:
+            _, (_, actor_loss, critic_loss, entropy, *_) = loss_fn(params, batch)
+            return {
+                "actor": actor_loss - self.cfg.entropy_coefficient * entropy,
+                "critic": self.cfg.value_coefficient * critic_loss,
+            }
+
+        def gradients(batch: Transition) -> dict[str, PyTree]:
+            grads = jax.jacrev(components, allow_int=True)(state.params, batch)
+            return {name: grad["params"] for name, grad in grads.items()}
+
+        grads = jax.vmap(gradients)(bb8.group_columns(transitions, cfg.num_groups))
+        grads["total"] = jax.tree.map(jnp.add, grads["actor"], grads["critic"])
+        probe_state, logs = bb8.probe(
+            cfg,
+            state.bb8,
+            grads,
+            self.optimizer,
+            state.optimizer_state,
+            state.params["params"],
+            num_envs,
+            num_steps,
+        )
+        lox.log(logs)
+        return state.replace(bb8=probe_state)

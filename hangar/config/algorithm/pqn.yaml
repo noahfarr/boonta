@@ -6,6 +6,11 @@ algorithm:
   update_epochs: 1
   gamma: 0.99
   q_lambda: 0.65
+  bb8:
+    _target_: boonta.algorithms.bb8.BB8Config
+    noise_scale_probe: False
+    num_groups: 64
+    decay: 0.9
 
 podracer:
   config:
