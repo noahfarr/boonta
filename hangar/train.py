@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -79,6 +80,7 @@ def main(cfg):
         for key, artisan in zip(keys, artisans):
             logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
 
+    start_entropy = None
     try:
         data = {}
         if epoch == 0:
@@ -114,6 +116,18 @@ def main(cfg):
             returns = data.get(cfg.score)
             if returns is not None and np.isfinite(returns).any():
                 scores.append(float(np.nanmean(returns)))
+
+            # Optional (BB-8): stop a run whose policy entropy collapsed below a fraction of its first epoch's.
+            fraction = cfg.get("stop_entropy_fraction")
+            entropy = data.get("actor/entropy")
+            if fraction and entropy is not None and np.isfinite(entropy).all():
+                entropy = float(np.nanmean(entropy))
+                start_entropy = entropy if epoch == 0 or start_entropy is None else start_entropy
+                if entropy < fraction * start_entropy:
+                    stall = {"epoch": epoch, "step": int(steps.max()), "entropy": entropy, "start": start_entropy}
+                    (Path(HydraConfig.get().runtime.output_dir) / "stalled.json").write_text(json.dumps(stall))
+                    print(f"stopped: entropy {entropy:.4g} below {fraction} of {start_entropy:.4g}", flush=True)
+                    break
         step = int(jax.device_get(state.algorithm_state.step))
     finally:
         podracer.close(state)

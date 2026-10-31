@@ -24,3 +24,8 @@ config:
   minibatch_envs: 512
   running_normalization_below: 0
   noise_scale_cap: 32768.0
+  noise_space: fresh
+  multiplier_cap: 1.0
+  early_multiplier_cap: 1.0
+  early_fraction: 0.1
+  kl_holdout: 0.25

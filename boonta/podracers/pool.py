@@ -66,6 +66,15 @@ class PoolConfig(AnakinConfig):
     minibatch_envs: int = struct.field(pytree_node=False, default=512)
     running_normalization_below: int = struct.field(pytree_node=False, default=0)
     noise_scale_cap: float = struct.field(pytree_node=False, default=32768.0)
+    # Which smoothed noise scale drives the schedule and the step: fresh, trust_region or gradient (see bb8).
+    noise_space: str = struct.field(pytree_node=False, default="fresh")
+    # The multiplier never exceeds `multiplier_cap` (1: never above the tuned learning rate), except
+    # `early_multiplier_cap` during the first `early_fraction` of the budget.
+    multiplier_cap: float = struct.field(pytree_node=False, default=1.0)
+    early_multiplier_cap: float = struct.field(pytree_node=False, default=1.0)
+    early_fraction: float = struct.field(pytree_node=False, default=0.1)
+    # KL modes: this fraction of the batch's columns is held out of the update; the controller's KL is measured on it.
+    kl_holdout: float = struct.field(pytree_node=False, default=0.25)
 
 
 @struct.dataclass(frozen=True)
@@ -107,15 +116,20 @@ class Pool(Anakin):
         return self.config.schedule == "noise" or self.config.step in ("lr", "lr_sqrt", "kl")
 
     @property
+    def kl_mode(self) -> bool:
+        return self.config.step in ("kl", "kl_constant", "kl_decay")
+
+    @property
     def batch_size(self) -> int:
         if self.plain:
             return super().batch_size
         return self.unit * self.config.num_steps * self.environment.num_agents
 
-    def variant(self, bucket: int, probe: bool, multiplier) -> Algorithm:
-        """The algorithm for a batch of `bucket` environments: fixed minibatch size, optional probe, scaled step."""
+    def variant(self, bucket: int, probe: bool, multiplier, columns: int | None = None) -> Algorithm:
+        """The algorithm for a batch of `columns` (default `bucket`) environments: fixed minibatch size, optional probe,
+        scaled step."""
         cfg = self.algorithm.cfg
-        changes = {"num_minibatches": max(1, bucket // self.config.minibatch_envs)}
+        changes = {"num_minibatches": max(1, (columns or bucket) // self.config.minibatch_envs)}
         if hasattr(cfg, "bb8"):
             changes["bb8"] = dataclasses.replace(
                 cfg.bb8,
@@ -150,28 +164,38 @@ class Pool(Anakin):
             offset=jnp.zeros((), jnp.int32),
             bucket=jnp.asarray(self.config.buckets.index(initial), jnp.int32),
             updates=jnp.zeros((), jnp.int32),
-            multiplier=jnp.asarray(self.step_target(initial, jnp.nan) if self.config.step in ("lr", "lr_sqrt") else 1.0,
-                                   jnp.float32),
+            multiplier=jnp.asarray(
+                self.cap(self.step_target(initial, jnp.nan), 0.0) if self.config.step in ("lr", "lr_sqrt", "anneal")
+                else self.cap(1.0, 0.0), jnp.float32),
         )
 
     def noise_scale(self, algorithm_state, name):
         statistics = algorithm_state.bb8
         if statistics is None or "noise" not in statistics or name not in statistics["noise"]:
             return jnp.nan
-        noise, signal = statistics["noise"][name]["fresh"], statistics["signal"][name]["fresh"]
+        space = self.config.noise_space
+        noise, signal = statistics["noise"][name][space], statistics["signal"][name][space]
         scale = jnp.where(signal > 0, noise / signal, self.config.noise_scale_cap)
         return jnp.where(statistics["count"] > 0, jnp.clip(scale, 0.0, self.config.noise_scale_cap), jnp.nan)
 
-    def step_target(self, bucket, scale):
+    def step_target(self, bucket, scale, progress=0.0):
         cfg = self.config
         ratio = bucket / (bucket + jnp.where(jnp.isnan(scale), bucket, scale))
+        left = jnp.clip(1.0 - progress, 0.0, 1.0)
         return {
             "none": 1.0,
             "lr": cfg.multiplier_max * ratio,
             "lr_sqrt": cfg.multiplier_max * jnp.sqrt(ratio),
+            "anneal": left,
             "kl": cfg.kl_max * ratio**2,
             "kl_constant": cfg.kl_max,
+            "kl_decay": cfg.kl_max * left,
         }[cfg.step]
+
+    def cap(self, multiplier, progress):
+        cfg = self.config
+        limit = jnp.where(progress < cfg.early_fraction, cfg.early_multiplier_cap, cfg.multiplier_cap)
+        return jnp.minimum(multiplier, limit)
 
     def next_bucket(self, state: PoolState, scale) -> jax.Array:
         cfg = self.config
@@ -211,16 +235,20 @@ class Pool(Anakin):
             lambda s, keys: jax.lax.scan(partial(Anakin.rollout, racer, temperature=1.0), s, keys)
         )(sub, jax.random.split(rollout_key, cfg.num_steps))
         before = sub.algorithm_state
+        # KL modes: train on the first columns, measure the controller's KL on the held-out rest.
+        trained = bucket - int(round(bucket * cfg.kl_holdout)) if self.kl_mode else bucket
+        training = jax.tree.map(lambda leaf: leaf[:, :trained], transitions)
+        measured = jax.tree.map(lambda leaf: leaf[:, trained:], transitions) if trained < bucket else transitions
 
         def update(probe):
-            algorithm = self.variant(bucket, probe, state.multiplier)
-            out, logs = lox.spool(algorithm.update)(before, update_key, transitions)
+            algorithm = self.variant(bucket, probe, state.multiplier, columns=trained)
+            out, logs = lox.spool(algorithm.update)(before, update_key, training)
             return out, dict(logs)
 
         after, update_logs = update(probe)
 
         scale = self.noise_scale(after, cfg.noise_source)
-        flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), transitions.first.obs)
+        flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), measured.first.obs)
         output_before = self.algorithm.network.apply(before.params, flat, temperature=1.0)
         output_after = self.algorithm.network.apply(after.params, flat, temperature=1.0)
         if isinstance(output_before, tuple):
@@ -243,15 +271,18 @@ class Pool(Anakin):
             updates=state.updates + 1,
         )
         next_bucket = self.next_bucket(state, scale)
-        if cfg.step in ("kl", "kl_constant"):
-            # The realized KL of this update against this update's target; the multiplier carries over.
-            target = self.step_target(bucket, scale)
+        progress = after.step.astype(jnp.float32) / max(cfg.budget, 1)
+        if self.kl_mode:
+            # The realized (held-out) KL of this update against this update's target; the multiplier carries over.
+            target = self.step_target(bucket, scale, progress)
             correction = jnp.clip(jnp.sqrt(target / jnp.maximum(kl, 1e-12)), 0.5, 2.0)
             multiplier = jnp.clip(used * correction, 1.0 / 256, 16.0)
         else:
             # The learning-rate rule for the next update's batch.
-            target = self.step_target(jnp.asarray(cfg.buckets, jnp.float32)[next_bucket], scale)
+            target = self.step_target(jnp.asarray(cfg.buckets, jnp.float32)[next_bucket], scale, progress)
             multiplier = jnp.asarray(target, jnp.float32)
+        if cfg.step != "none":
+            multiplier = self.cap(multiplier, progress)
         state = state.replace(bucket=next_bucket, multiplier=multiplier)
 
         logs = {k: jnp.nanmean(v) for k, v in update_logs.items()}
