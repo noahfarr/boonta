@@ -32,7 +32,10 @@ import orbax.checkpoint as ocp
 from jax.flatten_util import ravel_pytree
 
 from boonta import environments
+from boonta.algorithms import bb8
+from boonta.algorithms.advantage_estimators import generalized_advantage_estimator
 from boonta.algorithms.bb8 import BB8Config
+from boonta.utils import remove_feature_axis
 
 MULTIPLIERS = (0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 FRACTIONS = (1 / 128, 1 / 32, 1 / 8, 5 / 16, 1.0)  # 0.78%, 3.1%, 12.5%, 31.25%, 100%
@@ -185,6 +188,25 @@ def main(args):
         return total, alive
 
     @jax.jit
+    def gae(params, transitions):
+        last = jax.tree.map(lambda leaf: leaf[-1], transitions.second.obs)
+        _, bootstrap = algorithm.network.apply(params, last, temperature=1.0)
+        return generalized_advantage_estimator(transitions, transitions.aux["value"], remove_feature_axis(bootstrap),
+                                               algorithm.cfg.gamma, algorithm.cfg.gae_lambda)
+
+    @jax.jit
+    def surrogate(after, heldout):
+        """Held-out surrogate improvement: E[(π'(a|s) / π(a|s) − 1) A] per block of 128 columns, per rollout."""
+        def one(part):
+            obs, action, old_log_prob, advantage = part
+            flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), obs)
+            dist, _ = algorithm.network.apply(after, flat, temperature=1.0)
+            log_prob = dist.log_prob(action.reshape(-1)).reshape(advantage.shape)
+            gain = (jnp.exp(log_prob - old_log_prob) - 1.0) * advantage  # (T, N)
+            return gain.mean(axis=0).reshape(-1, 128).mean(axis=1)
+        return jax.lax.map(one, heldout)
+
+    @jax.jit
     def mean_kl(before, after, obs):
         old, _ = algorithm.network.apply(before, obs, temperature=1.0)
         new, _ = algorithm.network.apply(after, obs, temperature=1.0)
@@ -217,12 +239,22 @@ def main(args):
             bigs.append(more)
         # Env-major: column e * big + k is environment e in rollout k, so a probe group (contiguous columns) holds
         # whole environments across all rollouts and groups stay independent.
-        big = jax.tree.map(lambda *leaves: jnp.stack(leaves, axis=2).reshape(
-            leaves[0].shape[0], -1, *leaves[0].shape[2:]), *bigs)
+        big = bb8.stack_rollouts(bigs)
         del bigs, more
         noise = {k: float(np.mean(v)) for k, v in probe(algorithm_state, big, base_lr).items()}
         single = {k: float(np.mean(v)) for k, v in probe(algorithm_state, batch, base_lr).items()}
         del big
+        heldout = None
+        if name == "ppo" and args.heldout > 0:
+            # Held-out batch for the surrogate proxy: later rollouts of the pre-update policy, independent of the
+            # update's batch. Advantages from the pre-update critic, unnormalized.
+            parts = []
+            for rollout_key in jax.random.split(jax.random.fold_in(key, 7), args.heldout):
+                state, more = rollout(state, jax.random.split(rollout_key, T))
+                advantages, _ = gae(params, more)
+                parts.append((more.first.obs, more.second.action, more.aux["log_prob"], advantages))
+            heldout = jax.tree.map(lambda *leaves: jnp.stack(leaves), *parts)
+            del parts, more
         observations = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), batch.first.obs)
         epsilon = float(algorithm.exploration_schedule(algorithm_state.step)) if name == "pqn" else 0.0
         before, before_alive = episode_returns(params, eval_key, epsilon, False)
@@ -252,6 +284,10 @@ def main(args):
                       **extra, "update_norm": float(jnp.linalg.norm(moved - origin))}
             if name == "ppo":
                 result["kl"] = float(mean_kl(params, after.params, observations))
+            if heldout is not None:
+                blocks = np.asarray(surrogate(after.params, heldout), np.float32).reshape(-1)
+                result["proxy"] = float(blocks.mean())
+                arrays[f"{step}/{len(entry['conditions'])}/proxy"] = blocks
             if not extra.get("kl_only"):
                 returns, alive = episode_returns(after.params, eval_key, epsilon, False)
                 difference = np.asarray(returns - before, np.float32)
@@ -322,6 +358,7 @@ if __name__ == "__main__":
     parser.add_argument("--warmup", type=int, default=1000)
     parser.add_argument("--noops", type=int, default=0, help="random no-op starts, at most this many per environment")
     parser.add_argument("--big", type=int, default=8, help="rollouts in the large probe batch")
+    parser.add_argument("--heldout", type=int, default=16, help="rollouts in the held-out batch of the surrogate proxy (PPO)")
     parser.add_argument("--bisections", type=int, default=8)
     parser.add_argument("--key-offset", type=int, default=0)
     parser.add_argument("--check", action="store_true")
