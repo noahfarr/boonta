@@ -33,6 +33,10 @@ class BB8Config:
     noise_scale_probe: bool = False
     num_groups: int = 64
     decay: float = 0.9
+    # PPO: normalize advantages by running moments instead of the batch's (for batches smaller than the default).
+    running_advantage_normalization: bool = False
+    # Running moments forget at rate exp(-n / horizon) per n transitions.
+    advantage_horizon: float = 524_288.0
 
 
 def group_columns(tree: PyTree, num_groups: int) -> PyTree:
@@ -80,6 +84,27 @@ def frozen_updates(
     baseline = update(jax.tree.map(jnp.zeros_like, params))
     fresh = jax.tree.map(lambda u, u0: u - u0[None], updates, baseline)
     return updates, fresh
+
+
+def init_state(cfg: BB8Config, names: tuple[str, ...]) -> PyTree:
+    """The algorithm's `bb8` state: probe moving averages and running advantage moments, or None when both are off."""
+    state = {}
+    if cfg.noise_scale_probe:
+        state |= init(names)
+    if cfg.running_advantage_normalization:
+        state["advantage"] = {name: jnp.zeros((), jnp.float32) for name in ("weight", "mean", "square")}
+    return state or None
+
+
+def normalize_running(cfg: BB8Config, statistics: PyTree, advantages: Array) -> tuple[PyTree, Array]:
+    """Normalizes by moments over recent batches (this one included), weighted by transitions."""
+    count = jnp.asarray(advantages.size, jnp.float32)
+    keep = jnp.exp(-count / cfg.advantage_horizon) * statistics["weight"]
+    weight = keep + count
+    mean = (keep * statistics["mean"] + count * advantages.mean()) / weight
+    square = (keep * statistics["square"] + count * jnp.mean(jnp.square(advantages))) / weight
+    std = jnp.sqrt(jnp.maximum(square - mean**2, 0.0))
+    return {"weight": weight, "mean": mean, "square": square}, (advantages - mean) / (std + 1e-8)
 
 
 def init(names: tuple[str, ...]) -> PyTree:

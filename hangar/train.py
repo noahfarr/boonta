@@ -103,6 +103,11 @@ def main(cfg):
             )
             craft(state, logs, int(steps.max()))
 
+            if hasattr(state, "credit"):
+                # bb8 pool: the environment steps actually taken (the slot count above includes waiting credit).
+                data["pool/env_steps_total"] = np.asarray(
+                    jax.device_get(state.algorithm_state.step), np.float64
+                ).reshape(1, 1)
             data |= monitor.metrics(step=int(steps.max()))
             logger.log(data, steps=steps)
 

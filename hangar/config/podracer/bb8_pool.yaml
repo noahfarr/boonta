@@ -1,0 +1,26 @@
+# BB-8 environment pool (boonta/podracers/pool.py). environment.num_envs must equal the largest bucket.
+_target_: boonta.podracers.pool.make
+_partial_: true
+config:
+  _target_: boonta.podracers.pool.PoolConfig
+  _convert_: all
+  mesh:
+    _target_: boonta.utils.mesh
+    count: ${device_count:}
+  num_steps: 16
+  buckets: [256, 512, 1024, 2048, 4096, 8192]
+  schedule: fixed
+  fixed_bucket: 8192
+  doubling_buckets: [256, 512, 1024, 2048, 4096]
+  budget: ${num_steps}
+  kappa: 1.0
+  hysteresis: 1.5
+  initial_bucket: 256
+  probe_every: 8
+  noise_source: actor
+  step: none
+  multiplier_max: 1.0
+  kl_max: 0.01
+  minibatch_envs: 512
+  running_normalization_below: 0
+  noise_scale_cap: 32768.0

@@ -54,7 +54,7 @@ class PPO:
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
-            bb8=bb8.init(("actor", "critic", "total")) if self.cfg.bb8.noise_scale_probe else None,
+            bb8=bb8.init_state(self.cfg.bb8, ("actor", "critic", "total")),
         )
 
         return state, None
@@ -222,7 +222,12 @@ class PPO:
             self.cfg.gamma,
             self.cfg.gae_lambda,
         )
-        if self.cfg.normalize_advantage:
+        if self.cfg.bb8.running_advantage_normalization:
+            statistics, advantages = bb8.normalize_running(
+                self.cfg.bb8, state.bb8["advantage"], advantages
+            )
+            state = state.replace(bb8={**state.bb8, "advantage": statistics})
+        elif self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         transitions = transitions.replace(
             aux={**transitions.aux, "advantages": advantages, "returns": returns}
@@ -270,4 +275,4 @@ class PPO:
             num_steps,
         )
         lox.log(logs)
-        return state.replace(bb8=probe_state)
+        return state.replace(bb8={**state.bb8, **probe_state})

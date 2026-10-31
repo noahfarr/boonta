@@ -57,7 +57,7 @@ class PQN:
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
             optimizer_state=optimizer_state,
-            bb8=bb8.init(("td",)) if self.cfg.bb8.noise_scale_probe else None,
+            bb8=bb8.init_state(self.cfg.bb8, ("td",)),
         )
 
         return state, None
@@ -208,4 +208,4 @@ class PQN:
             num_steps,
         )
         lox.log(logs)
-        return state.replace(bb8=probe_state)
+        return state.replace(bb8={**state.bb8, **probe_state})
