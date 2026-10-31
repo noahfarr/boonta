@@ -8,5 +8,5 @@ export JAX_COMPILATION_CACHE_DIR=$R/jax_compilation_cache PATH=$R/bb8/.venv/bin:
 cd $R/bb8 || exit 1
 nvidia-smi --query-gpu=name,memory.total --format=csv
 git log --oneline -1 2>/dev/null; cat REVISION 2>/dev/null
-grep -vE '^\s*(#|$)' "$1" | xargs -P "${2:-1}" -I{} bash -c '{}'
+grep -vE '^\s*(#|$)' "$1" | xargs -d '\n' -P "${2:-1}" -I{} bash -c '{}'
 echo "job file $1 finished"
