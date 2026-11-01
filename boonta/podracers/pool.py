@@ -75,6 +75,9 @@ class PoolConfig(AnakinConfig):
     early_fraction: float = struct.field(pytree_node=False, default=0.1)
     # KL modes: this fraction of the batch's columns is held out of the update; the controller's KL is measured on it.
     kl_holdout: float = struct.field(pytree_node=False, default=0.25)
+    # True: round-robin (every environment moves; idle ones pause between segments). False: the active environments are
+    # always the first N, so they never pause; environments that join when the bucket grows start from their reset state.
+    rotate: bool = struct.field(pytree_node=False, default=True)
 
 
 @struct.dataclass(frozen=True)
@@ -272,7 +275,7 @@ class Pool(Anakin):
             carry=put(state.carry, sub.carry),
             algorithm_state=after,
             lap_state=sub.lap_state,
-            offset=(state.offset + bucket) % self.size,
+            offset=(state.offset + bucket) % self.size if cfg.rotate else state.offset,
             updates=state.updates + 1,
             scale=scale,
         )

@@ -29,3 +29,4 @@ config:
   early_multiplier_cap: 1.0
   early_fraction: 0.1
   kl_holdout: 0.25
+  rotate: true

@@ -21,6 +21,9 @@ ppo_arms() { # game seed
   line $1 C_8192 $2 $COMMON environment.num_envs=8192 algorithm.bb8.running_advantage_normalization=true
   line $1 D_1024 $2 $COMMON environment.num_envs=8192 podracer=bb8_pool podracer.config.schedule=fixed podracer.config.fixed_bucket=1024 podracer.config.minibatch_envs=64 podracer.config.step=none podracer.config.running_normalization_below=0
 }
+e_arm() { # game seed: E, the pool with a fixed prefix of active environments (no round-robin pauses), otherwise D
+  line $1 E_1024 $2 $COMMON environment.num_envs=8192 podracer=bb8_pool podracer.config.schedule=fixed podracer.config.fixed_bucket=1024 podracer.config.minibatch_envs=64 podracer.config.step=none podracer.config.running_normalization_below=0 podracer.config.rotate=false
+}
 { echo "# Round 2 Part 1, GPU a: PPO Breakout (6 arms x 16 seeds), PPO Space Invaders reference (16 seeds)."
   for s in $(seq 0 15); do ppo_arms breakout $s; done
   for s in $(seq 0 15); do line space_invaders A_8192 $s $COMMON environment.num_envs=8192; done
@@ -32,3 +35,8 @@ ppo_arms() { # game seed
     echo "mkdir -p $d && { grep -q 'time  ' $d/train.log 2>/dev/null || boonta train algorithm=pqn environment=gymnax/minatar/$g seed=$s $PQN_BUDGET logger=file hydra.run.dir=$d > $d/train.log 2>&1; }"
   done; done
 } > jobs/r2p1_b.txt
+# Follow-up (after D's result): the C seeds that failed on the config bug, and arm E on both games.
+{ echo "# Round 2 Part 1 follow-up: C-arm seeds that failed before the bb8 config fix (finished ones are skipped), arm E."
+  grep -h "/C_" jobs/r2p1_a.txt jobs/r2p1_b.txt
+  for g in breakout asterix; do for s in $(seq 0 15); do e_arm $g $s; done; done
+} > jobs/r2p1_extra.txt
