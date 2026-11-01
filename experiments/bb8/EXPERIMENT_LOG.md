@@ -226,3 +226,41 @@ Why the full update is flat. With the optimizer state frozen, update(g_i) = −l
   entropy stops, and the frontier plot (IQM steps to threshold against IQM wall-clock to threshold, Pareto frontier
   marked).
 - Pilot: 4 seeds per arm, Breakout and Asterix, after E1 v2 picks the noise scale, the step option and the early cap.
+
+## 2026-11-01 Results of the measurement fixes and E1 v2; Phase 4 pilot
+
+### Probe bias v2 (55214; Breakout seed 0 at 40% unless noted; 16 rollouts; noise scale in environments)
+- Warm-up sensitivity, actor raw / actor trust region / total trust region at B = 8192:
+  - warm-up 300: 883 / 945 / 144
+  - warm-up 1000: 3739 / 4711 / 992
+  - warm-up 3000: 5839 / 8156 / 1024
+  - 300 + 1000 no-ops: 2388 / 3104 / 498
+  - 1000 + 1000 no-ops: 6402 / 7713 / 869
+  
+  A synchronized start lowers the estimate several-fold. 1000 no-ops + 1000 warm-up reaches the 3000-step level. It is the setting used from here on.
+- B-dependence (desynchronized): raw, trust region and total-loss fresh are roughly flat from B = 256 to 8192. Examples: Space Invaders actor trust 1226–1427, total trust 492–536; Breakout 10% actor trust 148–153. Asterix 40% rises 2156 → 3476 (1.6×) and Breakout 40% total trust is noisy (869–2214).
+- The actor's JVP-fresh noise scale is unusable. It swings over 2k–430k and is often negative, even at B = 65,536: Adam's 1/√ν̂ makes it heavy-tailed. Total-loss fresh is stable.
+
+### E1 v2 (55213 PPO Adam; 55215/55216 SGD, Lion, PQN). Analysis in `e1v2/` (`analyze_e1.py`, `e1_stage.py`)
+- **Proxy validation**: held-out surrogate against episode-return ΔJ over the 50 (B, multiplier) cells. At 10%: Pearson 0.66–0.99, Spearman 0.85–0.97. At 40%: Pearson 0.89–1.00, Spearman 0.60–0.93. At 80%: Pearson 0.62–0.94 but Spearman −0.26 to 0.78. Late in training the proxy prefers steps larger than the episode returns support (first-order; it ignores the state-distribution shift). `e1v2/proxy_validation.json`.
+- **Fitted N against the large-probe noise scales** (`e1v2/n_vs_probe.txt`, identified fits only):
+  - 10% (6/6 identified with either measure). Proxy fits: total trust region N/probe geometric mean 0.95, 5/6 within 3×. Actor raw 0.67 and actor trust 0.67, 4/6. Actor fresh 0.014, 0/6. Total fresh 0.05, 1/6. Critic 100–300×. Episode-ΔJ fits: total trust 0.60 (3/6), actor raw/trust 0.43 (2/6).
+  - 40% (4/6 identified with the proxy, 2/6 with episodes): the fitted N (250–1300) does not grow, while every probe noise scale grows 3–20×. No candidate is within 3× in a majority, except the flat full update (3/4) and critic fresh (4/4), which I read as coincidences.
+  - 80%: 1–2 of 6 identified.
+  
+  **Conclusion: no noise scale predicts the fitted N across training within 3×.** The best candidate, the total-loss trust-region noise scale, works at 10% only. The fresh-update noise scale (the hypothesis) fails by about 70× at 10%.
+- **Best step against training stage** (headline; `e1v2/best_step_vs_stage.png`). The best multiplier at B = 8192 (episode ΔJ, geometric median over seeds) falls 2 → 0.5 → 0.125 (Breakout) and 1 → 0.25 → 0.0625 (Asterix) from 10% to 40% to 80%: 16× in both games. The KL at that best step varies only 2.1× (Breakout) and 6.7× (Asterix). Within a stage, the best-step KL is roughly the same at every B.
+- **Step option decision: `kl`.** The best step is far more constant in KL than in learning rate.
+- **Early cap**: at 10% the best multiplier at B = 8192 is 2 (Breakout) and 1 (Asterix), so EARLY_CAP = 2 is supported for Breakout. The KL controller can still take smaller steps.
+- **SGD with momentum / Lion** (40%): the best step is mostly at 8×, the top of the grid. The base learning rates (3e-3 / 1e-5) from the noisy held-out tuning were too low, so ε*(B) is censored from above. SGD fits are within 3× of its own noise scale in 2/6 cells; Lion's are 2–25× off. Lion's fresh and trust-region noise scales are undefined (sign). Inconclusive.
+- **PQN** (40%): N is mostly unidentified (greedy ΔJ is degenerate on Breakout as before), or 2–20× above the TD fresh noise scale (24–143 environments). The best multiplier falls as B grows (0.5–1× at small B, 1/64–1/8× at the full batch): with a fixed minibatch size, a bigger batch is also more Adam steps.
+- **Consequence (addendum rule):** none predicts N within 3×. The main Phase 4 comparison is therefore the step-only arms (tuned_anneal, kl_alone, kl_decay) and the fixed-small-batch arms (fixed_N with step adaptation, fixed_{256,512}_anneal). BB-8 uses the best available candidate, the total-loss trust-region noise scale (PPO) and TD fresh (PQN), with this caveat.
+
+### Calibration (`calibrate.py` → `calibration.env`)
+STEP=kl, NOISE_SOURCE=total, NOISE_SPACE=trust_region, PQN_NOISE_SPACE=fresh, EARLY_CAP=2. N0 is the median E1 v2 large-probe value: Breakout 887, Asterix 4184, Space Invaders 536 (from the bias test; no E1 v2 large probe there), PQN Breakout 135, Asterix 26. KL_med is the median full-batch 1× KL in E1: 0.0094 / 0.0097 / 0.0173. KL_max = KL_med ((8192 + N0)/8192)²: 0.0115 / 0.0221 / 0.0196. PQN m_max = 1.03 / 1.006. With PQN's N0 of 26–135 environments, κ = 0.25 targets far below 256, so PQN BB-8 will mostly sit at the 256 bucket.
+
+### Pool fix before the pilot
+- An unresolved noise scale (smoothed signal ≤ 0) was read as the cap (32768), which drove the KL target, and so the step, to zero. Now the pool keeps the last resolved estimate (`PoolState.scale`; N = B before the first) and logs `pool/noise_scale_resolved`. Pool-off is still bitwise equal to Anakin (CPU).
+
+### Phase 4 pilot (55277: PPO Breakout + PQN Asterix; 55278: PPO Asterix + PQN Breakout)
+`jobs/phase4_pilot2_{a,b}.txt` from `make_phase4.sh` with `calibration.env`. 4 seeds (0–3) per arm, 16 PPO arms, 10 PQN arms, 208 runs, 6 per A100. Run dirs: `bb8_runs/phase4_pilot2/<alg>/<game>/<arm>/<seed>`.
