@@ -267,3 +267,16 @@ STEP=kl, NOISE_SOURCE=total, NOISE_SPACE=trust_region, PQN_NOISE_SPACE=fresh, EA
 
 ### Phase 4 pilot results (55277, 55278 COMPLETED 13:25 UTC; 208/208 runs; 38 entropy stops, all PPO Breakout)
 See `PILOT_REPORT.md`. The gate fails for PPO and for PQN; the step-only arms at the tuned batch are the best. Analysis fixes made on the way: plot crash on stopped runs, oracle tie-break by AUC, frontier restricted to arms where most seeds reach the threshold. Stopped before the full Phase 4, as instructed.
+
+## 2026-11-01 Round 2
+
+- `PREDICTIONS_4.md` committed (36286184) before any round-2 run.
+- New option, off by default: `algorithm.bb8.log_update_kl` (PPO) logs `bb8/update_kl`, KL(π_before ‖ π_after) of the whole update on the batch's states. A CPU check matches the pool's own KL measurement exactly. Pool-off is still bitwise equal to Anakin.
+- **Config bug found and fixed.** `algorithm.bb8` in `ppo.yaml`/`pqn.yaml` declared only some `BB8Config` fields. Hydra's struct mode rejected `algorithm.bb8.running_advantage_normalization=true`, and the C arm's first 6–10 seeds per game exited before training, without a Python traceback, so my crash count missed them. Every field is now declared with its dataclass default (the resolved default config is unchanged apart from the extra keys). Earlier rounds only overrode keys that were declared (`noise_scale_probe`, `decay`), so they were unaffected.
+- **Part 1** (55284 Breakout + Space Invaders reference; 55285 Asterix + PQN references; `jobs/r2p1_{a,b}.txt` from `make_round2_part1.sh`; run dirs `bb8_runs/r2p1/<game>/<arm>/<seed>`). Preview (`analyze_part1.py`), Breakout complete, Asterix 14–15 of 16 seeds, C partial:
+  - A_1024 vs A_8192, steps to threshold among non-stalled seeds: Breakout 3.96M [3.52, 4.54] vs 15.34M [14.20, 16.65] (3.9×), 1 vs 4 stalls. Asterix 9.60M vs 17.27M (1.8×), 0 stalls. **prd Part D is reproduced on main.**
+  - B_1024 (fixed minibatch size of 8192 transitions, 2 minibatches): Breakout 16/16 collapse (entropy stop; final entropy 0.008) with a lower KL per update (0.003 vs A's 0.019). Asterix is the fastest arm (8.06M). The fixed minibatch size the pilot used is what breaks small batches on Breakout.
+  - C (running normalization): close to A in both games so far.
+  - D_1024 (round-robin pool): Breakout 8/16 stalls, 12.19M among non-stalled. Asterix 9.08M, like A. Caveat: with round-robin, each environment is stepped every 8th update, so a Breakout episode (~62 segments) spans ~500 updates, and the logged training return lags the policy. D's KL per update (0.0195) and final entropy (0.089) are close to A's. The lag is a measurement problem as well as a possible real one, and the same lag affects every small-bucket pool arm of the pilot.
+- **New pool option `rotate` (default true = the existing round-robin).** With `rotate: false`, the active environments are always the first N, so they never pause. Pool-off is still bitwise equal. Arm **E_1024** (prefix pool, otherwise D) is added to Part 1, with the C reruns, in `jobs/r2p1_extra.txt`.
+- The det session token expired at about 15:20 UTC (the CLI asks for a password). Running experiments continue; new submissions wait for the user to log in again.
