@@ -207,6 +207,14 @@ def main(args):
         return jax.lax.map(one, heldout)
 
     @jax.jit
+    def in_batch(after, part):
+        obs, action, old_log_prob, advantage = part
+        flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), obs)
+        dist, _ = algorithm.network.apply(after, flat, temperature=1.0)
+        log_prob = dist.log_prob(action.reshape(-1)).reshape(advantage.shape)
+        return jnp.mean((jnp.exp(log_prob - old_log_prob) - 1.0) * advantage)
+
+    @jax.jit
     def mean_kl(before, after, obs):
         old, _ = algorithm.network.apply(before, obs, temperature=1.0)
         new, _ = algorithm.network.apply(after, obs, temperature=1.0)
@@ -241,8 +249,9 @@ def main(args):
         # whole environments across all rollouts and groups stay independent.
         big = bb8.stack_rollouts(bigs)
         del bigs, more
-        noise = {k: float(np.mean(v)) for k, v in probe(algorithm_state, big, base_lr).items()}
-        single = {k: float(np.mean(v)) for k, v in probe(algorithm_state, batch, base_lr).items()}
+        # --skip-probe still collects the probe's rollouts, so the held-out batch after them is the same batch.
+        noise = {} if args.skip_probe else {k: float(np.mean(v)) for k, v in probe(algorithm_state, big, base_lr).items()}
+        single = {} if args.skip_probe else {k: float(np.mean(v)) for k, v in probe(algorithm_state, batch, base_lr).items()}
         del big
         heldout = None
         if name == "ppo" and args.heldout > 0:
@@ -257,10 +266,14 @@ def main(args):
             del parts, more
         observations = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), batch.first.obs)
         epsilon = float(algorithm.exploration_schedule(algorithm_state.step)) if name == "pqn" else 0.0
-        before, before_alive = episode_returns(params, eval_key, epsilon, False)
+        batch_advantages = gae(params, batch)[0] if name == "ppo" else None
+        if args.episodes > 0:
+            before, before_alive = episode_returns(params, eval_key, epsilon, False)
+        else:
+            before, before_alive = jnp.full(1, jnp.nan), jnp.zeros(1, bool)
         entry = {"epsilon": epsilon, "j_before": float(before.mean()), "truncated_before": float(before_alive.mean()),
                  "noise_big": noise, "noise_single": single, "big_columns": args.big * num_envs, "conditions": []}
-        if name == "pqn":
+        if name == "pqn" and args.episodes > 0:
             greedy_before, _ = episode_returns(params, eval_key, epsilon, True)
             entry["j_before_greedy"] = float(greedy_before.mean())
         print(f"step {step}: J {entry['j_before']:.3f}, eps {epsilon:.3f}; large-probe fresh noise scale (envs): " + ", ".join(
@@ -288,7 +301,11 @@ def main(args):
                 blocks = np.asarray(surrogate(after.params, heldout), np.float32).reshape(-1)
                 result["proxy"] = float(blocks.mean())
                 arrays[f"{step}/{len(entry['conditions'])}/proxy"] = blocks
-            if not extra.get("kl_only"):
+                # The same estimator on the update's own batch (unnormalized GAE of the pre-update critic).
+                own = (jnp.take(batch.first.obs, chosen, axis=1), jnp.take(batch.second.action, chosen, axis=1),
+                       jnp.take(batch.aux["log_prob"], chosen, axis=1), jnp.take(batch_advantages, chosen, axis=1))
+                result["in_batch"] = float(in_batch(after.params, own))
+            if not extra.get("kl_only") and args.episodes > 0:
                 returns, alive = episode_returns(after.params, eval_key, epsilon, False)
                 difference = np.asarray(returns - before, np.float32)
                 result["delta_j"] = float(difference.mean())
@@ -354,7 +371,7 @@ if __name__ == "__main__":
                         help="grid multipliers (an extension run with other values is merged by analyze_e1.py)")
     parser.add_argument("--tune-multipliers", type=float, nargs="*", default=[])
     parser.add_argument("--seeds", type=int, default=4, help="update seeds (minibatch shuffles and column subsets)")
-    parser.add_argument("--episodes", type=int, default=4096)
+    parser.add_argument("--episodes", type=int, default=4096, help="0 skips the episode evaluation")
     parser.add_argument("--warmup", type=int, default=1000)
     parser.add_argument("--noops", type=int, default=0, help="random no-op starts, at most this many per environment")
     parser.add_argument("--big", type=int, default=8, help="rollouts in the large probe batch")
@@ -362,4 +379,5 @@ if __name__ == "__main__":
     parser.add_argument("--bisections", type=int, default=8)
     parser.add_argument("--key-offset", type=int, default=0)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--skip-probe", action="store_true", help="collect the probe rollouts but do not probe")
     main(parser.parse_args())
