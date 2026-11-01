@@ -84,6 +84,7 @@ class PoolState(AnakinState):
     bucket: jax.Array = 0
     updates: jax.Array = 0
     multiplier: jax.Array = 1.0
+    scale: jax.Array = jnp.nan  # last resolved noise scale (NaN until the first)
 
 
 def with_num_envs(environment, num_envs):
@@ -164,6 +165,7 @@ class Pool(Anakin):
             offset=jnp.zeros((), jnp.int32),
             bucket=jnp.asarray(self.config.buckets.index(initial), jnp.int32),
             updates=jnp.zeros((), jnp.int32),
+            scale=jnp.full((), jnp.nan, jnp.float32),
             multiplier=jnp.asarray(
                 self.cap(self.step_target(initial, jnp.nan), 0.0) if self.config.step in ("lr", "lr_sqrt", "anneal")
                 else self.cap(1.0, 0.0), jnp.float32),
@@ -175,7 +177,9 @@ class Pool(Anakin):
             return jnp.nan
         space = self.config.noise_space
         noise, signal = statistics["noise"][name][space], statistics["signal"][name][space]
-        scale = jnp.where(signal > 0, noise / signal, self.config.noise_scale_cap)
+        # Unresolved (smoothed signal not positive) is NaN: the caller keeps its last resolved estimate instead of
+        # reading it as an infinite noise scale, which would drive the step to zero.
+        scale = jnp.where(signal > 0, noise / signal, jnp.nan)
         return jnp.where(statistics["count"] > 0, jnp.clip(scale, 0.0, self.config.noise_scale_cap), jnp.nan)
 
     def step_target(self, bucket, scale, progress=0.0):
@@ -247,7 +251,8 @@ class Pool(Anakin):
 
         after, update_logs = update(probe)
 
-        scale = self.noise_scale(after, cfg.noise_source)
+        probed_scale = self.noise_scale(after, cfg.noise_source)
+        scale = jnp.where(jnp.isfinite(probed_scale), probed_scale, state.scale)
         flat = jax.tree.map(lambda leaf: leaf.reshape(-1, *leaf.shape[2:]), measured.first.obs)
         output_before = self.algorithm.network.apply(before.params, flat, temperature=1.0)
         output_after = self.algorithm.network.apply(after.params, flat, temperature=1.0)
@@ -269,6 +274,7 @@ class Pool(Anakin):
             lap_state=sub.lap_state,
             offset=(state.offset + bucket) % self.size,
             updates=state.updates + 1,
+            scale=scale,
         )
         next_bucket = self.next_bucket(state, scale)
         progress = after.step.astype(jnp.float32) / max(cfg.budget, 1)
@@ -293,6 +299,7 @@ class Pool(Anakin):
         logs |= {
             "pool/bucket": jnp.asarray(bucket, jnp.float32),
             "pool/noise_scale_envs": scale,
+            "pool/noise_scale_resolved": jnp.isfinite(probed_scale).astype(jnp.float32),
             "pool/noise_scale_critic_envs": self.noise_scale(after, "critic"),
             "pool/step_target": jnp.asarray(target, jnp.float32),
             "pool/multiplier": used,

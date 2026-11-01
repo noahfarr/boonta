@@ -1,0 +1,103 @@
+Fitted N against large-probe noise scales (desynchronized, B = 65,536). Identified fits only: CI upper < 1e6 and N > 1.
+
+stochastic ΔJ at 2.1M: 6 of 6 fits identified; N = ast0:2615, ast1:1630, ast2:1052, bre0:373, bre1:51, bre2:36
+   actor/gradient         N/probe geometric mean    0.429   spread (log10 sd) 0.41   within 3x: 2/6
+   actor/fresh            N/probe geometric mean    0.009   spread (log10 sd) 1.08   within 3x: 0/6
+   actor/trust_region     N/probe geometric mean    0.430   spread (log10 sd) 0.49   within 3x: 2/6
+   actor/update           N/probe geometric mean    1.158   spread (log10 sd) 0.89   within 3x: 1/6
+   actor/difference       N/probe geometric mean    0.056   spread (log10 sd) 0.47   within 3x: 0/6
+   total/gradient         N/probe geometric mean    4.591   spread (log10 sd) 0.35   within 3x: 2/6
+   total/fresh            N/probe geometric mean    0.033   spread (log10 sd) 1.22   within 3x: 1/6
+   total/trust_region     N/probe geometric mean    0.604   spread (log10 sd) 0.38   within 3x: 3/6
+   total/update           N/probe geometric mean    1.361   spread (log10 sd) 0.85   within 3x: 1/6
+   total/difference       N/probe geometric mean    0.211   spread (log10 sd) 0.57   within 3x: 2/6
+   critic/gradient        N/probe geometric mean  201.618   spread (log10 sd) 0.39   within 3x: 0/6
+   critic/fresh           N/probe geometric mean    3.041   spread (log10 sd) 1.28   within 3x: 1/6
+   critic/trust_region    N/probe geometric mean  192.041   spread (log10 sd) 0.38   within 3x: 0/6
+   critic/update          N/probe geometric mean   68.128   spread (log10 sd) 1.33   within 3x: 2/6
+   critic/difference      N/probe geometric mean    7.241   spread (log10 sd) 0.96   within 3x: 1/6
+
+stochastic ΔJ at 7.9M: 2 of 6 fits identified; N = ast1:1325, bre0:113
+   actor/gradient         N/probe geometric mean    0.031   spread (log10 sd) 0.26   within 3x: 0/2
+   actor/fresh            N/probe geometric mean    0.019   spread (log10 sd) 0.00   within 3x: 0/1
+   actor/trust_region     N/probe geometric mean    0.020   spread (log10 sd) 0.60   within 3x: 0/2
+   actor/update           N/probe geometric mean    0.282   spread (log10 sd) 1.02   within 3x: 1/2
+   actor/difference       N/probe geometric mean    0.010   spread (log10 sd) 0.29   within 3x: 0/2
+   total/gradient         N/probe geometric mean    0.662   spread (log10 sd) 0.87   within 3x: 0/2
+   total/fresh            N/probe geometric mean    0.035   spread (log10 sd) 0.18   within 3x: 0/2
+   total/trust_region     N/probe geometric mean    0.062   spread (log10 sd) 0.08   within 3x: 0/2
+   total/update           N/probe geometric mean    0.497   spread (log10 sd) 0.77   within 3x: 1/2
+   total/difference       N/probe geometric mean    0.037   spread (log10 sd) 0.20   within 3x: 0/2
+   critic/gradient        N/probe geometric mean    5.232   spread (log10 sd) 0.41   within 3x: 1/2
+   critic/fresh           N/probe geometric mean    0.975   spread (log10 sd) 0.08   within 3x: 2/2
+   critic/trust_region    N/probe geometric mean    1.782   spread (log10 sd) 0.14   within 3x: 2/2
+   critic/update          N/probe geometric mean   24.356   spread (log10 sd) 1.42   within 3x: 1/2
+   critic/difference      N/probe geometric mean    0.774   spread (log10 sd) 0.02   within 3x: 2/2
+
+stochastic ΔJ at 16.0M: 1 of 6 fits identified; N = bre0:391
+   actor/gradient         N/probe geometric mean    0.065   spread (log10 sd) 0.00   within 3x: 0/1
+   actor/fresh            N/probe geometric mean    0.059   spread (log10 sd) 0.00   within 3x: 0/1
+   actor/trust_region     N/probe geometric mean    0.169   spread (log10 sd) 0.00   within 3x: 0/1
+   actor/update           N/probe geometric mean    1.344   spread (log10 sd) 0.00   within 3x: 1/1
+   actor/difference       N/probe geometric mean    0.072   spread (log10 sd) 0.00   within 3x: 0/1
+   total/gradient         N/probe geometric mean    3.173   spread (log10 sd) 0.00   within 3x: 0/1
+   total/fresh            N/probe geometric mean    0.212   spread (log10 sd) 0.00   within 3x: 0/1
+   total/trust_region     N/probe geometric mean    0.199   spread (log10 sd) 0.00   within 3x: 0/1
+   total/update           N/probe geometric mean    1.470   spread (log10 sd) 0.00   within 3x: 1/1
+   total/difference       N/probe geometric mean    0.254   spread (log10 sd) 0.00   within 3x: 0/1
+   critic/gradient        N/probe geometric mean   44.124   spread (log10 sd) 0.00   within 3x: 0/1
+   critic/fresh           N/probe geometric mean    2.836   spread (log10 sd) 0.00   within 3x: 1/1
+   critic/trust_region    N/probe geometric mean   41.202   spread (log10 sd) 0.00   within 3x: 0/1
+   critic/update          N/probe geometric mean   22.983   spread (log10 sd) 0.00   within 3x: 0/1
+   critic/difference      N/probe geometric mean    3.371   spread (log10 sd) 0.00   within 3x: 0/1
+
+proxy ΔJ at 2.1M: 6 of 6 fits identified; N = ast0:2101, ast1:1649, ast2:1222, bre0:449, bre1:145, bre2:165
+   actor/gradient         N/probe geometric mean    0.672   spread (log10 sd) 0.29   within 3x: 4/6
+   actor/fresh            N/probe geometric mean    0.014   spread (log10 sd) 0.84   within 3x: 0/6
+   actor/trust_region     N/probe geometric mean    0.674   spread (log10 sd) 0.37   within 3x: 4/6
+   actor/update           N/probe geometric mean    1.816   spread (log10 sd) 0.63   within 3x: 2/6
+   actor/difference       N/probe geometric mean    0.088   spread (log10 sd) 0.25   within 3x: 0/6
+   total/gradient         N/probe geometric mean    7.195   spread (log10 sd) 0.33   within 3x: 0/6
+   total/fresh            N/probe geometric mean    0.052   spread (log10 sd) 0.97   within 3x: 1/6
+   total/trust_region     N/probe geometric mean    0.947   spread (log10 sd) 0.33   within 3x: 5/6
+   total/update           N/probe geometric mean    2.133   spread (log10 sd) 0.59   within 3x: 2/6
+   total/difference       N/probe geometric mean    0.331   spread (log10 sd) 0.33   within 3x: 2/6
+   critic/gradient        N/probe geometric mean  315.986   spread (log10 sd) 0.28   within 3x: 0/6
+   critic/fresh           N/probe geometric mean    4.766   spread (log10 sd) 1.02   within 3x: 2/6
+   critic/trust_region    N/probe geometric mean  300.976   spread (log10 sd) 0.31   within 3x: 0/6
+   critic/update          N/probe geometric mean  106.774   spread (log10 sd) 1.08   within 3x: 0/6
+   critic/difference      N/probe geometric mean   11.348   spread (log10 sd) 0.69   within 3x: 2/6
+
+proxy ΔJ at 7.9M: 4 of 6 fits identified; N = ast0:1052, ast2:949, bre0:258, bre1:592
+   actor/gradient         N/probe geometric mean    0.084   spread (log10 sd) 0.23   within 3x: 0/4
+   actor/fresh            N/probe geometric mean    0.014   spread (log10 sd) 0.20   within 3x: 0/3
+   actor/trust_region     N/probe geometric mean    0.107   spread (log10 sd) 0.61   within 3x: 1/4
+   actor/update           N/probe geometric mean    0.795   spread (log10 sd) 0.66   within 3x: 3/4
+   actor/difference       N/probe geometric mean    0.024   spread (log10 sd) 0.33   within 3x: 0/4
+   total/gradient         N/probe geometric mean    1.687   spread (log10 sd) 0.77   within 3x: 1/4
+   total/fresh            N/probe geometric mean    0.065   spread (log10 sd) 0.39   within 3x: 0/4
+   total/trust_region     N/probe geometric mean    0.220   spread (log10 sd) 0.34   within 3x: 1/4
+   total/update           N/probe geometric mean    1.124   spread (log10 sd) 0.45   within 3x: 3/4
+   total/difference       N/probe geometric mean    0.085   spread (log10 sd) 0.54   within 3x: 1/4
+   critic/gradient        N/probe geometric mean   16.513   spread (log10 sd) 0.43   within 3x: 0/4
+   critic/fresh           N/probe geometric mean    1.268   spread (log10 sd) 0.33   within 3x: 4/4
+   critic/trust_region    N/probe geometric mean    8.918   spread (log10 sd) 0.28   within 3x: 0/4
+   critic/update          N/probe geometric mean   45.544   spread (log10 sd) 1.09   within 3x: 1/4
+   critic/difference      N/probe geometric mean    1.816   spread (log10 sd) 0.08   within 3x: 4/4
+
+proxy ΔJ at 16.0M: 2 of 6 fits identified; N = ast2:78, bre2:2385
+   actor/gradient         N/probe geometric mean    0.102   spread (log10 sd) 0.65   within 3x: 1/2
+   actor/fresh            N/probe geometric mean    0.006   spread (log10 sd) 0.62   within 3x: 0/2
+   actor/trust_region     N/probe geometric mean    0.126   spread (log10 sd) 0.80   within 3x: 1/2
+   actor/update           N/probe geometric mean    0.626   spread (log10 sd) 0.65   within 3x: 1/2
+   actor/difference       N/probe geometric mean    0.015   spread (log10 sd) 1.04   within 3x: 0/2
+   total/gradient         N/probe geometric mean    0.368   spread (log10 sd) 0.34   within 3x: 1/2
+   total/fresh            N/probe geometric mean    0.017   spread (log10 sd) 0.27   within 3x: 0/2
+   total/trust_region     N/probe geometric mean    0.129   spread (log10 sd) 0.73   within 3x: 1/2
+   total/update           N/probe geometric mean    0.667   spread (log10 sd) 0.62   within 3x: 1/2
+   total/difference       N/probe geometric mean    0.046   spread (log10 sd) 0.69   within 3x: 0/2
+   critic/gradient        N/probe geometric mean   10.009   spread (log10 sd) 0.11   within 3x: 0/2
+   critic/fresh           N/probe geometric mean    0.962   spread (log10 sd) 0.37   within 3x: 2/2
+   critic/trust_region    N/probe geometric mean    9.865   spread (log10 sd) 0.12   within 3x: 0/2
+   critic/update          N/probe geometric mean   53.962   spread (log10 sd) 0.09   within 3x: 0/2
+   critic/difference      N/probe geometric mean    1.879   spread (log10 sd) 0.08   within 3x: 2/2

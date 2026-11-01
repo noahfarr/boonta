@@ -29,13 +29,23 @@ def n0(directory, prefix, name, space="fresh"):
     return float(np.median(values)), len(values)
 
 
-def e1_n0(e1, game, space):
+def e1_n0(e1, game, space, loss="actor"):
     """Median over E1 checkpoints and seeds of the large-probe noise scale of the actor (desynchronized, B = 65,536):
     used instead of E2's in-training estimates, which were measured with the old (nonlinear) fresh update."""
     values = []
     for path in glob.glob(f"{e1}/ppo_adam_{game}_*.json") + glob.glob(f"{e1}/klcal_{game}_*.json"):
         for entry in json.loads(Path(path).read_text())["checkpoints"].values():
-            value = entry["noise_big"].get(f"bb8/actor/{space}/noise_scale_envs")
+            value = entry["noise_big"].get(f"bb8/{loss}/{space}/noise_scale_envs")
+            if value is not None and np.isfinite(value) and value > 0:
+                values.append(value)
+    return (float(np.median(values)) if values else float("nan")), len(values)
+
+
+def e1_n0_pqn(e1, game, space):
+    values = []
+    for path in glob.glob(f"{e1}/pqn_{game}_*.json"):
+        for entry in json.loads(Path(path).read_text())["checkpoints"].values():
+            value = entry["noise_big"].get(f"bb8/td/{space}/noise_scale_envs")
             if value is not None and np.isfinite(value) and value > 0:
                 values.append(value)
     return (float(np.median(values)) if values else float("nan")), len(values)
@@ -57,16 +67,22 @@ def main(args):
              f"STEP={args.step}", f"NOISE_SPACE={args.noise_space}", f"PQN_NOISE_SPACE={args.pqn_noise_space}",
              f"EARLY_CAP={args.early_cap}"]
     report = {}
+    overrides = {k: float(v) for k, v in (item.split("=") for item in args.n0)}
+    lines.append(f"NOISE_SOURCE={args.noise_source}")
     for game in ("breakout", "asterix", "space_invaders"):
-        noise, seeds = (n0(args.e2_tuned, f"ppo_{game}", "actor", args.noise_space) if args.n0_source == "e2"
-                        else e1_n0(args.e1, game, args.noise_space))
+        if game in overrides:
+            noise, seeds = overrides[game], 0
+        else:
+            noise, seeds = (n0(args.e2_tuned, f"ppo_{game}", args.noise_source, args.noise_space) if args.n0_source == "e2"
+                            else e1_n0(args.e1, game, args.noise_space, args.noise_source))
         kl, count = kl_med(args.e1, game)
         m_max = (8192 + noise) / 8192
         lines += [f"MMAX_{game}={m_max:.4f}", f"KLMED_{game}={kl:.6f}", f"KLMAX_{game}={kl * m_max**2:.6f}"]
         report[f"ppo/{game}"] = {"N0_envs": noise, "seeds": seeds, "m_max": m_max, "kl_med": kl, "kl_updates": count,
                                  "kl_max": kl * m_max**2}
     for game in ("breakout", "asterix"):
-        noise, seeds = n0(args.e2, f"pqn_{game}", "td")
+        noise, seeds = (e1_n0_pqn(args.e1, game, args.pqn_noise_space) if args.n0_source == "e1"
+                        else n0(args.e2, f"pqn_{game}", "td"))
         m_max = (4096 + noise) / 4096
         lines.append(f"PQN_MMAX_{game}={m_max:.4f}")
         report[f"pqn/{game}"] = {"N0_envs": noise, "seeds": seeds, "m_max": m_max}
@@ -85,5 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--pqn-noise-space", default="fresh", choices=["fresh", "gradient"])
     parser.add_argument("--early-cap", type=float, default=1.0)
     parser.add_argument("--n0-source", default="e1", choices=["e1", "e2"])
+    parser.add_argument("--noise-source", default="actor", choices=["actor", "total"])
+    parser.add_argument("--n0", nargs="*", default=[], help="game=value: N0 where E1 has no large probe in this space")
     parser.add_argument("--output", default="experiments/bb8/calibration.env")
     main(parser.parse_args())

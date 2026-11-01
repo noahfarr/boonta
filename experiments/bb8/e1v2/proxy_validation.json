@@ -1,0 +1,146 @@
+[
+ {
+  "game": "asterix",
+  "seed": 0,
+  "step": 2097152,
+  "pearson": 0.9808217053313719,
+  "spearman": 0.9604321728691476,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 0,
+  "step": 7864320,
+  "pearson": 0.9295914304103153,
+  "spearman": 0.7425388366806945,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 0,
+  "step": 15990784,
+  "pearson": 0.6187583149666022,
+  "spearman": -0.22804321728691473,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 1,
+  "step": 2097152,
+  "pearson": 0.9766988067672412,
+  "spearman": 0.9192316926770707,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 1,
+  "step": 7864320,
+  "pearson": 0.998927394601319,
+  "spearman": 0.9268187274909964,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 1,
+  "step": 15990784,
+  "pearson": 0.8572354818480479,
+  "spearman": -0.2611764705882353,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 2,
+  "step": 2097152,
+  "pearson": 0.9865853271148649,
+  "spearman": 0.9532292917166867,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 2,
+  "step": 7864320,
+  "pearson": 0.9745973275307291,
+  "spearman": 0.8881152460984393,
+  "conditions": 50
+ },
+ {
+  "game": "asterix",
+  "seed": 2,
+  "step": 15990784,
+  "pearson": 0.9347236166092407,
+  "spearman": 0.1714326875088973,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 0,
+  "step": 2097152,
+  "pearson": 0.8678725970602675,
+  "spearman": 0.969939975990396,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 0,
+  "step": 7864320,
+  "pearson": 0.8966587055850177,
+  "spearman": 0.8962785114045618,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 0,
+  "step": 15990784,
+  "pearson": 0.9408638675223819,
+  "spearman": 0.7500120048019208,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 1,
+  "step": 2097152,
+  "pearson": 0.6610932708284001,
+  "spearman": 0.9736608324735021,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 1,
+  "step": 7864320,
+  "pearson": 0.8932942312217129,
+  "spearman": 0.5984633853541417,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 1,
+  "step": 15990784,
+  "pearson": 0.853235830012919,
+  "spearman": 0.7668187274909963,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 2,
+  "step": 2097152,
+  "pearson": 0.9457532859184358,
+  "spearman": 0.8458583433373349,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 2,
+  "step": 7864320,
+  "pearson": 0.9090288512286369,
+  "spearman": 0.8991596638655461,
+  "conditions": 50
+ },
+ {
+  "game": "breakout",
+  "seed": 2,
+  "step": 15990784,
+  "pearson": 0.9356010059753,
+  "spearman": 0.7784393757503001,
+  "conditions": 50
+ }
+]

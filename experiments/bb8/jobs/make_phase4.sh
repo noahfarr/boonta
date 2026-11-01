@@ -14,7 +14,7 @@ GAMES_PPO=${GAMES_PPO:-"breakout asterix space_invaders"}
 GAMES_PQN=${GAMES_PQN:-"breakout asterix"}
 STOP="+stop_entropy_fraction=0.01"
 CAPS="podracer.config.multiplier_cap=1.0 podracer.config.early_multiplier_cap=$EARLY_CAP podracer.config.early_fraction=0.1"
-POOL_PPO="podracer=bb8_pool podracer.config.minibatch_envs=512 podracer.config.running_normalization_below=8192 podracer.config.probe_every=8 podracer.config.noise_source=actor podracer.config.noise_space=$NOISE_SPACE algorithm.bb8.decay=0.7 $CAPS"
+POOL_PPO="podracer=bb8_pool podracer.config.minibatch_envs=512 podracer.config.running_normalization_below=8192 podracer.config.probe_every=8 podracer.config.noise_source=$NOISE_SOURCE podracer.config.noise_space=$NOISE_SPACE algorithm.bb8.decay=0.7 $CAPS"
 POOL_PQN="podracer=bb8_pool environment.num_envs=8192 podracer.config.minibatch_envs=256 podracer.config.probe_every=8 podracer.config.noise_source=td podracer.config.noise_space=$PQN_NOISE_SPACE algorithm.bb8.decay=0.7 $CAPS"
 
 line() { # arm seed overrides...

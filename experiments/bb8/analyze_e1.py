@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 GRID = np.exp(np.linspace(0.0, np.log(1e7), 1400))
-SPACES = ("gradient", "fresh", "update")
+SPACES = ("gradient", "fresh", "update", "difference", "trust_region")
 
 
 def fit(b, y, se):
@@ -80,13 +80,13 @@ def analyze_checkpoint(stem, step, entry, arrays, key):
     multipliers = sorted({c["multiplier"] for _, c in grid})
     seeds = sorted({c["seed"] for _, c in grid})
     columns = {c["fraction"]: c["columns"] for _, c in grid}
-    episodes = len(arrays[f"{step}/{grid[0][0]}"])
+    episodes = len(arrays[f"{step}/{grid[0][0]}{key}"])
     cube = np.zeros((len(fractions), len(multipliers), len(seeds), episodes))
     size = np.zeros((len(fractions), len(multipliers), len(seeds)))
     size_key = "kl" if "kl" in grid[0][1] else "update_norm"
     for index, c in grid:
         f, m, s = fractions.index(c["fraction"]), multipliers.index(c["multiplier"]), seeds.index(c["seed"])
-        cube[f, m, s] = arrays[f"{step}/{index}{key}"]
+        cube[f, m, s] = arrays[f"{step}/{index}{key}"][: cube.shape[3]]
         size[f, m, s] = c[size_key]
     b = np.asarray([columns[f] for f in fractions], float)
     y, se, best = curves(cube, multipliers)
@@ -141,9 +141,11 @@ def main(directory, out):
     for stem, algorithm, optimizer, game, seed, report, arrays in load(directory):
         for step, entry in report["checkpoints"].items():
             keys = [""] + (["/greedy"] if algorithm == "pqn" else [])
+            if any(f"{step}/{i}/proxy" in arrays for i in range(len(entry["conditions"]))):
+                keys.append("/proxy")
             for key in keys:
                 r = analyze_checkpoint(stem, step, entry, arrays, key)
-                policy = "greedy" if key else ("behaviour" if algorithm == "pqn" else "stochastic")
+                policy = {"/greedy": "greedy", "/proxy": "proxy"}.get(key, "behaviour" if algorithm == "pqn" else "stochastic")
                 results[f"{stem}/{step}/{policy}"] = r
                 row = {"algorithm": algorithm, "optimizer": optimizer, "game": game, "seed": seed, "step": int(step),
                        "policy": policy, "j_before": r["j_before"], "fit_N": r["fit_N"],
