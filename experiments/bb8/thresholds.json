@@ -1,0 +1,32 @@
+{
+ "asterix": {
+  "threshold": 65.65196023881435,
+  "reference": "A_8192",
+  "seeds": 16,
+  "reference_final_mean": 69.107326567173
+ },
+ "breakout": {
+  "threshold": 56.79871680438518,
+  "reference": "A_8192",
+  "seeds": 16,
+  "reference_final_mean": 59.788122951984406
+ },
+ "pqn_asterix": {
+  "threshold": 61.09826494057973,
+  "reference": "default",
+  "seeds": 16,
+  "reference_final_mean": 64.31396309534709
+ },
+ "pqn_breakout": {
+  "threshold": 44.916796470681824,
+  "reference": "default",
+  "seeds": 16,
+  "reference_final_mean": 47.2808383901914
+ },
+ "space_invaders": {
+  "threshold": 153.8438811302185,
+  "reference": "A_8192",
+  "seeds": 16,
+  "reference_final_mean": 161.94092750549316
+ }
+}
