@@ -54,6 +54,8 @@ class BB8Config:
     running_advantage_normalization: bool = False
     # Running moments forget at rate exp(-n / horizon) per n transitions.
     advantage_horizon: float = 524_288.0
+    # PPO: log the KL between the policy before and after each whole update, on the batch's states (`bb8/update_kl`).
+    log_update_kl: bool = False
 
 
 def stack_rollouts(rollouts: list[PyTree]) -> PyTree:

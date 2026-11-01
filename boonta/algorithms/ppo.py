@@ -240,9 +240,20 @@ class PPO:
         )
 
         keys = jax.random.split(key, self.cfg.update_epochs)
+        before = state.params
         state, _ = jax.lax.scan(epoch_fn, state, keys)
+        if self.cfg.bb8.log_update_kl:
+            self.log_update_kl(before, state.params, transitions.first.obs)
 
         return state
+
+    def log_update_kl(self, before: PyTree, after: PyTree, obs: PyTree) -> None:
+        """KL(π_before ‖ π_after) of the whole update, mean over the batch's states (see `bb8`)."""
+        old, _ = self.network.apply(before, obs, temperature=1.0)
+        new, _ = self.network.apply(after, obs, temperature=1.0)
+        old_log = jax.nn.log_softmax(old.logits, axis=-1)
+        new_log = jax.nn.log_softmax(new.logits, axis=-1)
+        lox.log({"bb8/update_kl": jnp.mean(jnp.sum(jnp.exp(old_log) * (old_log - new_log), axis=-1))})
 
     def probe_noise_scale(
         self, state: PPOState, transitions: Transition, loss_fn: Callable

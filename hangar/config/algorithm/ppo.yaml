@@ -16,6 +16,7 @@ algorithm:
     noise_scale_probe: False
     num_groups: 64
     decay: 0.9
+    log_update_kl: False
 
 podracer:
   config:
