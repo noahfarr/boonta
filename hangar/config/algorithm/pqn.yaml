@@ -11,6 +11,10 @@ algorithm:
     noise_scale_probe: False
     num_groups: 64
     decay: 0.9
+    log_update_kl: False
+    fisher_states: 1024
+    running_advantage_normalization: False
+    advantage_horizon: 524288.0
 
 podracer:
   config:
