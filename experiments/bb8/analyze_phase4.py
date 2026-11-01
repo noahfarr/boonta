@@ -17,9 +17,11 @@ before any Phase 4 run finished, plus what the pool needs):
   stall: a run that never reaches it (entropy-stopped runs included; reported separately as "stopped").
 - wall-clock to threshold: cumulative seconds over epochs (epoch steps / logged SPS, compilation included) at the
   first epoch that reaches the threshold; censored at the run's total.
-- frontier: per algorithm and game, IQM steps to threshold against IQM wall-clock to threshold, one point per arm.
+- frontier: per algorithm and game, IQM steps to threshold against IQM wall-clock to threshold, one point per arm;
+  the Pareto frontier is drawn over arms where most seeds reach the threshold.
 - AUC: trapezoidal area under the curve over steps / budget.
-- oracle fixed: the fixed_N arm with the lowest IQM steps to threshold, per algorithm and game.
+- oracle fixed: the fixed_N arm with the lowest IQM steps to threshold (ties broken by the higher IQM AUC), per
+  algorithm and game.
 - IQM over seeds (trim 25%); intervals: 10,000 bootstrap resamples of seeds within each arm (and within each game for
   the aggregate over games: stratified bootstrap), percentile 95%.
 - gate (per algorithm): passes if, on most games, BB-8's steps-to-threshold interval overlaps or is below oracle
@@ -168,7 +170,8 @@ def main(root, out):
                     entry[name] = bootstrap(values) if values else None
                 per_arm[arm] = entry
             grid = [a for a in per_arm if a.startswith("fixed_")]
-            oracle = min(grid, key=lambda a: per_arm[a]["steps_to_threshold"][0]) if grid else None
+            # Lowest IQM steps to threshold; ties (e.g. every arm censored at the budget) broken by the higher IQM AUC.
+            oracle = min(grid, key=lambda a: (per_arm[a]["steps_to_threshold"][0], -per_arm[a]["auc"][0])) if grid else None
             summary[algorithm]["games"][game] = {"threshold": threshold, "best_fixed_by_final": best_fixed,
                                                  "oracle_fixed": oracle, "arms": per_arm}
 
@@ -246,7 +249,9 @@ def main(root, out):
                 steps = np.mean([r["steps"][:length] for r in rs], axis=0)
                 axes[0, column].plot(steps / 1e6, iqm(np.nan_to_num(stack, nan=0.0), axis=0), label=arm, lw=1.2)
                 if "pool/bucket" in rs[0]["extras"]:
-                    buckets = np.stack([r["extras"]["pool/bucket"][:length] for r in rs])
+                    short = min(len(r["extras"]["pool/bucket"]) for r in rs)
+                    buckets = np.stack([r["extras"]["pool/bucket"][:short] for r in rs])
+                    steps = np.mean([r["steps"][:short] for r in rs], axis=0)
                     axes[1, column].plot(steps / 1e6, np.nanmedian(buckets, 0), label=arm, lw=1.2)
             axes[0, column].axhline(g["threshold"], color="grey", ls="--", lw=0.8)
             axes[0, column].set_title(f"{algorithm.upper()} {game}", fontsize=10)
@@ -274,7 +279,10 @@ def main(root, out):
                               yerr=[[y - e["steps_to_threshold"][1] / 1e6], [e["steps_to_threshold"][2] / 1e6 - y]],
                               fmt="o", ms=4, lw=0.6, capsize=2)
                 axis.annotate(arm, (x, y), fontsize=6, xytext=(3, 3), textcoords="offset points")
-            frontier = sorted(p for p in points if not any(q[0] <= p[0] and q[1] <= p[1] and q != p for q in points))
+            # Only arms where most seeds reach the threshold: a censored wall-clock (a stalled or stopped run's total
+            # time) is not a time to threshold.
+            eligible = [p for p in points if arms[p[2]]["stalls"] <= arms[p[2]]["seeds"] / 2]
+            frontier = sorted(p for p in eligible if not any(q[0] <= p[0] and q[1] <= p[1] and q != p for q in eligible))
             if frontier:
                 axis.plot([p[0] for p in frontier], [p[1] for p in frontier], "k--", lw=0.8, label="frontier")
             axis.set_xlabel("wall-clock to threshold (min, IQM)")

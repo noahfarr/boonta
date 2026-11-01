@@ -264,3 +264,6 @@ STEP=kl, NOISE_SOURCE=total, NOISE_SPACE=trust_region, PQN_NOISE_SPACE=fresh, EA
 
 ### Phase 4 pilot (55277: PPO Breakout + PQN Asterix; 55278: PPO Asterix + PQN Breakout)
 `jobs/phase4_pilot2_{a,b}.txt` from `make_phase4.sh` with `calibration.env`. 4 seeds (0–3) per arm, 16 PPO arms, 10 PQN arms, 208 runs, 6 per A100. Run dirs: `bb8_runs/phase4_pilot2/<alg>/<game>/<arm>/<seed>`.
+
+### Phase 4 pilot results (55277, 55278 COMPLETED 13:25 UTC; 208/208 runs; 38 entropy stops, all PPO Breakout)
+See `PILOT_REPORT.md`. The gate fails for PPO and for PQN; the step-only arms at the tuned batch are the best. Analysis fixes made on the way: plot crash on stopped runs, oracle tie-break by AUC, frontier restricted to arms where most seeds reach the threshold. Stopped before the full Phase 4, as instructed.
