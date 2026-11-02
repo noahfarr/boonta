@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /hyperparameters/recurrent_bc/agent_trove
+  - _self_
+
+num_layers: 28
+
+cell:
+  features: 1024
+  num_heads: 16
+  num_groups: 8
+  head_dim: 128
+
+stack:
+  hidden_dim: 3072

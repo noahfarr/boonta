@@ -28,8 +28,10 @@ from . import (
     ppo_xland_minigrid,
     pqn_minatar,
     recurrent_bc_kinetix,
+    recurrent_bc_agent_trove,
     recurrent_dqn_minatar,
     recurrent_grpo_wordle,
+    recurrent_grpo_terminal_tools,
     recurrent_ppo_classic_control,
     recurrent_ppo_jaxued,
     recurrent_ppo_minatar,
@@ -47,6 +49,7 @@ from . import (
 )
 
 register = {
+    ("recurrent_grpo", "terminal_tools", "terminal_tools"): recurrent_grpo_terminal_tools.make,
     ("bc", "brax", "mujoco"): bc_mujoco.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
@@ -79,6 +82,7 @@ register = {
     ("ppo", "xland_minigrid", "xland"): ppo_xland_minigrid.make,
     ("pqn", "gymnax", "minatar"): pqn_minatar.make,
     ("recurrent_bc", "kinetix", "kinetix"): recurrent_bc_kinetix.make,
+    ("recurrent_bc", "agent_trove", "agent_trove"): recurrent_bc_agent_trove.make,
     ("recurrent_dqn", "gymnax", "minatar"): recurrent_dqn_minatar.make,
     ("recurrent_grpo", "dune_sea", "wordle"): recurrent_grpo_wordle.make,
     ("recurrent_ppo", "gymnax", "minatar"): recurrent_ppo_minatar.make,

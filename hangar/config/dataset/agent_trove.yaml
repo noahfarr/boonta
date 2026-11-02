@@ -1,0 +1,14 @@
+namespace: agent_trove
+dataset_id: open-thoughts/AgentTrove
+kwargs:
+  cache_dir: null
+  tokenizer_id: Qwen/Qwen3-0.6B
+  length: ${cell.context_length}
+  pool_size: 1024
+  num_devices: ${device_count:}
+  split: train
+  assistant_only: true
+  window_policy: complete_trajectory
+  shuffle_buffer: 1000
+  seed: ${seed}
+  revision: null

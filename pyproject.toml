@@ -20,6 +20,10 @@ dependencies = [
 boonta = "hangar:main"
 
 [project.optional-dependencies]
+agent-trove = [
+    "boonta[huggingface]",
+    "datasets>=3.0",
+]
 ale = [
     "ale_py[xla]>=0.12.0",
 ]
@@ -142,7 +146,6 @@ override-dependencies = [
     "jax2d>=1.0.2",
     "mujoco>=3.3",
     "numpy>=2.0",
-    "huggingface-hub>=1.24.0",
     "click>=8.1.7",
     "nvidia-cudnn-cu12>=9.8; sys_platform == 'linux'",
 ]

@@ -1,0 +1,41 @@
+# @package _global_
+artisans:
+  checkpoint:
+    _target_: boonta.artisans.Checkpointer
+    fields: [algorithm_state, dataset_state]
+    score:
+      _target_: operator.itemgetter
+      _args_: [actor/log_likelihood]
+  heldout:
+    _target_: hangar.agent_trove_evaluation.AgentTroveEvaluation
+    cache: ${dataset.kwargs.cache_dir}
+    tokenizer: ${dataset.kwargs.tokenizer_id}
+    split_manifest: ${dataset.kwargs.split_manifest}
+    context: ${cell.context_length}
+    directory: ${hydra:runtime.output_dir}/evaluation
+    rows: 256
+    seed: 8675309
+    generation_rows: 16
+    max_tokens: 128
+loggers:
+  file:
+    _target_: boonta.loggers.FileLogger
+    directory: ${hydra:runtime.output_dir}
+  orbax:
+    _target_: boonta.loggers.OrbaxLogger
+    directory: ${hydra:runtime.output_dir}/checkpoints
+    max_to_keep: 6
+    best: false
+    artifact_name: model
+
+  recovery:
+    _target_: boonta.loggers.OrbaxLogger
+    directory: ${hydra:runtime.output_dir}/recovery
+    max_to_keep: 1
+    best: false
+    artifact_name: recovery
+recovery_every_epochs: 4
+recovery_checkpoint:
+  _target_: boonta.artisans.Checkpointer
+  name: recovery
+  fields: [algorithm_state, dataset_state]

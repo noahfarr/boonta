@@ -1,0 +1,18 @@
+# @package _global_
+# Two disposable updates through the normal train.py loop, not the full pilot.
+defaults:
+  - /hyperparameters/recurrent_bc/agent_trove_pilot
+  - _self_
+num_steps: 16384
+num_epochs: 2
+algorithm:
+  batch_size: 1
+dataset:
+  kwargs:
+    num_devices: 1
+    pool_size: 1
+podracer:
+  config:
+    mesh:
+      count: 1
+checkpoint_fractions: null

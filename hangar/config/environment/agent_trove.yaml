@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - override /cell: qwen3
+  - override /stack: qwen3
+
+environment:
+  namespace: agent_trove
+  env_id: AgentTrove
+  num_envs: ${algorithm.batch_size}

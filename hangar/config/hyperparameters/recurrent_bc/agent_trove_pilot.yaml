@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - /hyperparameters/recurrent_bc/agent_trove_192m
+  - _self_
+num_steps: 268435456
+num_epochs: 128
+cell:
+  context_length: 8192
+network:
+  logit_chunk_size: 128
+dataset:
+  kwargs:
+    sampling: permutation
+    pool_size: 256
+    split_manifest: ???
+podracer:
+  config:
+    indexed_keys: true
+checkpoint_fractions: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]

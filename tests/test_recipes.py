@@ -121,10 +121,55 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def agent_trove_dataset(directory):
+    tokenizers = pytest.importorskip("tokenizers")
+    tokenizer = tokenizers.Tokenizer(tokenizers.models.WordLevel(
+        {"[UNK]": 0, "<|endoftext|>": 1, "<|im_start|>": 2, "<|im_end|>": 3},
+        unk_token="[UNK]",
+    ))
+    tokenizer.add_special_tokens(["<|endoftext|>", "<|im_start|>", "<|im_end|>"])
+    path = directory / "tokenizer.json"
+    tokenizer.save(str(path))
+    return [
+        f"dataset.kwargs.tokenizer_id={path}",
+        '++dataset.kwargs.rows=[{messages:[{role:user,content:hello},{role:assistant,content:world}]}]',
+        "dataset.kwargs.length=16", "dataset.kwargs.pool_size=4",
+        "algorithm.batch_size=4", "network.vocab_size=4",
+        "cell.features=16", "num_layers=1",
+        "cell.num_heads=2", "cell.num_groups=1", "cell.head_dim=8",
+        "stack.hidden_dim=32", "cell.context_length=16", "network.dtype=float32",
+    ]
+
+
+def terminal_checkpoint(directory):
+    from flax import serialization
+    import jax.numpy as jnp
+    from hangar.recipes.recurrent_bc_agent_trove import make_network
+    base = agent_trove_dataset(directory)
+    tokenizer_path = directory / "tokenizer.json"
+    overrides = [
+        f"environment.kwargs.tokenizer_id={tokenizer_path}", "environment.num_envs=2",
+        "environment.kwargs.max_tokens=4", "environment.kwargs.horizon=2",
+        "algorithm.group_size=2", "algorithm.num_minibatches=1", "algorithm.update_epochs=1",
+        "cell.features=8", "cell.num_heads=2", "cell.num_groups=1", "cell.head_dim=4",
+        "cell.context_length=128", "num_layers=1", "stack.hidden_dim=16",
+        "network.vocab_size=4", "network.dtype=float32", "network.logit_chunk_size=16",
+    ]
+    cfg = configure("recurrent_grpo", "terminal_tools", *overrides)
+    x = jnp.ones((1, 1), jnp.int32)
+    params = make_network(cfg).init(jax.random.key(0), x, x, jnp.zeros((1, 1)),
+                                    jnp.ones((1, 1), bool), carry=None, temperature=1.0)
+    path = directory / "pretraining.msgpack"
+    path.write_bytes(serialization.to_bytes({"params": params, "step": 0}))
+    return [*overrides, f"pretraining_checkpoint={path}"]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
 CASES = [
+    ("recurrent_grpo", "terminal_tools", None, terminal_checkpoint),
+    ("recurrent_bc", "agent_trove", None, agent_trove_dataset),
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
@@ -211,6 +256,53 @@ def test_every_recipe_has_a_smoke_case():
     assert covered >= set(recipes.register.values())
 
 
+@pytest.mark.parametrize("preset,layers,width,head_dim,context", [
+    ("agent_trove", 12, 768, 64, 4096), ("agent_trove_0_6b", 28, 1024, 128, 4096),
+    ("agent_trove_192m", 12, 512, 64, 16384),
+])
+def test_agent_trove_presets(preset, layers, width, head_dim, context):
+    cfg = configure("recurrent_bc", "agent_trove", f"hyperparameters=recurrent_bc/{preset}")
+    assert cfg.num_layers == layers
+    assert cfg.cell.features == width
+    assert cfg.cell.head_dim == head_dim
+    assert cfg.stack.num_layers == layers
+    assert cfg.stack.features == width
+    assert cfg.cell.positional_embedding._target_ == "boonta.networks.QueryKeyNorm"
+    assert cfg.podracer.config.batch_shape == [jax.device_count(), context]
+    assert cfg.dataset.namespace == "agent_trove"
+    assert cfg.score == "actor/log_likelihood"
+
+
+def test_qwen3_cell_and_stack_match_the_architecture():
+    import jax.numpy as jnp
+    from boonta.networks import Qwen3
+
+    cfg = configure(
+        "recurrent_bc", "agent_trove", "cell.features=16", "cell.num_heads=2",
+        "cell.num_groups=1", "cell.head_dim=8", "cell.context_length=8",
+        "num_layers=2", "stack.hidden_dim=32", "network.dtype=float32",
+    )
+    composed = instantiate(cfg.stack)
+    reference = Qwen3(
+        features=16, num_layers=2, num_heads=2, num_groups=1, head_dim=8,
+        context_length=8, hidden_dim=32, max_wavelength=1_000_000.0,
+        dtype=jnp.float32,
+    )
+    key = jax.random.key(0)
+    x = jnp.ones((1, 4, 16))
+    done = jnp.zeros((1, 4), bool).at[:, 0].set(True)
+    parameters = [model.init(key, None, x, done)["params"] for model in (composed, reference)]
+    # Both configurations must own the same weights, including Q/K norms,
+    # independent layer parameters, gated FFNs, and the final normalization.
+    signatures = [sorted((leaf.shape, str(leaf.dtype)) for leaf in jax.tree.leaves(p))
+                  for p in parameters]
+    assert signatures[0] == signatures[1]
+    for model, params in zip((composed, reference), parameters):
+        _, output = model.apply({"params": params}, None, x, done)
+        assert output.shape == x.shape
+        assert np.isfinite(output).all()
+
+
 APPLICATION = {"hangar", "hydra", "hydra_plugins", "omegaconf"}
 LIBRARY = sorted((ROOT / "boonta").rglob("*.py"))
 
@@ -290,6 +382,11 @@ def test_every_recipe_builds_and_runs_one_update(
 
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 1)
+    if environment == "agent_trove":
+        assert "actor/likelihood" in logs
+        assert np.isfinite(np.asarray(logs["actor/likelihood"])).all()
+        np.testing.assert_allclose(logs["actor/log_likelihood"], -logs["actor/likelihood"])
+        assert int(state.algorithm_state.step) == cfg.algorithm.batch_size * cfg.dataset.kwargs.length
     for name, values in logs.items():
         values = np.asarray(values, dtype=np.float64)
         assert not np.isinf(values).any(), name
@@ -457,3 +554,35 @@ def test_kinetix_evaluates_on_the_levels_the_dataset_reserved(tmp_path):
 
     state, _ = podracer.evaluate(state, jax.random.key(2), 4)
     podracer.close(state)
+
+
+def test_agent_trove_192m_factory_parameter_budget(monkeypatch):
+    import jax.numpy as jnp
+    from hangar.recipes import recurrent_bc_agent_trove as recipe
+    cfg = configure('recurrent_bc', 'agent_trove', 'hyperparameters=recurrent_bc/agent_trove_192m', 'scoring=final')
+    assert cfg.scoring._target_ == 'operator.itemgetter'
+    cfg.num_steps = 2**28  # Shape-only budget test does not execute a main run.
+    fixture = SimpleNamespace(tokenizer=SimpleNamespace(get_vocab_size=lambda: 151669), length=16384, pad_id=0)
+    monkeypatch.setattr(recipe.datasets, 'make', lambda **kwargs: fixture)
+    network = recipe.make(cfg)['algorithm'].network
+    shapes = jax.eval_shape(lambda key: network.init(
+        key, jnp.zeros((1, 1), jnp.int32), jnp.zeros((1, 1), jnp.int32),
+        jnp.zeros((1, 1)), jnp.ones((1, 1), bool), carry=None, temperature=1.0,
+    ), jax.random.key(0))
+    assert sum(p.size for p in jax.tree.leaves(shapes['params'])) == 191_772_672
+
+
+def test_agent_trove_192m_objectives_change_only_the_loss_mask():
+    from omegaconf import OmegaConf
+    common = ['hyperparameters=recurrent_bc/agent_trove_192m', 'scoring=final',
+              'dataset.kwargs.cache_dir=/fixture/cache', 'dataset.kwargs.tokenizer_id=/fixture/tokenizer.json']
+    configurations = []
+    for value in ('true', 'false'):
+        cfg = configure('recurrent_bc', 'agent_trove', *common, f'dataset.kwargs.assistant_only={value}')
+        HydraConfig.instance().set_config(cfg)
+        config = OmegaConf.to_container(cfg, resolve=False)
+        config.pop('hydra')
+        config = OmegaConf.to_container(OmegaConf.create(config), resolve=True)
+        assert config['dataset']['kwargs'].pop('assistant_only') == (value == 'true')
+        configurations.append(config)
+    assert configurations[0] == configurations[1]

@@ -49,15 +49,22 @@ A recurrent model is built from three config groups in [`hangar/config/`](../../
 
 | Group | Is | Choices |
 | --- | --- | --- |
-| `cell` | one recurrent step | `gru`, `min_gru`, `rtu`, `self_attention` |
+| `cell` | one recurrent step | `gru`, `min_gru`, `rtu`, `self_attention`, `qwen3` |
 | `torso` | runs a cell over a sequence | set by the cell: `rnn`, `ssm`, or `default` (the cell itself) |
-| `stack` | layers of torsos | `default` (one layer), `highway`, `llama`, `repeat` |
+| `stack` | layers of torsos | `default` (one layer), `highway`, `llama`, `qwen3`, `repeat` |
 
 Each cell file picks its torso. `gru` and `rtu` run in an [`RNN`](blocks/rnn.py), a sequential scan. `min_gru` runs in an [`SSM`](blocks/ssm.py), a parallel scan. `self_attention` is its own torso. For example:
 
 ```bash
 uv run boonta algorithm=recurrent_ppo cell=min_gru stack=highway num_layers=2
 ```
+
+`cell=qwen3` is causal grouped-query self-attention with Q/K RMSNorm and RoPE.
+`stack=qwen3` instantiates the native `Qwen3` architecture, including residual
+RMSNorm/SwiGLU layers and a final RMSNorm. Set attention dimensions in `cell`, FFN width in
+`stack.hidden_dim`, and depth in `num_layers`. The AgentTrove recurrent BC
+hyperparameters include a 191.8M preset selected after full-corpus accounting; `network` holds vocabulary
+and compute dtype.
 
 Every torso and stack is a [`Block`](blocks/block.py): `__call__(carry, x, done)` returns `(carry, x)`, and `initialize_carry(key, input_shape)` returns a blank carry. Where `done` is set the block starts again from the blank carry, so episodes never leak into each other.
 

@@ -1,7 +1,8 @@
-from . import kinetix, minari
+from . import agent_trove, kinetix, minari
 from .dataset import Dataset, DatasetState
 
 registry = {
+    "agent_trove": agent_trove.AgentTrove,
     "kinetix": kinetix.make,
     "minari": minari.Minari,
 }
@@ -15,6 +16,7 @@ def make(namespace, dataset_id, **kwargs):
 __all__ = [
     "Dataset",
     "DatasetState",
+    "agent_trove",
     "kinetix",
     "make",
     "minari",

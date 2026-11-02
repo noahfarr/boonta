@@ -43,12 +43,14 @@ def register_targets(lib, targets):
             jax.ffi.register_ffi_target(target, capsule(handler()), platform=platform)
 
 
+from . import terminal_tools
 from . import (ale, bluffjax, brax, craftax, dune_sea, gymnasium, gymnax,
                isaaclab, isaaclab_arena, jaxmarl, jaxtari, jaxued, jumanji, kinetix,
                libero, mapox, mujoco_playground, peanut_gb, pynes,
                xland_minigrid)
 
 registry = {
+    "terminal_tools": terminal_tools.make,
     "ale": ale.make,
     "bluffjax": bluffjax.make,
     "brax": brax.make,

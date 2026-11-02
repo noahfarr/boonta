@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - override /torso: default
+
+cell:
+  _target_: boonta.networks.SelfAttention
+  features: 768
+  num_heads: 12
+  num_groups: 4
+  head_dim: 64
+  context_length: 4096
+  use_bias: false
+  dtype: ${oc.select:network.dtype,null}
+  attention_mask:
+    _target_: boonta.networks.causal_attention_mask
+    _partial_: true
+  positional_embedding:
+    _target_: boonta.networks.QueryKeyNorm
+    dtype: ${oc.select:network.dtype,null}
+    positional_embedding:
+      _target_: boonta.networks.rotary_positional_embedding
+      _partial_: true
+      max_wavelength: 1000000.0

@@ -1,0 +1,38 @@
+# @package _global_
+# 191,772,672 parameters. Selected after full-corpus accounting.
+# 2^20 trajectory draws at 16K, with replacement; not an exhaustive epoch.
+# Use the common CLI override scoring=final for matched-step comparisons.
+
+defaults:
+  - /hyperparameters/recurrent_bc/agent_trove
+  - _self_
+
+seed: 42
+num_steps: 17_179_869_184
+num_epochs: 4096
+
+cell:
+  features: 512
+  num_heads: 8
+  num_groups: 2
+  head_dim: 64
+  context_length: 16384
+
+stack:
+  hidden_dim: 1536
+
+dataset:
+  kwargs:
+    sampling: permutation
+    pool_size: 256
+    split_manifest: ???
+    cache_dir: ???
+    tokenizer_id: ???
+    revision: b395a4307a2bc9950a90dc899438f149e115fc60
+
+network:
+  logit_chunk_size: 128
+podracer:
+  config:
+    indexed_keys: true
+checkpoint_fractions: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]

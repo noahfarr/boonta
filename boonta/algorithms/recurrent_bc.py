@@ -91,12 +91,17 @@ class RecurrentBC:
                 temperature=1.0,
                 mutable=True,
             )
-            log_prob = dist.log_prob(transitions.second.action)
+            if hasattr(dist, "statistics"):
+                log_prob, entropies = dist.statistics(transitions.second.action)
+            else:
+                log_prob, entropies = dist.log_prob(transitions.second.action), dist.entropy()
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
             weight = weight.astype(log_prob.dtype)
+            # Normalize over supervised positions, not the padded batch size.
+            # A binary action mask changes the denominator as well as the NLL.
             total = jnp.maximum(jnp.sum(weight), 1.0)
             likelihood = -jnp.sum(log_prob * weight) / total
-            entropy = jnp.sum(dist.entropy() * weight) / total
+            entropy = jnp.sum(entropies * weight) / total
             loss = likelihood - self.cfg.entropy_coefficient * entropy
 
             def apply(params: PyTree) -> PyTree:
@@ -129,9 +134,17 @@ class RecurrentBC:
             {
                 "actor/loss": loss,
                 "actor/likelihood": likelihood,
+                "actor/log_likelihood": -likelihood,
                 "actor/entropy": entropy,
             }
         )
+
+        if (transitions.aux or {}).get("valid") is not None:
+            supervised = jnp.sum(transitions.aux["weight"])
+            lox.log({"actor/supervised_targets": supervised,
+                     "actor/valid_targets": jnp.sum(transitions.aux["valid"]),
+                     "actor/assistant_targets": jnp.sum(transitions.aux["assistant_weight"]),
+                     "actor/nll_sum": likelihood * supervised})
 
         updates, optimizer_state = self.optimizer.update(
             grads["params"], state.optimizer_state, state.params["params"]

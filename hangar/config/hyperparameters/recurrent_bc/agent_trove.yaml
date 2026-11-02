@@ -1,0 +1,37 @@
+# @package _global_
+
+defaults:
+  - /dataset: agent_trove
+
+num_layers: 12
+
+cell:
+  features: 768
+  num_heads: 12
+  num_groups: 4
+  head_dim: 64
+  context_length: 4096
+
+stack:
+  hidden_dim: 2048
+
+network:
+  vocab_size: 151936
+  dtype: bfloat16
+
+num_steps: 100_000_000
+score: actor/log_likelihood
+algorithm:
+  batch_size: ${device_count:}
+
+optimizer:
+  lr: 3e-4
+  max_grad_norm: 1.0
+  weight_decay: 0.1
+  anneal: true
+
+podracer:
+  config:
+    batch_shape:
+      - ${algorithm.batch_size}
+      - ${dataset.kwargs.length}

@@ -1,0 +1,15 @@
+# @package _global_
+
+num_layers: 12
+
+stack:
+  _target_: boonta.networks.Qwen3
+  num_layers: ${num_layers}
+  features: ${cell.features}
+  num_heads: ${cell.num_heads}
+  num_groups: ${cell.num_groups}
+  head_dim: ${cell.head_dim}
+  context_length: ${cell.context_length}
+  max_wavelength: 1000000.0
+  hidden_dim: 2048
+  dtype: ${oc.select:network.dtype,null}

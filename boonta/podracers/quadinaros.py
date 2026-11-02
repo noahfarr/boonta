@@ -20,6 +20,7 @@ from .podracer import Lap, Pit
 class QuadinarosConfig:
     batch_shape: tuple[int, ...]
     mesh: Mesh = struct.field(pytree_node=False)
+    indexed_keys: bool = False
 
 
 @struct.dataclass(frozen=True)
@@ -49,9 +50,15 @@ class Quadinaros:
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
-        batch = self.dataset.sample(
-            state.dataset_state, sample_key, self.config.batch_shape
-        )
+        if hasattr(self.dataset, "sample_at"):
+            batch = self.dataset.sample_at(
+                state.dataset_state, sample_key, self.config.batch_shape,
+                state.algorithm_state.step,
+            )
+        else:
+            batch = self.dataset.sample(
+                state.dataset_state, sample_key, self.config.batch_shape
+            )
         batch = jax.lax.with_sharding_constraint(
             batch, NamedSharding(self.config.mesh, P("data"))
         )
@@ -112,7 +119,11 @@ class Quadinaros:
         return math.prod(self.config.batch_shape)
 
     def fit(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
-        keys = jax.random.split(key, num_updates)
+        if self.config.indexed_keys:
+            indices = state.algorithm_state.step // self.batch_size + jax.numpy.arange(num_updates)
+            keys = jax.vmap(lambda i: jax.random.fold_in(key, i))(indices)
+        else:
+            keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(self.step, state, keys)
         return state
 
