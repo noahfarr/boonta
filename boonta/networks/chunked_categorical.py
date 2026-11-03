@@ -2,7 +2,7 @@
 
 Only the computation changes: no extra parameters, tying, or prediction heads.
 The projection is rematerialized per tile during backward to bound V-sized
-activation memory. Sampling is intended for a single next-token position.
+activation memory.
 """
 import flax.linen as nn
 from flax import struct
@@ -52,43 +52,14 @@ class ChunkedDistribution:
     def entropy(self):
         return self.statistics()[1]
 
-    def at(self, positions):
-        """Select per-row prefix endpoints before projecting the vocabulary."""
-        features = self.features[jnp.arange(self.features.shape[0]), positions]
-        return self.replace(features=features)
-
-    @property
-    def logits(self):
-        if self.features.size // self.features.shape[-1] > self.chunk_size:
-            raise ValueError("Select a next-token position before materializing logits")
-        return self.project(self.features)
-
     def sample(self, seed):
-        logits = self.logits
+        # RecurrentBC.step uses one position; training uses tiled statistics.
+        if self.features.size // self.features.shape[-1] > self.chunk_size:
+            raise ValueError("Sampling requires a small number of token positions")
+        logits = self.project(self.features)
         return jnp.where(self.temperature > 0, jax.random.categorical(seed, logits),
                          jnp.argmax(logits, axis=-1)).astype(jnp.int32)
 
-    def sample_and_log_prob(self, seed):
-        action = self.sample(seed)
-        logp = jax.nn.log_softmax(self.logits, axis=-1)
-        return action, jnp.take_along_axis(logp, action[..., None], -1)[..., 0]
-
-    def kl_divergence(self, other):
-        if self.features.shape != other.features.shape:
-            raise ValueError("KL requires identical history positions")
-        shape = self.features.shape[:-1]
-        x = self.features.reshape(-1, self.features.shape[-1])
-        y = other.features.reshape(x.shape)
-        size = len(x)
-        padding = (-size) % self.chunk_size
-        tiles = lambda z: jnp.pad(z, ((0, padding), (0, 0))).reshape(-1, self.chunk_size, z.shape[-1])
-        def tile(_, inputs):
-            a, b = inputs
-            p = jax.nn.log_softmax(self.project(a), -1)
-            q = jax.nn.log_softmax(other.project(b), -1)
-            return None, (jnp.exp(p) * (p-q)).sum(-1)
-        _, kl = jax.lax.scan(jax.checkpoint(tile), None, (tiles(x), tiles(y)))
-        return kl.reshape(-1)[:size].reshape(shape)
 
 
 class ChunkedCategorical(nn.Module):

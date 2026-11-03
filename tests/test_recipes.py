@@ -137,38 +137,16 @@ def agent_trove_dataset(directory):
         "algorithm.batch_size=4", "network.vocab_size=4",
         "cell.features=16", "num_layers=1",
         "cell.num_heads=2", "cell.num_groups=1", "cell.head_dim=8",
-        "stack.hidden_dim=32", "cell.context_length=16", "network.dtype=float32",
+        "stack.hidden_dim=32", "cell.context_length=16", "network.dtype=float32", "++network.logit_chunk_size=4",
     ]
 
 
-def terminal_checkpoint(directory):
-    from flax import serialization
-    import jax.numpy as jnp
-    from hangar.recipes.recurrent_bc_agent_trove import make_network
-    base = agent_trove_dataset(directory)
-    tokenizer_path = directory / "tokenizer.json"
-    overrides = [
-        f"environment.kwargs.tokenizer_id={tokenizer_path}", "environment.num_envs=2",
-        "environment.kwargs.max_tokens=4", "environment.kwargs.horizon=2",
-        "algorithm.group_size=2", "algorithm.num_minibatches=1", "algorithm.update_epochs=1",
-        "cell.features=8", "cell.num_heads=2", "cell.num_groups=1", "cell.head_dim=4",
-        "cell.context_length=128", "num_layers=1", "stack.hidden_dim=16",
-        "network.vocab_size=4", "network.dtype=float32", "network.logit_chunk_size=16",
-    ]
-    cfg = configure("recurrent_grpo", "terminal_tools", *overrides)
-    x = jnp.ones((1, 1), jnp.int32)
-    params = make_network(cfg).init(jax.random.key(0), x, x, jnp.zeros((1, 1)),
-                                    jnp.ones((1, 1), bool), carry=None, temperature=1.0)
-    path = directory / "pretraining.msgpack"
-    path.write_bytes(serialization.to_bytes({"params": params, "step": 0}))
-    return [*overrides, f"pretraining_checkpoint={path}"]
 
 
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
 CASES = [
-    ("recurrent_grpo", "terminal_tools", None, terminal_checkpoint),
     ("recurrent_bc", "agent_trove", None, agent_trove_dataset),
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),

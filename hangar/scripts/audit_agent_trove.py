@@ -21,7 +21,6 @@ import numpy as np
 from tokenizers import Tokenizer
 
 from boonta.datasets.agent_trove import tokenize
-from boonta.datasets.agent_trove_actions import commands, command_fields
 
 
 ALIASES = {"human": "user", "gpt": "assistant", "observation": "tool"}
@@ -33,6 +32,23 @@ OUTPUT = re.compile(
 ERROR = re.compile(r"(?:traceback \(most recent call last\)|command not found|permission denied|timed out)", re.I)
 OUTPUT_START = re.compile(r"^\s*(?:new terminal output:|current terminal state:|current terminal screen:|previous response had (?:warnings|parsing errors):)", re.I)
 DECODER = json.JSONDecoder()
+
+
+def command_fields(content):
+    thoughts = [(m.start(),m.end()) for m in re.finditer(r'<think>.*?</think>',content,re.S)]
+    return [m for m in re.finditer(r'"commands"\s*:\s*',content)
+            if not any(a <= m.start() < b for a,b in thoughts)]
+
+def commands(content):
+    spans = []
+    for match in command_fields(content)[-1:]:
+        try:
+            value, end = DECODER.raw_decode(content, match.end())
+            if isinstance(value,list):
+                spans.append((match.end(),end,value))
+        except ValueError:
+            pass
+    return spans[-1:]
 
 
 def fetch(endpoint, params, path):

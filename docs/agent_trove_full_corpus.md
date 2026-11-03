@@ -76,11 +76,11 @@ Empty rows: 128,435. The `exp_rle` and `exp_rpt` cohorts contain no supported em
 
 ## Recommendation and compute estimates
 
-Use the native **191,772,672-parameter Qwen3** preset, 12 layers, width 512, FFN 1,536, 8 query heads / 2 KV groups, head dimension 64, vocabulary 151,936. Start the planned comparison at **16K**, subject to a target-GPU memory check; use 8K for a separate memory-constrained pilot. The 16K train split has **1,180,895 trajectories, 3,670,910,974 BLM targets, and 8,493,991,202 CLM targets**.
+Use the native **191,772,672-parameter Qwen3** preset, 12 layers, width 512, FFN 1,536, 8 query heads / 2 KV groups, head dimension 64, vocabulary 151,936. Start the planned comparison at **16K**, subject to a target-GPU memory check; use 8K for a separate memory-constrained pilot. The original conversation-hash 16K train split has **1,180,895 trajectories, 3,670,910,974 BLM targets, and 8,493,991,202 CLM targets**. These historical split counts differ from the later grouped overlay (1,182,693 train trajectories, 3,676,006,457 BLM targets, 8,500,636,866 CLM targets). Corpus-wide counts above are unaffected.
 
 This remains a length-selected population: at 16K only 188/4,077 SWEGym and 33,292/78,246 swesmith records survive; even 32K retains just 1,841/4,077 SWEGym records.
 
-The preset specifies 2^34 allocated positions (2^20 trajectory draws), 4,096 pool refreshes, pool size 1,024, one sequence per device, seed 42, and the inherited AdamW/cosine schedule (LR 3e-4, weight decay 0.1, clip 1.0, entropy coefficient zero). It requires explicit cache and tokenizer paths. Use `scoring=final` for both runs and compare matched-step checkpoints. Toggle only `dataset.kwargs.assistant_only` for the paired objectives.
+The preset specifies 2^34 allocated positions (2^20 trajectory draws), 4,096 pool refreshes, pool size 256, one sequence per device, seed 42, and the inherited AdamW/cosine schedule (LR 3e-4, weight decay 0.1, clip 1.0, entropy coefficient zero). It requires explicit cache and tokenizer paths. Use `scoring=final` for both runs and compare matched-step checkpoints. Toggle only `dataset.kwargs.assistant_only` for the paired objectives.
 
 Expected supervised targets under this sampling budget are 3.260B BLM and 7.542B CLM; these are sampling expectations, not additional corpus measurements.
 
@@ -91,7 +91,7 @@ Expected supervised targets under this sampling budget are 3.260B BLM and 7.542B
 | 16384 | 2.226e+19 | 4.674e+19 | 6.900e+19 |
 | 32768 | 5.695e+19 | 2.391e+20 | 2.961e+20 |
 
-Estimates use 6NT for dense work and 24 × 12 × 512 × context × allocated positions for attention with the existing doubled key axis and a 3× forward-to-training factor. They omit additional rematerialization, optimizer, and communication overhead and are not measured GPU throughput. One pass means the hypothetical sum over every retained record; current training samples pools with replacement.
+Estimates use 6NT for dense work and 24 × 12 × 512 × context × allocated positions for attention with the existing doubled key axis and a 3× forward-to-training factor. They omit additional rematerialization, optimizer, and communication overhead and are not measured GPU throughput. One pass means the hypothetical sum over every retained record; the paired presets now sample a deterministic permutation without replacement.
 
 The conventional dense-CLM 20-token-per-parameter planning heuristic would suggest about 3.84B tokens for this model; it does not establish a scaling law or an optimal size for action-masked behavioral cloning. See [Hoffmann et al.](https://arxiv.org/pdf/2203.15556).
 
@@ -99,7 +99,7 @@ The conventional dense-CLM 20-token-per-parameter planning heuristic would sugge
 
 Full-cache verification passed for all 1,696,847 rows, the entire stored BLM mask, split assignments, and paired CLM/BLM JIT sampling on four logical CPU devices at every context in both splits. No pretraining was launched.
 
-The current categorical head casts vocabulary logits to float32 (18.55 GiB logical logits per sequence at 32K); attention also includes a full invalid initial KV cache and an explicit mask. GPU memory and multi-host execution remain unverified. No packing was introduced. Length buckets could reduce padding, but need a scheduler compatible with Quadinaros' fixed compiled shapes. Held-out likelihood evaluation still needs wiring before reporting model comparisons.
+An unchunked categorical head casts vocabulary logits to float32 (18.55 GiB logical logits per sequence at 32K). The paired presets tile the vocabulary projection over positions to bound those intermediates; attention also includes a full invalid initial KV cache and an explicit mask. GPU memory and multi-host execution remain unverified. No packing was introduced. Length buckets could reduce padding, but need a scheduler compatible with Quadinaros' fixed compiled shapes. Held-out likelihood evaluation still needs wiring before reporting model comparisons.
 
 Outcomes are explicit source labels, not independently verified task results. Only 218,706 rows have non-null `result`; recognized infrastructure labels are Daytona errors. Other unclassified exceptions remain unknown with their raw types preserved. Missing metadata never means failure. Recorded assistant-role provenance and task-disjoint validation are not certified.
 

@@ -14,11 +14,9 @@ class Checkpointer:
         self,
         score: Callable | None = None,
         fields: Sequence[str] = ("algorithm_state",),
-        name: str = "model",
     ):
         self.score = score or operator.itemgetter("episode_statistics/episode_return")
         self.fields = tuple(fields)
-        self.name = name
 
     def craft(self, key, algorithm, environment, state, logs) -> Checkpoint:
         parts = {

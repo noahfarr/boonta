@@ -183,9 +183,6 @@ class RecurrentGRPO:
         advantages, episode_mask = self.advantage_estimator(
             transitions, self.cfg.gamma, self.cfg.group_size
         )
-        returns = jnp.sum(transitions.second.reward * episode_mask *
-                          self.cfg.gamma ** jnp.arange(num_steps)[:, None], axis=0)
-        lox.log({"actor/group_return_std": returns.reshape(-1, self.cfg.group_size).std(axis=-1).mean()})
         trajectory = transitions.replace(
             aux={
                 **transitions.aux,

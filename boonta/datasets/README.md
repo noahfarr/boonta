@@ -102,7 +102,8 @@ This uses ChatML directly rather than an instruction model's thinking-mode chat 
 
 `dataset.kwargs.pool_size=1024` bounds the number of tokenized windows held in
 memory; it must be divisible by the device count. Each training epoch refreshes
-the pool on the host; updates sample windows uniformly with replacement.
+the pool on the host. Legacy updates sample uniformly with replacement; the
+192M/pilot presets instead consume deterministic permutation pools once each.
 With `cache_dir`, metadata is indexed once on the host; seeded pool refresh
 samples eligible index entries uniformly before reading selected token spans. The raw stream uses a bounded shuffle and its first pool
 is not a uniform sample of a source-ordered full corpus. This is sampled-pool training, not a full pass over the split.
@@ -142,7 +143,9 @@ offline podracer. The run score uses `actor/log_likelihood` (higher is better),
 the negative of that loss. The recipe does not support interactive evaluation
 or held-out metrics.
 Model and optimizer checkpoints use the usual checkpoint artisan; the current
-pool is included in dataset state and the next pool is derived from the epoch key.
+pool and permutation cursor are included in dataset state. The paired presets
+use a seeded permutation without replacement; the legacy replacement mode
+remains available. Resume uses ordinary epoch-boundary checkpoints.
 
 ## Add a dataset
 

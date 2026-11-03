@@ -15,4 +15,3 @@ podracer:
   config:
     mesh:
       count: 1
-checkpoint_fractions: null

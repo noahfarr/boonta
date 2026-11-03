@@ -1,6 +1,6 @@
 # @package _global_
 # 191,772,672 parameters. Selected after full-corpus accounting.
-# 2^20 trajectory draws at 16K, with replacement; not an exhaustive epoch.
+# 2^20 trajectory draws at 16K, without replacement; not an exhaustive epoch.
 # Use the common CLI override scoring=final for matched-step comparisons.
 
 defaults:
@@ -32,7 +32,3 @@ dataset:
 
 network:
   logit_chunk_size: 128
-podracer:
-  config:
-    indexed_keys: true
-checkpoint_fractions: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]

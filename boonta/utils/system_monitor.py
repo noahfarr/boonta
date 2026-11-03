@@ -42,7 +42,6 @@ class SystemMonitor:
             "cpu/utilization": self.psutil.cpu_percent() / 100,
             "cpu/memory_consumption": self.psutil.virtual_memory().used / 2**30,
             "gpu/memory_consumption": memory_stats.get("bytes_in_use", 0) / 2**30,
-            "gpu/peak_memory_consumption": memory_stats.get("peak_bytes_in_use", np.nan) / 2**30,
         }
         if self.gpu is not None:
             data["gpu/utilization"] = (

@@ -31,7 +31,6 @@ from . import (
     recurrent_bc_agent_trove,
     recurrent_dqn_minatar,
     recurrent_grpo_wordle,
-    recurrent_grpo_terminal_tools,
     recurrent_ppo_classic_control,
     recurrent_ppo_jaxued,
     recurrent_ppo_minatar,
@@ -49,7 +48,6 @@ from . import (
 )
 
 register = {
-    ("recurrent_grpo", "terminal_tools", "terminal_tools"): recurrent_grpo_terminal_tools.make,
     ("bc", "brax", "mujoco"): bc_mujoco.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,

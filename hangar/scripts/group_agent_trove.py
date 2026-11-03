@@ -10,11 +10,24 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import unicodedata
 
 import numpy as np
 from tokenizers import Tokenizer
 
-from boonta.datasets.agent_trove_layout import prompt_key, task_key
+def prompt_key(text):
+    canonical = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', text)).strip().casefold()
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+def task_key(source, value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = re.sub(r'(?:_copy\d+)+$', '', value.strip())
+    # Generic IDs are source-local; named source task IDs also link "unknown"
+    # source rows to their named cohort.
+    if re.fullmatch(r'(?:task|problem|instance)[_-]?\d+', value, re.I):
+        value = source.casefold() + ':' + value
+    return value
 
 
 def initial_prompt(tokens, assistant, tokenizer, headers, end_id, newline):

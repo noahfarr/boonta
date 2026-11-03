@@ -22,10 +22,8 @@ class OrbaxLogger:
         best_mode: str = "max",
         interval: int = 1,
         best: bool = True,
-        artifact_name: str | None = None,
         **kwargs,
     ):
-        self.artifact_name = artifact_name
         logging.getLogger("absl").setLevel(logging.WARNING)
         self.latest = ocp.CheckpointManager(
             os.path.join(directory, "latest"),
@@ -63,7 +61,7 @@ class OrbaxLogger:
         )
 
     def log_artifact(self, artifact, step: int, **kwargs) -> None:
-        if not isinstance(artifact, Checkpoint) or (self.artifact_name is not None and artifact.name != self.artifact_name):
+        if not isinstance(artifact, Checkpoint):
             return
         self.latest.save(step, args=self.bundle(artifact))
         if self.best is not None:

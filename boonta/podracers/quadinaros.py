@@ -20,7 +20,6 @@ from .podracer import Lap, Pit
 class QuadinarosConfig:
     batch_shape: tuple[int, ...]
     mesh: Mesh = struct.field(pytree_node=False)
-    indexed_keys: bool = False
 
 
 @struct.dataclass(frozen=True)
@@ -119,11 +118,7 @@ class Quadinaros:
         return math.prod(self.config.batch_shape)
 
     def fit(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
-        if self.config.indexed_keys:
-            indices = state.algorithm_state.step // self.batch_size + jax.numpy.arange(num_updates)
-            keys = jax.vmap(lambda i: jax.random.fold_in(key, i))(indices)
-        else:
-            keys = jax.random.split(key, num_updates)
+        keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(self.step, state, keys)
         return state
 
