@@ -56,9 +56,9 @@ class BC:
                 temperature=1.0,
                 mutable=True,
             )
-            likelihood = -jnp.mean(dist.log_prob(transitions.second.action))
+            nll = -jnp.mean(dist.log_prob(transitions.second.action))
             entropy = jnp.mean(dist.entropy())
-            loss = likelihood - self.cfg.entropy_coefficient * entropy
+            loss = nll - self.cfg.entropy_coefficient * entropy
 
             def apply(params: PyTree) -> PyTree:
                 return self.network.apply(
@@ -73,16 +73,16 @@ class BC:
                     dist=dist,
                     variables=variables,
                 )
-            return loss, (variables, likelihood, entropy)
+            return loss, (variables, nll, entropy)
 
-        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+        (loss, (variables, nll, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
             {
-                "actor/loss": loss,
-                "actor/likelihood": likelihood,
-                "actor/entropy": entropy,
+                "network/loss": loss,
+                "network/nll": nll,
+                "network/entropy": entropy,
             }
         )
 

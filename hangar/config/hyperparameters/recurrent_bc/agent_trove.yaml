@@ -20,7 +20,7 @@ network:
   dtype: bfloat16
 
 num_steps: 100_000_000
-score: actor/log_likelihood
+score: network/nll
 algorithm:
   batch_size: ${device_count:}
 

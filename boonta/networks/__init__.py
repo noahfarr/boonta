@@ -1,5 +1,5 @@
 from .actor_critic import ActorCritic
-from .architectures import (PI0, Expert, Gemma, GemmaLayer, PI0Layer, Qwen3,
+from .architectures import (GPT2, PI0, Expert, Gemma, GemmaLayer, GPT2Layer, PI0Layer, Qwen3,
                             ViT, ViTLayer)
 from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Block, Chunked,
                      Highway, Identity, LearnedPositionalEmbedding, LoRA,
@@ -34,6 +34,8 @@ __all__ = [
     "Expert",
     "FeatureExtractor",
     "Gaussian",
+    "GPT2",
+    "GPT2Layer",
     "Gemma",
     "GemmaLayer",
     "Identity",

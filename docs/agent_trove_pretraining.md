@@ -76,8 +76,7 @@ selects BLM; only this loss-mask flag changes between paired runs.
 
 RecurrentBC already supported weighted likelihood. Its normalization remains
 `sum(weight * NLL) / max(sum(weight), 1)`: CLM averages valid targets, BLM averages
-assistant targets. The limited algorithm additions provide
-a negative-loss score and target-count/NLL-total diagnostics. There is no new
+assistant targets. Target counts are logged by the dataset. There is no new
 algorithm, objective, or head parameterization.
 
 The paired presets use a seeded global permutation without replacement. Each

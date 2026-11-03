@@ -143,11 +143,23 @@ def agent_trove_dataset(directory):
 
 
 
+def fineweb_dataset(directory):
+    path = directory / "train.bin"
+    (np.arange(256, dtype="<u2") % 32).tofile(path)
+    return [
+        f"dataset.dataset_id={path}", "dataset.kwargs.pool_size=4",
+        "dataset.kwargs.length=16", "algorithm.batch_size=4", "network.vocab_size=32",
+        "cell.features=16", "num_layers=1", "cell.num_heads=2", "cell.context_length=16",
+        "network.dtype=float32", "optimizer.warmup_updates=1",
+    ]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
 CASES = [
     ("recurrent_bc", "agent_trove", None, agent_trove_dataset),
+    ("recurrent_bc", "fineweb", None, fineweb_dataset),
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
@@ -248,7 +260,7 @@ def test_agent_trove_presets(preset, layers, width, head_dim, context):
     assert cfg.cell.positional_embedding._target_ == "boonta.networks.QueryKeyNorm"
     assert cfg.podracer.config.batch_shape == [jax.device_count(), context]
     assert cfg.dataset.namespace == "agent_trove"
-    assert cfg.score == "actor/log_likelihood"
+    assert cfg.score == "network/nll"
 
 
 def test_qwen3_cell_and_stack_match_the_architecture():
@@ -359,9 +371,8 @@ def test_every_recipe_builds_and_runs_one_update(
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 1)
     if environment == "agent_trove":
-        assert "actor/likelihood" in logs
-        assert np.isfinite(np.asarray(logs["actor/likelihood"])).all()
-        np.testing.assert_allclose(logs["actor/log_likelihood"], -logs["actor/likelihood"])
+        assert "network/nll" in logs
+        assert np.isfinite(np.asarray(logs["network/nll"])).all()
         assert int(state.algorithm_state.step) == cfg.algorithm.batch_size * cfg.dataset.kwargs.length
     for name, values in logs.items():
         values = np.asarray(values, dtype=np.float64)

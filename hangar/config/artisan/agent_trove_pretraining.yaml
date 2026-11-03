@@ -5,7 +5,7 @@ artisans:
     fields: [algorithm_state, dataset_state]
     score:
       _target_: operator.itemgetter
-      _args_: [actor/log_likelihood]
+      _args_: [network/nll]
 loggers:
   file:
     _target_: boonta.loggers.FileLogger

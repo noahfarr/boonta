@@ -1,0 +1,6 @@
+namespace: fineweb
+dataset_id: data/fineweb/train.bin
+kwargs:
+  length: 1024
+  pool_size: 1200
+  seed: ${seed}

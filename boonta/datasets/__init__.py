@@ -1,8 +1,9 @@
-from . import agent_trove, kinetix, minari
+from . import agent_trove, fineweb, kinetix, minari
 from .dataset import Dataset, DatasetState
 
 registry = {
     "agent_trove": agent_trove.AgentTrove,
+    "fineweb": fineweb.FineWeb,
     "kinetix": kinetix.make,
     "minari": minari.Minari,
 }
@@ -17,6 +18,7 @@ __all__ = [
     "Dataset",
     "DatasetState",
     "agent_trove",
+    "fineweb",
     "kinetix",
     "make",
     "minari",

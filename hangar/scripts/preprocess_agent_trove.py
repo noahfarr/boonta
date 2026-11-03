@@ -6,10 +6,13 @@ from itertools import islice
 from collections import Counter, defaultdict, deque
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 from tokenizers import Tokenizer
+
+os.environ.setdefault('JAX_PLATFORMS', 'cpu')
 
 from boonta.datasets.agent_trove import complete_trajectory, encode_messages, serialize, validate_tokenizer
 from hangar.scripts.audit_agent_trove import commands, outcome

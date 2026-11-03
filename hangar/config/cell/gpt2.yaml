@@ -1,0 +1,14 @@
+# @package _global_
+
+defaults:
+  - override /torso: default
+
+num_layers: 12
+
+cell:
+  _target_: boonta.networks.GPT2
+  features: 768
+  num_layers: ${num_layers}
+  num_heads: 12
+  context_length: 1024
+  dtype: ${oc.select:network.dtype,null}

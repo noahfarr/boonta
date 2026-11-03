@@ -137,11 +137,11 @@ pass. A 4,096-token complete-only baseline retains a small and source-biased
 fraction of the sampled action budget. Inspect those results before selecting
 the model size or launching a long run.
 
-This recipe uses AdamW and logs `actor/likelihood` (masked training negative log
+This recipe uses AdamW and logs `network/nll` (masked training negative log
 likelihood; lower is better). It has an initialization-only environment for the
-offline podracer. The run score uses `actor/log_likelihood` (higher is better),
-the negative of that loss. The recipe does not support interactive evaluation
-or held-out metrics.
+offline podracer. The run score uses `network/nll`, so select it with
+`scoring=min` or `scoring=final`. The recipe does not support interactive
+evaluation or held-out metrics.
 Model and optimizer checkpoints use the usual checkpoint artisan; the current
 pool and permutation cursor are included in dataset state. The paired presets
 use a seeded permutation without replacement; the legacy replacement mode

@@ -1,4 +1,5 @@
 from .gemma import Gemma, GemmaLayer
+from .gpt2 import GPT2, GPT2Layer
 from .pi0 import PI0, Expert, PI0Layer
 from .qwen3 import Qwen3
 from .vit import ViT, ViTLayer

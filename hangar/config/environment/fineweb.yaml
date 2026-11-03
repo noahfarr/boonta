@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - override /cell: gpt2
+
+environment:
+  namespace: fineweb
+  env_id: FineWebEdu
+  num_envs: ${algorithm.batch_size}

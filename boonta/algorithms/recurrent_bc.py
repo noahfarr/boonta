@@ -95,9 +95,9 @@ class RecurrentBC:
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
             weight = weight.astype(log_prob.dtype)
             total = jnp.maximum(jnp.sum(weight), 1.0)
-            likelihood = -jnp.sum(log_prob * weight) / total
+            nll = -jnp.sum(log_prob * weight) / total
             entropy = jnp.sum(dist.entropy() * weight) / total
-            loss = likelihood - self.cfg.entropy_coefficient * entropy
+            loss = nll - self.cfg.entropy_coefficient * entropy
 
             def apply(params: PyTree) -> PyTree:
                 _, dist = self.network.apply(
@@ -120,17 +120,16 @@ class RecurrentBC:
                     carry=carry,
                     variables=variables,
                 )
-            return loss, (variables, likelihood, entropy)
+            return loss, (variables, nll, entropy)
 
-        (loss, (variables, likelihood, entropy)), grads = jax.value_and_grad(
+        (loss, (variables, nll, entropy)), grads = jax.value_and_grad(
             loss_fn, has_aux=True, allow_int=True
         )(state.params)
         lox.log(
             {
-                "actor/loss": loss,
-                "actor/likelihood": likelihood,
-                "actor/log_likelihood": -likelihood,
-                "actor/entropy": entropy,
+                "network/loss": loss,
+                "network/nll": nll,
+                "network/entropy": entropy,
             }
         )
 
