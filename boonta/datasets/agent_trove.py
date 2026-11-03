@@ -1,5 +1,3 @@
-"""Bounded, epoch-refreshed token pools for AgentTrove trajectories."""
-
 from pathlib import Path
 import hashlib
 import json
@@ -7,6 +5,7 @@ import random
 
 import jax
 import jax.numpy as jnp
+import lox
 import numpy as np
 from flax import struct
 
@@ -20,13 +19,10 @@ class AgentTroveState:
 
 
 def normalize_messages(row):
-    """Validate both supported schemas without inferring roles from content."""
     messages = row.get("messages") or row.get("conversations")
     if not messages:
         if "messages" not in row and "conversations" not in row:
             raise ValueError(f"Unsupported AgentTrove columns: {sorted(row)}")
-        # The concatenated dataset includes null/empty trajectories. They
-        # contribute no supervised tokens, just like user-only windows.
         return []
     aliases = {"human": "user", "gpt": "assistant", "observation": "tool"}
     normalized = []
@@ -53,7 +49,6 @@ def validate_tokenizer(tokenizer):
 
 
 def encode_messages(row, tokenizer):
-    """Encode ChatML once, retaining body offsets for host-side accounting."""
     for message in normalize_messages(row):
         header = tokenizer.encode(
             f"<|im_start|>{message['role']}\n", add_special_tokens=False
@@ -73,12 +68,10 @@ def serialize(encodings, assistant_only=True):
 
 
 def tokenize(row, tokenizer, assistant_only=True):
-    """Serialize ShareGPT or role/content turns as Qwen ChatML, without a prompt."""
     return serialize(encode_messages(row, tokenizer), assistant_only)
 
 
 def complete_trajectory(row, tokens, assistant_weights, length):
-    """A whole recorded interaction with a task prefix, not verified success."""
     messages = normalize_messages(row)
     turns = [m for m in messages if m["role"] != "system"]
     return bool(
@@ -89,8 +82,6 @@ def complete_trajectory(row, tokens, assistant_weights, length):
 
 
 def windows(row, tokenizer, length, pad_id, assistant_only=True):
-    # Selection is independent of loss mode. Both objectives see exactly the
-    # same whole trajectories, targets, framing, padding, and resets.
     if "_tokens" in row:
         tokens, assistant_weights = row["_tokens"], row["_mask"]
         if not row["eligible"] or len(tokens) > length:
@@ -123,8 +114,6 @@ def windows(row, tokenizer, length, pad_id, assistant_only=True):
 
 
 class CachedRows:
-    """Compact host index and memory-mapped whole trajectories from a cache."""
-
     def __init__(self, path, split, split_manifest=None):
         self.path = Path(path)
         self.manifest = json.loads((self.path / "manifest.json").read_text())
@@ -158,9 +147,6 @@ class CachedRows:
         self.orders = {}
 
     def sample_rows(self, length, size, seed):
-        # Index metadata once on the host, never inside the JAX training scan.
-        # Sampling the prefix of a bounded shuffle cannot cover a source-ordered
-        # corpus. This compact index supports uniform whole-corpus pool refresh.
         if self.index is None:
             index = np.empty(self.manifest["rows"], dtype=[
                 ("index", "<i8"), ("offset", "<i8"), ("length", "<i4")
@@ -193,7 +179,6 @@ class CachedRows:
                    "_tokens": tokens[start:end], "_mask": mask[start:end]}
 
     def ordered_rows(self, length, start, size, seed):
-        # Build the same compact index used for ordinary pool sampling.
         if self.index is None:
             list(self.sample_rows(length, 0, seed))
         eligible = np.flatnonzero(self.index["length"] <= length)
@@ -275,7 +260,6 @@ class AgentTrove:
                                            np.int32(start + self.pool_size))
         if not selected:
             raise ValueError(f"AgentTrove split contains no trainable complete trajectories within {self.length} tokens")
-        # Small local fixtures/splits still produce a pool with a stable shape.
         selected = [selected[i % len(selected)] for i in range(self.pool_size)]
         return AgentTroveState(jax.tree.map(lambda *xs: np.stack(xs), *selected))
 
@@ -299,7 +283,13 @@ class AgentTrove:
             indices = start + jnp.arange(batch_shape[0])
         else:
             indices = jax.random.randint(key, (batch_shape[0],), 0, self.pool_size)
-        return jax.tree.map(lambda x: jnp.asarray(x)[indices], state.transitions)
+        batch = jax.tree.map(lambda x: jnp.asarray(x)[indices], state.transitions)
+        lox.log({
+            "dataset/supervised_targets": jnp.sum(batch.aux["weight"]),
+            "dataset/valid_targets": jnp.sum(batch.aux["valid"]),
+            "dataset/assistant_targets": jnp.sum(batch.aux["assistant_weight"]),
+        })
+        return batch
 
     def close(self):
         pass

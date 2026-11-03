@@ -1,5 +1,4 @@
 # @package _global_
-# Ordinary epoch-boundary checkpoints. Held-out evaluation is a follow-up.
 artisans:
   checkpoint:
     _target_: boonta.artisans.Checkpointer

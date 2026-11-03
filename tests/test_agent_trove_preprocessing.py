@@ -96,7 +96,7 @@ def test_uniform_pool_index_visits_all_metadata_and_is_deterministic(cache):
     selection = lambda seed: [r['index'] for r in rows.sample_rows(32, 3, seed)]
     assert selection(7) == selection(7)
     assert len(set(selection(7))) == 3
-    assert max(selection(7)) > 5  # not the prefix of a two-row shuffle buffer
+    assert max(selection(7)) > 5
     assert selection(8) != selection(7)
     assert list(rows.sample_rows(1, 3, 7)) == []
 

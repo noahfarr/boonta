@@ -1,7 +1,4 @@
 # @package _global_
-# 191,772,672 parameters. Selected after full-corpus accounting.
-# 2^20 trajectory draws at 16K, without replacement; not an exhaustive epoch.
-# Use the common CLI override scoring=final for matched-step comparisons.
 
 defaults:
   - /hyperparameters/recurrent_bc/agent_trove

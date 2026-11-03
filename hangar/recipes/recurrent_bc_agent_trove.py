@@ -1,5 +1,3 @@
-"""Randomly initialized Qwen3 behavior cloning on AgentTrove token sequences."""
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -26,12 +24,6 @@ class TokenEmbedding(nn.Module):
 
 
 class TokenInitialization:
-    """Supply the initialization timestep required by the offline podracer.
-
-    AgentTrove has no interactive environment; evaluation uses token likelihood
-    from training logs, rather than environment rollouts.
-    """
-
     num_agents = 1
 
     def __init__(self, num_envs, pad_id):

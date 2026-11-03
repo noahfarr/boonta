@@ -1,9 +1,3 @@
-"""Reproducible, cached stratified sample audit of AgentTrove.
-
-The viewer returns bounded row blocks rather than downloading whole Parquet
-shards. Results describe the sample, not an exhaustive deduplication scan.
-"""
-
 import argparse
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,7 +75,6 @@ def digest(value):
 
 
 def outcome(row):
-    # Completion claimed by the assistant is deliberately not an outcome label.
     evidence = []
     for field in ("reward", "success", "is_success", "result"):
         value = row.get(field)
@@ -102,7 +95,6 @@ def outcome(row):
 
 
 def audit_row(index, row, tokenizer, length):
-    """Measure raw roles/masks and the historical fixed-token-chunk baseline."""
     messages = conversation(row)
     roles = Counter(m["role"] for m in messages)
     flags = Counter()
@@ -229,7 +221,7 @@ def summarize(records):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("outputs/agent_trove_audit"))
     parser.add_argument("--tokenizer", type=Path, required=True)
     parser.add_argument("--blocks", type=int, default=48)
@@ -282,8 +274,6 @@ def main():
         "by_source": {source: summarize([r for r in records if r["source"] == source]) for source in sorted({r["source"] for r in records})},
         "by_outcome": {label: summarize([r for r in records if r["outcome"] == label]) for label in sorted({r["outcome"] for r in records})},
     }
-    # Resample whole fetched blocks, not individual neighboring rows. These
-    # intervals describe sampling variability, not unmeasured source bias.
     block_totals = []
     for offset in offsets:
         group = [r for r in records if offset <= r["index"] < offset + args.rows_per_block]

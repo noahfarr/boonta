@@ -270,8 +270,6 @@ def test_qwen3_cell_and_stack_match_the_architecture():
     x = jnp.ones((1, 4, 16))
     done = jnp.zeros((1, 4), bool).at[:, 0].set(True)
     parameters = [model.init(key, None, x, done)["params"] for model in (composed, reference)]
-    # Both configurations must own the same weights, including Q/K norms,
-    # independent layer parameters, gated FFNs, and the final normalization.
     signatures = [sorted((leaf.shape, str(leaf.dtype)) for leaf in jax.tree.leaves(p))
                   for p in parameters]
     assert signatures[0] == signatures[1]
@@ -539,7 +537,7 @@ def test_agent_trove_192m_factory_parameter_budget(monkeypatch):
     from hangar.recipes import recurrent_bc_agent_trove as recipe
     cfg = configure('recurrent_bc', 'agent_trove', 'hyperparameters=recurrent_bc/agent_trove_192m', 'scoring=final')
     assert cfg.scoring._target_ == 'operator.itemgetter'
-    cfg.num_steps = 2**28  # Shape-only budget test does not execute a main run.
+    cfg.num_steps = 2**28
     fixture = SimpleNamespace(tokenizer=SimpleNamespace(get_vocab_size=lambda: 151669), length=16384, pad_id=0)
     monkeypatch.setattr(recipe.datasets, 'make', lambda **kwargs: fixture)
     network = recipe.make(cfg)['algorithm'].network

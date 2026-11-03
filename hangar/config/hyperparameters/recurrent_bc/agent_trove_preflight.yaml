@@ -1,5 +1,4 @@
 # @package _global_
-# Two disposable updates through the normal train.py loop, not the full pilot.
 defaults:
   - /hyperparameters/recurrent_bc/agent_trove_pilot
   - _self_

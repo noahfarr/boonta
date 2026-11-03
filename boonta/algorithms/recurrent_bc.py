@@ -94,8 +94,6 @@ class RecurrentBC:
             log_prob = dist.log_prob(transitions.second.action)
             weight = (transitions.aux or {}).get("weight", jnp.ones_like(log_prob))
             weight = weight.astype(log_prob.dtype)
-            # Normalize over supervised positions, not the padded batch size.
-            # A binary action mask changes the denominator as well as the NLL.
             total = jnp.maximum(jnp.sum(weight), 1.0)
             likelihood = -jnp.sum(log_prob * weight) / total
             entropy = jnp.sum(dist.entropy() * weight) / total
@@ -135,13 +133,6 @@ class RecurrentBC:
                 "actor/entropy": entropy,
             }
         )
-
-        if (transitions.aux or {}).get("valid") is not None:
-            supervised = jnp.sum(transitions.aux["weight"])
-            lox.log({"actor/supervised_targets": supervised,
-                     "actor/valid_targets": jnp.sum(transitions.aux["valid"]),
-                     "actor/assistant_targets": jnp.sum(transitions.aux["assistant_weight"]),
-                     "actor/nll_sum": likelihood * supervised})
 
         updates, optimizer_state = self.optimizer.update(
             grads["params"], state.optimizer_state, state.params["params"]

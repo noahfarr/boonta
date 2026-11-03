@@ -32,7 +32,6 @@ def token_cache(tmp_path):
                  'task':f'task-{i//2}'+('_copy1' if i%2 else ''),'original_source':'fixture'}
             tokens,mask,item=record(row,t)
             tokens.astype('<i4').tofile(f);mask.astype('u1').tofile(m)
-            # Keep this fixture entirely in train to test order across pools.
             items.append({**item,'index':i,'offset':offset,'cached':True,'split':'train'})
             offset+=len(tokens)
     (tmp_path/'records.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in items))

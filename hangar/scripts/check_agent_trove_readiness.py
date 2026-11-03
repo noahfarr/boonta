@@ -1,5 +1,3 @@
-"""Offline data-readiness checks against a cached AgentTrove audit sample."""
-
 import argparse
 from collections import Counter
 import hashlib
@@ -19,8 +17,6 @@ def measure(row, tokenizer, contexts):
     tokens, mask = tokenize(row, tokenizer)
     non_system = [m for m in messages if m["role"] != "system"]
     has_task = bool(non_system and non_system[0]["role"] == "user" and non_system[0]["content"].strip())
-    # Recognized final command payload tokens with their exact positions in the
-    # same serialization as the adapter. Invalid action syntax is not guessed.
     position = 0
     action_indices = []
     for message in messages:
@@ -57,8 +53,6 @@ def measure(row, tokenizer, contexts):
             "observation_body_tokens": sum(len(tokenizer.encode(m["content"] + "<|im_end|>\n", add_special_tokens=False).ids)
                                            for m in messages if m["role"] in {"user", "tool"}) if retained else 0,
             "allocated_positions": context if retained else 0,
-            # Legacy chunks only have the original task prefix in the first
-            # window. Later resets cannot satisfy the chosen history contract.
             "legacy_conditioned_action_tokens": sum(0 < t <= context for t in action_indices) if has_task else 0,
         }
     return {"serialized_tokens": len(tokens), "all_blm_targets": int(mask[1:].sum()),
@@ -90,7 +84,6 @@ def summarize(records, contexts):
 
 
 def check_cache(path, tokenizer, contexts):
-    """Verify an entire completed artifact plus small sharded sampling checks."""
     from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
     report = json.loads((path / "statistics.json").read_text())
@@ -137,8 +130,6 @@ def check_cache(path, tokenizer, contexts):
             for name in ("eligible_trajectories", "retained_serialized_tokens", "blm_targets", "clm_targets", "command_tokens"):
                 assert sum(g["contexts"][str(c)][name] for g in groups) == expected[name]
     mask = np.memmap(path / "mask.bin", mode="r", dtype="u1") if cached else np.array([], dtype="u1")
-    # Every eligible record begins with an unweighted user/system header, so
-    # dropping the initial prediction target does not change this mask sum.
     mask_targets = int(mask.sum(dtype=np.uint64))
     assert mask_targets == totals["contexts"][str(manifest["cache_max_length"])]["blm_targets"]
     del mask
@@ -193,7 +184,7 @@ def check_cache(path, tokenizer, contexts):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--cache", type=Path, help="Verify completed full-corpus preprocessing artifacts")
     parser.add_argument("--sample", type=Path, default=Path("outputs/agent_trove_audit/sample"))
     parser.add_argument("--tokenizer", type=Path, required=True)
@@ -208,8 +199,6 @@ def main():
     if not paths:
         parser.error(f"No cached audit row blocks found in {args.sample}")
     records, seen, duplicate_rows, truncated = [], set(), [], []
-    # Full-conversation exact deduplication within the sample, independent of
-    # objective or context length. No outcome-based exclusions are applied.
     for path in paths:
         for item in json.loads(path.read_text())["rows"]:
             if item.get("truncated_cells"):

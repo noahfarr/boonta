@@ -1,8 +1,3 @@
-"""One-pass, whole-corpus AgentTrove accounting and reusable ragged token cache.
-
-Never uses the truncated dataset viewer. A report is complete only after EOF and
-an exact expected-row-count check. Partial runs are explicitly labelled.
-"""
 import argparse
 from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
@@ -34,7 +29,6 @@ def record(row, tokenizer):
                     command_tokens += sum(a < end and b > start for a, b in encoding.offsets)
     canonical = json.dumps(messages, sort_keys=True, ensure_ascii=False).encode()
     identity = hashlib.sha256(canonical).hexdigest()
-    # Duplicate conversations always land on the same side; no deduplication.
     split = 'validation' if int(identity[:16], 16) % 100 == 0 else 'train'
     metadata = {k: row[k] for k in ('success', 'is_success', 'reward', 'result', 'task_id', 'task', 'run_id') if row.get(k) is not None}
     return tokens, mask, dict(
@@ -164,7 +158,7 @@ def file_digest(path):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser()
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--tokenizer', type=Path, required=True)
     p.add_argument('--revision', required=True, help='Immutable dataset commit SHA')
@@ -218,7 +212,6 @@ def main():
             measure = lambda row: record(row, tokenizer)
         source = iter(islice(rows, count, args.limit))
         def measured():
-            # Bounded host memory and ordered results, independent of workers.
             pending = deque(executor.submit(measure, row) for row in islice(source, 32))
             while pending:
                 yield pending.popleft().result()

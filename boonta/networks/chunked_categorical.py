@@ -1,9 +1,3 @@
-"""Tiled categorical likelihoods with the same Dense parameters and logits.
-
-Only the computation changes: no extra parameters, tying, or prediction heads.
-The projection is rematerialized per tile during backward to bound V-sized
-activation memory.
-"""
 import flax.linen as nn
 from flax import struct
 import jax
@@ -53,7 +47,6 @@ class ChunkedDistribution:
         return self.statistics()[1]
 
     def sample(self, seed):
-        # RecurrentBC.step uses one position; training uses tiled statistics.
         if self.features.size // self.features.shape[-1] > self.chunk_size:
             raise ValueError("Sampling requires a small number of token positions")
         logits = self.project(self.features)
@@ -72,7 +65,6 @@ class ChunkedCategorical(nn.Module):
         nn.share_scope(self, self.layer)
 
     def __call__(self, x, temperature=1.0, **kwargs):
-        # Initialize/access the existing Dense scope on a single position.
         self.layer(x[..., :1, :], **kwargs)
         kernel = self.get_variable('params', 'kernel').astype(x.dtype)
         bias = self.get_variable('params', 'bias') if self.layer.use_bias else None

@@ -1,9 +1,3 @@
-"""Create an immutable grouped split overlay; never copy or change token binaries.
-
-Automatic keys find known leakage but cannot certify opaque source task/repo IDs.
-A strict certificate requires a provenance-bound trusted identity JSONL with
-index, identity, task_id, prompt_hash, repository_applicable, repository_id.
-"""
 import argparse
 from collections import Counter
 import hashlib
@@ -23,8 +17,6 @@ def task_key(source, value):
     if not isinstance(value, str) or not value.strip():
         return None
     value = re.sub(r'(?:_copy\d+)+$', '', value.strip())
-    # Generic IDs are source-local; named source task IDs also link "unknown"
-    # source rows to their named cohort.
     if re.fullmatch(r'(?:task|problem|instance)[_-]?\d+', value, re.I):
         value = source.casefold() + ':' + value
     return value
@@ -160,7 +152,7 @@ def group_cache(cache, output, tokenizer, seed=42, trusted_path=None, max_length
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__)
+    p=argparse.ArgumentParser()
     p.add_argument('--cache',type=Path,required=True); p.add_argument('--output',type=Path,required=True)
     p.add_argument('--tokenizer',type=Path,required=True);p.add_argument('--seed',type=int,default=42)
     p.add_argument('--trusted-identities',type=Path);p.add_argument('--max-length',type=int,default=16384)

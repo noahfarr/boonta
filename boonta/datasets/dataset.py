@@ -7,11 +7,6 @@ DatasetState = PyTree
 
 
 class Dataset(Protocol):
-    """Offline batches; sample's optional step counts allocated training positions.
-
-    Indexed samplers use step to select a deterministic batch. Random samplers
-    may ignore it; callers outside training may omit it.
-    """
     def init(self) -> DatasetState: ...
 
     def update(

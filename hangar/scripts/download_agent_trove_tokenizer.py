@@ -1,5 +1,3 @@
-"""Download only the pinned Qwen3 tokenizer used for AgentTrove accounting."""
-
 import argparse
 import hashlib
 from pathlib import Path
@@ -14,7 +12,7 @@ SHA256 = "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("data/tokenizer.json"))
     args = parser.parse_args()
     source = Path(hf_hub_download(REPO_ID, "tokenizer.json", revision=REVISION))
