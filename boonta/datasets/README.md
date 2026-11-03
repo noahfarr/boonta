@@ -167,7 +167,7 @@ remains available. Resume uses ordinary epoch-boundary checkpoints.
        def update(self, state, key, sharding) -> EpisodesState:
            return state
 
-       def sample(self, state, key, batch_shape) -> Transition:
+       def sample(self, state, key, batch_shape, *, step=None) -> Transition:
            batch_size, *_ = batch_shape
            count, *_ = state.transitions.second.reward.shape
            index = jax.random.randint(key, (batch_size,), 0, count)

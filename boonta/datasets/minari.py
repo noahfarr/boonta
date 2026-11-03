@@ -55,7 +55,7 @@ class Minari:
         self.executor.shutdown(wait=True, cancel_futures=True)
 
     def sample(
-        self, state: MinariState, key: Key, batch_shape: tuple[int, ...]
+        self, state: MinariState, key: Key, batch_shape: tuple[int, ...], *, step=None
     ) -> Transition:
         assert len(batch_shape) == 1, (
             f"minari samples single transitions, so batch_shape must be "

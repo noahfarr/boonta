@@ -64,13 +64,13 @@ def test_without_replacement_is_paired_and_resumable(token_cache):
         for pool in range(4):
             state=d.update(state,jax.random.key(pool),None)
             for offset in (0,2):
-                batch=jax.jit(lambda s,step:d.sample_at(s,jax.random.key(999),(2,128),step))(state,jnp.int32((pool*4+offset)*128))
+                batch=jax.jit(lambda s,step:d.sample(s,jax.random.key(999),(2,128),step=step))(state,jnp.int32((pool*4+offset)*128))
                 sequence.extend(np.asarray(batch.aux['record_index']).tolist())
             if pool==1: saved=serialization.to_bytes(state)
         ids.append(sequence)
         restored=serialization.from_bytes(d.init(),saved)
         next_state=d.update(restored,jax.random.key(9999),None)
-        next_ids=d.sample_at(next_state,jax.random.key(0),(2,128),8*128).aux['record_index']
+        next_ids=d.sample(next_state,jax.random.key(0),(2,128),step=8*128).aux['record_index']
         np.testing.assert_array_equal(next_ids,sequence[8:10])
     assert ids[0]==ids[1] and len(set(ids[0]))==16
 

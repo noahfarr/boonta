@@ -289,22 +289,17 @@ class AgentTrove:
         start = int(np.asarray(state.next_cursor)) if self.sampling == "permutation" else 0
         return jax.device_put(self.pool(seed, start), sharding)
 
-    def sample_at(self, state, key, batch_shape, step):
-        if self.sampling == "replacement":
-            return self.sample(state, key, batch_shape)
-        if len(batch_shape) != 2 or batch_shape[1] != self.length:
-            raise ValueError("Permutation sampling requires (batch, context)")
-        start = (step // self.length) % self.pool_size
-        indices = start + jnp.arange(batch_shape[0])
-        return jax.tree.map(lambda x: jnp.asarray(x)[indices], state.transitions)
-
-    def sample(self, state, key, batch_shape):
-        if self.sampling == "permutation":
-            raise ValueError("Permutation sampling must use Quadinaros.sample_at with the training step")
+    def sample(self, state, key, batch_shape, *, step=None):
         if len(batch_shape) != 2 or batch_shape[1] != self.length:
             raise ValueError(f"AgentTrove expects (batch, {self.length}), got {batch_shape}")
-        index = jax.random.randint(key, (batch_shape[0],), 0, self.pool_size)
-        return jax.tree.map(lambda x: jnp.asarray(x)[index], state.transitions)
+        if self.sampling == "permutation":
+            if step is None:
+                raise ValueError("Permutation sampling requires the allocated training step")
+            start = (step // self.length) % self.pool_size
+            indices = start + jnp.arange(batch_shape[0])
+        else:
+            indices = jax.random.randint(key, (batch_shape[0],), 0, self.pool_size)
+        return jax.tree.map(lambda x: jnp.asarray(x)[indices], state.transitions)
 
     def close(self):
         pass

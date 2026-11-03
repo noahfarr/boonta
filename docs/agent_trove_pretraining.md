@@ -54,8 +54,8 @@ readiness reports describe samples and are historical evidence, not corpus total
 
 ## Native dataset and loss
 
-`AgentTrove` implements `init/update/sample/close`. Quadinaros also recognizes an
-optional `sample_at` method for indexed sampling. Host-side refresh reads selected
+`AgentTrove` implements `init/update/sample/close`. Quadinaros passes the allocated training
+step through the optional keyword argument `sample(..., step=...)` for indexed sampling. Host-side refresh reads selected
 trajectories through memory maps and places fixed-shape pools using existing
 sharding; minibatch selection remains JAX-native.
 
@@ -76,8 +76,8 @@ selects BLM; only this loss-mask flag changes between paired runs.
 
 RecurrentBC already supported weighted likelihood. Its normalization remains
 `sum(weight * NLL) / max(sum(weight), 1)`: CLM averages valid targets, BLM averages
-assistant targets. The limited algorithm additions support fused tiled statistics,
-a negative-loss score, and target-count/NLL-total diagnostics. There is no new
+assistant targets. The limited algorithm additions provide
+a negative-loss score and target-count/NLL-total diagnostics. There is no new
 algorithm, objective, or head parameterization.
 
 The paired presets use a seeded global permutation without replacement. Each

@@ -342,7 +342,7 @@ class Ledger:
         self.updates += 1
         return state
 
-    def sample(self, state, key, batch_shape):
+    def sample(self, state, key, batch_shape, *, step=None):
         return self.dataset.sample(state, key, batch_shape)
 
     def close(self):
