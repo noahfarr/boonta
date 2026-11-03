@@ -1,3 +1,3 @@
 # @package _global_.curriculum.selector.allocation
-_target_: boonta.curricula.prd.TopK
+_target_: boonta.curricula.psr.TopK
 width: 32

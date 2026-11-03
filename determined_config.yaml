@@ -1,0 +1,13 @@
+resources:
+  resource_pool: 42_Compute
+  slots: 1
+bind_mounts:
+  - host_path: /pfss/mlde/workspaces/mlde_wsp_RAI_WS
+    container_path: /pfss/mlde/workspaces/mlde_wsp_RAI_WS
+    propagation: rprivate
+    read_only: false
+environment:
+  environment_variables:
+    - HOME=/pfss/mlde/workspaces/mlde_wsp_RAI_WS/ar44ruca
+    - XLA_PYTHON_CLIENT_PREALLOCATE=false
+    - JAX_COMPILATION_CACHE_DIR=/pfss/mlde/workspaces/mlde_wsp_RAI_WS/ar44ruca/jax_compilation_cache

@@ -9,7 +9,7 @@ unset $(compgen -e | grep "^SLURM_") || true
     "hydra.sweep.dir=sweeps/hotspots_concentration/\${now:%Y-%m-%d_%H-%M-%S}" \
     algorithm=ppo \
     environment=dune_sea/hotspots \
-    curriculum=default,prd,prd_untargeted \
+    curriculum=default,psr,psr_untargeted \
     environment.kwargs.nearest=2,5,8,11 \
     "environment.kwargs.farthest='\${eval:\"\${environment.kwargs.nearest} + 3\"}'" \
     environment.kwargs.num_hotspots=8,32 \

@@ -17,7 +17,7 @@ class Concentration:
         self.min_visits = min_visits
 
     def craft(self, key, podracer, podracer_state, logs) -> Metrics:
-        from boonta.curricula.prd import signal
+        from boonta.curricula.psr import signal
 
         ledger = jax.device_get(podracer_state.pit_state)
         if ledger is None:

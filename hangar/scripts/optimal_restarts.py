@@ -41,7 +41,7 @@ def archive_of(environment_state):
     )
 
 
-def prd_restarts(selector, wrapper, checkpoint, algorithm, num_cells, key, num_draws=16):
+def psr_restarts(selector, wrapper, checkpoint, algorithm, num_cells, key, num_draws=16):
     archive = archive_of(checkpoint.environment_state)
     cells = jnp.squeeze(archive.archive_state.keys, axis=-1)
 
@@ -80,7 +80,7 @@ def cosine(left, right):
 def diagnose(selector, wrapper, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, num_cells):
     from scipy.stats import spearmanr
 
-    from boonta.curricula.prd import Diagonal, Kernel, precondition
+    from boonta.curricula.psr import Diagonal, Kernel, precondition
 
     archive_state = archive_of(checkpoint.environment_state).archive_state
     held = np.zeros(num_cells, bool)
@@ -102,7 +102,7 @@ def diagnose(selector, wrapper, checkpoint, algorithm, objective, origin, unrave
     exact = jnp.where(seen, exact, 0.0)
     estimated, _ = ravel_pytree(checkpoint.pit_state.direction)
     kernel = per_cell_scores(selector.score, selector, checkpoint, wrapper, algorithm, num_cells)
-    print(f"  kernel score as PRD computes it           {agreement(kernel):+.3f}")
+    print(f"  kernel score as PSR computes it           {agreement(kernel):+.3f}")
     print(f"  kernel with exact advantages              {agreement(per_cell @ estimated):+.3f}")
     print(f"  kernel with exact advantages and direction {agreement(per_cell @ exact):+.3f}")
     print(
@@ -213,10 +213,10 @@ def main():
 
     signal = jnp.sum(policy * game.advantages(policy) ** 2, axis=-1)
     alignment = per_cell @ (visits_rho @ per_cell)
-    prd = prd_restarts(selector, podracer.pit.environment, checkpoint, algorithm, game.num_cells, key)
+    psr = psr_restarts(selector, podracer.pit.environment, checkpoint, algorithm, game.num_cells, key)
     restarts = {
         "rho": visits_rho,
-        "prd": prd,
+        "psr": psr,
         "erd": erd_restarts(podracer.pit.environment, checkpoint, game.num_cells),
         "signal oracle": signal / jnp.sum(signal),
         "alignment oracle": jnp.maximum(alignment, 0.0) / jnp.sum(jnp.maximum(alignment, 0.0)),
@@ -238,7 +238,7 @@ def main():
     print(f"{'optimum, restarting all':<26} {change:>+14.4f} {change / rho:>8.2f} {kl[0]:>10.4f} {kl[1]:>16.3f} {kl[2]:>12.3f}")
 
     print("by k, where 1/k of the environments continue from rho:")
-    print(f"  {'k':>6} {'prd':>10} {'erd':>10} {'best for this k':>16}")
+    print(f"  {'k':>6} {'psr':>10} {'erd':>10} {'best for this k':>16}")
     for k in (float(text) for text in arguments.ks.split(",")):
         share = 1.0 / k
 
@@ -246,10 +246,10 @@ def main():
             return improvement(restarts, share)
 
         best = max(
-            (ascend(at_k, initial) for initial in (optimum, restarts["prd"], restarts["erd"])),
+            (ascend(at_k, initial) for initial in (optimum, restarts["psr"], restarts["erd"])),
             key=lambda restarts: float(at_k(restarts)),
         )
-        print(f"  {k:>6g} {float(at_k(restarts['prd'])) / rho:>9.2f}x {float(at_k(restarts['erd'])) / rho:>9.2f}x {float(at_k(best)) / rho:>15.2f}x")
+        print(f"  {k:>6g} {float(at_k(restarts['psr'])) / rho:>9.2f}x {float(at_k(restarts['erd'])) / rho:>9.2f}x {float(at_k(best)) / rho:>15.2f}x")
 
     diagnose(
         selector, podracer.pit.environment, checkpoint, algorithm, objective, origin, unravel, per_cell, optimum, game.num_cells
@@ -269,7 +269,7 @@ def main():
     true_gradient = jax.grad(objective)(origin)
     sources = {
         "rho batch": batch_of(visits_rho, 1.0),
-        "PRD batch": batch_of(prd, continuing),
+        "PSR batch": batch_of(psr, continuing),
         **{name: stationary(game.transitions(behavior), game.start) for name, behavior in behaviors.items()},
         "optimal restart batch": batch_of(optimum, continuing),
         "optimal data": optimal_data,
@@ -297,12 +297,12 @@ def main():
     cell_grid = np.asarray(game.cell_grid)
     num_rows, *_ = render.shape
     gap = np.full((num_rows, tile // 2, 3), GAP, np.uint8)
-    shown = (visits_rho, prd, optimum)
+    shown = (visits_rho, psr, optimum)
     panels = [render, *(paint(np.asarray(values), cell_grid, tile) for values in shown)]
     image = np.concatenate([part for panel in panels for part in (gap, panel)][1:], axis=1)
     path = run / f"optimal_restarts_{step}.png"
     Image.fromarray(image).save(path)
-    print(f"render | rho's visits | PRD's restarts | optimal restarts  ->  {path}")
+    print(f"render | rho's visits | PSR's restarts | optimal restarts  ->  {path}")
 
     peak = max(float(jnp.max(jnp.abs(values))) for values in maps.values())
     rows = [("checkpoint", render), *((name, paint(np.asarray(values), cell_grid, tile, peak)) for name, values in maps.items())]

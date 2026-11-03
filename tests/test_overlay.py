@@ -8,8 +8,8 @@ from flax import struct
 
 from boonta.artisans import Image, Overlay
 from boonta.artisans.overlay import NEGATIVE, POSITIVE, paint
-from boonta.curricula import prd
-from boonta.curricula.prd import (
+from boonta.curricula import psr
+from boonta.curricula.psr import (
     Advantage,
     CountedRelevance,
     Diagonal,
@@ -42,11 +42,11 @@ def make_selector(**overrides):
         relevance=CountedRelevance(),
         gain=Advantage(),
         score=Diagonal(),
-        allocation=prd.Marginal(),
+        allocation=psr.Marginal(),
         k=2.0,
     )
     base.update(overrides)
-    return prd.Selector(**base)
+    return psr.Selector(**base)
 
 
 def stack(timesteps):

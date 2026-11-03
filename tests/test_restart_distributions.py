@@ -9,8 +9,8 @@ import zoo
 from dummies import Corridor
 from flax import struct
 
-from boonta.curricula import erd, prd
-from boonta.curricula.prd import (
+from boonta.curricula import erd, psr
+from boonta.curricula.psr import (
     Advantage,
     CountedRelevance,
     Diagonal,
@@ -88,9 +88,9 @@ def selector(
     columns=None,
     gain=Advantage(),
     score=Diagonal(),
-    allocation=prd.Marginal(),
+    allocation=psr.Marginal(),
 ):
-    return prd.Selector(
+    return psr.Selector(
         successor=SuccessorRepresentation(gamma=0.75, columns=columns),
         footprint=footprint,
         relevance=relevance,
@@ -191,22 +191,22 @@ def train(selector, updates=3, steps=4):
         ),
         selector(SuccessorFootprint(), CountedRelevance(), allocation=WaterFilling()),
         selector(UniformFootprint(), CountedRelevance(), allocation=WaterFilling()),
-        selector(SuccessorFootprint(), CountedRelevance(), allocation=prd.Uniform()),
+        selector(SuccessorFootprint(), CountedRelevance(), allocation=psr.Uniform()),
         "erd",
     ],
     ids=[
-        "prd-successor",
-        "prd-sparse-successor",
-        "prd-uniform-relevance",
-        "prd-uniform-footprint",
-        "prd-uniform",
-        "prd-greedy-advantage",
-        "prd-model-advantage",
-        "prd-top-k",
-        "prd-softmax",
-        "prd-water-filling",
-        "prd-uniform-footprint-water-filling",
-        "prd-uniform-allocation",
+        "psr-successor",
+        "psr-sparse-successor",
+        "psr-uniform-relevance",
+        "psr-uniform-footprint",
+        "psr-uniform",
+        "psr-greedy-advantage",
+        "psr-model-advantage",
+        "psr-top-k",
+        "psr-softmax",
+        "psr-water-filling",
+        "psr-uniform-footprint-water-filling",
+        "psr-uniform-allocation",
         "erd",
     ],
 )
@@ -273,14 +273,14 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
 @pytest.mark.parametrize(
     "curriculum, options",
     [
-        (prd.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
+        (psr.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
         (
-            prd.make,
+            psr.make,
             {"selector": selector(SuccessorFootprint(), CountedRelevance(), score=Kernel())},
         ),
         (erd.make, {"k": 2.0}),
         (
-            prd.make,
+            psr.make,
             {
                 "selector": selector(SuccessorFootprint(), CountedRelevance()),
                 "restart_at": "episode",
@@ -288,14 +288,14 @@ def test_advantage_ignores_returns_past_a_truncation_and_the_window_end():
         ),
         (erd.make, {"k": 2.0, "restart_at": "episode"}),
         (
-            prd.make,
+            psr.make,
             {
-                "selector": selector(SuccessorFootprint(), CountedRelevance(), allocation=prd.Importance()),
+                "selector": selector(SuccessorFootprint(), CountedRelevance(), allocation=psr.Importance()),
                 "importance_weights": True,
             },
         ),
     ],
-    ids=["prd", "prd-kernel", "erd", "prd-episode", "erd-episode", "prd-importance"],
+    ids=["psr", "psr-kernel", "erd", "psr-episode", "erd-episode", "psr-importance"],
 )
 def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
     curriculum, options
@@ -329,7 +329,7 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
         np.isfinite(leaf).all()
         for leaf in jax.tree.leaves(state.algorithm_state.params)
     )
-    if curriculum is prd.make:
+    if curriculum is psr.make:
         assert float(jnp.sum(state.pit_state.reach)) > 0.0
 
     evaluated, _ = podracer.evaluate(state, jax.random.key(2), 4)
@@ -340,10 +340,10 @@ def test_ppo_trains_through_the_archive_and_the_curriculum_places_restarts(
 @pytest.mark.parametrize(
     "curriculum, options",
     [
-        (prd.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
+        (psr.make, {"selector": selector(SuccessorFootprint(), CountedRelevance())}),
         (erd.make, {"k": 2.0}),
     ],
-    ids=["prd", "erd"],
+    ids=["psr", "erd"],
 )
 def test_a_restart_curriculum_needs_an_archive_auto_reset(curriculum, options):
     with pytest.raises(AssertionError, match="ArchiveAutoReset"):
@@ -367,7 +367,7 @@ def test_the_relative_efficiency_compares_the_batch_with_one_from_rho():
     archive_size, num_envs = 4, 4
     tabular = selector(SuccessorFootprint(), CountedRelevance())
     ledger = tabular.init(archive_size, num_actions=2).replace(
-        successor=prd.Successor(
+        successor=psr.Successor(
             columns=jnp.arange(archive_size)[None], weights=jnp.eye(archive_size)
         ),
         reach=jnp.array([3.0, 1.0, 0.0, 0.0]),
@@ -390,7 +390,7 @@ def test_water_filling_gives_each_start_its_share_of_the_level():
     tabular = selector(SuccessorFootprint(), CountedRelevance())
     ledger = tabular.init(archive_size, num_actions=2)
     ledger = ledger.replace(
-        successor=prd.Successor(
+        successor=psr.Successor(
             columns=jnp.arange(archive_size)[None], weights=jnp.eye(archive_size)
         ),
         gain=ledger.gain.replace(scale=jnp.float32(8.0)),
@@ -412,7 +412,7 @@ def test_water_filling_gives_each_start_its_share_of_the_level():
 def test_a_blend_sends_its_uniform_share_anywhere_and_the_rest_by_its_inner_rule():
     slots = jnp.arange(8)
     inner = lambda selector, state, worth, eligible, residents, key, count: jnp.full(count, 7)
-    chosen = prd.Blend(inner=inner, uniform_share=0.25)(
+    chosen = psr.Blend(inner=inner, uniform_share=0.25)(
         None, None, None, slots < 4, None, jax.random.key(0), 8
     )
     assert chosen.shape == (8,)
@@ -437,7 +437,7 @@ def test_importance_weights_undo_the_restarts_so_the_batch_starts_from_rho():
 
 def gains(counts, sums, squares):
     counts, sums, squares = (jnp.asarray(value, jnp.float32)[None] for value in (counts, sums, squares))
-    return prd.GainState(
+    return psr.GainState(
         action_counts=counts,
         advantage_sums=sums,
         square_sums=squares,

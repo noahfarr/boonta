@@ -122,11 +122,11 @@ def few_resets(directory):
 
 
 def prioritized_restarts(directory):
-    return ["curriculum=prd", "environment.auto_reset.archive_size=64"]
+    return ["curriculum=psr", "environment.auto_reset.archive_size=64"]
 
 
 def aligned_restarts(directory):
-    return ["curriculum=prd", "curriculum/prd/score=kernel", "environment.auto_reset.archive_size=64"]
+    return ["curriculum=psr", "curriculum/psr/score=kernel", "environment.auto_reset.archive_size=64"]
 
 
 def exploring_restarts(directory):

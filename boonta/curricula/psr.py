@@ -1033,7 +1033,7 @@ class Selector:
 
 
 @dataclass
-class PRD(Pit):
+class PSR(Pit):
     environment: ArchiveAutoReset
     selector: Selector
     algorithm: Algorithm
@@ -1043,7 +1043,7 @@ class PRD(Pit):
     def __post_init__(self):
         assert isinstance(
             self.environment, ArchiveAutoReset
-        ), "PRD restarts from an ArchiveAutoReset, and the environment wraps none"
+        ), "PSR restarts from an ArchiveAutoReset, and the environment wraps none"
         assert self.restart_at in ("rollout", "episode"), self.restart_at
 
     def init(self, key: Key, state: PyTree) -> SelectorState:
@@ -1101,6 +1101,6 @@ def make(
     restart_at: str = "rollout",
     importance_weights: bool = False,
     **kwargs,
-) -> tuple[Algorithm, Environment, PRD, Lap | None]:
-    pit = PRD(unwrap(environment), selector, algorithm, restart_at, importance_weights)
+) -> tuple[Algorithm, Environment, PSR, Lap | None]:
+    pit = PSR(unwrap(environment), selector, algorithm, restart_at, importance_weights)
     return algorithm, environment, pit, None

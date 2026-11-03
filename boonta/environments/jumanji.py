@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from boonta.utils import Array, Key, Timestep
 
@@ -61,6 +62,22 @@ def unsolve(state, key: Key, iters: int):
     )
 
 
+def snake(env, bucket: int = 4, fruit: bool = False):
+    """Groups Snake states by where the head is and how long the body has grown."""
+
+    def cell(env_state):
+        head = env_state.head_position
+        features = [head.row, head.col, env_state.length // bucket]
+        if fruit:
+            features.extend([env_state.fruit_position.row, env_state.fruit_position.col])
+        key = jnp.zeros_like(env_state.length, jnp.int32)
+        for value in features:
+            key = key * jnp.int32(1000003) + value.astype(jnp.int32)
+        return key
+
+    return cell
+
+
 class Jumanji(Environment):
     def __init__(
         self,
@@ -84,14 +101,19 @@ class Jumanji(Environment):
             return jax.random.key(slot)
         return key
 
-    def frame(self, timestep, action: Array) -> Timestep:
-        grid = timestep.observation.grid
+    def stack(self, observation) -> Array:
+        grid = observation.grid
         clock = jnp.broadcast_to(
-            jnp.asarray(timestep.observation.step_count, grid.dtype),
-            grid.shape[:-1] + (1,),
+            jnp.asarray(observation.step_count, grid.dtype), grid.shape[:-1] + (1,)
         )
+        return jnp.concatenate([grid, clock], axis=-1)
+
+    def observe(self, state) -> Array:
+        return self.stack(self._env._state_to_observation(state))
+
+    def frame(self, timestep, action: Array) -> Timestep:
         return Timestep(
-            obs=jnp.concatenate([grid, clock], axis=-1),
+            obs=self.stack(timestep.observation),
             action=action,
             reward=jnp.asarray(timestep.reward, jnp.float32),
             terminated=timestep.step_type == 2,
@@ -138,6 +160,14 @@ class Jumanji(Environment):
 
     def time_limit(self) -> int:
         return int(self._env.time_limit)
+
+    def render(self, state) -> np.ndarray:
+        viewer = self._env._viewer
+        # Jumanji viewers draw to a window unless built for rgb_array, so switch them over.
+        viewer._display = viewer._display_rgb_array
+        image = viewer.render(getattr(state, "unwrapped", state))
+        viewer.close()
+        return np.asarray(image)[..., :3]
 
 
 def make(

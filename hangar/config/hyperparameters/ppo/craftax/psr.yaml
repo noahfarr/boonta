@@ -14,7 +14,7 @@ environment:
 curriculum:
   selector:
     allocation:
-      _target_: boonta.curricula.prd.WaterFilling
+      _target_: boonta.curricula.psr.WaterFilling
       iterations: 50
     successor:
       writers: 512

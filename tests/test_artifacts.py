@@ -582,7 +582,7 @@ def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
 
 def test_concentration_counts_how_few_of_rhos_steps_carry_the_signal():
     from boonta.artisans import Concentration
-    from boonta.curricula.prd import GainState, SelectorState
+    from boonta.curricula.psr import GainState, SelectorState
 
     counts = jnp.array([[50.0, 50.0], [4950.0, 4950.0]])
     gain = GainState(

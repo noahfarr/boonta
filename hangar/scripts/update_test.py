@@ -136,7 +136,7 @@ def main():
     if arguments.k:
         selector = dataclasses.replace(selector, k=arguments.k)
     num_placed = selector.num_placed(environment.num_envs)
-    placements = {"rho": Placement(jnp.ones(1), 0, selector), "prd": selector, "erd": Exploring(num_placed, selector)}
+    placements = {"rho": Placement(jnp.ones(1), 0, selector), "psr": selector, "erd": Exploring(num_placed, selector)}
     if hasattr(game, "place"):
         signal_key, reach_key = jax.random.split(measure_key)
         maps = measure(
