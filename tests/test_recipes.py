@@ -133,7 +133,7 @@ def converted(path):
 def tiny_super_mimic(directory):
     return [
         "buffer.sample_batch_size=16",
-        "algorithm.horizon=4",
+        "algorithm.num_imagined_steps=4",
         "algorithm.world_model_updates=1",
         "algorithm.policy_batches=1",
         "algorithm.critic_epochs=1",

@@ -347,7 +347,7 @@ def sac(environment, num_envs=32, podracer=online, auxiliary_losses=()):
     return podracer(algorithm, wrap(environment, num_envs), num_envs, 1)
 
 
-def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), horizon=4, window=4, history=1):
+def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), num_imagined_steps=4, num_model_steps=4, num_observations=1):
     width, *_ = environment.observation_space().shape
 
     def mlp(outputs):
@@ -358,9 +358,9 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
 
     algorithm = SuperMimic(
         cfg=SuperMimicConfig(
-            horizon=horizon,
-            window=window,
-            history=history,
+            num_imagined_steps=num_imagined_steps,
+            num_model_steps=num_model_steps,
+            num_observations=num_observations,
             gamma=0.99,
             td_lambda=0.95,
             world_model_updates=4,
@@ -386,10 +386,10 @@ def super_mimic(environment, num_envs=32, podracer=online, auxiliary_losses=(), 
         ),
         buffer=fbx.make_trajectory_buffer(
             max_length_time_axis=4096 // num_envs,
-            min_length_time_axis=max(window, history + 1),
+            min_length_time_axis=max(num_model_steps, num_observations + 1),
             sample_batch_size=64,
             add_batch_size=num_envs,
-            sample_sequence_length=max(window, history + 1),
+            sample_sequence_length=max(num_model_steps, num_observations + 1),
             period=1,
         ),
         actor_optimizer=clipped(1e-3),
