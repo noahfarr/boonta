@@ -1,0 +1,7 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
+namespace: navix
+suite: lava_crossing
+env_id: Navix-LavaCrossingS9N2-v0

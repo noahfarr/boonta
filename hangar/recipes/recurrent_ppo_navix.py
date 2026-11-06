@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
@@ -12,10 +13,16 @@ from boonta.networks.layers import Flatten
 from . import schedules
 
 
+def symbolic(obs):
+    """One-hot NAVIX's symbolic grid: object tag, colour and state are categories, not magnitudes."""
+    return jnp.concatenate(
+        [jax.nn.one_hot(obs[..., channel], size) for channel, size in enumerate((16, 8, 4))], axis=-1
+    )
+
+
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
-    num_channels = len(env.observation_space().shape) == 3
     hidden_dim = cfg.cell.features
     env = instantiate(cfg.environment.auto_reset, env)
 
@@ -23,11 +30,10 @@ def make(cfg):
         feature_extractor=FeatureExtractor(
             observation_extractor=nn.Sequential(
                 [
-                    lambda obs: obs.astype(jnp.float32),
-                    (lambda obs: obs) if num_channels else (lambda obs: obs[..., None]),
-                    nn.Conv(16, (3, 3), padding="VALID"),
-                    nn.relu,
+                    symbolic,
                     Flatten(start_dim=-3),
+                    nn.Dense(256),
+                    nn.relu,
                     nn.Dense(hidden_dim),
                     nn.relu,
                 ]
