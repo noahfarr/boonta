@@ -26,6 +26,9 @@ class Navix(Environment):
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         state = self.reset(key)
+        # Symbolic observations never read NAVIX's rendering cache, which is most of a state.
+        cache = state.state.cache
+        state = state.replace(state=state.state.replace(cache=cache.replace(patches=cache.patches[:0])))
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
@@ -42,7 +45,8 @@ class Navix(Environment):
         return state, timestep
 
     def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
-        timestep = self._env.step(state, action)
+        # NAVIX's `step` traces its own reset even with autoreset off.
+        timestep = self._env._step(state, action)
         step_type = timestep.step_type
         ts = Timestep(
             obs=timestep.observation,
@@ -80,15 +84,19 @@ class Navix(Environment):
     def render(self, state: Any) -> Array:
         if self._renderer is None:
             from navix import observations
+            from navix.rendering.cache import RenderingCache
 
-            self._renderer = jax.jit(lambda timestep: observations.rgb(timestep.state))
+            self._renderer = jax.jit(
+                lambda timestep: observations.rgb(timestep.state.replace(cache=RenderingCache.init(timestep.state.grid)))
+            )
         return self._renderer(state)
 
 
 def make(env_id, seed: int | None = None, **kwargs):
+    """A NAVIX environment observed as its fully observable symbolic grid."""
     import navix
 
-    env = navix.make(env_id, **kwargs)
+    env = navix.make(env_id, observation_fn=navix.observations.symbolic, **kwargs)
     # The environments wrapped by boonta reset themselves, and NAVIX resets one
     # step late, so its own reset has to go.
     return Navix(env.replace(disable_autoreset=True), seed=seed)

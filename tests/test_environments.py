@@ -1119,22 +1119,36 @@ def test_xland_minigrid_hands_its_wrappers_an_info_dict():
 
 
 @struct.dataclass
+class NavixCache:
+    patches: jax.Array
+
+
+@struct.dataclass
+class NavixState:
+    cache: NavixCache
+
+
+@struct.dataclass
 class NavixTimestep:
     observation: jax.Array
     reward: jax.Array
     step_type: jax.Array
+    state: NavixState
 
 
 class FakeNavix:
+    """NAVIX's interface as boonta uses it: `reset`, `_step` (boonta resets itself) and a rendering cache to empty."""
+
     action_set = (0, 1, 2)
     max_steps = 3
 
     def reset(self, key):
-        return NavixTimestep(jnp.zeros((5, 5), jnp.int32), jnp.float32(0.0), jnp.int32(0))
+        state = NavixState(NavixCache(jnp.zeros((26, 8, 8, 3), jnp.uint8)))
+        return NavixTimestep(jnp.zeros((5, 5), jnp.int32), jnp.float32(0.0), jnp.int32(0), state)
 
-    def step(self, timestep, action):
+    def _step(self, timestep, action):
         step_type = jnp.where(action == 1, 2, jnp.where(action == 2, 1, 0))
-        return NavixTimestep(timestep.observation + 1, jnp.float32(1.0), step_type)
+        return NavixTimestep(timestep.observation + 1, jnp.float32(1.0), step_type, timestep.state)
 
 
 def test_navix_maps_step_types_onto_terminated_and_truncated():
@@ -1151,6 +1165,9 @@ def test_navix_maps_step_types_onto_terminated_and_truncated():
         assert bool(timestep.terminated) == terminated
         assert bool(timestep.truncated) == truncated
         assert timestep.info == {}
+    assert state.state.cache.patches.shape[0] == 0
+    stepped, _ = environment.step(jax.random.key(1), state, jnp.int32(0))
+    assert stepped.state.cache.patches.shape[0] == 0
 
 
 def test_navix_renders_the_whole_grid_as_an_image():
