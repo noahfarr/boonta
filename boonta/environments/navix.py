@@ -11,19 +11,16 @@ from .spaces import Space
 
 class Navix(Environment):
 
-    def __init__(self, env, seed: int | None = None, keep_cache: bool = False):
+    def __init__(self, env, seed: int | None = None):
         self._env = env
         self.seed = seed
-        self.keep_cache = keep_cache
         self._renderer = None
 
     def strip(self, timestep: Any) -> Any:
-        """Empties NAVIX's rendering cache, which only RGB observations and rendering read.
+        """Empties NAVIX's rendering cache, which symbolic observations never read; `render` rebuilds it from the grid.
 
         It is most of a NAVIX state (49 of 51.5 KB on DoorKey 16x16), and every state the archive keeps carries it.
         """
-        if self.keep_cache:
-            return timestep
         cache = timestep.state.cache
         return timestep.replace(state=timestep.state.replace(cache=cache.replace(patches=cache.patches[..., :0, :, :, :])))
 
@@ -104,14 +101,14 @@ class Navix(Environment):
         return self._renderer(state)
 
 
-def make(env_id, seed: int | None = None, observation: str = "symbolic", **kwargs):
-    """`observation` names a function in `navix.observations`; the default is the fully observable symbolic grid."""
+def make(env_id, seed: int | None = None, **kwargs):
+    """A NAVIX environment observed as its fully observable symbolic grid."""
     import navix
 
-    env = navix.make(env_id, observation_fn=getattr(navix.observations, observation), **kwargs)
+    env = navix.make(env_id, observation_fn=navix.observations.symbolic, **kwargs)
     # The environments wrapped by boonta reset themselves, and NAVIX resets one
     # step late, so its own reset has to go.
-    return Navix(env.replace(disable_autoreset=True), seed=seed, keep_cache=observation.startswith("rgb"))
+    return Navix(env.replace(disable_autoreset=True), seed=seed)
 
 
 def cell(env, direction: bool = False):
