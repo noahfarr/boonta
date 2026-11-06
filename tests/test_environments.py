@@ -1118,6 +1118,80 @@ def test_xland_minigrid_hands_its_wrappers_an_info_dict():
     assert timestep.info == {}
 
 
+@struct.dataclass
+class NavixTimestep:
+    observation: jax.Array
+    reward: jax.Array
+    step_type: jax.Array
+
+
+class FakeNavix:
+    action_set = (0, 1, 2)
+    max_steps = 3
+
+    def reset(self, key):
+        return NavixTimestep(jnp.zeros((5, 5), jnp.int32), jnp.float32(0.0), jnp.int32(0))
+
+    def step(self, timestep, action):
+        step_type = jnp.where(action == 1, 2, jnp.where(action == 2, 1, 0))
+        return NavixTimestep(timestep.observation + 1, jnp.float32(1.0), step_type)
+
+
+def test_navix_maps_step_types_onto_terminated_and_truncated():
+    from boonta.environments.navix import Navix
+
+    environment = Navix(FakeNavix())
+    state, timestep = environment.init(jax.random.key(0))
+    assert timestep.terminated and not timestep.truncated
+    assert environment.action_space().num_actions == 3
+    assert environment.observation_space().shape == (5, 5)
+    assert environment.time_limit() == 3
+    for action, terminated, truncated in ((0, False, False), (1, True, False), (2, False, True)):
+        _, timestep = environment.step(jax.random.key(1), state, jnp.int32(action))
+        assert bool(timestep.terminated) == terminated
+        assert bool(timestep.truncated) == truncated
+        assert timestep.info == {}
+
+
+def test_navix_renders_the_whole_grid_as_an_image():
+    navix = pytest.importorskip("navix")
+    from boonta.environments.navix import make
+
+    environment = make("Navix-Empty-5x5-v0")
+    state, _ = environment.init(jax.random.key(0))
+    image = environment.render(state)
+    assert image.dtype == jnp.uint8
+    assert image.ndim == 3 and image.shape[-1] == 3
+
+
+def test_navix_cells_tell_apart_agents_standing_in_different_places():
+    pytest.importorskip("navix")
+    from boonta.environments.navix import cell, make
+
+    environment = make("Navix-KeyCorridorS3R2-v0")
+    states, _ = jax.vmap(environment.init)(jax.random.split(jax.random.key(0), 8))
+    keys = cell(environment)(states)
+    assert keys.shape == (8,) and keys.dtype == jnp.int32
+    assert len(set(np.asarray(keys).tolist())) > 1
+
+
+def test_navix_with_a_seed_resets_to_one_layout_and_keeps_its_own_randomness():
+    pytest.importorskip("navix")
+    from boonta.environments.navix import make
+
+    keys = jax.random.split(jax.random.key(0), 4)
+    fixed, _ = jax.vmap(make("Navix-KeyCorridorS3R2-v0", seed=0).init)(keys)
+    random, _ = jax.vmap(make("Navix-KeyCorridorS3R2-v0").init)(keys)
+
+    def layouts(states):
+        positions = np.asarray(jax.vmap(lambda timestep: timestep.state.get_player().position)(states))
+        grids = np.asarray(states.state.grid).reshape(4, -1)
+        return len(set(map(tuple, np.concatenate([positions.reshape(4, -1), grids], axis=-1).tolist())))
+
+    assert layouts(fixed) == 1 and layouts(random) > 1
+    assert len(set(map(tuple, np.asarray(jax.random.key_data(fixed.state.key)).tolist()))) == 4
+
+
 def statistics_only(environment, num_envs):
     return RecordEpisodeStatistics(environment)
 

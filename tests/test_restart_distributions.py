@@ -1,4 +1,5 @@
 from dataclasses import replace
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -30,6 +31,7 @@ from boonta.curricula.psr import (
 from boonta.environments.environment import Environment
 from boonta.environments.spaces import Space
 from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.environments.wrappers import archive_auto_reset
 from boonta.environments.wrappers.archive_auto_reset import (
     ArchiveAutoReset,
     ArchiveAutoResetState,
@@ -361,6 +363,66 @@ def test_k_rounds_the_fraction_of_environments_a_curriculum_places(k, num_placed
     prioritized = replace(selector(SuccessorFootprint(), CountedRelevance()), k=k)
     assert explorer.num_placed == num_placed
     assert prioritized.num_placed(NUM_ENVS) == num_placed
+
+
+def test_merging_only_the_writers_gives_the_same_table_as_merging_every_environment():
+    archive_size, num_envs, width = 32, 64, 8
+    everyone = SuccessorRepresentation(gamma=0.75, columns=width)
+    writers = SuccessorRepresentation(gamma=0.75, columns=width, writers=16)
+    table, only_writers = everyone.init(archive_size), writers.init(archive_size)
+    for step in range(6):
+        leaving_key, landing_key, key = jax.random.split(jax.random.key(step), 3)
+        leaving = jax.random.randint(leaving_key, (num_envs,), -1, 10)
+        landing = jax.random.randint(landing_key, (num_envs,), -1, archive_size)
+        onward = landing >= 0
+        table = everyone.backup(table, leaving, landing, onward, key)
+        only_writers = writers.backup(only_writers, leaving, landing, onward, key)
+    np.testing.assert_array_equal(only_writers.columns, table.columns)
+    np.testing.assert_allclose(only_writers.weights, table.weights, rtol=1e-6)
+
+
+def test_merging_fewer_writers_than_cells_still_updates_a_subset():
+    archive_size, num_envs = 32, 64
+    writers = SuccessorRepresentation(gamma=0.75, columns=8, writers=2)
+    table = writers.init(archive_size)
+    leaving = jnp.arange(num_envs) % 10
+    table = writers.backup(table, leaving, (leaving + 1) % archive_size, jnp.ones(num_envs, bool), jax.random.key(0))
+    assert bool(jnp.all(jnp.isfinite(table.weights)))
+    assert 0 < int(jnp.sum(jnp.any(table.weights > 0.0, axis=-1))) <= 2
+
+
+class Dice(Ladder):
+    def init(self, key):
+        state = Rung(jax.random.randint(key, (), 100, 100000))
+        return state, self.frame(state, jnp.int32(0))
+
+
+def finishing(env):
+    state, _ = env.init(jax.random.key(0))
+    state = state.replace(env_state=state.env_state.replace(tag=jnp.full(NUM_ENVS, LENGTH - 1)))
+    return env.step(jax.random.key(1), state, jnp.ones(NUM_ENVS, jnp.int32))
+
+
+def starts(env):
+    state, _ = finishing(env)
+    return {int(tag) for tag in state.env_state.tag}
+
+
+def test_a_pool_hands_out_only_the_states_it_sampled_once():
+    cell_fn = lambda env: (lambda state: state.tag)
+    own = ArchiveAutoReset(Dice(), num_envs=NUM_ENVS, cell_fn=cell_fn, archive_size=32)
+    pooled = ArchiveAutoReset(
+        Dice(), num_envs=NUM_ENVS, cell_fn=cell_fn, archive_size=32,
+        fresh_fn=partial(archive_auto_reset.pool, size=3),
+    )
+    single = ArchiveAutoReset(
+        Dice(), num_envs=NUM_ENVS, cell_fn=cell_fn, archive_size=32,
+        fresh_fn=partial(archive_auto_reset.pool, size=1),
+    )
+    sampled, _ = jax.vmap(Dice().init)(jax.random.split(jax.random.key(0), 3))
+    assert starts(pooled) <= {int(tag) for tag in sampled.tag}
+    assert len(starts(single)) == 1
+    assert len(starts(own)) > 3
 
 
 def test_the_relative_efficiency_compares_the_batch_with_one_from_rho():
