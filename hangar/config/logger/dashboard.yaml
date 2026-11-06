@@ -5,3 +5,4 @@ summary:
   Algorithm: ${hydra:runtime.choices.algorithm}
   Environment: ${environment.env_id}
   Seed: ${seed}
+  Curriculum: ${hydra:runtime.choices.curriculum}

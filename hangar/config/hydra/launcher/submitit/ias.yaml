@@ -8,7 +8,8 @@ tasks_per_node: 1
 cpus_per_task: 4
 mem_per_cpu: 2G
 
-partition: stud
+partition: main
+exclude: dgx-station
 gres: "gpu:1"
 
 setup:

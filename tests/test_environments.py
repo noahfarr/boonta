@@ -18,7 +18,7 @@ from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAc
                                           LogInfo,
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
-                                          Opponent, OptimisticAutoReset,
+                                          Opponent, OptimisticAutoReset, PooledAutoReset,
                                           PadAction, PadObservation, Prompt,
                                           Reasoning, RecordEpisodeStatistics,
                                           RecordMultiAgentEpisodeStatistics,
@@ -52,6 +52,7 @@ STACKS = [
     ),
     pytest.param(lambda: NextStepAutoReset(Dial(), NUM_ENVS), id="next_step_auto_reset"),
     pytest.param(lambda: OptimisticAutoReset(Dial(), NUM_ENVS, ratio=2), id="optimistic_auto_reset"),
+    pytest.param(lambda: PooledAutoReset(Dial(), NUM_ENVS, size=3), id="pooled_auto_reset"),
     pytest.param(
         lambda: Group(SameStepAutoReset(Dial(), NUM_ENVS), num_steps=4),
         id="group",
@@ -278,6 +279,23 @@ def test_optimistic_auto_reset_restarts_every_finished_environment():
     state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 3)
     assert bool(timesteps[-1].terminated.all())
     np.testing.assert_array_equal(state.clock, 0)
+
+
+def test_pooled_auto_reset_starts_and_restarts_every_environment_from_its_pool():
+    environment = PooledAutoReset(Dial(), NUM_ENVS, size=3)
+    pool = set(np.asarray(environment.pool.noise).tolist())
+    state, _ = environment.init(jax.random.key(0))
+    assert set(np.asarray(state.noise).tolist()) <= pool
+    state, timesteps = play(environment, state, [jnp.zeros(NUM_ENVS, jnp.int32)] * 3)
+    assert bool(timesteps[-1].terminated.all())
+    np.testing.assert_array_equal(state.clock, 0)
+    assert set(np.asarray(state.noise).tolist()) <= pool
+
+
+def test_a_pool_of_one_gives_every_environment_the_same_start():
+    environment = PooledAutoReset(Dial(), NUM_ENVS, size=1)
+    state, _ = environment.init(jax.random.key(0))
+    assert len(np.unique(np.asarray(state.noise))) == 1
 
 
 def test_a_group_restarts_each_group_from_one_start():
@@ -703,6 +721,17 @@ def test_a_restart_draws_each_theta_from_the_weights():
     drawn = np.asarray(after.info["theta"])
     assert set(np.unique(drawn)) <= {0, 2}
     np.testing.assert_array_equal(games(state), np.asarray(THETA)[drawn])
+
+
+def test_with_weights_every_finished_episode_draws_its_next_theta():
+    environment, state, _ = ued(Flicker())
+    state = environment.update(
+        state, jax.random.key(2), weights=jnp.array([1.0, 0.0, 3.0]), restart=True
+    )
+    state, timesteps = play(environment, state, [idle(environment)] * 8)
+    drawn = np.stack([np.asarray(timestep.info["theta"]) for timestep in timesteps[1:]])
+    assert set(np.unique(drawn)) <= {0, 2}
+    assert len({tuple(row) for row in drawn}) > 1
 
 
 def test_a_restart_without_weights_leaves_every_game_alone():

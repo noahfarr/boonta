@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - psr
+  - override /curriculum/psr/relevance: uniform
+  - override /curriculum/psr/gain: uniform
+  - override /curriculum/psr/allocation: uniform
+  - _self_

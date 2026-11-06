@@ -92,7 +92,8 @@ class RecurrentPPO:
         log_prob = remove_time_axis(log_prob)
         value = remove_time_axis(remove_feature_axis(values))
 
-        aux = {"log_prob": log_prob, "value": value}
+        logits = jax.tree.map(remove_time_axis, getattr(dist, "logits", None))
+        aux = {"log_prob": log_prob, "value": value, "logits": logits}
         return state, carry, action, aux
 
     def update(

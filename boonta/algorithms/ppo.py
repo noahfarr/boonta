@@ -70,7 +70,11 @@ class PPO:
             state,
             carry,
             action,
-            {"log_prob": log_prob, "value": remove_feature_axis(value)},
+            {
+                "log_prob": log_prob,
+                "value": remove_feature_axis(value),
+                "logits": getattr(dist, "logits", None),
+            },
         )
 
     def update(self, state: PPOState, key: Key, transitions: Transition) -> PPOState:
@@ -92,14 +96,18 @@ class PPO:
             clip_fraction = jnp.mean(
                 (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
             )
-            actor_loss = -jnp.minimum(
-                ratio * advantages,
-                jnp.clip(
-                    ratio,
-                    1.0 - self.cfg.clip_coefficient,
-                    1.0 + self.cfg.clip_coefficient,
+            info = transitions.second.info if isinstance(transitions.second.info, dict) else {}
+            actor_loss = -(
+                transitions.aux.get("weight", info.get("sample_weight", 1.0))
+                * jnp.minimum(
+                    ratio * advantages,
+                    jnp.clip(
+                        ratio,
+                        1.0 - self.cfg.clip_coefficient,
+                        1.0 + self.cfg.clip_coefficient,
+                    )
+                    * advantages,
                 )
-                * advantages,
             ).mean()
 
             value = remove_feature_axis(value)

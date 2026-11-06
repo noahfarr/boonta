@@ -1,0 +1,4 @@
+# @package artisans.overlay
+_target_: boonta.artisans.Overlay
+name: overlay
+tile: 16

@@ -52,30 +52,41 @@ class UED(Wrapper):
 
         return jax.tree.map(select, started, env_state), chosen, obs
 
+    def draw_theta(self, key: Key, state: UEDState) -> Array:
+        weighted = state.weights.sum() > 0
+        num_slots, *_ = state.weights.shape
+        sampled = jax.random.choice(
+            key,
+            num_slots,
+            (self.num_envs,),
+            p=jnp.where(weighted, state.weights, 1.0),
+        ).astype(jnp.int32)
+        return jnp.where(weighted, sampled, -1)
+
     def replay_finished(self, key: Key, state: UEDState, env_state, timestep: Timestep):
         done = timestep.done.reshape(self.num_envs, -1).all(axis=-1)
+        draw_key, start_key = jax.random.split(key)
+        index = state.playing
+        if state.weights is not None:
+            drawn = self.draw_theta(draw_key, state)
+            index = jnp.where((drawn >= 0) & (state.playing >= 0), drawn, state.playing)
         env_state, chosen, obs = self.start_theta(
-            key, state, env_state, state.playing, done
+            start_key, state, env_state, index, done
         )
         obs = jax.tree.map(
             lambda fresh, leaf: jnp.where(broadcast(chosen, leaf), fresh, leaf),
             obs,
             timestep.obs,
         )
-        return env_state, timestep.replace(obs=obs)
+        playing = jnp.where(chosen, index, state.playing)
+        return env_state, timestep.replace(obs=obs), playing
 
-    def restart_theta(self, key: Key, state: UEDState, env_state, timestep: Timestep):
+    def restart_theta(
+        self, key: Key, state: UEDState, env_state, timestep: Timestep, playing: Array
+    ):
         drawn = jnp.full(self.num_envs, -1, jnp.int32)
         if state.weights is not None:
-            weighted = state.weights.sum() > 0
-            num_slots, *_ = state.weights.shape
-            sampled = jax.random.choice(
-                key,
-                num_slots,
-                (self.num_envs,),
-                p=jnp.where(weighted, state.weights, 1.0),
-            ).astype(jnp.int32)
-            drawn = jnp.where(weighted, sampled, drawn)
+            drawn = self.draw_theta(key, state)
         index = jnp.where(state.assigned, state.upcoming, drawn)
         env_state, chosen, obs = self.start_theta(
             jax.random.fold_in(key, 1),
@@ -93,24 +104,24 @@ class UED(Wrapper):
             broadcast(chosen, timestep.truncated) & ~timestep.terminated
         )
         timestep = timestep.replace(obs=obs, truncated=truncated)
-        return env_state, timestep, jnp.where(chosen, index, state.playing)
+        return env_state, timestep, jnp.where(chosen, index, playing)
 
     def step(self, key: Key, state: UEDState, action: Array) -> tuple[UEDState, Timestep]:
         env_state, timestep = self._env.step(key, state.env_state, action)
         if state.theta is not None:
-            env_state, timestep = jax.lax.cond(
+            env_state, timestep, playing = jax.lax.cond(
                 jnp.any(state.playing >= 0),
                 lambda: self.replay_finished(
                     jax.random.fold_in(key, 2), state, env_state, timestep
                 ),
-                lambda: (env_state, timestep),
+                lambda: (env_state, timestep, state.playing),
             )
             env_state, timestep, playing = jax.lax.cond(
                 state.restarting,
                 lambda: self.restart_theta(
-                    jax.random.fold_in(key, 1), state, env_state, timestep
+                    jax.random.fold_in(key, 1), state, env_state, timestep, playing
                 ),
-                lambda: (env_state, timestep, state.playing),
+                lambda: (env_state, timestep, playing),
             )
         else:
             playing = state.playing
@@ -141,8 +152,11 @@ class UED(Wrapper):
             state = state.replace(theta=theta)
         if weights is not None:
             state = state.replace(weights=jnp.asarray(weights, jnp.float32))
-        if restart:
-            state = state.replace(restarting=jnp.bool_(True), assigned=jnp.bool_(False))
+        if restart is not False:
+            restart = jnp.asarray(restart, bool)
+            state = state.replace(
+                restarting=state.restarting | restart, assigned=state.assigned & ~restart
+            )
         if assign is not None:
             state = state.replace(
                 restarting=jnp.bool_(True),

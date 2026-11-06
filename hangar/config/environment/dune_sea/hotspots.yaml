@@ -1,0 +1,11 @@
+namespace: dune_sea
+suite: hotspots
+env_id: hotspots
+kwargs:
+  width: 15
+  num_hotspots: 8
+  nearest: 2
+  farthest: 12
+  control: 0.0
+  horizon: 200
+  seed: 0

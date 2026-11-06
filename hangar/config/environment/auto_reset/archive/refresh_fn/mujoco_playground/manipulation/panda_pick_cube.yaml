@@ -1,0 +1,2 @@
+_target_: boonta.environments.mujoco_playground.restart_clock
+_partial_: true

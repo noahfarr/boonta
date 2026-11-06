@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - /hyperparameters/recurrent_ppo/jaxued/cartpole
+  - _self_
+
+curriculum:
+  generate_level:
+    _target_: boonta.environments.jaxued.control_generator
+    env_id: ${environment.env_id}

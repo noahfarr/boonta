@@ -2,6 +2,7 @@
 
 num_steps: 50_000_000
 reward_scale: 1000.0
+clip_reward: false
 
 environment:
   num_envs: 4096

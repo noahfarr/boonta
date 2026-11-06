@@ -31,7 +31,7 @@ uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 | `environment` | paths under `config/environment/`, for example `gymnax/minatar/breakout` | `gymnax/minatar/breakout` |
 | `podracer` | `anakin` (on-policy), `sebulba` (actor/learner split), `quadinaros` (offline) | `anakin` |
 | `logger` | `dashboard`, `file`, `wandb`, `orbax` | `dashboard` |
-| `artisan` | `checkpoint`, `render` (plays the first environment greedily each epoch and draws it as a GIF; needs an environment with `render`), `transcript` | none |
+| `artisan` | `checkpoint`, `render` (plays the first environment greedily each epoch and draws it as a GIF; needs an environment with `render`), `transcript`, `plot` (draws the mean episode return of each epoch as a PNG; needs matplotlib, from `--extra plot`) | none |
 | `torso`, `stack`, `cell` | recurrent network parts | set by the recurrent algorithms |
 | `buffer` | `transition`, `trajectory`, `episode`, `prioritised_episode` (the last two need `buffer.sample_sequence_length`) | set by the replay algorithms |
 | `curriculum` | `default` | `default` |

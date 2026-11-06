@@ -25,7 +25,6 @@ def main(cfg):
     start = time.monotonic()
     scores = []
     podracer = recipes.make(cfg)
-    algorithm, environment = podracer.algorithm, podracer.environment
 
     num_updates = int(cfg.num_steps) // (podracer.batch_size * cfg.num_epochs)
     assert num_updates >= 1, (
@@ -77,7 +76,7 @@ def main(cfg):
         seed = step & 0xFFFFFFFF
         keys = jax.random.split(jax.random.fold_in(craft_key, seed), max(len(artisans), 1))
         for key, artisan in zip(keys, artisans):
-            logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
+            logger.log_artifact(artisan.craft(key, podracer, state, logs), step)
 
     try:
         data = {}
@@ -93,6 +92,7 @@ def main(cfg):
                     value
                 ).reshape(1, 1)
                 for name, value in logs.items()
+                if "/" in name
             }
             monitor.stop()
 

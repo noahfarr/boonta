@@ -34,7 +34,10 @@ class Render:
                 environment_key, environment_state, action
             )
             return (algorithm_state, carry, environment_state, timestep), (
-                jax.tree.map(lambda leaf: jnp.take(leaf, 0, axis=0), environment_state),
+                jax.tree.map(
+                    lambda leaf: jnp.take(leaf, 0, axis=0),
+                    getattr(environment_state, "unwrapped", environment_state),
+                ),
                 jnp.all(jnp.take(timestep.done, 0, axis=0)),
             )
 
@@ -46,10 +49,17 @@ class Render:
         environment.close(environment_state)
         return trajectory, done
 
-    def craft(self, key, algorithm, environment, state, logs) -> Video:
+    def craft(self, key, podracer, podracer_state, logs) -> Video:
+        algorithm, environment = podracer.algorithm, podracer.environment
+        try:
+            from matplotlib import pyplot
+
+            pyplot.switch_backend("Agg")
+        except ImportError:
+            pass
         trajectory, done = jax.device_get(
             jax.jit(partial(self.rollout, algorithm, environment))(
-                state.algorithm_state, key
+                podracer_state.algorithm_state, key
             )
         )
         num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)

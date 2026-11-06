@@ -1,0 +1,4 @@
+namespace: jumanji
+suite: snake
+env_id: Snake-v1
+kwargs: {}

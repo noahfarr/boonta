@@ -1,0 +1,3 @@
+# @package artisans.hotspots
+_target_: boonta.environments.dune_sea.hotspots.Scorecard
+name: hotspots

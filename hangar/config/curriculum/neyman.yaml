@@ -1,0 +1,17 @@
+# @package _global_
+
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.neyman.make
+  _partial_: true
+  relevance: true
+  rho_share: 0.25
+  importance_weights: false
+  max_weight: 10.0
+  history_length: 100.0
+  prior_count: 2.0
+  rate: 0.1
+  gamma: ${algorithm.gamma}

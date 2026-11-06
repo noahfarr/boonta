@@ -4,7 +4,7 @@ import jax
 import numpy as np
 import wandb
 
-from boonta.artisans import Checkpoint, Metrics, Text, Video
+from boonta.artisans import Checkpoint, Image, Metrics, Text, Video
 from boonta.utils import PyTree
 
 
@@ -90,6 +90,10 @@ class WandbLogger:
             html = wandb.Html(f"<pre>{artifact.data}</pre>")
             for run in self.runs.values():
                 run.log({artifact.name: html}, step=step)
+        elif isinstance(artifact, Image):
+            image = wandb.Image(np.asarray(artifact.data, dtype=np.uint8))
+            for run in self.runs.values():
+                run.log({artifact.name: image}, step=step)
         elif isinstance(artifact, Video):
             import tempfile
 

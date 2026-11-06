@@ -153,3 +153,31 @@ def make(
     )
     snapshot = smb.opening(pool, tuple(stage) if stage is not None else None)
     return SuperMarioBros(pool, snapshot, moves, **kwargs)
+
+
+def cell(env, cell_x: int = 64, cell_y: int = 64, lives: bool = True):
+    from pynes import smb
+
+    def key(env_state):
+        ram = env_state.ram
+        parts = [
+            smb.x_position(ram) // cell_x,
+            smb.y_position(ram) // cell_y,
+            smb.world(ram),
+            smb.stage(ram),
+            smb.powerup_level(ram),
+        ]
+        if lives:
+            parts.append(smb.lives(ram))
+        tag = jnp.zeros_like(parts[0], dtype=jnp.int32)
+        for part in parts:
+            tag = tag * jnp.int32(1000003) + part.astype(jnp.int32)
+        return tag * jnp.int32(1664525)
+
+    return key
+
+
+def grounded(env):
+    from pynes import smb
+
+    return lambda env_state: smb.grounded(env_state.ram) & ~smb.dead(env_state.ram)

@@ -31,6 +31,8 @@ Podracers never call `init` in the middle of training, so a finished episode mus
 
 A game with free parameters, such as Kinetix's levels, takes `update(state, key, theta=...)`. It means "play this theta from its start": it starts a new episode, while every other `update` keyword changes settings without ending one. [`UED`](wrappers/ued.py) marks the boundary. It takes the first observation from `observe` and truncates the step it cuts.
 
+Given a set of theta, `UED` plays it in one of two ways. With `assign`, it cuts every episode, starts each environment on its assigned theta, and replays that theta whenever the episode ends, as PLR does. With `weights`, every finished episode draws its next theta from the weights, as SGS does, and `restart` cuts every episode once to draw them all.
+
 `update` always takes a key, right after the state. A game that needs randomness to start a theta, such as a pole whose first angle is drawn, uses it, and every other game ignores it. [`Vectorize`](wrappers/vectorize.py) passes the state, the key and the settings straight to the game, unvmapped, and [`UED`](wrappers/ued.py) vmaps over the environments itself with one key and one theta each. A caller passes a key it already holds, such as the key a podracer hands its `pit`.
 
 ## Wrappers
@@ -113,7 +115,7 @@ Its `step` moves the agent, sets `terminated` when it arrives and `truncated` wh
 [`gymnasium.py`](gymnasium.py) runs any Gymnasium vector environment, so a simulator written in Python needs no port. Every step crosses to the host through `io_callback`, which costs about 200 µs, so it suits simulators that take milliseconds per step. The vector environment must reset in `AutoresetMode.SAME_STEP`. `make` sets that up and returns a `Batched` environment:
 
 ```bash
-uv run boonta algorithm=ppo environment=gymnasium/cartpole
+uv run boonta train algorithm=ppo environment=gymnasium/cartpole
 ```
 
 ### C or C++ through FFI

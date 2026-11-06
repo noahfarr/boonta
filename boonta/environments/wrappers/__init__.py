@@ -14,6 +14,7 @@ from .normalize_observation import (NormalizeObservation,
                                     NormalizeObservationState)
 from .opponent import Opponent, OpponentState
 from .optimistic_auto_reset import OptimisticAutoReset
+from .pooled_auto_reset import PooledAutoReset
 from .normalize_reward import NormalizeReward, NormalizeRewardState
 from .pad_action import PadAction
 from .pad_observation import PadObservation
@@ -64,6 +65,7 @@ __all__ = [
     "OpponentState",
     "NormalizeRewardState",
     "OptimisticAutoReset",
+    "PooledAutoReset",
     "PadAction",
     "PadObservation",
     "Prompt",

@@ -1,0 +1,2 @@
+_target_: boonta.environments.mujoco_playground.pick_cube_progress
+_partial_: true

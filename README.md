@@ -44,6 +44,7 @@ boonta is built to scale reinforcement learning up, in compute and in models. Tr
 
 **Curricula**
 - [PLR](https://arxiv.org/abs/2110.02439) replays the levels the agent learns most from
+- [SGS](https://arxiv.org/abs/2610.12465) samples a fixed pool of tasks by how close their success rate is to a target
 - League trains against a pool of earlier policies: self-play, fictitious self-play, prioritised fictitious self-play and [PSRO](https://arxiv.org/abs/1711.00832)
 
 ## Compared with other libraries

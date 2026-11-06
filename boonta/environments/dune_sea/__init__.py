@@ -1,12 +1,14 @@
 from . import wordle
 from .chain_of_forks import ChainOfForks, ChainOfForksState
 from .connectx import ConnectX, ConnectXState
+from .hotspots import Hotspots, HotspotsState
 from .t_maze import TMaze, TMazeState
 from .wordle import Wordle
 
 registry = {
     "chain_of_forks": ChainOfForks,
     "connectx": ConnectX,
+    "hotspots": Hotspots,
     "t_maze": TMaze,
     "wordle": wordle.make,
 }
@@ -21,6 +23,8 @@ __all__ = [
     "ChainOfForksState",
     "ConnectX",
     "ConnectXState",
+    "Hotspots",
+    "HotspotsState",
     "TMaze",
     "TMazeState",
     "Wordle",

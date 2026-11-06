@@ -1,0 +1,6 @@
+# @package artisans.plot
+_target_: boonta.artisans.Plot
+name: episode_return
+key: episode_statistics/episode_return
+xlabel: Epoch
+ylabel: Episode return
