@@ -18,19 +18,17 @@ class Navix(Environment):
 
     def reset(self, key: Key) -> Any:
         if self.seed is None:
-            timestep = self._env.reset(key)
-        else:
-            # Every reset builds the layout of one seed, which does not depend on the key and so is computed once
-            # for a whole batch. The environment's own randomness still follows the key.
-            timestep = self._env.reset(jax.random.key(self.seed))
-            timestep = timestep.replace(state=timestep.state.replace(key=key))
-        # NAVIX's rendering cache is most of a state (49 of 51.5 KB on DoorKey 16x16) and every state the archive keeps
-        # carries it. Symbolic observations never read it, `_step` passes it on unchanged, and `render` rebuilds it.
-        cache = timestep.state.cache
-        return timestep.replace(state=timestep.state.replace(cache=cache.replace(patches=cache.patches[:0])))
+            return self._env.reset(key)
+        # Every reset builds the layout of one seed, which does not depend on the key and so is computed once
+        # for a whole batch. The environment's own randomness still follows the key.
+        timestep = self._env.reset(jax.random.key(self.seed))
+        return timestep.replace(state=timestep.state.replace(key=key))
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         state = self.reset(key)
+        # Symbolic observations never read NAVIX's rendering cache, which is most of a state.
+        cache = state.state.cache
+        state = state.replace(state=state.state.replace(cache=cache.replace(patches=cache.patches[:0])))
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
         _, shapes = jax.eval_shape(self.step, key, state, action)
@@ -47,9 +45,7 @@ class Navix(Environment):
         return state, timestep
 
     def step(self, key: Key, state: Any, action: Array) -> tuple[Any, Timestep]:
-        # NAVIX's `step` wraps `_step` in a cond with its own reset, traced even with autoreset disabled; boonta resets
-        # itself, and some layouts (LavaCrossing) rebuild the rendering cache in that reset, so the branches would
-        # disagree on an emptied cache.
+        # NAVIX's `step` traces its own reset even with autoreset off.
         timestep = self._env._step(state, action)
         step_type = timestep.step_type
         ts = Timestep(
@@ -90,11 +86,9 @@ class Navix(Environment):
             from navix import observations
             from navix.rendering.cache import RenderingCache
 
-            def rgb(timestep):
-                state = timestep.state
-                return observations.rgb(state.replace(cache=RenderingCache.init(state.grid)))
-
-            self._renderer = jax.jit(rgb)
+            self._renderer = jax.jit(
+                lambda timestep: observations.rgb(timestep.state.replace(cache=RenderingCache.init(timestep.state.grid)))
+            )
         return self._renderer(state)
 
 
