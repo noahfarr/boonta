@@ -16,21 +16,18 @@ class Navix(Environment):
         self.seed = seed
         self._renderer = None
 
-    def strip(self, timestep: Any) -> Any:
-        """Empties NAVIX's rendering cache, which symbolic observations never read; `render` rebuilds it from the grid.
-
-        It is most of a NAVIX state (49 of 51.5 KB on DoorKey 16x16), and every state the archive keeps carries it.
-        """
-        cache = timestep.state.cache
-        return timestep.replace(state=timestep.state.replace(cache=cache.replace(patches=cache.patches[..., :0, :, :, :])))
-
     def reset(self, key: Key) -> Any:
         if self.seed is None:
-            return self.strip(self._env.reset(key))
-        # Every reset builds the layout of one seed, which does not depend on the key and so is computed once
-        # for a whole batch. The environment's own randomness still follows the key.
-        timestep = self._env.reset(jax.random.key(self.seed))
-        return self.strip(timestep.replace(state=timestep.state.replace(key=key)))
+            timestep = self._env.reset(key)
+        else:
+            # Every reset builds the layout of one seed, which does not depend on the key and so is computed once
+            # for a whole batch. The environment's own randomness still follows the key.
+            timestep = self._env.reset(jax.random.key(self.seed))
+            timestep = timestep.replace(state=timestep.state.replace(key=key))
+        # NAVIX's rendering cache is most of a state (49 of 51.5 KB on DoorKey 16x16) and every state the archive keeps
+        # carries it. Symbolic observations never read it, `_step` passes it on unchanged, and `render` rebuilds it.
+        cache = timestep.state.cache
+        return timestep.replace(state=timestep.state.replace(cache=cache.replace(patches=cache.patches[:0])))
 
     def init(self, key: Key) -> tuple[Any, Timestep]:
         state = self.reset(key)
@@ -53,7 +50,7 @@ class Navix(Environment):
         # NAVIX's `step` wraps `_step` in a cond with its own reset, traced even with autoreset disabled; boonta resets
         # itself, and some layouts (LavaCrossing) rebuild the rendering cache in that reset, so the branches would
         # disagree on an emptied cache.
-        timestep = self.strip(self._env._step(state, action))
+        timestep = self._env._step(state, action)
         step_type = timestep.step_type
         ts = Timestep(
             obs=timestep.observation,

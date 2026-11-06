@@ -1166,6 +1166,8 @@ def test_navix_maps_step_types_onto_terminated_and_truncated():
         assert bool(timestep.truncated) == truncated
         assert timestep.info == {}
     assert state.state.cache.patches.shape[0] == 0
+    stepped, _ = environment.step(jax.random.key(1), state, jnp.int32(0))
+    assert stepped.state.cache.patches.shape[0] == 0
 
 
 def test_navix_renders_the_whole_grid_as_an_image():
