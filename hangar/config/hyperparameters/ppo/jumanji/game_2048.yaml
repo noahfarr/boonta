@@ -1,0 +1,37 @@
+# @package _global_
+
+# PufferLib's tuned 2048 settings (config/g2048.ini), carried over to feedforward PPO.
+
+num_steps: 340_000_000
+
+num_epochs: 50
+
+environment:
+  num_envs: 4096
+
+podracer:
+  config:
+    num_steps: 64  # horizon
+
+network:
+  features: 256  # PufferLib uses 1024 x 5, which caps feedforward PPO near 1M sps
+  layers: 2
+
+algorithm:
+  # A 4096 x 64 batch in minibatches of 65536, seen about once (replay_ratio = 1.48).
+  num_minibatches: 4
+  update_epochs: 1
+  clip_coefficient: 0.1
+  clip_value_loss: True
+  entropy_coefficient: 0.023
+  value_coefficient: 0.82
+  gamma: 0.9956
+  gae_lambda: 0.859
+  normalize_advantage: True
+
+optimizer:
+  lr: 0.00208
+  beta: 0.984  # momentum
+  anneal: true
+  alpha: 0.0
+  max_grad_norm: 0.80

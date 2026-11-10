@@ -78,6 +78,26 @@ def snake(env, bucket: int = 4, fruit: bool = False):
     return cell
 
 
+def game_2048(env, bucket: int = 32):
+    """Groups 2048 states by their age, the bucketed sum of the tiles, and their largest tile.
+
+    Every move that changes the board spawns a 2 or a 4 and merges keep the sum, so the sum
+    counts how far into the game a board is. The exponent of the largest tile says which stage
+    of the game it has reached.
+    """
+
+    def cell(env_state):
+        board = env_state.board
+        tiles = jnp.where(board > 0, jnp.left_shift(1, board), 0)
+        age = jnp.sum(tiles, axis=(-2, -1)) // bucket
+        largest = jnp.max(board, axis=(-2, -1))
+        return (age.astype(jnp.int32) * jnp.int32(1000003) + largest.astype(jnp.int32)) * jnp.int32(
+            1664525
+        )
+
+    return cell
+
+
 class Jumanji(Environment):
     def __init__(
         self,
@@ -88,6 +108,8 @@ class Jumanji(Environment):
         pulled: float = 0.5,
     ):
         self._env = env
+        # Board games such as Game2048 observe a board of integers and carry their legal moves.
+        self._board = hasattr(env.observation_spec, "board")
         self._fixed = fixed
         self._pool = pool
         self._pulls = pulls
@@ -102,6 +124,8 @@ class Jumanji(Environment):
         return key
 
     def stack(self, observation) -> Array:
+        if self._board:
+            return {"board": observation.board, "mask": observation.action_mask}
         grid = observation.grid
         clock = jnp.broadcast_to(
             jnp.asarray(observation.step_count, grid.dtype), grid.shape[:-1] + (1,)
@@ -109,6 +133,8 @@ class Jumanji(Environment):
         return jnp.concatenate([grid, clock], axis=-1)
 
     def observe(self, state) -> Array:
+        if self._board:
+            return {"board": state.board, "mask": state.action_mask}
         return self.stack(self._env._state_to_observation(state))
 
     def frame(self, timestep, action: Array) -> Timestep:
@@ -147,7 +173,16 @@ class Jumanji(Environment):
         state, timestep = self._env.step(state, action)
         return state, self.frame(timestep, action)
 
-    def observation_space(self) -> Space:
+    def observation_space(self) -> Space | dict[str, Space]:
+        if self._board:
+            spec = self._env.observation_spec.board
+            rows, columns = spec.shape
+            # A board of n cells holds tiles up to 2**(n + 1), stored as their exponents.
+            mask = self._env.observation_spec.action_mask
+            return {
+                "board": Space(shape=spec.shape, dtype=spec.dtype, low=0, high=rows * columns + 1),
+                "mask": Space(shape=mask.shape, dtype=jnp.bool_, low=0, high=1),
+            }
         spec = self._env.observation_spec.grid
         shape = spec.shape[:-1] + (spec.shape[-1] + 1,)
         return Space(shape=shape, dtype=spec.dtype, low=0, high=255)
@@ -158,7 +193,14 @@ class Jumanji(Environment):
             shape=(), dtype=jnp.int32, low=0, high=spec.num_values - 1
         )
 
+    def action_mask(self, state) -> Array | None:
+        if self._board:
+            return state.action_mask
+        return super().action_mask(state)
+
     def time_limit(self) -> int:
+        if not hasattr(self._env, "time_limit"):
+            raise NotImplementedError(f"{type(self._env).__name__} has no time limit")
         return int(self._env.time_limit)
 
     def render(self, state) -> np.ndarray:

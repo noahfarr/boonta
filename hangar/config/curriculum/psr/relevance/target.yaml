@@ -1,0 +1,6 @@
+# @package _global_.curriculum.selector.relevance
+_target_: boonta.curricula.psr.TargetRelevance
+checkpoint: ???
+num_steps: 1_000
+temperature: 1.0
+seed: ${seed}

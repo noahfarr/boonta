@@ -1,0 +1,3 @@
+_target_: boonta.environments.jumanji.game_2048
+_partial_: true
+bucket: 32

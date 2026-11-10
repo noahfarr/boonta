@@ -2,6 +2,7 @@ num_steps: 5_000_000
 seed: ${trial:}
 num_processes: 1
 checkpoint: null
+groups: ${groups:}
 
 num_epochs: 10
 

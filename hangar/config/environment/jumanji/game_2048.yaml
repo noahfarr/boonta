@@ -1,0 +1,7 @@
+namespace: jumanji
+suite: game_2048
+env_id: Game2048-v1
+num_envs: 1024
+time_limit: 10_000  # moves; a 16384 tile takes about 8000
+kwargs:
+  board_size: 4

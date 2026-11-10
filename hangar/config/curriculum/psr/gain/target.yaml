@@ -1,0 +1,8 @@
+# @package _global_.curriculum.selector.gain
+_target_: boonta.curricula.psr.TargetAdvantage
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+# The same trained policy the relevance targets; set it here when the relevance is not target.
+checkpoint: ${oc.select:curriculum.selector.relevance.checkpoint,null}
+seed: ${seed}

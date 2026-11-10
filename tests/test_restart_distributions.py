@@ -536,3 +536,38 @@ def test_a_gated_selector_leaves_every_environment_at_rho_when_every_cell_is_wor
     _, archive_auto_reset_state, _, _ = train(gated)
     assert not bool(jnp.any(archive_auto_reset_state.assigned_slots >= 0))
     assert not bool(jnp.any(archive_auto_reset_state.due_mask))
+
+
+def test_a_target_relevance_weighs_each_slot_by_how_often_the_trained_policy_stood_in_its_cell():
+    from boonta.curricula.psr import TargetRelevance, fold
+
+    relevance = TargetRelevance(checkpoint="unused")
+    visited = jnp.array([[3], [7], [7], [7]], jnp.int32)
+    keys, counts = np.unique(np.asarray(fold(visited)), return_counts=True)
+    relevance.keys = jnp.asarray(keys)
+    relevance.weights = jnp.asarray(counts / counts.sum(), jnp.float32)
+
+    archive_keys = jnp.array([[7], [3], [5], [0]], jnp.int32)
+    mask = jnp.array([True, True, True, False])
+    weights = relevance(None, None, jnp.zeros(4), keys=archive_keys, mask=mask)
+
+    np.testing.assert_allclose(weights, [0.75, 0.25, 0.0, 0.0])
+
+
+def test_a_target_advantage_is_the_learners_advantage_for_the_targets_actions_and_never_negative():
+    from boonta.curricula.psr import TargetAdvantage, TargetState
+
+    gain = TargetAdvantage(checkpoint="unused")
+    table = jnp.zeros((2, 2))
+    state = TargetState(
+        action_counts=jnp.ones((2, 2)),
+        advantage_sums=jnp.array([[2.0, 0.0], [2.0, 0.0]]),
+        square_sums=table,
+        probability_sums=table,
+        cell_visits=jnp.array([2.0, 2.0]),
+        scale=jnp.zeros(()),
+        target_sums=jnp.array([[1.8, 0.2], [0.2, 1.8]]),
+        target=None,
+    )
+
+    np.testing.assert_allclose(gain(state), [0.8, 0.0], atol=1e-6)

@@ -53,7 +53,8 @@ def get_group(_root_):
 
 def groups():
     choices = HydraConfig.get().runtime.choices
-    return {k: v for k, v in choices.items() if not k.startswith("hydra/")}
+    # A DictConfig, not a dict, so OmegaConf.resolve can store it in place.
+    return OmegaConf.create({k: v for k, v in choices.items() if not k.startswith("hydra/")})
 
 
 OmegaConf.register_new_resolver("eval", eval)

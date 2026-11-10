@@ -189,6 +189,10 @@ ADAPTERS = [
     pytest.param("dune_sea", "chain_of_forks", {"depth": 6}, id="chain_of_forks"),
     pytest.param("dune_sea", "t_maze", {"length": 4}, id="t_maze"),
     pytest.param(
+        "jumanji", "Game2048-v1", {}, id="jumanji_2048",
+        marks=pytest.mark.skipif(missing("jumanji"), reason="needs jumanji"),
+    ),
+    pytest.param(
         "jaxued", "Maze", {}, id="jaxued_maze",
         marks=pytest.mark.skipif(missing("jaxued"), reason="needs jaxued"),
     ),
@@ -1084,6 +1088,84 @@ def sokoban(**kwargs):
 def test_a_jumanji_episode_opens_with_a_start_flag():
     _, timestep = sokoban().init(jax.random.key(0))
     assert bool(timestep.terminated) and not bool(timestep.truncated)
+
+
+def test_jumanji_2048_observes_its_board_and_masks_moves_that_change_nothing():
+    pytest.importorskip("jumanji")
+    from boonta.environments import jumanji
+
+    game = jumanji.make("Game2048-v1")
+    state, timestep = game.init(jax.random.key(0))
+    space = game.observation_space()
+    assert timestep.obs["board"].shape == space["board"].shape == (4, 4)
+    assert timestep.obs["mask"].shape == space["mask"].shape == (4,)
+    assert bool(timestep.terminated)
+    assert (timestep.obs["mask"] == game.action_mask(state)).all()
+
+    def play(carry, key):
+        state, done = carry
+        act_key, step_key = jax.random.split(key)
+        mask = game.action_mask(state)
+        action = jax.random.categorical(act_key, jnp.where(mask, 0.0, -jnp.inf))
+        after, timestep = game.step(step_key, state, action)
+        moved = jnp.any(after.board != state.board)
+        after = jax.tree.map(lambda new, old: jnp.where(done, old, new), after, state)
+        return (after, done | timestep.terminated), (moved | done, timestep.reward * ~done)
+
+    @jax.jit
+    def rollout(key):
+        state, _ = game.init(key)
+        (_, done), (moved, rewards) = jax.lax.scan(
+            play, (state, jnp.bool_(False)), jax.random.split(key, 2000)
+        )
+        return done, moved.all(), rewards.sum()
+
+    done, moved, returns = jax.vmap(rollout)(jax.random.split(jax.random.key(1), 8))
+    assert done.all(), "random legal play locks every board within 2000 moves"
+    assert moved.all(), "every move the mask allows changes the board"
+    assert (returns > 0).all()
+
+
+def test_a_2048_cell_is_the_bucketed_tile_sum_and_the_largest_tile():
+    pytest.importorskip("jumanji")
+    from boonta.environments import jumanji
+
+    cell = jumanji.game_2048(env=None, bucket=32)
+
+    def board(rows):
+        return Grid2048(board=jnp.array(rows, jnp.int32))
+
+    # Exponents: 1 is a 2, 5 is a 32. Both boards sum to 64 and top out at 32.
+    spread = board([[5, 4, 3, 2], [1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+    packed = board([[0, 0, 0, 0], [0, 5, 0, 0], [0, 0, 4, 3], [2, 0, 1, 1]])
+    assert int(cell(spread)) == int(cell(packed))
+    # The same sum with a 16 for the largest tile lands in another cell.
+    flatter = board([[4, 4, 4, 4], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+    assert int(cell(flatter)) != int(cell(spread))
+    # One more 2 stays in the bucket, enough tiles to cross into the next one do not.
+    assert int(cell(board([[5, 4, 3, 2], [1, 1, 1, 0], [0] * 4, [0] * 4]))) == int(cell(spread))
+    assert int(cell(board([[5, 5, 5, 0], [0] * 4, [0] * 4, [0] * 4]))) != int(cell(spread))
+    batch = Grid2048(board=jnp.stack([spread.board, packed.board, flatter.board]))
+    assert cell(batch).shape == (3,)
+
+
+def test_the_archive_restarts_jumanji_2048_from_its_cells():
+    pytest.importorskip("jumanji")
+    from boonta.environments import jumanji
+    from boonta.environments.wrappers.archive_auto_reset import ArchiveAutoReset
+
+    env = ArchiveAutoReset(jumanji.make("Game2048-v1"), num_envs=4, cell_fn=jumanji.game_2048, archive_size=64)
+    state, timestep = env.init(jax.random.key(0))
+    step = jax.jit(env.step)
+    for key in jax.random.split(jax.random.key(1), 50):
+        state, timestep = step(key, state, jnp.zeros(4, jnp.int32))
+    assert timestep.obs["board"].shape == (4, 4, 4)
+    assert (timestep.obs["mask"] == env.action_mask(state)).all()
+
+
+@struct.dataclass
+class Grid2048:
+    board: jax.Array
 
 
 @struct.dataclass

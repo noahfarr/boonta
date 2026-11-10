@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import lox
+import numpy as np
 import optax
 from flax import struct
 
@@ -392,6 +394,77 @@ class UniformGain(Advantage):
 
 
 @struct.dataclass
+class TargetState(GainState):
+    target_sums: Array
+    target: PyTree
+
+
+@dataclass
+class TargetAdvantage(Advantage):
+    """The learner's advantage for the actions an already trained policy would take.
+
+    By the performance-difference lemma, J(target) - J(learner) is the expectation, over the
+    target's visitation, of sum_a target(a|x) A(x, a). Paired with TargetRelevance, a cell scores
+    its share of that gap. The target's action probabilities are measured on the states the
+    learner visits in each cell and averaged per cell like the learner's own. A cell where the
+    learner's own choice beats the target's has a negative advantage there and gains nothing.
+    Actions the learner never took in a cell have no advantage estimate and count as zero.
+
+    The checkpoint must come from the same recipe, so its parameters fit the learner's network.
+    The target is fed the learner's recurrent carry, so the measurement is exact only for
+    feedforward policies.
+    """
+
+    checkpoint: str | None = None
+    seed: int = 0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        assert self.checkpoint is not None, (
+            "TargetAdvantage needs a checkpoint: use relevance=target or set gain.checkpoint"
+        )
+        self.algorithm = algorithm
+        self.target, *_ = restore_policy(
+            algorithm, environment, self.checkpoint, jax.random.key(self.seed)
+        )
+
+    def __call__(self, state: TargetState) -> Array:
+        present_mask = state.action_counts > 0.0
+        target_probs = state.target_sums / jnp.maximum(state.cell_visits, 1e-12)[:, None]
+        advantage = jnp.sum(jnp.where(present_mask, target_probs * self.centre(state), 0.0), axis=-1)
+        return jnp.maximum(advantage, 0.0)
+
+    def init(self, archive_size: int, num_actions: int) -> TargetState:
+        assert hasattr(self, "target"), "TargetAdvantage needs prepare before it is used"
+        state = super().init(archive_size, num_actions)
+        return TargetState(
+            **vars(state),
+            target_sums=jnp.zeros((archive_size, num_actions), jnp.float32),
+            target=self.target,
+        )
+
+    def forget(self, state: TargetState, wiped_mask: Array) -> TargetState:
+        target = state.target
+        return super().forget(state.replace(target=None), wiped_mask).replace(target=target)
+
+    def update(self, state: TargetState, transitions: Transition) -> TargetState:
+        state = super().update(state, transitions)
+        first = transitions.first
+        _, _, _, aux = self.algorithm.step(
+            state.target, transitions.carry, jax.random.key(self.seed), first, 1.0
+        )
+        assert aux.get("logits") is not None, "TargetAdvantage needs a policy with logits"
+        archive_size, num_actions = jnp.shape(state.action_counts)
+        target_probs = jax.nn.softmax(aux["logits"][:-1].astype(jnp.float32), axis=-1)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~transitions.second.truncated[:-1].astype(bool)
+        rows = jnp.reshape(jnp.where(valid_mask, cell_slots, archive_size), (-1,))
+        tallied = jnp.zeros((archive_size, num_actions)).at[rows].add(
+            jnp.reshape(target_probs, (-1, num_actions)), mode="drop"
+        )
+        return state.replace(target_sums=(1.0 - self.rate) * state.target_sums + tallied)
+
+
+@struct.dataclass
 class ModelState(GainState):
     tries: Array
     payoff_sums: Array
@@ -528,20 +601,122 @@ class SelectorState:
     reach: Array
     gain: GainState
     direction: PyTree = None
+    # The archive's cell keys and occupancy, filled in by select for relevances that need them.
+    keys: Array = None
+    mask: Array = None
 
 
 class CountedRelevance:
     def __call__(
-        self, successor: SuccessorRepresentation, table: Successor, reach: Array
+        self, successor: SuccessorRepresentation, table: Successor, reach: Array, **cells
     ) -> Array:
         return reach / jnp.maximum(jnp.sum(reach), 1e-12)
 
 
 class UniformRelevance:
     def __call__(
-        self, successor: SuccessorRepresentation, table: Successor, reach: Array
+        self, successor: SuccessorRepresentation, table: Successor, reach: Array, **cells
     ) -> Array:
         return jnp.ones_like(reach)
+
+
+def fold(keys: Array) -> Array:
+    """Folds each row of cell keys into one unsigned integer so keys can be sorted and searched."""
+    keys = jnp.asarray(keys).astype(jnp.uint32)
+    folded = jnp.zeros(keys.shape[:-1], jnp.uint32)
+    for column in range(keys.shape[-1]):
+        folded = folded * jnp.uint32(1000003) + keys[..., column]
+    return folded
+
+
+def archive_auto_reset_state(environment_state: PyTree) -> ArchiveAutoResetState:
+    found = []
+    jax.tree.map(
+        lambda node: found.append(node) if isinstance(node, ArchiveAutoResetState) else None,
+        environment_state,
+        is_leaf=lambda node: isinstance(node, ArchiveAutoResetState),
+    )
+    return found[0]
+
+
+def restore_policy(algorithm: Algorithm, environment: Environment, checkpoint: str, key: Key):
+    """Loads an already trained policy's algorithm state into the learner's algorithm."""
+    from boonta.utils.checkpoint import resolve_checkpoint, restore_item
+
+    environment_state, timestep = environment.init(key)
+    algorithm_state, carry = algorithm.init(key, timestep)
+    path = Path(resolve_checkpoint(checkpoint)) / "algorithm_state"
+    algorithm_state = restore_item(str(path.absolute()), algorithm_state)
+    return algorithm_state, environment_state, carry, timestep
+
+
+@dataclass
+class TargetRelevance:
+    """The visitation of an already trained policy, in place of the learner's own.
+
+    Before training, the checkpoint's policy plays num_steps steps in every environment from the
+    true initial states, and every cell it stands in is counted. An archive slot is then as
+    relevant as the share of those steps spent in its cell; cells the policy never visited weigh
+    nothing. The checkpoint must come from the same recipe, so its parameters fit the learner's
+    network, and the same cell function.
+    """
+
+    checkpoint: str
+    num_steps: int = 1_000
+    temperature: float = 1.0
+    seed: int = 0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        archive = unwrap(environment).archive
+        init_key, rollout_key = jax.random.split(jax.random.key(self.seed))
+        algorithm_state, environment_state, carry, timestep = restore_policy(
+            algorithm, environment, self.checkpoint, init_key
+        )
+
+        @jax.jit
+        def rollout(algorithm_state, environment_state, carry, timestep, key):
+            def step(carry_, key):
+                environment_state, carry, timestep = carry_
+                algorithm_key, environment_key = jax.random.split(key)
+                cells = fold(archive.cell_fn(archive_auto_reset_state(environment_state).env_state))
+                _, carry, action, _ = algorithm.step(
+                    algorithm_state, carry, algorithm_key, timestep, self.temperature
+                )
+                environment_state, timestep = environment.step(
+                    environment_key, environment_state, action
+                )
+                return (environment_state, carry, timestep), cells
+
+            _, cells = jax.lax.scan(
+                step,
+                (environment_state, carry, timestep),
+                jax.random.split(key, self.num_steps),
+            )
+            return cells
+
+        cells = jax.device_get(
+            rollout(algorithm_state, environment_state, carry, timestep, rollout_key)
+        )
+        keys, counts = np.unique(np.ravel(cells), return_counts=True)
+        self.keys = jnp.asarray(keys, jnp.uint32)
+        self.weights = jnp.asarray(counts / counts.sum(), jnp.float32)
+
+    def __call__(
+        self,
+        successor: SuccessorRepresentation,
+        table: Successor,
+        reach: Array,
+        keys: Array = None,
+        mask: Array = None,
+    ) -> Array:
+        assert hasattr(self, "keys"), "TargetRelevance needs prepare before it is used"
+        assert keys is not None, "TargetRelevance needs the archive's keys"
+        folded = fold(keys)
+        index = jnp.clip(jnp.searchsorted(self.keys, folded), 0, len(self.keys) - 1)
+        found = self.keys[index] == folded
+        if mask is not None:
+            found = found & mask
+        return jnp.where(found, self.weights[index], 0.0)
 
 
 class Diagonal:
@@ -785,8 +960,8 @@ class Softmax:
 class Selector:
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
-    relevance: CountedRelevance | UniformRelevance
-    gain: Advantage | GreedyAdvantage | UniformGain | ModelAdvantage
+    relevance: CountedRelevance | UniformRelevance | TargetRelevance
+    gain: Advantage | GreedyAdvantage | UniformGain | ModelAdvantage | TargetAdvantage
     score: Diagonal | Kernel = Diagonal()
     allocation: Marginal | WaterFilling | Uniform | TopK | Softmax | Blend | Importance = Marginal()
     k: float = 4.0
@@ -850,6 +1025,7 @@ class Selector:
         self, state: SelectorState, wrapper, archive_auto_reset_state, key: Key, **context
     ):
         archive_state = archive_auto_reset_state.archive_state
+        state = state.replace(keys=archive_state.keys, mask=archive_state.mask)
         eligible_mask = wrapper.archive.eligible(archive_state)
         num_placed = self.num_placed(wrapper.num_envs)
         resident_counts = wrapper.count_residents(archive_auto_reset_state, num_placed)
@@ -903,7 +1079,9 @@ class Selector:
         return jnp.where(known, weights, 1.0).astype(jnp.float32)
 
     def relevant(self, state: SelectorState) -> Array:
-        return self.relevance(self.successor, state.successor, state.reach)
+        return self.relevance(
+            self.successor, state.successor, state.reach, keys=state.keys, mask=state.mask
+        )
 
     def diminishing_factor(self, state: SelectorState, visits: Array | float) -> Array:
         scale = state.gain.scale
@@ -1102,5 +1280,8 @@ def make(
     importance_weights: bool = False,
     **kwargs,
 ) -> tuple[Algorithm, Environment, PSR, Lap | None]:
+    for part in (selector.relevance, selector.gain):
+        if hasattr(part, "prepare"):
+            part.prepare(algorithm, environment)
     pit = PSR(unwrap(environment), selector, algorithm, restart_at, importance_weights)
     return algorithm, environment, pit, None

@@ -169,6 +169,8 @@ CASES = [
     ("recurrent_ppo", "jaxued/acrobot", installed("jaxued"), False),
     ("recurrent_ppo", "jaxued/pendulum", installed("jaxued"), False),
     ("ppo", "jumanji/sokoban", installed("jumanji"), False),
+    ("ppo", "jumanji/game_2048", installed("jumanji"), False),
+    ("ppo", "jumanji/game_2048", installed("jumanji"), prioritized_restarts),
     ("recurrent_pupo", "jumanji/sokoban", installed("jumanji"), False),
     ("ppo", "mujoco_playground/dm_control_suite/cartpole_balance", installed("mujoco_playground"), False),
     ("ppo", "craftax/craftax_classic/symbolic", installed("craftax"), few_resets),
