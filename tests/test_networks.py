@@ -431,7 +431,7 @@ def test_normalize_tracks_the_moments_of_everything_it_has_seen():
 
 def test_floating_base_dynamics_turn_and_move_with_the_robot():
     joints = 3
-    model = FloatingBase(nn.Dense(12 + 2 * joints), num_joints=joints)
+    model = FloatingBase(nn.Dense(6 + joints), num_joints=joints, dt=0.02, substep=0.625)
     position, orientation = jax.random.normal(jax.random.key(8), (5, 3)), jax.random.normal(jax.random.key(9), (5, 4))
     rest = jax.random.normal(jax.random.key(10), (5, joints + 6 + joints + joints))
     state = jnp.concatenate([position, orientation / jnp.linalg.norm(orientation, axis=-1, keepdims=True), rest], -1)
@@ -457,10 +457,30 @@ def test_floating_base_dynamics_turn_and_move_with_the_robot():
     np.testing.assert_array_equal(next_state[:, -joints:], action)
 
 
+def test_floating_base_coasts_without_acceleration():
+    joints, dt = 3, 0.02
+    still = nn.Dense(6 + joints, kernel_init=nn.initializers.zeros)
+    model = FloatingBase(still, num_joints=joints, dt=dt, substep=0.625)
+    orientation = jax.random.normal(jax.random.key(13), (5, 4))
+    orientation = orientation / jnp.linalg.norm(orientation, axis=-1, keepdims=True)
+    joint_position, velocity, joint_velocity, previous = jnp.split(
+        jax.random.normal(jax.random.key(14), (5, 4 * joints + 3)), [joints, joints + 3, 2 * joints + 3], axis=-1
+    )
+    turning = jnp.zeros((5, 3))
+    position = jax.random.normal(jax.random.key(15), (5, 3))
+    state = jnp.concatenate([position, orientation, joint_position, velocity, turning, joint_velocity, previous], -1)
+    action, context = jax.random.normal(jax.random.key(16), (5, joints)), jnp.zeros((5, 2))
+    next_state = model.apply(model.init(KEY, state, action, context=context), state, action, context)
+    expected = jnp.concatenate(
+        [position + velocity * dt, orientation, joint_position + joint_velocity * dt, velocity, turning, joint_velocity, action], -1
+    )
+    np.testing.assert_allclose(next_state, expected, atol=1e-5)
+
+
 def test_goal_conditioned_passes_the_goal_through_a_bounded_latent():
-    model = GoalConditioned(encoder=nn.Dense(2), decoder=Identity(), goal_size=3)
+    model = GoalConditioned(encoder=nn.Dense(2), decoder=Identity(), goal_size=3, observation_size=5)
     x = 10.0 * jax.random.normal(jax.random.key(12), (4, 8))
     output = model.apply(model.init(KEY, x), x)
     assert jnp.all(jnp.abs(output[:, :2]) <= 1.0)
-    np.testing.assert_array_equal(output[:, 2:], x[:, :5])
+    np.testing.assert_allclose(output[:, 2:], x[:, :5], rtol=1e-4)
 

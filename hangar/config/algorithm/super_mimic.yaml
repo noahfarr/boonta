@@ -11,6 +11,7 @@ algorithm:
   num_observations: 1
   gamma: 0.99
   td_lambda: 0.95
+  num_rounds: 2
   world_model_updates: 10
   policy_updates: 1
   policy_batches: 2
@@ -19,7 +20,7 @@ algorithm:
 
 podracer:
   config:
-    num_steps: 2
+    num_steps: 5
 
 environment:
   num_envs: 4096
@@ -44,4 +45,3 @@ network:
   actor: [512, 256, 128]
   critic: [256, 128]
   world_model: [1024, 1024, 1024]
-  heads: [256, 256]

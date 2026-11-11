@@ -18,58 +18,104 @@ class ReturnSampledMotion(MotionCommand):
         self.clip = torch.as_tensor(np.repeat(np.arange(len(lengths)), lengths), device=self.device)
         self.frames_per_bin = int(round(cfg.bin_seconds / env.step_dt))
         self.num_bins = math.ceil(self.motion.time_step_total / self.frames_per_bin)
-        self.bin_return = torch.zeros(self.num_bins, device=self.device)
-        self.remembered = torch.zeros(self.num_bins, device=self.device)
-        self.start_bin = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
-        self.returned = torch.zeros(self.num_envs, device=self.device)
-        self.discount = torch.ones(self.num_envs, device=self.device)
-        self.ceiling = torch.ones(self.num_envs, device=self.device)
-        self.fresh = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.value_ceiling = cfg.attainable_return / (1.0 - cfg.gamma)
+        self.bin_value = torch.full((self.num_bins,), self.value_ceiling, device=self.device)
+        self.bin_samples = torch.zeros(self.num_bins, device=self.device)
+        self.effort = torch.zeros(self.num_bins, dtype=torch.float64, device=self.device)
+        self.distribution = torch.full((self.num_bins,), 1.0 / self.num_bins, device=self.device)
+        shape = (self.num_envs, cfg.horizon)
+        self.recorded_frames = torch.zeros(shape, dtype=torch.long, device=self.device)
+        self.recorded_rewards = torch.zeros(shape, device=self.device)
+        self.recorded_terminated = torch.zeros(shape, dtype=torch.bool, device=self.device)
+        self.recorded_clip_end = torch.zeros(shape, dtype=torch.bool, device=self.device)
+        self.recorded_timed_out = torch.zeros(shape, dtype=torch.bool, device=self.device)
+        self.column = 0
+        self.departed_frame = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.departed_step = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+        self.recorded_step = -1
 
-    def _tally(self, env_ids):
-        ended = env_ids[self.start_bin[env_ids] >= 0]
-        if len(ended) == 0 or not hasattr(self._env, "reward_buf"):
-            return
-        final = self.returned[ended] + self.discount[ended] * self._env.reward_buf[ended]
-        bins = self.start_bin[ended]
-        totals = torch.zeros_like(self.bin_return).index_add_(0, bins, final / self.ceiling[ended])
-        counts = torch.zeros_like(self.bin_return).index_add_(0, bins, torch.ones_like(final))
-        visited = counts > 0
-        estimate = totals[visited] / counts[visited]
-        self.bin_return[visited] += self.cfg.smoothing * (estimate - self.bin_return[visited])
+    def _bins(self, frames):
+        return torch.clamp(frames // self.frames_per_bin, max=self.num_bins - 1)
 
     def _adaptive_sampling(self, env_ids):
         if self.cfg.play:
             self.time_steps[env_ids] = self.clip_start[env_ids % len(self.clip_start)]
             return
-        self._tally(env_ids)
-        hardest = torch.softmax(-self.cfg.sharpness * self.bin_return, dim=0)
-        self.remembered += hardest
-        mixture = (
-            self.cfg.uniform_ratio / self.num_bins
-            + self.cfg.hardest_ratio * hardest
-            + self.cfg.remembered_ratio * self.remembered / self.remembered.sum()
-        )
-        bins = torch.multinomial(mixture, len(env_ids), replacement=True)
+        self.departed_frame[env_ids] = self.time_steps[env_ids]
+        self.departed_step[env_ids] = self._env.common_step_counter
+        bins = torch.multinomial(self.distribution, len(env_ids), replacement=True)
         offsets = torch.rand(len(env_ids), device=self.device) * self.frames_per_bin
         frames = torch.clamp((bins * self.frames_per_bin + offsets).long(), max=self.motion.time_step_total - 1)
-        ends = self.clip_end[self.clip[frames]]
-        frames = torch.minimum(frames, ends - 3)
-        remaining = torch.clamp(torch.minimum(ends - 2 - frames, torch.tensor(self._env.max_episode_length)), min=1)
-        self.time_steps[env_ids] = frames
-        self.start_bin[env_ids] = bins
-        self.returned[env_ids] = 0.0
-        self.discount[env_ids] = 1.0
+        self.time_steps[env_ids] = torch.minimum(frames, self.clip_end[self.clip[frames]] - 3)
+
+    def _record(self):
+        manager = self._env.termination_manager
+        departed = self.departed_step == self._env.common_step_counter
+        truncated = manager.time_outs.bool()
+        clip_end = manager.get_term("motion_end").bool()
+        column = self.column
+        self.recorded_frames[:, column] = torch.where(departed, self.departed_frame, self.time_steps)
+        self.recorded_rewards[:, column] = self._env.reward_buf
+        self.recorded_terminated[:, column] = manager.terminated.bool() & ~truncated
+        self.recorded_clip_end[:, column] = clip_end
+        self.recorded_timed_out[:, column] = truncated & ~clip_end
+        self.column += 1
+        if self.column < self.cfg.horizon:
+            return
+        self.column = 0
+        self._estimate()
+        self.distribution = self._distribute()
+
+    def _dones(self):
+        return self.recorded_terminated | self.recorded_clip_end | self.recorded_timed_out
+
+    def _returns(self):
         gamma = self.cfg.gamma
-        self.ceiling[env_ids] = self.cfg.attainable_return * (1.0 - gamma ** remaining.float()) / (1.0 - gamma)
-        self.fresh[env_ids] = True
+        following = torch.clamp(self.recorded_frames + 1, max=self.motion.time_step_total - 1)
+        next_value = torch.where(
+            self.recorded_terminated,
+            0.0,
+            torch.where(self.recorded_clip_end, self.bin_value.mean(), self.bin_value[self._bins(following)]),
+        )
+        dones = self._dones()
+        returns = torch.empty_like(self.recorded_rewards)
+        next_return = next_value[:, -1]
+        for step in reversed(range(self.cfg.horizon)):
+            next_return = torch.where(dones[:, step], next_value[:, step], next_return)
+            returns[:, step] = self.recorded_rewards[:, step] + gamma * next_return
+            next_return = returns[:, step]
+        return returns
+
+    def _estimate(self):
+        returns = self._returns()
+        dones = self._dones().long()
+        num_envs, horizon = dones.shape
+        episode = torch.cumsum(dones, dim=1) - dones
+        envs = torch.arange(num_envs, device=self.device).unsqueeze(1)
+        key = (envs * horizon + episode) * self.num_bins + self._bins(self.recorded_frames)
+        keys, inverse, visits = torch.unique(key.reshape(-1), return_inverse=True, return_counts=True)
+        samples = torch.zeros(keys.numel(), device=self.device).scatter_add_(0, inverse, returns.reshape(-1))
+        samples /= visits
+        bins = keys % self.num_bins
+        fresh = torch.zeros_like(self.bin_samples).scatter_add_(0, bins, torch.ones_like(samples))
+        total = torch.zeros_like(self.bin_value).scatter_add_(0, bins, samples)
+        self.bin_samples = self.bin_samples.clamp(max=self.cfg.memory) + fresh
+        self.bin_value = torch.where(
+            fresh > 0, self.bin_value + (total - fresh * self.bin_value) / self.bin_samples, self.bin_value
+        )
+
+    def _distribute(self):
+        cfg = self.cfg
+        focus = torch.softmax(-cfg.steepness * self.bin_value / self.value_ceiling, dim=0)
+        self.effort += focus.double().square()
+        keep = (self.effort / self.effort.sum()).float()
+        return cfg.explore / self.num_bins + (1.0 - cfg.explore - cfg.keep) * focus + cfg.keep * keep
 
     def _update_command(self, env_ids=None):
-        if env_ids is None and hasattr(self._env, "reward_buf"):
-            stale = self.fresh
-            self.returned += torch.where(stale, 0.0, self.discount * self._env.reward_buf)
-            self.discount *= torch.where(stale, 1.0, self.cfg.gamma)
-            self.fresh[:] = False
+        counter = self._env.common_step_counter
+        if not self.cfg.play and hasattr(self._env, "reward_buf") and counter != self.recorded_step:
+            self.recorded_step = counter
+            self._record()
         super()._update_command(env_ids)
 
 
@@ -79,11 +125,11 @@ class ReturnSampledMotionCfg(MotionCommandCfg):
     play: bool = False
     gamma: float = 0.99
     bin_seconds: float = 1.0
-    uniform_ratio: float = 0.5
-    hardest_ratio: float = 0.4
-    remembered_ratio: float = 0.1
-    sharpness: float = 25.0
-    smoothing: float = 0.1
+    horizon: int = 20
+    memory: int = 256
+    steepness: float = 25.0
+    explore: float = 0.5
+    keep: float = 0.1
 
     @classmethod
     def derive(cls, base: MotionCommandCfg, **fields_):

@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from functools import partial
+from typing import Any
 
 import flax.linen as nn
 import jax
@@ -97,6 +99,7 @@ class Tracking:
     soft_lower: Array
     soft_upper: Array
     goal_frames: int = 10
+    goal_stride: int = 5
     body_position_std: float = 0.3
     body_orientation_std: float = 0.4
     body_linear_velocity_std: float = 1.0
@@ -108,7 +111,16 @@ class Tracking:
     joint_limit_weight: float = -2.0
     termination_height: float = 0.25
     termination_tilt: float = 0.8
+    termination_softness: float = 0.05
+    root_position_nominal: float = 0.01
+    root_orientation_nominal: float = 0.02
+    joint_position_nominal: float = 0.1
+    joint_velocity_nominal: float = 3.14
     control_dt: float = 0.02
+
+    @property
+    def best_reward(self) -> float:
+        return (4.0 + 2.0 * self.root_weight) * self.control_dt
 
     @property
     def num_joints(self) -> int:
@@ -153,9 +165,9 @@ class Tracking:
         reference_root_position, *_ = reference_position
         reference_root_orientation, *_ = reference_orientation
         heading = _yaw(
-            math.quat_mul(before.orientation, math.quat_inv(reference_root_orientation))
+            math.quat_mul(after.orientation, math.quat_inv(reference_root_orientation))
         )
-        origin = reference_root_position.at[:2].set(before.position[:2])
+        origin = reference_root_position.at[:2].set(after.position[:2])
         relative_position = origin + jax.vmap(math.rotate, in_axes=(0, None))(
             reference_position - reference_root_position, heading
         )
@@ -216,6 +228,27 @@ class Tracking:
         height, tilt = self.errors(state, frame)
         return (height > self.termination_height) | (tilt > self.termination_tilt)
 
+    def termination(self, state: Array, frame: Array) -> Array:
+        height, tilt = self.errors(state, frame)
+        excess = jnp.maximum(height / self.termination_height, tilt / self.termination_tilt)
+        return (excess - 1.0) / self.termination_softness
+
+    def mismatch(self, prediction: Array, target: Array) -> Array:
+        predicted, actual = self.split(prediction), self.split(target)
+        blocks = [
+            (predicted.position, actual.position, self.root_position_nominal),
+            (
+                jnp.sqrt(0.5) * _matrix(predicted.orientation).reshape(*prediction.shape[:-1], 9),
+                jnp.sqrt(0.5) * _matrix(actual.orientation).reshape(*target.shape[:-1], 9),
+                self.root_orientation_nominal,
+            ),
+            (predicted.joint_position, actual.joint_position, self.joint_position_nominal),
+            (predicted.joint_velocity, actual.joint_velocity, self.joint_velocity_nominal),
+        ]
+        weighted = sum(jnp.sum((left - right) ** 2, axis=-1) / nominal**2 for left, right, nominal in blocks)
+        width = sum(jnp.shape(left)[-1] for left, _, _ in blocks)
+        return weighted / width
+
     def observe(self, state: Array, context: Array) -> Array:
         robot = self.split(state)
         _, bias, _ = jnp.split(context, np.cumsum([1, self.num_joints]), axis=-1)
@@ -250,31 +283,25 @@ class Tracking:
     def advance(self, frame: Array) -> Array:
         return jnp.minimum(frame + 1, self.motions.last(frame))
 
-    def goal(self, frame: Array) -> Array:
+    def goal(self, state: Array, frame: Array) -> tuple[Array, Array, Array]:
         from mujoco.mjx._src import math
 
         motions = self.motions
+        robot = self.split(state)
         frames = jnp.minimum(
-            frame + 1 + jnp.arange(self.goal_frames), motions.last(frame)
+            frame + self.goal_stride * jnp.arange(self.goal_frames), motions.last(frame)
         )
-        inverse = math.quat_inv(_yaw(motions.root_orientation[frame]))
-
-        def describe_frame(index):
-            return jnp.concatenate(
-                [
-                    motions.joint_position[index],
-                    motions.joint_velocity[index],
-                    math.rotate(
-                        motions.root_position[index] - motions.root_position[frame],
-                        inverse,
-                    ),
-                    _columns(math.quat_mul(inverse, motions.root_orientation[index])),
-                    math.rotate(motions.root_linear_velocity[index], inverse),
-                    math.rotate(motions.root_angular_velocity[index], inverse),
-                ]
-            )
-
-        return jax.vmap(describe_frame)(frames).reshape(-1)
+        content = jnp.concatenate(
+            [motions.joint_position[frames], motions.joint_velocity[frames]], axis=-1
+        )
+        inverse = math.quat_inv(robot.orientation)
+        position = jax.vmap(math.rotate, in_axes=(0, None))(
+            motions.root_position[frames] - robot.position, inverse
+        )
+        orientation = jax.vmap(
+            lambda target: _columns(math.quat_mul(inverse, target))
+        )(motions.root_orientation[frames])
+        return content.reshape(-1), position.reshape(-1), orientation.reshape(-1)
 
 
 def _angle(left: Array, right: Array) -> Array:
@@ -314,6 +341,7 @@ def describe(env) -> Tracking:
     robot = env.unwrapped.env.scene["robot"].data
     limits = robot.soft_joint_pos_limits[0].cpu().numpy()
     return Tracking(
+        control_dt=env.unwrapped.env.step_dt,
         kinematics=mjx.put_model(skeleton),
         motions=load_motions(command.motion_file, tuple(body - 1 for body in tracked)),
         tracked=jnp.asarray(tracked),
@@ -327,12 +355,19 @@ class GoalConditioned(nn.Module):
     encoder: nn.Module
     decoder: nn.Module
     goal_size: int
+    observation_size: int
 
+    @nn.compact
     def __call__(self, x: Array) -> Array:
-        latent = jnp.tanh(self.encoder(x[..., -self.goal_size :]))
-        return self.decoder(
-            jnp.concatenate([latent, x[..., : -self.goal_size]], axis=-1)
+        goal = Normalize()(x[..., -self.goal_size :])
+        history = x[..., : -self.goal_size]
+        *batch, width = jnp.shape(history)
+        frames = jnp.reshape(
+            history, (*batch, width // self.observation_size, self.observation_size)
         )
+        history = jnp.reshape(Normalize()(frames), (*batch, width))
+        latent = jnp.tanh(self.encoder(goal))
+        return self.decoder(jnp.concatenate([latent, history], axis=-1))
 
 
 def _quaternion_product(left: Array, right: Array) -> Array:
@@ -380,53 +415,43 @@ def _apply(matrix: Array, vector: Array) -> Array:
 class FloatingBase(nn.Module):
     network: nn.Module
     num_joints: int
+    dt: float
+    substep: float
 
     def __call__(self, state: Array, action: Array, context: Array, **_) -> Array:
         n = self.num_joints
-        *batch, _ = jnp.shape(state)
-        position, orientation, joints = (
-            state[..., :3],
-            state[..., 3:7],
-            state[..., 7 : 7 + n],
+        position, orientation, joints, velocity, turning, joint_velocity, _ = jnp.split(
+            state, np.cumsum([3, 4, n, 3, 3, n]), axis=-1
         )
-        velocity, turning = state[..., 7 + n : 10 + n], state[..., 10 + n : 13 + n]
-        joint_velocity = state[..., 13 + n : 13 + 2 * n]
-        previous = state[..., 13 + 2 * n :]
-        heading = _matrix(_yaw(orientation))
-        tilt = jnp.einsum("...ji,...jk->...ik", heading, _matrix(orientation))[
-            ..., :, :2
-        ]
+        rotation = _matrix(orientation)
+        local_velocity = jnp.einsum("...ji,...j->...i", rotation, velocity)
         features = jnp.concatenate(
             [
                 position[..., 2:],
-                jnp.reshape(tilt, (*batch, 6)),
-                jnp.einsum("...ji,...j->...i", heading, velocity),
+                -rotation[..., 2, :],
+                local_velocity,
                 turning,
                 joints,
                 joint_velocity,
-                previous,
                 action,
                 context,
             ],
             axis=-1,
         )
-        change = self.network(features)
-        shift, rotation, acceleration, spin = (
-            change[..., 3 * i : 3 * (i + 1)] for i in range(4)
+        acceleration, spin, joint_acceleration = jnp.split(
+            self.network(features), [3, 6], axis=-1
         )
-        joint_change, joint_acceleration = (
-            change[..., 12 : 12 + n],
-            change[..., 12 + n : 12 + 2 * n],
-        )
-        following = _quaternion_product(orientation, _exponential(rotation))
+        step = _exponential((turning + self.substep * spin) * self.dt)
+        following = _quaternion_product(orientation, step)
         following = following / jnp.linalg.norm(following, axis=-1, keepdims=True)
         return jnp.concatenate(
             [
-                position + _apply(heading, shift),
+                position
+                + _apply(rotation, local_velocity + self.substep * acceleration) * self.dt,
                 following,
-                joints + joint_change,
-                velocity + _apply(heading, acceleration),
-                turning + spin,
+                joints + (joint_velocity + self.substep * joint_acceleration) * self.dt,
+                _apply(rotation, local_velocity + acceleration),
+                jnp.einsum("...ji,...j->...i", _matrix(step), turning + spin),
                 joint_velocity + joint_acceleration,
                 action,
             ],
@@ -434,13 +459,39 @@ class FloatingBase(nn.Module):
         )
 
 
-def mlp(sizes, outputs=None, dtype=None):
-    def dense(size):
-        return nn.Dense(size, dtype=dtype, param_dtype=jnp.float32)
+class Linear(nn.Module):
+    features: int
+    dtype: Any = None
+    param_dtype: Any = jnp.float32
 
-    layers = [layer for size in sizes for layer in (dense(size), nn.elu)]
+    @nn.compact
+    def __call__(self, x: Array) -> Array:
+        *_, width = jnp.shape(x)
+        bound = 1.0 / np.sqrt(width)
+
+        def uniform(key, shape, dtype=self.param_dtype):
+            return jax.random.uniform(key, shape, dtype, -bound, bound)
+
+        return nn.Dense(
+            self.features,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=nn.initializers.variance_scaling(1.0 / 3.0, "fan_in", "uniform"),
+            bias_init=uniform,
+        )(x)
+
+
+def mlp(sizes, outputs=None, dtype=None):
+    def block(size):
+        return (
+            Linear(size, dtype=dtype),
+            nn.LayerNorm(epsilon=1e-5, dtype=dtype, param_dtype=jnp.float32),
+            partial(nn.gelu, approximate=False),
+        )
+
+    layers = [layer for size in sizes for layer in block(size)]
     if outputs:
-        layers.append(dense(outputs))
+        layers.append(Linear(outputs, dtype=dtype))
     layers.append(lambda x: x.astype(jnp.float32))
     return nn.Sequential(layers)
 
@@ -454,8 +505,10 @@ def make(cfg):
 
     env = environments.make(**cfg.environment)
     task = describe(env)
-    goal_size, *_ = jnp.shape(task.goal(jnp.int32(0)))
     num_joints = task.num_joints
+    goal_size = task.goal_frames * (2 * num_joints + 6)
+    observation_size = 3 * num_joints + 6
+    decimation = env.unwrapped.env.cfg.decimation
     compute_dtype = jnp.dtype(cfg.network.dtype) if cfg.network.dtype else None
 
     def frame(command):
@@ -464,8 +517,15 @@ def make(cfg):
     def reward(state, next_state, command, **_):
         return jax.vmap(task.reward)(state, next_state, frame(command))
 
-    def goal(command):
-        return jax.vmap(task.goal)(frame(command))
+    def goal(state, command):
+        content, _, orientation = jax.vmap(task.goal)(state, frame(command))
+        return jnp.concatenate([content, orientation], axis=-1)
+
+    def critic_goal(state, command):
+        return jnp.concatenate(jax.vmap(task.goal)(state, frame(command)), axis=-1)
+
+    def termination(state, command, **_):
+        return jax.vmap(task.termination)(state, frame(command))
 
     def advance(command):
         return jax.vmap(task.advance)(frame(command))[..., None].astype(command.dtype)
@@ -496,47 +556,36 @@ def make(cfg):
         cfg=instantiate(cfg.algorithm),
         actor=Network(
             feature_extractor=FeatureExtractor(
-                observation_extractor=normalized(
-                    GoalConditioned(
-                        encoder=mlp(
-                            cfg.network.encoder, cfg.network.latent, compute_dtype
-                        ),
-                        decoder=mlp(cfg.network.decoder, dtype=compute_dtype),
-                        goal_size=goal_size,
-                    )
+                observation_extractor=GoalConditioned(
+                    encoder=mlp(cfg.network.encoder, cfg.network.latent, compute_dtype),
+                    decoder=mlp(cfg.network.decoder, dtype=compute_dtype),
+                    goal_size=goal_size,
+                    observation_size=observation_size,
                 )
             ),
-            head=FixedGaussian(
-                nn.Dense(num_joints, dtype=compute_dtype, param_dtype=jnp.float32),
-                scale=0.0,
-            ),
+            head=FixedGaussian(Linear(num_joints, dtype=compute_dtype), scale=0.0),
         ),
         critic=Network(
             feature_extractor=FeatureExtractor(
-                observation_extractor=normalized(
-                    mlp(cfg.network.critic, dtype=compute_dtype)
-                )
+                observation_extractor=mlp(cfg.network.critic, dtype=compute_dtype)
             ),
-            head=nn.Dense(1, dtype=compute_dtype, param_dtype=jnp.float32),
+            head=Linear(1, dtype=compute_dtype),
         ),
         world_model=WorldModel(
             dynamics_fn=FloatingBase(
                 normalized(
                     mlp(
                         cfg.network.world_model,
-                        12 + 2 * num_joints,
+                        6 + num_joints,
                         compute_dtype,
                     )
                 ),
                 num_joints=num_joints,
+                dt=task.control_dt,
+                substep=(decimation + 1) / (2 * decimation),
             ),
             reward_fn=reward,
-            termination_fn=nn.Sequential(
-                [
-                    lambda state, goal, **_: jnp.concatenate([state, goal], axis=-1),
-                    normalized(mlp(cfg.network.heads, 1, compute_dtype)),
-                ]
-            ),
+            termination_fn=termination,
             observation_fn=observe,
         ),
         buffer=instantiate(cfg.buffer),
@@ -550,8 +599,11 @@ def make(cfg):
         ),
         command_key="frame",
         goal=goal,
+        critic_goal=critic_goal,
+        state_error=task.mismatch,
         advance=advance,
         sensor_noise=task.perturb,
+        maximum_value=task.best_reward / (1.0 - cfg.algorithm.gamma),
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
