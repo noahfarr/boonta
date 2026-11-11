@@ -27,6 +27,8 @@ LEARNERS = [
     pytest.param(zoo.dqn, corridor, 400, id="dqn-corridor"),
     pytest.param(zoo.sac, reach, 1000, id="sac-reach"),
     pytest.param(zoo.reppo, reach, 300, id="reppo-reach"),
+    pytest.param(zoo.super_mimic, reach, 300, id="super_mimic-reach"),
+    pytest.param(partial(zoo.super_mimic, num_observations=3), reach, 300, id="super_mimic-observations-reach"),
     pytest.param(zoo.recurrent_ppo, recall, 100, id="recurrent_ppo-recall"),
     pytest.param(zoo.recurrent_pupo, recall, 100, id="recurrent_pupo-recall"),
     pytest.param(zoo.recurrent_grpo, recall, 100, id="recurrent_grpo-recall"),

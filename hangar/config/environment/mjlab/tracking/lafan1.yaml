@@ -1,0 +1,9 @@
+namespace: mjlab
+suite: motion_tracking
+env_id: Boonta-Tracking-Flat-Unitree-G1
+kwargs:
+  num_envs: ${environment.num_envs}
+  device: cuda:0
+  play: false
+  executed: executed
+  motion_file: ${hydra:runtime.cwd}/data/motions/mjlab/lafan1_g1/library_50hz.npz

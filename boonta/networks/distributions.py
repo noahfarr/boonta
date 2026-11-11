@@ -64,3 +64,10 @@ def squashed_gaussian(
         distrax.MultivariateNormalDiag(*split(outputs, temperature)),
         distrax.Block(distrax.Tanh(), 1),
     )
+
+
+def fixed_gaussian(
+    outputs: Array, scale: float, temperature: float | Array = 1.0
+) -> distrax.MultivariateNormalDiag:
+    mean = outputs.astype(jnp.float32)
+    return distrax.MultivariateNormalDiag(mean, jnp.full_like(mean, scale) * temperature)

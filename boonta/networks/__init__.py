@@ -12,12 +12,13 @@ from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Blo
                      sinusoidal_time_embedding)
 from . import distributions
 from .feature_extractor import FeatureExtractor
-from .heads import Categorical, EpsilonGreedy, Gaussian, SquashedGaussian
+from .heads import Categorical, EpsilonGreedy, FixedGaussian, Gaussian, SquashedGaussian
 from .kernels import get_scan_implementation
 from .network import Network
 from .pretrained import Pretrained
 from .stacks import llama, repeat
 from .unembed import Unembed
+from .world_model import WorldModel
 
 __all__ = [
     "FFN",
@@ -56,6 +57,7 @@ __all__ = [
     "SelfAttention",
     "SelfAttentionCarry",
     "SinusoidalPositionalEmbedding",
+    "FixedGaussian",
     "SquashedGaussian",
     "Stack",
     "Stateless",
@@ -64,6 +66,7 @@ __all__ = [
     "Unembed",
     "ViT",
     "ViTLayer",
+    "WorldModel",
     "causal_attention_mask",
     "distributions",
     "get_scan_implementation",

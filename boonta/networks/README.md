@@ -92,6 +92,8 @@ An algorithm's update applies the network with `mutable=True` and hands everythi
 
 After each step the update stores back the collections the network had at init, such as BatchNorm's `batch_stats`, with the values the forward pass wrote. Collections that appear only during the pass, such as sown values, are dropped. Only `params` reaches the optimizer. Acting and evaluation apply the network without `mutable`, so a layer that checks `self.is_mutable_collection(...)` sees training only in the update.
 
+[`Normalize`](layers/normalize.py) keeps a running mean and variance of its input in a `statistics` collection and updates them only when that collection is mutable. An algorithm updates them on purpose, from real data, rather than in every forward pass: SuperMimic applies its networks once per update with `mutable=["statistics"]` on a replay window, so imagined states never move the statistics.
+
 ## Add a network part
 
 - **A feature extractor or head** is a plain Flax module. Build it in the recipe. A head should wrap its output layer in one of the heads above.

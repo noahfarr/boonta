@@ -69,6 +69,11 @@ isaaclab-arena = [
 jaxmarl = [
     "jaxmarl",
 ]
+mjlab = [
+    "mjlab>=1.6.0",
+    "mujoco-mjx",
+    "torch>=2.7.0",
+]
 jaxtari = [
     "jaxtari",
 ]
@@ -94,6 +99,9 @@ minari = [
 ]
 mujoco-playground = [
     "ml-collections",
+    "mujoco>=3.16.0",
+    "mujoco-mjx>=3.16.0",
+    "mujoco-warp>=3.16.0",
     "playground",
 ]
 pynes = [
@@ -131,6 +139,26 @@ conflicts = [
       { extra = "jaxtari" },
       { extra = "isaaclab" },
     ],
+    [
+      { extra = "mjlab" },
+      { extra = "mujoco-playground" },
+    ],
+    [
+      { extra = "mjlab" },
+      { extra = "isaaclab" },
+    ],
+    [
+      { extra = "mjlab" },
+      { extra = "kinetix" },
+    ],
+    [
+      { extra = "mjlab" },
+      { extra = "isaaclab-arena" },
+    ],
+    [
+      { extra = "isaaclab" },
+      { extra = "mujoco-playground" },
+    ],
 ]
 override-dependencies = [
     "jax[cpu]>=0.10.2,<0.11; sys_platform == 'darwin'",
@@ -140,10 +168,10 @@ override-dependencies = [
     "scipy>=1.14",
     "brax>=0.13",
     "jax2d>=1.0.2",
-    "mujoco>=3.3",
     "numpy>=2.0",
     "huggingface-hub>=1.24.0",
     "click>=8.1.7",
+    "rich>=15.0.0",
     "nvidia-cudnn-cu12>=9.8; sys_platform == 'linux'",
 ]
 
@@ -175,8 +203,8 @@ performax = { git = "https://github.com/noahfarr/performax", rev = "f22adf27970a
 pynes = { git = "ssh://git@github.com/noahfarr/pynes.git", rev = "150735eb55be0b0e46da226ff308cfde8fc875ac" }
 slurmpilot = { git = "https://github.com/noahfarr/slurmpilot.git", branch = "feat/spignore" }
 torch = [
-    { index = "pytorch-cu128", marker = "python_full_version < '3.12'" },
-    { index = "pytorch-cpu", marker = "python_full_version >= '3.12'" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
 ]
 torchvision = [{ index = "pytorch-cu128", marker = "python_full_version < '3.12'" }]
 

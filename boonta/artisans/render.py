@@ -20,46 +20,22 @@ class Render:
 
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
-        environment_state, timestep = environment.init(init_key)
-        _, carry = algorithm.init(init_key, timestep)
-        num_steps = environment.time_limit() + 1
-
-        def step(loop, key):
-            algorithm_state, carry, environment_state, timestep = loop
-            algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, carry, action, _ = algorithm.step(
-                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
-            )
-            environment_state, timestep = environment.step(
-                environment_key, environment_state, action
-            )
-            return (algorithm_state, carry, environment_state, timestep), (
-                jax.tree.map(lambda leaf: jnp.take(leaf, 0, axis=0), environment_state),
-                jnp.all(jnp.take(timestep.done, 0, axis=0)),
-            )
-
-        (_, _, environment_state, _), (trajectory, done) = jax.lax.scan(
-            step,
-            (algorithm_state, carry, environment_state, timestep),
-            jax.random.split(key, num_steps),
-        )
+        environment_state, timestep = jax.jit(environment.init)(init_key)
+        carry = jax.jit(lambda key, timestep: algorithm.init(key, timestep)[1])(init_key, timestep)
+        act = jax.jit(partial(algorithm.step, temperature=0.0))
+        advance = jax.jit(environment.step)
+        frames = []
+        for step_key in jax.random.split(key, environment.time_limit() + 1):
+            algorithm_key, environment_key = jax.random.split(step_key)
+            algorithm_state, carry, action, _ = act(algorithm_state, carry, algorithm_key, timestep)
+            environment_state, timestep = advance(environment_key, environment_state, action)
+            frame_state = jax.device_get(jax.tree.map(lambda leaf: leaf[0] if jnp.ndim(leaf) else leaf, environment_state))
+            frames.append(np.asarray(environment.render(frame_state, **self.kwargs), dtype=np.uint8))
+            if bool(jax.device_get(jnp.all(timestep.done[0]))):
+                break
         environment.close(environment_state)
-        return trajectory, done
+        return np.stack(frames)
 
     def craft(self, key, algorithm, environment, state, logs) -> Video:
-        trajectory, done = jax.device_get(
-            jax.jit(partial(self.rollout, algorithm, environment))(
-                state.algorithm_state, key
-            )
-        )
-        num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)
-        frames = [
-            np.asarray(
-                environment.render(
-                    jax.tree.map(lambda leaf: leaf[step], trajectory), **self.kwargs
-                ),
-                dtype=np.uint8,
-            )
-            for step in range(num_frames)
-        ]
-        return Video(self.name, np.stack(frames), fps=self.fps)
+        frames = self.rollout(algorithm, environment, state.algorithm_state, key)
+        return Video(self.name, frames, fps=self.fps)

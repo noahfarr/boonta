@@ -116,6 +116,18 @@ Its `step` moves the agent, sets `terminated` when it arrives and `truncated` wh
 uv run boonta algorithm=ppo environment=gymnasium/cartpole
 ```
 
+### mjlab
+
+[`mjlab/`](mjlab) runs any registered [mjlab](https://github.com/mujocolab/mjlab) task, a MuJoCo Warp simulator driven from PyTorch on the GPU, through `io_callback`, like the Gymnasium adapter. mjlab resets environments itself, in the same step, so `make` returns a `Batched` environment. Its observation is a dict holding each of the task's observation groups. `play=true` builds the task's play config, and `executed=<group>` names a group holding the action the simulator actually applied, which the adapter then reports as `timestep.action` and leaves out of the observation. The adapter is task-agnostic: the directory holds only [`mjlab/__init__.py`](mjlab/__init__.py), and whatever registers a task into mjlab's registry before `make` is called decides what runs.
+
+The G1 motion tracking task SuperMimic trains on is [`mjlab/tracking/config/g1`](mjlab/tracking/config/g1), laid out like mjlab's own `tasks/tracking/config/g1`: importing it registers `Boonta-Tracking-Flat-Unitree-G1`, mjlab's tracking task with the paper's changes (return-based reset sampling, clips that end their episode, noisy executed actions, privileged `state` and `context` observation groups), with the play config as the paper's benchmark. [`hangar/recipes/super_mimic_mjlab.py`](../../hangar/recipes/super_mimic_mjlab.py) holds `Tracking`, the task in JAX, the reward, observation and goal SuperMimic computes on imagined states; on fresh kinematics it matches mjlab's reward to 1e-6, and mjlab itself scores bodies one physics substep late. It also holds the motion library (`convert_motions` and `load_motions`), built from a directory of 30 Hz CSV clips:
+
+```bash
+uv sync --extra hangar --extra mjlab
+uv run python hangar/scripts/convert_motions.py ~/.cache/boonta/lafan1_g1/g1
+uv run boonta algorithm=super_mimic environment=mjlab/motion_tracking/lafan1
+```
+
 ### C or C++ through FFI
 
 A native environment steps a whole batch in C++ and is called with `jax.ffi.ffi_call`. [`ale/`](ale) and [`peanut_gb/`](peanut_gb) work this way. Each has an `ffi/` folder with the sources and a `build.sh`. On construction, `build` in [`__init__.py`](__init__.py) rebuilds the `.so` when any source listed is newer than it, then `register_targets` registers the FFI targets for CPU and CUDA. From [`ale/__init__.py`](ale/__init__.py):
