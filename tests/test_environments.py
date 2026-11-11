@@ -186,7 +186,9 @@ ADAPTERS = [
     pytest.param("bluffjax", "kuhn_poker", {}, id="bluffjax_kuhn_poker", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("bluffjax", "goofspiel", {}, id="bluffjax_goofspiel", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("bluffjax", "werewolf", {}, id="bluffjax_werewolf", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
+    pytest.param("dune_sea", "chain", {"length": 4}, id="chain"),
     pytest.param("dune_sea", "chain_of_forks", {"depth": 6}, id="chain_of_forks"),
+    pytest.param("dune_sea", "maze", {"size": 4}, id="maze"),
     pytest.param("dune_sea", "t_maze", {"length": 4}, id="t_maze"),
     pytest.param(
         "jumanji", "Game2048-v1", {}, id="jumanji_2048",

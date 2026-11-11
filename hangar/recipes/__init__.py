@@ -54,6 +54,7 @@ from . import (
 )
 
 register = {
+    ("ppo", "dune_sea", "boxoban_tower"): ppo_minatar.make,
     ("bc", "brax", "mujoco"): bc_mujoco.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
@@ -67,8 +68,10 @@ register = {
     ("ppo", "brax", "mujoco"): ppo_mujoco.make,
     ("ppo", "craftax", "craftax"): ppo_craftax.make,
     ("ppo", "craftax", "craftax_classic"): ppo_craftax_classic.make,
+    ("ppo", "dune_sea", "chain"): ppo_chain_of_forks.make,
     ("ppo", "dune_sea", "chain_of_forks"): ppo_chain_of_forks.make,
     ("ppo", "dune_sea", "hotspots"): ppo_chain_of_forks.make,
+    ("ppo", "dune_sea", "maze"): ppo_chain_of_forks.make,
     ("ppo", "gymnasium", "gymnasium"): ppo_gymnasium.make,
     ("ppo", "gymnax", "bsuite"): ppo_deep_sea.make,
     ("ppo", "gymnax", "classic_control"): ppo_cartpole.make,

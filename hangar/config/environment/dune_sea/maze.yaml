@@ -1,0 +1,7 @@
+namespace: dune_sea
+suite: maze
+env_id: maze
+kwargs:
+  size: 8
+  horizon: 500
+  seed: 0

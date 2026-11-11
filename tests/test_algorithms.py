@@ -491,3 +491,56 @@ def test_the_tail_of_a_rollout_bootstraps_the_value_the_next_step_would_have_see
         np.asarray(aux["value"], np.float32),
         atol=1e-2,
     )
+
+
+def test_terminal_rewards_have_hand_calculated_discounted_targets():
+    # Two distinct two-step episodes, with no learned values to bootstrap from.
+    timestep = Timestep(
+        obs=jnp.zeros((4, 1, 1)), action=jnp.zeros((4, 1), jnp.int32),
+        reward=jnp.array([[0.0], [1.0], [0.0], [2.0]]),
+        terminated=jnp.array([[False], [True], [False], [True]]),
+        truncated=jnp.zeros((4, 1), bool),
+    )
+    advantages, returns = generalized_advantage_estimator(
+        Transition(first=timestep, second=timestep), jnp.zeros((4, 1)),
+        jnp.array([999.0]), gamma=0.9, gae_lambda=1.0,
+    )
+    # Terminal rewards stay with their own episode; neither reset values nor the
+    # arbitrary final bootstrap can leak backward across a true terminal.
+    expected = np.array([[0.9], [1.0], [1.8], [2.0]], np.float32)
+    np.testing.assert_allclose(advantages, expected, atol=1e-6)
+    np.testing.assert_allclose(returns, expected, atol=1e-6)
+
+
+def test_ppo_policy_gradient_matches_a_hand_calculated_bandit_update():
+    import flax.linen as nn
+
+    from boonta.algorithms.ppo import PPO, PPOConfig
+    from boonta.networks import ActorCritic, Categorical, Network
+
+    algorithm = PPO(
+        cfg=PPOConfig(
+            num_minibatches=1, update_epochs=1, clip_coefficient=0.2,
+            clip_value_loss=False, entropy_coefficient=0.0, value_coefficient=0.0,
+            gamma=0.99, gae_lambda=0.95, normalize_advantage=False,
+        ),
+        network=Network(head=ActorCritic(Categorical(nn.Dense(2)), nn.Dense(1))),
+        optimizer=optax.sgd(0.1),
+    )
+    first = Timestep(obs=jnp.zeros((2, 1)))
+    state, _ = algorithm.init(jax.random.key(0), first)
+    transitions = Transition(
+        first=Timestep(obs=first.obs[None]),
+        second=Timestep(
+            obs=first.obs[None], action=jnp.array([[0, 1]], jnp.int32),
+            reward=jnp.array([[1.0, -1.0]]), terminated=jnp.ones((1, 2), bool),
+            truncated=jnp.zeros((1, 2), bool),
+        ),
+        aux={'log_prob': jnp.full((1, 2), -jnp.log(2.0)), 'value': jnp.zeros((1, 2))},
+    )
+    after = jax.jit(algorithm.update)(state, jax.random.key(1), transitions)
+    distribution, _ = algorithm.network.apply(after.params, first.obs, temperature=1.0)
+    # At an initially uniform policy, the mean loss gradient is [-0.5, +0.5].
+    # SGD(0.1) gives logits [+0.05, -0.05], hence P(action 0) = sigmoid(0.1).
+    expected = 1 / (1 + np.exp(-0.1))
+    np.testing.assert_allclose(distribution.probs[:, 0], expected, atol=1e-6)

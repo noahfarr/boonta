@@ -1,0 +1,12 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: batched
+  - _self_
+
+namespace: craftaxcu
+suite: craftaxcu
+env_id: Craftax-Symbolic-Cu
+num_envs: 4096
+kwargs:
+  num_envs: ${environment.num_envs}
+  seed: ${seed}
+  coarse: 4

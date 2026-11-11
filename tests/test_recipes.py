@@ -121,6 +121,17 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def boxoban_tower(directory):
+    path = directory / "levels.txt"
+    room = "\n".join(["##########", "# @$.    #", "# ***    #"] + ["##########"] * 7)
+    path.write_text("\n\n".join(f"; {i}\n{room}" for i in range(5)))
+    return [f"environment.kwargs.dataset_path={path}"]
+
+
+def boxoban_tower_psr(directory):
+    return boxoban_tower(directory) + prioritized_restarts(directory)
+
+
 def prioritized_restarts(directory):
     return ["curriculum=psr", "environment.auto_reset.archive_size=64"]
 
@@ -137,12 +148,18 @@ MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
 CASES = [
+    ("ppo", "dune_sea/boxoban_tower", installed("jumanji"), boxoban_tower),
+    ("ppo", "dune_sea/boxoban_tower", installed("jumanji"), boxoban_tower_psr),
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
+    ("ppo", "dune_sea/chain", None, False),
+    ("ppo", "dune_sea/chain", None, prioritized_restarts),
     ("ppo", "dune_sea/chain_of_forks", None, False),
     ("ppo", "dune_sea/hotspots", None, False),
     ("ppo", "dune_sea/hotspots", None, prioritized_restarts),
+    ("ppo", "dune_sea/maze", None, False),
+    ("ppo", "dune_sea/maze", None, prioritized_restarts),
     ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("ppo", MINATAR, None, prioritized_restarts),

@@ -1,0 +1,6 @@
+namespace: dune_sea
+suite: chain
+env_id: chain
+kwargs:
+  length: 100
+  num_actions: 2

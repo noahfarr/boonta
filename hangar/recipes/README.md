@@ -118,3 +118,35 @@ Run the recipe with
 ```bash
 uv run boonta train algorithm=ppo environment=gymnax/minatar/breakout
 ```
+
+## Sokoban PPO encoder
+
+`algorithm=ppo environment=jumanji/sokoban` defaults to
+`network.encoder=one_hot`. It one-hot encodes the variable layer (5 tile IDs) and
+fixed layer (3 tile IDs), then flattens the 10×10 grid into 800 values. A single
+clock scalar, divided by the configured puzzle time limit, gives 801 inputs.
+The clock is not one-hot encoded or repeated across the board. A two-layer,
+256-wide ReLU MLP feeds the policy and value heads. There is no recurrence or
+convolution in this option. PPO settings, rewards, and sampling are unchanged.
+
+Start a fresh run because encoder choices change checkpoint shapes:
+
+```bash
+boonta train algorithm=ppo environment=jumanji/sokoban network.encoder=one_hot
+```
+
+Available comparison encoders:
+
+- `network.encoder=cnn`: four binary board planes plus a normalized clock plane,
+  two 3×3 convolutions with 32 and 64 channels and ReLU, followed by a
+  `network.encoder_features=256` feature projection with ReLU and the MLP body.
+- `network.encoder=flat`: the original raw flattened tile IDs and repeated clock.
+- `network.encoder=puffer network.encoder_features=1024`: four binary planes
+  flattened in channel-first order and a bias-free 400-to-1,024 linear projection,
+  without the clock, followed by the MLP body. This reproduces PufferLib 5.0's
+  input encoder without its MinGRU core.
+
+`network.encoder_features` sets the projection width for `cnn` and `puffer`;
+`one_hot` and `flat` feed the fixed-width MLP directly. See PufferLib's
+[observation representation](https://github.com/PufferAI/PufferLib/blob/5.0/ocean/boxoban/boxoban.h)
+and [linear encoder](https://github.com/PufferAI/PufferLib/blob/5.0/src/algo.cu).

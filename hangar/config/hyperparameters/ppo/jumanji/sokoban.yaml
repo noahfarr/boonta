@@ -22,3 +22,7 @@ environment:
 optimizer:
   lr: 3e-4
   max_grad_norm: 0.5
+
+network:
+  encoder: one_hot
+  encoder_features: 256

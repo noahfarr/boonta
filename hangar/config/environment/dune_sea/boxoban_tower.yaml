@@ -1,0 +1,9 @@
+namespace: dune_sea
+suite: boxoban_tower
+env_id: boxoban_tower
+kwargs:
+  dataset_path: data/boxoban-levels/unfiltered/train
+  num_floors: 5
+  seed: 0
+  horizon: 2000
+  floor_horizon: 120

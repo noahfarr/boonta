@@ -17,3 +17,14 @@ The website in `docs/` runs training in the browser with [whlo](https://github.c
 ## Game data
 
 No game ROMs are included. The Pokémon Red environment needs a ROM you supply at `boonta/environments/peanut_gb/roms/pokemon_red.gb`, and `start_states/pokemon_red.bin` is a Peanut-GB save state for that ROM. The event flag names in `pokemon_red/flags.py` and the map names and sizes in `pokemon_red/maps.py` were read from the [pret/pokered](https://github.com/pret/pokered) disassembly. Pokémon is a trademark of Nintendo, Creatures and GAME FREAK.
+
+## craftax.cu
+
+`boonta/environments/craftaxcu/ffi/vendor/craftax.cu` is vendored from
+[Infatoshi/craftax.cu](https://github.com/Infatoshi/craftax.cu), commit
+`13202363e1f7a4bb0e7b95255b6425c5eab16f07`, with the changes in `craftax.patch`.
+Copyright 2026 Elliot Arledge. It is licensed under Apache-2.0 with LLVM
+Exceptions; its full license and notice are retained in `ffi/vendor/LICENSE`
+and `ffi/vendor/NOTICE`. The CUDA implementation derives from the MIT-licensed
+Craftax environment by Michael T. Matthews et al. The bindings and patch were
+ported from Boonta/Relax's `optimal-restart-distributions` branch.
