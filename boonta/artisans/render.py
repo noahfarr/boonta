@@ -29,8 +29,8 @@ class Render:
             algorithm_key, environment_key = jax.random.split(step_key)
             algorithm_state, carry, action, _ = act(algorithm_state, carry, algorithm_key, timestep)
             environment_state, timestep = advance(environment_key, environment_state, action)
-            first = jax.device_get(jax.tree.map(lambda leaf: leaf[0] if jnp.ndim(leaf) else leaf, environment_state))
-            frames.append(np.asarray(environment.render(first, **self.kwargs), dtype=np.uint8))
+            frame_state = jax.device_get(jax.tree.map(lambda leaf: leaf[0] if jnp.ndim(leaf) else leaf, environment_state))
+            frames.append(np.asarray(environment.render(frame_state, **self.kwargs), dtype=np.uint8))
             if bool(jax.device_get(jnp.all(timestep.done[0]))):
                 break
         environment.close(environment_state)
