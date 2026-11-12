@@ -1,0 +1,6 @@
+# @package _global_.curriculum.selector.gain
+# The debiased spread of a cell's advantages (Advantage.signal, clipped at zero) as the gain.
+_target_: boonta.curricula.psr.SignalGain
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2

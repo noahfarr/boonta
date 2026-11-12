@@ -27,3 +27,6 @@ network:
   encoder: egocentric
   features: 256
   layer_norm: false
+
+# Signal accounting alongside training (boonta/podracers/probe.py); it only logs.
+probe: false

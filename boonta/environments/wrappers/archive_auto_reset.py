@@ -301,6 +301,7 @@ class ArchiveAutoReset(AutoReset):
                 jnp.ones(self.num_envs, bool),
                 evicted_slots,
                 jnp.zeros(self.num_envs, bool),
+                jnp.zeros(self.num_envs, bool),
             ),
         )
 
@@ -392,14 +393,19 @@ class ArchiveAutoReset(AutoReset):
                     done & ~restart_mask,
                     evicted_slots,
                     episode_mask & rho,
+                    restart_mask,
                 )
             ),
         )
 
-    def mark(self, state, timestep, current_slots, start_mask, evicted_slots, rho_done) -> dict:
+    def mark(self, state, timestep, current_slots, start_mask, evicted_slots, rho_done, restarted) -> dict:
         info = timestep.info if isinstance(timestep.info, dict) else {}
         return {
             **info,
+            # Steps taken in the current episode before this observation, and whether this
+            # observation is a snapshot an environment was just restarted from.
+            "age": state.age,
+            "restarted": restarted,
             # An episode that began at the true start ended on its own this step, not cut off by a restart.
             "rho_done": broadcast(rho_done, timestep.done),
             "cell": current_slots,
@@ -423,6 +429,8 @@ class ArchiveAutoReset(AutoReset):
                 "rho/episode_return": jnp.where(done & rho, earned, jnp.nan),
                 "rho/discounted_episode_return": jnp.where(done & rho, graded, jnp.nan),
                 "rho/episode_length": jnp.where(done & rho, length, jnp.nan),
+                "restart/episode_length": jnp.where(done & ~rho, length, jnp.nan),
+                "restart/ended_within_30": jnp.where(done & ~rho, (length <= 30).astype(jnp.float32), jnp.nan),
             }
         )
 

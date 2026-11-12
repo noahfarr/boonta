@@ -49,6 +49,12 @@ def rank_metrics(features: Array) -> dict:
 def log_feature_rank(network: nn.Module, params: PyTree, obs: PyTree) -> None:
     """Logs rank_metrics for the feature extractor's output (the penultimate features the heads
     read) and for every layer inside it."""
+    lox.log(feature_rank_metrics(network, params, obs))
+
+
+def feature_rank_metrics(network: nn.Module, params: PyTree, obs: PyTree) -> dict:
+    """rank_metrics of the feature extractor's output and of every layer inside it, keyed
+    rank/<layer>/<measure>."""
 
     def inside(module, _):
         return len(module.path) > 0 and module.path[0] == "feature_extractor"
@@ -71,7 +77,7 @@ def log_feature_rank(network: nn.Module, params: PyTree, obs: PyTree) -> None:
         flat = jnp.reshape(value, (-1, value.shape[-1]))
         for name, metric in rank_metrics(flat).items():
             logs[f"rank/{layer}/{name}"] = metric
-    lox.log(logs)
+    return logs
 
 
 @struct.dataclass(frozen=True)

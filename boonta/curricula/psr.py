@@ -379,6 +379,16 @@ class Advantage:
 
 
 @dataclass
+class SignalGain(Advantage):
+    """The debiased between-action spread of a cell's advantages, signal(state), as the gain: the
+    variance of the per-action means with the noise that the within-action scatter predicts taken
+    out, clipped at zero. Everything else as the advantage gain."""
+
+    def __call__(self, state: GainState) -> Array:
+        return jnp.maximum(signal(state), 0.0)
+
+
+@dataclass
 class GreedyAdvantage(Advantage):
     shrinkage: float = 4.0
 

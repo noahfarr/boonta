@@ -27,6 +27,7 @@ class AnakinState:
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
+    probe_state: PyTree = None
 
 
 @dataclass
@@ -36,6 +37,8 @@ class Anakin:
     environment: Environment
     pit: Pit | None = None
     lap: Lap | None = None
+    # Measures each update alongside training (see probe.SignalProbe); it draws no training keys.
+    probe: object | None = None
 
     def __post_init__(self):
         if self.pit is None:
@@ -90,6 +93,7 @@ class Anakin:
         state = state.replace(
             pit_state=self.pit.init(pit_key, state),
             lap_state=self.lap.init(lap_key, state),
+            probe_state=None if self.probe is None else self.probe.init(algorithm_state.params),
         )
         return self.pit(call_key, self.lap(step_key, state))
 
@@ -109,6 +113,7 @@ class Anakin:
             state, transitions = jax.lax.scan(
                 partial(self.rollout, temperature=1.0), state, rollout_keys
             )
+            before = None if self.probe is None else state.algorithm_state.params
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions
             )
@@ -116,6 +121,16 @@ class Anakin:
                 state.pit_state, pit_key, transitions, algorithm_state
             )
             state = state.replace(algorithm_state=algorithm_state, pit_state=pit_state)
+            if self.probe is not None:
+                state = state.replace(
+                    probe_state=self.probe.update(
+                        state.probe_state,
+                        jax.random.fold_in(update_key, 0x50524F42),
+                        transitions,
+                        before,
+                        algorithm_state.params,
+                    )
+                )
             return self.pit(call_key, state), None
 
         keys = jax.random.split(key, num_updates)
@@ -155,8 +170,9 @@ def make(
     environment: Environment,
     pit: Pit | None = None,
     lap: Lap | None = None,
+    probe: object | None = None,
 ) -> Anakin:
-    podracer = Anakin(config, algorithm, environment, pit, lap)
+    podracer = Anakin(config, algorithm, environment, pit, lap, probe)
 
     initialize, close = podracer.init, podracer.close
     train = lox.spool(lox.strip(podracer.train, tags=["evaluation"]))

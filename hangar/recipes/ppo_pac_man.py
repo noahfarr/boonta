@@ -70,6 +70,9 @@ class Egocentric(nn.Module):
     features: int = 256
     radius: int = 7
     layer_norm: bool = False
+    # The frightened plane arrives as time left over FRIGHTENED; batch_probe.py feeds exact uint8
+    # planes with the raw timer and divides here instead. Training leaves it at 1 (no division).
+    scared_divisor: float = 1.0
 
     @nn.compact
     def __call__(self, obs):
@@ -80,6 +83,8 @@ class Egocentric(nn.Module):
         board = cells[..., [PLAYER, GHOSTS, POWER_UPS, PELLETS]].reshape((flat.shape[0], -1))
         local = jax.vmap(lambda board: centred(board, self.radius))(flat)[..., [FLOOR, GHOSTS, POWER_UPS, PELLETS]]
         scared = flat[:, 0, 0, SCARED : SCARED + 1]
+        if self.scared_divisor != 1.0:
+            scared = scared / self.scared_divisor
 
         def layer(inputs):
             hidden = nn.Dense(self.features)(inputs)
@@ -89,6 +94,16 @@ class Egocentric(nn.Module):
         local = layer(local.reshape((local.shape[0], -1)))
         hidden = layer(jnp.concatenate([board, local, scared], axis=-1))
         return hidden.reshape((*lead, self.features))
+
+
+PELLET_BUCKET = 50  # pellets per bucket in the restart diagnostics; a fresh board holds 300 or so
+NUM_PELLET_BUCKETS = 7
+
+
+def pellet_bucket(obs):
+    """The pellets left on the board, in buckets of PELLET_BUCKET, from the observation planes."""
+    pellets = jnp.sum(obs[..., PELLETS], axis=(-2, -1))
+    return (pellets // PELLET_BUCKET).astype(jnp.int32)
 
 
 def walkable(env) -> tuple:
@@ -139,4 +154,20 @@ def make(cfg):
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
+    components = {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
+    if cfg.get("probe", False):
+        from boonta.environments.wrappers.archive_auto_reset import unwrap
+        from boonta.podracers.probe import SignalProbe
+
+        archive = unwrap(env)
+        assert archive is not None, "the signal probe needs the archive's cells: use a PSR or ERD curriculum (k=1 for shadow PPO)"
+        components["probe"] = SignalProbe(
+            network=network,
+            gamma=cfg.algorithm.gamma,
+            gae_lambda=cfg.algorithm.gae_lambda,
+            archive_size=archive.archive.archive_size,
+            num_actions=num_actions,
+            bucket_fn=pellet_bucket,
+            num_buckets=NUM_PELLET_BUCKETS,
+        )
+    return components
