@@ -159,6 +159,33 @@ class SignalProbe:
             "signal/from_start_share": jnp.mean(mask.astype(jnp.float32)),
         }
 
+        # Each placement counted once: the first restored segment of every environment in this
+        # rollout, followed to its first end of any kind (death, time limit, or the cut at the
+        # rollout boundary) or to the rollout's end. restart/episode_length instead averages every
+        # episode that ends on its own, so a doomed snapshot replayed many times dominates it and
+        # segments still alive at the cut never count.
+        restarted_steps = second.info["restarted"].astype(bool)
+        num_steps = restarted_steps.shape[0]
+        placed = jnp.any(restarted_steps, axis=0)
+        start = jnp.argmax(restarted_steps, axis=0)
+        later = (jnp.arange(num_steps)[:, None] > start[None]) & second.done.astype(bool)
+        has_end = jnp.any(later, axis=0)
+        end = jnp.argmax(later, axis=0)
+        segment = jnp.where(has_end, end - start, num_steps - 1 - start).astype(jnp.float32)
+        died = has_end & jnp.take_along_axis(second.terminated.astype(bool), end[None], axis=0)[0]
+        num_placed = jnp.maximum(jnp.sum(placed, dtype=jnp.float32), 1.0)
+
+        def placement_mean(value):
+            return jnp.where(jnp.any(placed), jnp.sum(jnp.where(placed, value, 0.0)) / num_placed, jnp.nan)
+
+        logs.update(
+            {
+                "restart/placement_length": placement_mean(segment),
+                "restart/placement_died": placement_mean(died.astype(jnp.float32)),
+                "restart/placement_died_within_30": placement_mean((died & (segment <= 30)).astype(jnp.float32)),
+            }
+        )
+
         if self.bucket_fn is not None:
             restarted = second.info["restarted"].astype(bool)
             buckets = jnp.clip(self.bucket_fn(second.obs), 0, self.num_buckets - 1)
