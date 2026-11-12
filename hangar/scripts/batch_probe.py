@@ -35,6 +35,9 @@ NUM_STEPS = 64
 NUM_BATCHES = 16
 NUM_EVAL_ROLLOUTS = 8
 BURN_IN = 512
+LOOK_STATES = 4096  # evaluation states that get a simulator-based S
+LOOK_KEYS = 4  # lookahead rollouts per (state, action) in each of the two independent estimates
+LOOK_HORIZON = 64  # steps of each lookahead, the first with the action under test, then pi
 SCARED = 5
 FRIGHTENED = 30
 
@@ -90,7 +93,19 @@ def inner_state(env_state):
     return env_state
 
 
-def collect(algorithm, environment, params_state, key, num_rollouts: int, gamma: float, lam: float):
+def vectorized(environment, env_state):
+    """The Vectorize wrapper under the environment's other wrappers, and its batched inner state."""
+    from boonta.environments.wrappers import WrapperState
+    from boonta.environments.wrappers.vectorize import Vectorize
+
+    env, state = environment, env_state
+    while not isinstance(env, Vectorize):
+        env = env._env
+        state = state.env_state if isinstance(state, WrapperState) else state
+    return env, state
+
+
+def collect(algorithm, environment, params_state, key, num_rollouts: int, gamma: float, lam: float, keep: int = 0):
     """Burns in, then collects num_rollouts consecutive 64-step rollouts under pi. Returns uint8
     observations, actions, pi's log-probabilities, raw GAE advantages and PacMan cell keys, each
     flattened over rollouts, steps and environments, plus the last rollout's transitions."""
@@ -108,34 +123,49 @@ def collect(algorithm, environment, params_state, key, num_rollouts: int, gamma:
         planes = timestep.replace(obs=encode(timestep.obs))
         _, _, action, aux = algorithm.step(params_state, None, act_key, planes, 1.0)
         cells = cell_fn(inner_state(env_state))
+        inner = vectorized(environment, env_state)[1] if keep else None
         next_state, next_timestep = environment.step(env_key, env_state, action)
         # Transitions hold the exact uint8 planes, a quarter of the float observations' memory.
         transition = Transition(
             first=planes, second=next_timestep.replace(obs=encode(next_timestep.obs)), aux=aux, carry=None
         )
-        return (next_state, next_timestep), (transition, cells)
+        return (next_state, next_timestep), (transition, cells, inner)
 
     @jax.jit
     def burn(env_state, timestep, key):
         (env_state, timestep), _ = jax.lax.scan(step, (env_state, timestep), jax.random.split(key, BURN_IN))
         return env_state, timestep
 
+    num_envs = environment.num_envs
+
     @jax.jit
     def rollout(env_state, timestep, key):
-        (env_state, timestep), (transitions, cells) = jax.lax.scan(
-            step, (env_state, timestep), jax.random.split(key, NUM_STEPS)
+        scan_key, keep_key = jax.random.split(key)
+        (env_state, timestep), (transitions, cells, inner) = jax.lax.scan(
+            step, (env_state, timestep), jax.random.split(scan_key, NUM_STEPS)
         )
+        kept = None
+        if keep:
+            # A random subset of this rollout's states (step, environment), kept whole for lookahead.
+            picked = jax.random.choice(keep_key, NUM_STEPS * num_envs, (keep,), replace=False)
+            kept = (
+                jax.tree.map(lambda leaf: jnp.reshape(leaf, (-1, *leaf.shape[2:]))[picked], inner),
+                jnp.reshape(transitions.first.obs, (-1, *transitions.first.obs.shape[2:]))[picked],
+            )
         _, last_value = algorithm.network.apply(params_state.params, transitions.second.obs[-1], temperature=1.0)
         advantages, _ = generalized_advantage_estimator(
             transitions, transitions.aux["value"], last_value[..., 0], gamma, lam
         )
-        return env_state, timestep, transitions, cells, advantages
+        return env_state, timestep, transitions, cells, advantages, kept
 
     env_state, timestep = burn(env_state, timestep, burn_key)
     out = {"obs": [], "action": [], "log_prob": [], "advantage": [], "cell": [], "valid": []}
-    last = None
+    last, kept_states, kept_obs = None, [], []
     for rollout_key in jax.random.split(key, num_rollouts):
-        env_state, timestep, transitions, cells, advantages = rollout(env_state, timestep, rollout_key)
+        env_state, timestep, transitions, cells, advantages, kept = rollout(env_state, timestep, rollout_key)
+        if keep:
+            kept_states.append(kept[0])
+            kept_obs.append(kept[1])
         flat = lambda leaf: jnp.reshape(leaf, (-1, *leaf.shape[2:]))  # noqa: E731
         out["obs"].append(flat(transitions.first.obs))
         out["action"].append(flat(transitions.second.action).astype(jnp.int32))
@@ -144,7 +174,71 @@ def collect(algorithm, environment, params_state, key, num_rollouts: int, gamma:
         out["cell"].append(flat(cells))
         out["valid"].append(~flat(transitions.second.truncated).astype(bool))
         last = transitions
-    return {name: jnp.concatenate(parts) for name, parts in out.items()}, last
+    data = {name: jnp.concatenate(parts) for name, parts in out.items()}
+    if keep:
+        data["look_states"] = jax.tree.map(lambda *leaves: jnp.concatenate(leaves), *kept_states)
+        data["look_obs"] = jnp.concatenate(kept_obs)
+    return data, last
+
+
+def lookahead_signal(algorithm, environment, params_state, data, key, gamma: float, chunk: int = 512) -> dict:
+    """S_look = mean_s sum_a pi(a|s) A1(s, a) A2(s, a), where A1 and A2 are two independent
+    lookahead estimates of the advantage of every action. Each estimate of Q(s, a) averages
+    LOOK_KEYS rollouts that take a, follow pi for LOOK_HORIZON - 1 more steps with fresh ghost
+    randomness, and bootstrap with the critic; A = Q - sum_b pi(b|s) Q(s, b) within each estimate.
+    The two estimates share nothing but the state, so their product is unbiased for Var_pi(A)."""
+    from boonta.environments.jumanji import reseed
+
+    vec, _ = vectorized(environment, environment.init(jax.random.key(0))[0])
+    inner = vec._env
+    num_actions = 5
+
+    @jax.jit
+    def q_values(states, key):
+        size = jax.tree.leaves(states)[0].shape[0]
+        width = size * num_actions * LOOK_KEYS
+        tiled = jax.tree.map(lambda leaf: jnp.repeat(leaf, num_actions * LOOK_KEYS, axis=0), states)
+        first_action = jnp.tile(jnp.repeat(jnp.arange(num_actions), LOOK_KEYS), size)
+        seed_key, key = jax.random.split(key)
+        tiled = reseed(tiled, seed_key)
+
+        def step(carry, key):
+            states, alive, total, discount, forced = carry
+            act_key, env_key = jax.random.split(key)
+            obs = encode(jax.vmap(inner.observe)(states))
+            dist, _ = algorithm.network.apply(params_state.params, obs, temperature=1.0)
+            action = jnp.where(forced, first_action, dist.sample(seed=act_key))
+            states, timestep = jax.vmap(inner.step)(jax.random.split(env_key, width), states, action)
+            total = total + alive * discount * timestep.reward.astype(jnp.float32)
+            alive = alive * (1.0 - timestep.terminated.astype(jnp.float32))
+            return (states, alive, total, discount * gamma, jnp.zeros_like(forced)), None
+
+        start = (tiled, jnp.ones(width), jnp.zeros(width), jnp.ones(()), jnp.ones(width, bool))
+        (states, alive, total, discount, _), _ = jax.lax.scan(step, start, jax.random.split(key, LOOK_HORIZON))
+        _, value = algorithm.network.apply(params_state.params, encode(jax.vmap(inner.observe)(states)), temperature=1.0)
+        q = total + alive * discount * value[..., 0]
+        return jnp.reshape(q, (size, num_actions, LOOK_KEYS)).mean(-1)
+
+    states, obs = data["look_states"], data["look_obs"]
+    count = obs.shape[0]
+    probs = jnp.exp(log_probs(algorithm, params_state.params, obs))
+    estimates = []
+    for replicate_key in jax.random.split(key, 2):
+        parts = []
+        for index, start in enumerate(range(0, count, chunk)):
+            piece = jax.tree.map(lambda leaf: leaf[start : start + chunk], states)
+            parts.append(q_values(piece, jax.random.fold_in(replicate_key, index)))
+        q = jnp.concatenate(parts)
+        estimates.append(q - jnp.sum(probs * q, axis=-1, keepdims=True))
+    first, second = estimates
+    product = jnp.sum(probs * first * second, axis=-1)
+    single = jnp.sum(probs * first**2, axis=-1)
+    return {
+        "s_look": float(jnp.mean(product)),
+        "s_look_se": float(jnp.std(product) / np.sqrt(count)),
+        "s_look_single": float(jnp.mean(single)),
+        "look_states": int(count),
+    }
 
 
 def cell_signal(data) -> float:
@@ -206,13 +300,24 @@ def probe_checkpoint(checkpoint: str, seed: int):
     params_state, *_ = restore_policy(algorithm, environment, checkpoint, jax.random.key(seed))
     key = jax.random.key(seed + 1000)
     eval_key, key = jax.random.split(key)
-    evaluation, _ = collect(algorithm, environment, params_state, eval_key, NUM_EVAL_ROLLOUTS, gamma, lam)
+    evaluation, _ = collect(
+        algorithm, environment, params_state, eval_key, NUM_EVAL_ROLLOUTS, gamma, lam, keep=LOOK_STATES // NUM_EVAL_ROLLOUTS
+    )
+    look_key, key = jax.random.split(key)
+    look = lookahead_signal(algorithm, environment, params_state, evaluation, look_key, gamma)
+    s_look = look["s_look"]
+    for name in ("look_states", "look_obs"):
+        evaluation.pop(name)
     old_eval = log_probs(algorithm, params_state.params, evaluation["obs"])
     valid = evaluation["valid"]
     s_raw = float(jnp.sum(jnp.where(valid, evaluation["advantage"] ** 2, 0.0)) / jnp.sum(valid))
     s_cell = cell_signal(evaluation)
-    results.update(s_raw=s_raw, s_cell=s_cell, eval_samples=int(valid.sum()))
-    print(f"  evaluation set: {int(valid.sum())} samples, S_raw {s_raw:.3f}, S_cell {s_cell:.4f}")
+    results.update(s_raw=s_raw, s_cell=s_cell, eval_samples=int(valid.sum()), **look)
+    print(
+        f"  evaluation set: {int(valid.sum())} samples, S_raw {s_raw:.3f}, S_cell {s_cell:.4f}, "
+        f"S_look {s_look:.4f} +- {look['s_look_se']:.4f} (single-estimate {look['s_look_single']:.4f})",
+        flush=True,
+    )
 
     default_minibatch = DEFAULT_ENVS * NUM_STEPS // cfg.algorithm.num_minibatches
     schemes = ("fixed_count", "fixed_size")
@@ -250,6 +355,8 @@ def probe_checkpoint(checkpoint: str, seed: int):
                         "delta": delta,
                         "rho_low": c_out / np.sqrt(max(2 * delta * s_raw, 1e-30)),
                         "rho_high": c_out / np.sqrt(max(2 * delta * s_cell, 1e-30)),
+                        "rho_look": c_out / np.sqrt(max(2 * delta * s_look, 1e-30)) if s_look > 0 else float("nan"),
+                        "c_out_per_sample": c_out / batch,
                     }
                 )
         for scheme in schemes:
@@ -261,12 +368,14 @@ def probe_checkpoint(checkpoint: str, seed: int):
                 num_minibatches=counts[scheme],
                 rho_high_sq=float(np.mean([v["rho_high"] ** 2 for v in per_batch])),
                 rho_low_sq=float(np.mean([v["rho_low"] ** 2 for v in per_batch])),
+                rho_look_sq=float(np.mean([v["rho_look"] ** 2 for v in per_batch])),
                 holdout_ratio=summary["c_out"] / summary["c_in"] if summary["c_in"] else float("nan"),
                 per_batch=per_batch,
             )
             print(
                 f"  {scheme:11s} N={n:<6.4g} c_out {summary['c_out']:+.5f} c_in {summary['c_in']:+.5f} "
-                f"ratio {summary['holdout_ratio']:.2f} delta {summary['delta']:.5f} rho_high {summary['rho_high']:.3f}",
+                f"ratio {summary['holdout_ratio']:.2f} delta {summary['delta']:.5f} rho_high {summary['rho_high']:.3f} "
+                f"rho_look {summary['rho_look']:.3f} c_out/sample {summary['c_out_per_sample']:.2e}",
                 flush=True,
             )
             rows[scheme].append(summary)
@@ -274,6 +383,7 @@ def probe_checkpoint(checkpoint: str, seed: int):
         results["schemes"][scheme] = {
             "rows": rows[scheme],
             "fit": fit([r["N"] for r in rows[scheme]], [r["rho_high_sq"] for r in rows[scheme]]),
+            "fit_look": fit([r["N"] for r in rows[scheme]], [r["rho_look_sq"] for r in rows[scheme]]),
         }
     return results
 
