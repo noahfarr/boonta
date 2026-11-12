@@ -1,0 +1,8 @@
+namespace: dune_sea
+suite: combination_lock
+env_id: combination_lock
+kwargs:
+  length: 64
+  num_actions: 4
+  hazard: 0.0
+  seed: 0

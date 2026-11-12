@@ -5,7 +5,7 @@ defaults:
   - /curriculum/psr/relevance: counted
   - /curriculum/psr/gain: advantage
   - /curriculum/psr/score: diagonal
-  - /curriculum/psr/allocation: marginal
+  - /curriculum/psr/allocation: water_filling
   - override /environment/auto_reset@_global_.environment.auto_reset: archive
   - _self_
 

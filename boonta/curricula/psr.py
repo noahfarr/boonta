@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import lox
 import numpy as np
 import optax
+import flax.linen as nn
 from flax import struct
 
 from boonta.algorithms import Algorithm
@@ -465,6 +466,145 @@ class TargetAdvantage(Advantage):
 
 
 @struct.dataclass
+class HalvedState(TargetState):
+    half_counts: Array
+    half_sums: Array
+
+
+def ranks(value: Array, mask: Array) -> Array:
+    """Ranks of `value` among the masked entries, ties sharing their mean rank; 0 elsewhere."""
+    keyed = jnp.where(mask, value, jnp.inf)
+    ordered = jnp.sort(keyed)
+    low = jnp.searchsorted(ordered, keyed, side="left")
+    high = jnp.searchsorted(ordered, keyed, side="right")
+    return jnp.where(mask, (low + high - 1) / 2.0, 0.0)
+
+
+def rank_correlation(first: Array, second: Array, mask: Array) -> Array:
+    """Spearman's correlation of two scores over the masked cells."""
+    count = jnp.maximum(jnp.sum(mask, dtype=jnp.float32), 1.0)
+
+    def centred(value):
+        rank = ranks(value, mask)
+        return jnp.where(mask, rank - jnp.sum(rank) / count, 0.0)
+
+    a, b = centred(first), centred(second)
+    norm = jnp.sqrt(jnp.sum(a**2) * jnp.sum(b**2))
+    return jnp.where(norm > 0.0, jnp.sum(a * b) / jnp.maximum(norm, 1e-30), 0.0)
+
+
+@dataclass
+class DoubleGreedyAdvantage(TargetAdvantage):
+    """The greedy gain, max_a A(x, a), without the upward bias of taking a maximum of noisy means.
+
+    Environments are split by parity into two halves that tally their advantages apart. Each half
+    picks the action whose shrunk centred mean is largest, the other half scores that action, and
+    the two directions are averaged and clipped at zero, as in double Q-learning. The halves are
+    independent rollouts, so noise that makes an action win in one half does not follow it into
+    the other.
+
+    With a checkpoint, the target's gain is measured alongside without steering anything, and
+    `screen` logs the rank correlations of the target, single greedy and double greedy gains over
+    the archive's cells, and over the cells with at least `screen_visits` (decayed) visits.
+    """
+
+    shrinkage: float = 4.0
+    screen_visits: float = 10.0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        if self.checkpoint is not None:
+            super().prepare(algorithm, environment)
+
+    def init(self, archive_size: int, num_actions: int) -> HalvedState:
+        state = Advantage.init(self, archive_size, num_actions)
+        table = jnp.zeros((archive_size, num_actions), jnp.float32)
+        halves = jnp.zeros((2, archive_size, num_actions), jnp.float32)
+        return HalvedState(
+            **vars(state),
+            target_sums=table,
+            target=getattr(self, "target", None),
+            half_counts=halves,
+            half_sums=halves,
+        )
+
+    def update(self, state: HalvedState, transitions: Transition) -> HalvedState:
+        if self.checkpoint is not None:
+            state = super().update(state, transitions)
+        else:
+            state = Advantage.update(self, state, transitions)
+        first, second = transitions.first, transitions.second
+        values = transitions.aux["value"]
+        advantages, _ = generalized_advantage_estimator(
+            jax.tree.map(lambda leaf: leaf[:-1], transitions),
+            values[:-1],
+            values[-1],
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+        )
+        _, archive_size, num_actions = jnp.shape(state.half_counts)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~second.truncated[:-1].astype(bool)
+        actions = jnp.clip(second.action[:-1].astype(jnp.int32), 0, num_actions - 1)
+        half = jnp.broadcast_to(jnp.arange(cell_slots.shape[-1]) % 2, cell_slots.shape)
+        size = 2 * archive_size * num_actions
+        bins = jnp.reshape(
+            jnp.where(
+                valid_mask,
+                (half * archive_size + cell_slots) * num_actions + actions,
+                size,
+            ),
+            (-1,),
+        )
+
+        def tally(value):
+            summed = piled(size, bins, jnp.reshape(jnp.where(valid_mask, value, 0.0), (-1,)))
+            return jnp.reshape(summed, (2, archive_size, num_actions))
+
+        decay = 1.0 - self.rate
+        return state.replace(
+            half_counts=decay * state.half_counts + tally(1.0),
+            half_sums=decay * state.half_sums + tally(advantages),
+        )
+
+    def greedy(self, state: GainState) -> Array:
+        return GreedyAdvantage.__call__(self, state)
+
+    def __call__(self, state: HalvedState) -> Array:
+        counts, sums = state.half_counts, state.half_sums
+        present_mask = counts > 0.0
+        means = jnp.where(present_mask, sums / jnp.maximum(counts, 1e-12), 0.0)
+        cell_means = jnp.sum(sums, axis=-1) / jnp.maximum(jnp.sum(counts, axis=-1), 1e-12)
+        shrunk = jnp.where(
+            present_mask, counts / (counts + self.shrinkage) * (means - cell_means[..., None]), 0.0
+        )
+        picked = jnp.argmax(jnp.where(present_mask, shrunk, -jnp.inf), axis=-1)
+        scored = jnp.take_along_axis(shrunk[::-1], picked[..., None], axis=-1)[..., 0]
+        scored = jnp.where(jnp.any(present_mask, axis=-1), scored, 0.0)
+        return jnp.maximum(jnp.mean(scored, axis=0), 0.0)
+
+    def screen(self, state: HalvedState, archive_mask: Array) -> None:
+        well_mask = archive_mask & (state.cell_visits >= self.screen_visits)
+        single, double = self.greedy(state), self(state)
+        gains = {"single": single, "double": double}
+        if self.checkpoint is not None:
+            gains["target"] = TargetAdvantage.__call__(self, state)
+        names = list(gains)
+        metrics = {
+            "screen/well_visited": jnp.sum(well_mask, dtype=jnp.float32)
+            / jnp.maximum(jnp.sum(archive_mask, dtype=jnp.float32), 1.0)
+        }
+        for i, a in enumerate(names):
+            for b in names[i + 1 :]:
+                metrics[f"screen/{a}_{b}"] = rank_correlation(gains[a], gains[b], archive_mask)
+                metrics[f"screen/{a}_{b}_well"] = rank_correlation(gains[a], gains[b], well_mask)
+        for name, gain in gains.items():
+            metrics[f"screen/{name}_mean"] = jnp.sum(jnp.where(well_mask, gain, 0.0)) / jnp.maximum(
+                jnp.sum(well_mask, dtype=jnp.float32), 1.0
+            )
+        lox.log(metrics)
+
+
+@struct.dataclass
 class ModelState(GainState):
     tries: Array
     payoff_sums: Array
@@ -604,6 +744,8 @@ class SelectorState:
     # The archive's cell keys and occupancy, filled in by select for relevances that need them.
     keys: Array = None
     mask: Array = None
+    # The side environments a search relevance plays with, when it has them.
+    played: PyTree = None
 
 
 class CountedRelevance:
@@ -719,6 +861,866 @@ class TargetRelevance:
         return jnp.where(found, self.weights[index], 0.0)
 
 
+def tree_search(wrapper, algorithm: Algorithm, num_simulations: int, gamma: float, num_considered: int):
+    """Gumbel MuZero search over the true simulator, with the current network as prior and leaf value.
+
+    The model is the environment inside the archive wrapper, so rewards are on the scale the critic
+    learns. Every simulated step first refreshes the state with the archive's refresh function (a
+    new key for PacMan's ghosts), so the tree averages over the simulator's randomness rather than
+    replaying one draw. Returns the chosen actions, the search's root values and the critic's values.
+    """
+    import mctx
+
+    inner = wrapper._env
+
+    def evaluate(params, env_states):
+        obs = jax.vmap(inner.observe)(env_states)
+        dist, value = algorithm.network.apply(params, obs, temperature=1.0)
+        return dist.logits, value[..., 0]
+
+    def recurrent_fn(params, key, action, env_states):
+        seed_key, step_key = jax.random.split(key)
+        env_states = wrapper.refresh_fn(env_states, seed_key)
+        keys = jax.random.split(step_key, jnp.shape(action)[0])
+        env_states, timestep = jax.vmap(inner.step)(keys, env_states, action)
+        logits, value = evaluate(params, env_states)
+        output = mctx.RecurrentFnOutput(
+            reward=timestep.reward.astype(jnp.float32),
+            discount=gamma * (1.0 - timestep.terminated.astype(jnp.float32)),
+            prior_logits=logits,
+            value=value,
+        )
+        return output, env_states
+
+    def search(params, key, env_states):
+        logits, value = evaluate(params, env_states)
+        root = mctx.RootFnOutput(prior_logits=logits, value=value, embedding=env_states)
+        output = mctx.gumbel_muzero_policy(
+            params,
+            key,
+            root,
+            recurrent_fn,
+            num_simulations=num_simulations,
+            max_num_considered_actions=num_considered,
+        )
+        return output.action, output.search_tree.summary().value, value
+
+    return search
+
+
+@struct.dataclass
+class SearchGainState(GainState):
+    values: Array
+    searched_at: Array
+    clock: Array
+    simulator_steps: Array
+
+
+@dataclass
+class SearchGain(Advantage):
+    """How much a short tree search improves on current play: max(0, V_search(s) - V(s)).
+
+    Each update the `num_cells` archive cells searched longest ago (new cells first) are searched
+    from their snapshots, `num_simulations` simulator steps each, and their gains replaced. The
+    search sees several steps of the true dynamics, so it can find what the critic misses. The
+    advantage statistics are still kept, for the noise scale the saturation uses.
+    """
+
+    num_cells: int = 256
+    num_simulations: int = 32
+    num_considered: int = 16
+
+    def init(self, archive_size: int, num_actions: int) -> SearchGainState:
+        state = super().init(archive_size, num_actions)
+        return SearchGainState(
+            **vars(state),
+            values=jnp.zeros(archive_size, jnp.float32),
+            searched_at=jnp.full(archive_size, -1, jnp.int32),
+            clock=jnp.zeros((), jnp.int32),
+            simulator_steps=jnp.zeros((), jnp.float32),
+        )
+
+    def forget(self, state: SearchGainState, wiped_mask: Array) -> SearchGainState:
+        searched_at = jnp.where(wiped_mask, -1, state.searched_at)
+        return super().forget(state, wiped_mask).replace(searched_at=searched_at)
+
+    def __call__(self, state: SearchGainState) -> Array:
+        return state.values
+
+    def search(self, state: SearchGainState, key: Key, wrapper, archive_state, algorithm, algorithm_state):
+        search = tree_search(
+            wrapper, algorithm, self.num_simulations, self.gamma, min(self.num_considered, wrapper.num_actions)
+        )
+        eligible_mask = wrapper.archive.eligible(archive_state)
+        staleness = jnp.where(eligible_mask, state.clock - state.searched_at, -1).astype(jnp.float32)
+        staleness = staleness + jax.random.uniform(key, staleness.shape) * 0.5  # ties broken at random
+        _, slots = jax.lax.top_k(staleness, self.num_cells)
+        valid_mask = eligible_mask[slots]
+        _, searched, value = search(algorithm_state.params, key, wrapper.archive.take(archive_state, slots))
+        improvement = searched - value
+        rows = jnp.where(valid_mask, slots, jnp.shape(state.values)[0])
+        num_valid = jnp.sum(valid_mask, dtype=jnp.float32)
+        lox.log(
+            {
+                "search/improvement": jnp.sum(jnp.where(valid_mask, improvement, 0.0)) / jnp.maximum(num_valid, 1.0),
+                "search/improved": jnp.sum(valid_mask & (improvement > 0.0), dtype=jnp.float32)
+                / jnp.maximum(num_valid, 1.0),
+                "search/never_searched": jnp.sum(eligible_mask & (state.searched_at < 0), dtype=jnp.float32),
+            }
+        )
+        return state.replace(
+            values=state.values.at[rows].set(jnp.maximum(improvement, 0.0), mode="drop"),
+            searched_at=state.searched_at.at[rows].set(state.clock, mode="drop"),
+            clock=state.clock + 1,
+            simulator_steps=state.simulator_steps + num_valid * self.num_simulations,
+        )
+
+
+def returns_to_go(transitions: Transition, gamma: float, return_lambda: float) -> tuple[Array, Array]:
+    """The lambda-return from every step of a rollout (lambda 1: rewards to the rollout's end,
+    bootstrapped with the critic there), and the critic's values at those steps."""
+    values = transitions.aux["value"]
+    advantages, _ = generalized_advantage_estimator(
+        jax.tree.map(lambda leaf: leaf[:-1], transitions),
+        values[:-1],
+        values[-1],
+        gamma=gamma,
+        gae_lambda=return_lambda,
+    )
+    return advantages + values[:-1], values[:-1]
+
+
+def upper_quantile(sums: Array, squares: Array, counts: Array, quantile: float) -> Array:
+    """A high quantile of the returns seen from each cell, from their decayed sums, assuming they
+    are roughly normal."""
+    from jax.scipy.special import ndtri
+
+    mean = sums / jnp.maximum(counts, 1e-12)
+    spread = jnp.sqrt(jnp.maximum(squares / jnp.maximum(counts, 1e-12) - mean**2, 0.0))
+    return mean + ndtri(quantile) * spread
+
+
+@struct.dataclass
+class HindsightState(GainState):
+    return_sums: Array
+    return_squares: Array
+    return_counts: Array
+    value_sums: Array
+    value_counts: Array
+
+
+@dataclass
+class HindsightGain(Advantage):
+    """The return left on the table from a cell: max(0, G_hi(c) - V(c)).
+
+    G_hi is a high `quantile` of the return-to-go observed from the cell, remembered with the slow
+    `memory_rate`, so it keeps what earlier and luckier episodes achieved; V is the critic's value
+    there, averaged with the gain's `rate`, so it stays current. This is Self-Imitation Learning's
+    (R - V)+ used to choose restarts. Under the current policy alone E[G] = V, so the score is the
+    critic's lag plus z_quantile times the spread of the returns: the memory is what separates
+    "already done better here" from "the returns here are noisy".
+    """
+
+    quantile: float = 0.75
+    memory_rate: float = 0.02
+    return_lambda: float = 1.0
+
+    def init(self, archive_size: int, num_actions: int) -> HindsightState:
+        state = super().init(archive_size, num_actions)
+        column = jnp.zeros(archive_size, jnp.float32)
+        return HindsightState(
+            **vars(state),
+            return_sums=column,
+            return_squares=column,
+            return_counts=column,
+            value_sums=column,
+            value_counts=column,
+        )
+
+    def update(self, state: HindsightState, transitions: Transition) -> HindsightState:
+        state = super().update(state, transitions)
+        returns, values = returns_to_go(transitions, self.gamma, self.return_lambda)
+        archive_size, *_ = jnp.shape(state.return_counts)
+        cell_slots = transitions.first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~transitions.second.truncated[:-1].astype(bool)
+        rows = jnp.reshape(jnp.where(valid_mask, cell_slots, archive_size), (-1,))
+
+        def tally(value):
+            return piled(archive_size, rows, jnp.reshape(jnp.where(valid_mask, value, 0.0), (-1,)))
+
+        counts = tally(1.0)
+        keep, fresh = 1.0 - self.memory_rate, 1.0 - self.rate
+        return state.replace(
+            return_sums=keep * state.return_sums + tally(returns),
+            return_squares=keep * state.return_squares + tally(returns**2),
+            return_counts=keep * state.return_counts + counts,
+            value_sums=fresh * state.value_sums + tally(values),
+            value_counts=fresh * state.value_counts + counts,
+        )
+
+    def __call__(self, state: HindsightState) -> Array:
+        best = upper_quantile(state.return_sums, state.return_squares, state.return_counts, self.quantile)
+        value = state.value_sums / jnp.maximum(state.value_counts, 1e-12)
+        seen = (state.return_counts > 0.0) & (state.value_counts > 0.0)
+        return jnp.where(seen, jnp.maximum(best - value, 0.0), 0.0)
+
+
+class ExpectileHeads(nn.Module):
+    """Q(s, a) and two value heads, each on its own copy of the learner's encoder: V_hi, an upper
+    expectile of Q over the actions taken, and V_mean, their mean."""
+
+    encoder: nn.Module
+    num_actions: int
+
+    def setup(self):
+        self.q_encoder = self.encoder.clone()
+        self.v_encoder = self.encoder.clone()
+        self.q_head = nn.Dense(self.num_actions)
+        self.v_head = nn.Dense(2)
+
+    def __call__(self, obs):
+        return self.q_head(self.q_encoder(obs)), self.v_head(self.v_encoder(obs))
+
+
+@struct.dataclass
+class ExpectileState(GainState):
+    params: PyTree
+    target_params: PyTree
+    optimizer_state: PyTree
+    key: Key
+    gap_sums: Array
+    gap_counts: Array
+
+
+@dataclass
+class ExpectileGain(Advantage):
+    """The expectile gap: replay states where the best things tried beat what is done on average.
+
+    Two extra heads learn from the rollouts PPO already collects, as in implicit Q-learning
+    (Kostrikov et al., 2021). Q(s, a) regresses on r + gamma V_hi(s'), a mean backup that averages
+    out the environment's luck; V_hi(s) is the `expectile` (0.9) of the target Q over the actions
+    actually taken, the value of the best behaviour tried from s. The priority of a cell is the
+    average over its visited states of V_hi - V, where V is the 0.5 expectile of the same Q
+    (`baseline: mean`, so Q's errors cancel) or PPO's critic (`baseline: critic`).
+
+    The expectile is taken over actions only, not over returns, so a cell whose returns are noisy
+    but whose actions all lead to the same mean scores nothing.
+    """
+
+    expectile: float = 0.9
+    baseline: str = "mean"
+    lr: float = 3e-4
+    max_grad_norm: float = 0.5
+    num_minibatches: int = 8
+    polyak: float = 0.005
+    seed: int = 0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        assert self.baseline in ("mean", "critic"), self.baseline
+        extractor = algorithm.network.feature_extractor
+        encoder = getattr(extractor, "observation_extractor", extractor)
+        wrapper = unwrap(environment)
+        self.heads = ExpectileHeads(encoder=encoder, num_actions=wrapper.num_actions)
+        _, timestep = wrapper._env.init(jax.random.key(0))
+        self.example = jax.tree.map(lambda leaf: leaf[None], timestep.obs)
+        self.optimizer = optax.chain(optax.clip_by_global_norm(self.max_grad_norm), optax.adam(self.lr))
+
+    def init(self, archive_size: int, num_actions: int) -> ExpectileState:
+        assert hasattr(self, "heads"), "ExpectileGain needs prepare before it is used"
+        state = super().init(archive_size, num_actions)
+        init_key, key = jax.random.split(jax.random.key(self.seed))
+        params = self.heads.init(init_key, self.example)
+        column = jnp.zeros(archive_size, jnp.float32)
+        return ExpectileState(
+            **vars(state),
+            params=params,
+            target_params=params,
+            optimizer_state=self.optimizer.init(params),
+            key=key,
+            gap_sums=column,
+            gap_counts=column,
+        )
+
+    def forget(self, state: ExpectileState, wiped_mask: Array) -> ExpectileState:
+        kept = dict(
+            params=state.params,
+            target_params=state.target_params,
+            optimizer_state=state.optimizer_state,
+            key=state.key,
+        )
+        cleared = state.replace(**{name: None for name in kept})
+        return super().forget(cleared, wiped_mask).replace(**kept)
+
+    def losses(self, params, target_params, batch):
+        obs, next_obs, action, reward, terminated, valid = batch
+        q_all, v = self.heads.apply(params, obs)
+        _, v_next = self.heads.apply(params, next_obs)
+        q = jnp.take_along_axis(q_all, action[:, None], axis=-1)[:, 0]
+        backup = jax.lax.stop_gradient(reward + self.gamma * (1.0 - terminated) * v_next[:, 0])
+        target_q_all, _ = self.heads.apply(target_params, obs)
+        target_q = jax.lax.stop_gradient(jnp.take_along_axis(target_q_all, action[:, None], axis=-1)[:, 0])
+        above = target_q - v[:, 0]
+        weight = jnp.abs(self.expectile - (above < 0.0).astype(jnp.float32))
+        count = jnp.maximum(jnp.sum(valid), 1.0)
+
+        def mean(value):
+            return jnp.sum(jnp.where(valid, value, 0.0)) / count
+
+        q_loss = mean((q - backup) ** 2)
+        hi_loss = mean(weight * above**2)
+        mean_loss = mean((target_q - v[:, 1]) ** 2)
+        return q_loss + hi_loss + mean_loss, (q_loss, hi_loss, mean_loss)
+
+    def update(self, state: ExpectileState, transitions: Transition) -> ExpectileState:
+        state = super().update(state, transitions)
+        first, second = transitions.first, transitions.second
+
+        def flat(leaf):
+            leaf = leaf[:-1]
+            return jnp.reshape(leaf, (-1, *leaf.shape[2:]))
+
+        obs = jax.tree.map(flat, first.obs)
+        batch = (
+            obs,
+            jax.tree.map(flat, second.obs),
+            flat(second.action).astype(jnp.int32),
+            flat(second.reward).astype(jnp.float32),
+            flat(second.terminated).astype(jnp.float32),
+            ~flat(second.truncated).astype(bool),
+        )
+        size = jnp.shape(batch[2])[0]
+        key, permute_key = jax.random.split(state.key)
+        order = jax.random.permutation(permute_key, size)[: size // self.num_minibatches * self.num_minibatches]
+        minibatches = jax.tree.map(
+            lambda leaf: jnp.reshape(leaf[order], (self.num_minibatches, -1, *leaf.shape[1:])), batch
+        )
+
+        def train(carry, minibatch):
+            params, target_params, optimizer_state = carry
+            (_, parts), grads = jax.value_and_grad(self.losses, has_aux=True)(params, target_params, minibatch)
+            updates, optimizer_state = self.optimizer.update(grads, optimizer_state, params)
+            params = optax.apply_updates(params, updates)
+            target_params = optax.incremental_update(params, target_params, self.polyak)
+            return (params, target_params, optimizer_state), parts
+
+        (params, target_params, optimizer_state), (q_loss, hi_loss, mean_loss) = jax.lax.scan(
+            train, (state.params, state.target_params, state.optimizer_state), minibatches
+        )
+        _, v = self.heads.apply(params, obs)
+        baseline = v[:, 1] if self.baseline == "mean" else flat(transitions.aux["value"])
+        gap = v[:, 0] - baseline
+        archive_size, *_ = jnp.shape(state.gap_counts)
+        cells = flat(first.info["cell"])
+        valid = (cells >= 0) & batch[-1]
+        rows = jnp.where(valid, cells, archive_size)
+        decay = 1.0 - self.rate
+        lox.log(
+            {
+                "expectile/q_loss": jnp.mean(q_loss),
+                "expectile/hi_loss": jnp.mean(hi_loss),
+                "expectile/mean_loss": jnp.mean(mean_loss),
+                "expectile/gap": jnp.sum(jnp.where(valid, gap, 0.0)) / jnp.maximum(jnp.sum(valid), 1),
+                "expectile/positive": jnp.sum(valid & (gap > 0.0)) / jnp.maximum(jnp.sum(valid), 1),
+            }
+        )
+        return state.replace(
+            params=params,
+            target_params=target_params,
+            optimizer_state=optimizer_state,
+            key=key,
+            gap_sums=decay * state.gap_sums + piled(archive_size, rows, jnp.where(valid, gap, 0.0)),
+            gap_counts=decay * state.gap_counts + piled(archive_size, rows, valid.astype(jnp.float32)),
+        )
+
+    def __call__(self, state: ExpectileState) -> Array:
+        gap = state.gap_sums / jnp.maximum(state.gap_counts, 1e-12)
+        return jnp.where(state.gap_counts > 0.0, jnp.maximum(gap, 0.0), 0.0)
+
+
+@struct.dataclass
+class ScreenState(TargetState):
+    group_counts: Array
+    group_sums: Array
+    group_targets: Array
+    group_returns: Array
+    group_values: Array
+    clock: Array
+
+
+@dataclass
+class FairScreen(TargetAdvantage):
+    """Steers with the plain advantage gain and measures how well cheap gains track the target gain.
+
+    Environments are split by index into six groups that tally advantages, and the target's action
+    probabilities, apart. Each estimator is computed twice from disjoint groups, so no candidate
+    shares noise with the reference and every pair of copies gives that estimator's split-half
+    reliability:
+
+    - target gain, the reference: groups 0 and 1;
+    - single greedy, from one group like one half of the double: groups 2 and 4;
+    - double greedy: picks in 2 and scores in 3 (and back), and picks in 4 and scores in 5;
+    - search gain, every `search_every` updates on `num_cells` well-visited cells: two searches
+      with independent keys;
+    - hindsight gain, max(0, G_hi - V), from one group like single greedy: groups 2 and 4. Its
+      returns are remembered with `memory_rate` as in HindsightGain.
+
+    Logged per visit threshold: the raw correlation of each candidate with the target (averaged
+    over the four pairings of copies), the reliabilities, and the correlation corrected for
+    attenuation, r_xy / sqrt(r_xx r_yy). The group tallies decay by `screen_rate` per update.
+    """
+
+    shrinkage: float = 4.0
+    screen_rate: float = 0.05
+    thresholds: tuple = (10.0, 50.0)
+    num_cells: int = 256
+    num_simulations: int = 32
+    num_considered: int = 16
+    search_every: int = 10
+    quantile: float = 0.75
+    memory_rate: float = 0.02
+    return_lambda: float = 1.0
+
+    def __call__(self, state: ScreenState) -> Array:
+        return self.power(state)
+
+    def init(self, archive_size: int, num_actions: int) -> ScreenState:
+        state = Advantage.init(self, archive_size, num_actions)
+        groups = jnp.zeros((6, archive_size, num_actions), jnp.float32)
+        return ScreenState(
+            **vars(state),
+            target_sums=jnp.zeros((archive_size, num_actions), jnp.float32),
+            target=self.target,
+            group_counts=groups,
+            group_sums=groups,
+            group_targets=groups,
+            # Per group and cell: decayed count, sum and sum of squares of the returns, and the
+            # count and sum of the critic's values.
+            group_returns=jnp.zeros((6, archive_size, 3), jnp.float32),
+            group_values=jnp.zeros((6, archive_size, 2), jnp.float32),
+            clock=jnp.zeros((), jnp.int32),
+        )
+
+    def update(self, state: ScreenState, transitions: Transition) -> ScreenState:
+        state = super().update(state, transitions)
+        first, second = transitions.first, transitions.second
+        values = transitions.aux["value"]
+        advantages, _ = generalized_advantage_estimator(
+            jax.tree.map(lambda leaf: leaf[:-1], transitions),
+            values[:-1],
+            values[-1],
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+        )
+        _, archive_size, num_actions = jnp.shape(state.group_counts)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~second.truncated[:-1].astype(bool)
+        actions = jnp.clip(second.action[:-1].astype(jnp.int32), 0, num_actions - 1)
+        group = jnp.broadcast_to(jnp.arange(cell_slots.shape[-1]) % 6, cell_slots.shape)
+        rows = jnp.where(valid_mask, group * archive_size + cell_slots, 6 * archive_size)
+        size = 6 * archive_size * num_actions
+        bins = jnp.reshape(jnp.where(valid_mask, rows * num_actions + actions, size), (-1,))
+
+        def tally(value):
+            summed = piled(size, bins, jnp.reshape(jnp.where(valid_mask, value, 0.0), (-1,)))
+            return jnp.reshape(summed, (6, archive_size, num_actions))
+
+        _, _, _, aux = self.algorithm.step(
+            state.target, transitions.carry, jax.random.key(self.seed), first, 1.0
+        )
+        target_probs = jax.nn.softmax(aux["logits"][:-1].astype(jnp.float32), axis=-1)
+        targets = (
+            jnp.zeros((6 * archive_size, num_actions))
+            .at[jnp.reshape(rows, (-1,))]
+            .add(jnp.reshape(target_probs, (-1, num_actions)), mode="drop")
+            .reshape(6, archive_size, num_actions)
+        )
+        returns, visited_values = returns_to_go(transitions, self.gamma, self.return_lambda)
+        flat_rows = jnp.reshape(rows, (-1,))
+
+        def by_cell(value):
+            summed = piled(6 * archive_size, flat_rows, jnp.reshape(jnp.where(valid_mask, value, 0.0), (-1,)))
+            return jnp.reshape(summed, (6, archive_size))
+
+        visits = by_cell(1.0)
+        decay = 1.0 - self.screen_rate
+        keep = 1.0 - self.memory_rate
+        return state.replace(
+            group_counts=decay * state.group_counts + tally(1.0),
+            group_sums=decay * state.group_sums + tally(advantages),
+            group_targets=decay * state.group_targets + targets,
+            group_returns=keep * state.group_returns
+            + jnp.stack([visits, by_cell(returns), by_cell(returns**2)], axis=-1),
+            group_values=decay * state.group_values
+            + jnp.stack([visits, by_cell(visited_values)], axis=-1),
+        )
+
+    def estimates(self, state: ScreenState) -> dict:
+        counts, sums = state.group_counts, state.group_sums
+        present = counts > 0.0
+        means = jnp.where(present, sums / jnp.maximum(counts, 1e-12), 0.0)
+        visits = jnp.sum(counts, axis=-1)
+        centred = jnp.where(present, means - (jnp.sum(sums, -1) / jnp.maximum(visits, 1e-12))[..., None], 0.0)
+        shrunk = counts / (counts + self.shrinkage) * centred
+        probs = state.group_targets / jnp.maximum(visits, 1e-12)[..., None]
+        target = jnp.maximum(jnp.sum(jnp.where(present, probs * centred, 0.0), axis=-1), 0.0)
+        single = jnp.max(jnp.where(present, shrunk, 0.0), axis=-1)
+        picked = jnp.argmax(jnp.where(present, shrunk, -jnp.inf), axis=-1)
+
+        def scored(pick, score):
+            value = jnp.take_along_axis(shrunk[score], picked[pick][..., None], axis=-1)[..., 0]
+            return jnp.where(jnp.any(present[pick], axis=-1), value, 0.0)
+
+        def double(a, b):
+            return jnp.maximum(0.5 * (scored(a, b) + scored(b, a)), 0.0)
+
+        counted, summed, squared = jnp.moveaxis(state.group_returns, -1, 0)
+        best = upper_quantile(summed, squared, counted, self.quantile)
+        value_counts, value_sums = jnp.moveaxis(state.group_values, -1, 0)
+        value = value_sums / jnp.maximum(value_counts, 1e-12)
+        hindsight = jnp.where(
+            (counted > 0.0) & (value_counts > 0.0), jnp.maximum(best - value, 0.0), 0.0
+        )
+        return {
+            "target": (target[0], target[1]),
+            "single": (single[2], single[4]),
+            "double": (double(2, 3), double(4, 5)),
+            "hindsight": (hindsight[2], hindsight[4]),
+        }
+
+    def report(self, copies: dict, mask: Array, suffix: str) -> dict:
+        reference = copies["target"]
+        reliability = {name: rank_correlation(*pair, mask) for name, pair in copies.items()}
+        metrics = {f"screen/reliability_target{suffix}": reliability["target"]}
+        for name, (a, b) in copies.items():
+            if name == "target":
+                continue
+            raw = 0.25 * sum(rank_correlation(x, y, mask) for x in (a, b) for y in reference)
+            floor = jnp.sqrt(jnp.maximum(reliability[name] * reliability["target"], 0.0))
+            metrics[f"screen/{name}_target{suffix}"] = raw
+            metrics[f"screen/reliability_{name}{suffix}"] = reliability[name]
+            metrics[f"screen/corrected_{name}{suffix}"] = jnp.where(floor > 0.05, raw / jnp.maximum(floor, 1e-6), jnp.nan)
+        metrics[f"screen/cells{suffix}"] = jnp.sum(mask, dtype=jnp.float32)
+        return metrics
+
+    def screen(self, state: ScreenState, archive_mask: Array) -> None:
+        copies = self.estimates(state)
+        group_visits = jnp.sum(state.group_counts, axis=-1)
+        metrics = {}
+        for threshold in self.thresholds:
+            mask = archive_mask & (jnp.sum(group_visits, axis=0) >= threshold)
+            metrics.update(self.report(copies, mask, f"_{threshold:g}"))
+        lox.log(metrics)
+
+    def search(self, state: ScreenState, key: Key, wrapper, archive_state, algorithm, algorithm_state):
+        def measure():
+            search = tree_search(
+                wrapper, algorithm, self.num_simulations, self.gamma, min(self.num_considered, wrapper.num_actions)
+            )
+            pick_key, first_key, second_key = jax.random.split(key, 3)
+            visits = jnp.sum(state.group_counts, axis=(0, -1))
+            well_mask = wrapper.archive.eligible(archive_state) & (visits >= min(self.thresholds))
+            draw = jnp.where(well_mask, jax.random.uniform(pick_key, visits.shape), -1.0)
+            _, slots = jax.lax.top_k(draw, self.num_cells)
+            snapshots = wrapper.archive.take(archive_state, slots)
+
+            def gain(search_key):
+                _, searched, value = search(algorithm_state.params, search_key, snapshots)
+                return jnp.maximum(searched - value, 0.0)
+
+            copies = {name: (a[slots], b[slots]) for name, (a, b) in self.estimates(state).items()}
+            copies["search"] = (gain(first_key), gain(second_key))
+            return self.report(copies, well_mask[slots], "_searched")
+
+        due = state.clock % self.search_every == 0
+        shapes = jax.eval_shape(measure)
+        metrics = jax.lax.cond(
+            due, measure, lambda: jax.tree.map(lambda leaf: jnp.full(leaf.shape, jnp.nan, leaf.dtype), shapes)
+        )
+        # Updates without a search log nothing, so the epoch's average holds only measured ones.
+        lox.log(jax.tree.map(lambda value: jnp.where(due, value, jnp.nan), metrics))
+        return state.replace(clock=state.clock + 1)
+
+
+def forecast_logits(now_logits: Array, old_logits: Array, kappa: float, clip: float) -> Array:
+    """log pi_fore = log pi_t + kappa (log pi_t - log pi_old), renormalised; the step is clipped so
+    actions near zero probability cannot blow it up."""
+    now = jax.nn.log_softmax(now_logits.astype(jnp.float32), axis=-1)
+    old = jax.nn.log_softmax(old_logits.astype(jnp.float32), axis=-1)
+    return jax.nn.log_softmax(now + kappa * jnp.clip(now - old, -clip, clip), axis=-1)
+
+
+@struct.dataclass
+class ForecastState(GainState):
+    snapshots: PyTree
+    cursor: Array
+    filled: Array
+    fore_sums: Array
+    now_sums: Array
+
+
+@dataclass
+class ForecastAdvantage(Advantage):
+    """The oracle's gain with the reference policy replaced by the policy's own extrapolation.
+
+    pi_fore(a|s) is proportional to pi_t(a|s) (pi_t(a|s) / pi_{t-k}(a|s))^kappa, pi_{t-k} the
+    parameters `horizon` updates ago, kept in a ring of snapshots. By the performance-difference
+    lemma a cell gains sum_a (pi_fore - pi_t)(a|s) A(s, a): both policies' probabilities are averaged
+    over the states the learner visits in the cell, and A is the cell's per-action advantage. When
+    the policy stops changing pi_fore = pi_t and every cell scores zero.
+    """
+
+    horizon: int = 10
+    kappa: float = 1.0
+    clip: float = 5.0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        self.algorithm = algorithm
+        _, timestep = unwrap(environment)._env.init(jax.random.key(0))
+        timestep = jax.tree.map(lambda leaf: leaf[None], timestep)
+        algorithm_state, _ = algorithm.init(jax.random.key(0), timestep)
+        self.example = algorithm_state.params
+
+    def init(self, archive_size: int, num_actions: int) -> ForecastState:
+        assert hasattr(self, "example"), "ForecastAdvantage needs prepare before it is used"
+        state = super().init(archive_size, num_actions)
+        table = jnp.zeros((archive_size, num_actions), jnp.float32)
+        return ForecastState(
+            **vars(state),
+            snapshots=jax.tree.map(lambda leaf: jnp.stack([leaf] * self.horizon), self.example),
+            cursor=jnp.zeros((), jnp.int32),
+            filled=jnp.zeros((), jnp.int32),
+            fore_sums=table,
+            now_sums=table,
+        )
+
+    def forget(self, state: ForecastState, wiped_mask: Array) -> ForecastState:
+        snapshots = state.snapshots
+        return super().forget(state.replace(snapshots=None), wiped_mask).replace(snapshots=snapshots)
+
+    def observe_params(self, state: ForecastState, algorithm_state) -> ForecastState:
+        params = algorithm_state.params
+        # The first snapshot fills the whole ring, so the forecast starts at zero instead of
+        # extrapolating from the random initial network.
+        snapshots = jax.tree.map(
+            lambda ring, leaf: jnp.where(
+                state.filled == 0, jnp.broadcast_to(leaf, ring.shape), ring.at[state.cursor].set(leaf)
+            ),
+            state.snapshots,
+            params,
+        )
+        return state.replace(
+            snapshots=snapshots,
+            cursor=(state.cursor + 1) % self.horizon,
+            filled=state.filled + 1,
+        )
+
+    def old_params(self, state: ForecastState) -> PyTree:
+        # The ring's cursor points at the oldest snapshot, the one written horizon updates ago.
+        return jax.tree.map(lambda ring: ring[state.cursor], state.snapshots)
+
+    def update(self, state: ForecastState, transitions: Transition) -> ForecastState:
+        state = super().update(state, transitions)
+        first = transitions.first
+        archive_size, num_actions = jnp.shape(state.action_counts)
+        now_logits = transitions.aux["logits"][:-1]
+        dist, _ = self.algorithm.network.apply(
+            self.old_params(state), jax.tree.map(lambda leaf: leaf[:-1], first.obs), temperature=1.0
+        )
+        fore = jnp.exp(forecast_logits(now_logits, dist.logits, self.kappa, self.clip))
+        now = jax.nn.softmax(now_logits.astype(jnp.float32), axis=-1)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~transitions.second.truncated[:-1].astype(bool)
+        rows = jnp.reshape(jnp.where(valid_mask, cell_slots, archive_size), (-1,))
+
+        def tally(probs):
+            return jnp.zeros((archive_size, num_actions)).at[rows].add(
+                jnp.reshape(probs, (-1, num_actions)), mode="drop"
+            )
+
+        moved = jnp.sum(jnp.abs(fore - now), axis=-1)
+        lox.log(
+            {
+                "forecast/moved": jnp.sum(jnp.where(valid_mask, moved, 0.0))
+                / jnp.maximum(jnp.sum(valid_mask), 1),
+            }
+        )
+        decay = 1.0 - self.rate
+        return state.replace(
+            fore_sums=decay * state.fore_sums + tally(fore),
+            now_sums=decay * state.now_sums + tally(now),
+        )
+
+    def __call__(self, state: ForecastState) -> Array:
+        present_mask = state.action_counts > 0.0
+        visits = jnp.maximum(state.cell_visits, 1e-12)[:, None]
+        change = (state.fore_sums - state.now_sums) / visits
+        gain = jnp.sum(jnp.where(present_mask, change * self.centre(state), 0.0), axis=-1)
+        return jnp.maximum(gain, 0.0)
+
+
+@struct.dataclass
+class PlayedState:
+    env_states: PyTree
+    earned: Array
+    visits: Array
+    key: Key
+    simulator_steps: Array
+
+
+@dataclass
+class SearchRelevance:
+    """Where a few from-start episodes played with search go, in place of the learner's visitation.
+
+    `num_envs` side environments, outside the training batch, play from the true start with the
+    search's chosen action, `num_steps` real steps per update, and start over when an episode ends.
+    The archive cells they stand in are counted, decayed by `rate` per update; a slot is as relevant
+    as its share. States outside the archive count toward the miss rate only. Until the first visit
+    is counted the learner's own visitation stands in.
+    """
+
+    num_envs: int = 64
+    num_steps: int = 8
+    num_simulations: int = 32
+    num_considered: int = 16
+    gamma: float = 0.99
+    rate: float = 0.01
+    seed: int = 0
+
+    def prepare(self, algorithm: Algorithm, environment: Environment) -> None:
+        self.wrapper = unwrap(environment)
+
+    def init(self, archive_size: int) -> PlayedState:
+        init_key, key = jax.random.split(jax.random.key(self.seed))
+        env_states, _ = jax.vmap(self.wrapper._env.init)(jax.random.split(init_key, self.num_envs))
+        return PlayedState(
+            env_states=env_states,
+            earned=jnp.zeros(self.num_envs, jnp.float32),
+            visits=jnp.zeros(archive_size, jnp.float32),
+            key=key,
+            simulator_steps=jnp.zeros((), jnp.float32),
+        )
+
+    def play(self, state: PlayedState, wrapper, archive_state, algorithm, algorithm_state, **context) -> PlayedState:
+        from boonta.utils.table import find
+
+        inner = wrapper._env
+        search = tree_search(
+            wrapper, algorithm, self.num_simulations, self.gamma, min(self.num_considered, wrapper.num_actions)
+        )
+        archive_size, *_ = jnp.shape(state.visits)
+
+        def step(carry, key):
+            env_states, earned = carry
+            search_key, seed_key, step_key, reset_key = jax.random.split(key, 4)
+            slots = find(
+                archive_state.keys,
+                archive_state.mask,
+                wrapper.archive.cell_fn(env_states),
+                wrapper.archive.num_probes,
+            )
+            action, _, _ = search(algorithm_state.params, search_key, env_states)
+            env_states = wrapper.refresh_fn(env_states, seed_key)
+            env_states, timestep = jax.vmap(inner.step)(
+                jax.random.split(step_key, self.num_envs), env_states, action
+            )
+            earned = earned + timestep.reward
+            done = timestep.terminated | timestep.truncated
+            fresh, _ = jax.vmap(inner.init)(jax.random.split(reset_key, self.num_envs))
+            env_states = jax.tree.map(
+                lambda new, live: jnp.where(jnp.reshape(done, done.shape + (1,) * (live.ndim - 1)), new, live),
+                fresh,
+                env_states,
+            )
+            lox.log({"search/episode_return": jnp.where(done, earned, jnp.nan)})
+            return (env_states, jnp.where(done, 0.0, earned)), slots
+
+        key, scan_key = jax.random.split(state.key)
+        (env_states, earned), slots = jax.lax.scan(
+            step, (state.env_states, state.earned), jax.random.split(scan_key, self.num_steps)
+        )
+        counts = jnp.zeros(archive_size).at[jnp.where(slots >= 0, slots, archive_size)].add(1.0, mode="drop")
+        lox.log({"search/relevance_miss_rate": jnp.mean((slots < 0).astype(jnp.float32))})
+        return state.replace(
+            env_states=env_states,
+            earned=earned,
+            visits=(1.0 - self.rate) * state.visits + counts,
+            key=key,
+            simulator_steps=state.simulator_steps
+            + self.num_envs * self.num_steps * (self.num_simulations + 1),
+        )
+
+    def __call__(
+        self, successor: SuccessorRepresentation, table: Successor, reach: Array, played: PlayedState = None, **cells
+    ) -> Array:
+        visits = played.visits
+        total = jnp.sum(visits)
+        return jnp.where(
+            total > 0.0, visits / jnp.maximum(total, 1e-12), reach / jnp.maximum(jnp.sum(reach), 1e-12)
+        )
+
+
+@dataclass
+class ForecastRelevance(SearchRelevance):
+    """Where the forecast policy goes from the start: `num_envs` probe environments, outside the
+    training batch, play pi_fore for `num_steps` steps per update, and the archive cells they stand
+    in are counted, decayed by `rate`. Needs the ForecastAdvantage gain, which keeps the snapshots."""
+
+    num_steps: int = 16
+    kappa: float = 1.0
+    clip: float = 5.0
+
+    def play(self, state: PlayedState, wrapper, archive_state, algorithm, algorithm_state, gain_state=None, **context):
+        from boonta.utils.table import find
+
+        assert isinstance(gain_state, ForecastState), "ForecastRelevance needs the forecast gain"
+        inner = wrapper._env
+        old_params = jax.tree.map(lambda ring: ring[gain_state.cursor], gain_state.snapshots)
+        archive_size, *_ = jnp.shape(state.visits)
+
+        def step(carry, key):
+            env_states, earned = carry
+            act_key, seed_key, step_key, reset_key = jax.random.split(key, 4)
+            slots = find(
+                archive_state.keys,
+                archive_state.mask,
+                wrapper.archive.cell_fn(env_states),
+                wrapper.archive.num_probes,
+            )
+            obs = jax.vmap(inner.observe)(env_states)
+            now, _ = algorithm.network.apply(algorithm_state.params, obs, temperature=1.0)
+            old, _ = algorithm.network.apply(old_params, obs, temperature=1.0)
+            logits = forecast_logits(now.logits, old.logits, self.kappa, self.clip)
+            action = jax.random.categorical(act_key, logits)
+            env_states = wrapper.refresh_fn(env_states, seed_key)
+            env_states, timestep = jax.vmap(inner.step)(
+                jax.random.split(step_key, self.num_envs), env_states, action
+            )
+            earned = earned + timestep.reward
+            done = timestep.terminated | timestep.truncated
+            fresh, _ = jax.vmap(inner.init)(jax.random.split(reset_key, self.num_envs))
+            env_states = jax.tree.map(
+                lambda new, live: jnp.where(jnp.reshape(done, done.shape + (1,) * (live.ndim - 1)), new, live),
+                fresh,
+                env_states,
+            )
+            lox.log({"forecast/episode_return": jnp.where(done, earned, jnp.nan)})
+            return (env_states, jnp.where(done, 0.0, earned)), slots
+
+        key, scan_key = jax.random.split(state.key)
+        (env_states, earned), slots = jax.lax.scan(
+            step, (state.env_states, state.earned), jax.random.split(scan_key, self.num_steps)
+        )
+        counts = jnp.zeros(archive_size).at[jnp.where(slots >= 0, slots, archive_size)].add(1.0, mode="drop")
+        lox.log({"forecast/relevance_miss_rate": jnp.mean((slots < 0).astype(jnp.float32))})
+        return state.replace(
+            env_states=env_states,
+            earned=earned,
+            visits=(1.0 - self.rate) * state.visits + counts,
+            key=key,
+            simulator_steps=state.simulator_steps + self.num_envs * self.num_steps,
+        )
+
+
 class Diagonal:
     def init(self, algorithm_state: PyTree) -> PyTree:
         return None
@@ -796,6 +1798,101 @@ class Kernel:
         )
         total = jnp.sum(jnp.where(rho_mask, jax.lax.stop_gradient(advantages) * log_probs, 0.0))
         return total / jnp.maximum(jnp.sum(rho_mask, dtype=jnp.float32), 1.0)
+
+
+@dataclass
+class Leverage:
+    """Restarts chosen to maximise the log-determinant of the batch's feature covariance.
+
+    phi is the network's penultimate layer (the feature extractor's output, d features) and
+    Sigma = E_batch[phi phi^T] its uncentred second moment over the last rollout, measured with the
+    parameters just updated. A state's leverage l(s) = phi(s)^T Sigma^-1 phi(s) averages exactly d
+    over the batch, and d log det Sigma / d(weight on s) = l(s) - d, so restarting where l / d is
+    largest is a Frank-Wolfe step towards the D-optimal (by Kiefer-Wolfowitz also G-optimal) design,
+    the one that minimises the worst-case relative condition number max_s l(s) of Q-NPG's analysis.
+    A cell is worth l / d of its snapshot; the footprint then sums it along the segment a restart
+    there would run. No value or relevance enters. `ridge` is relative to the mean eigenvalue.
+    """
+
+    dimension: int = 256
+    ridge: float = 1e-3
+    batch_size: int = 2048
+
+    def features(self, algorithm: Algorithm, params: PyTree, obs) -> Array:
+        def penultimate(module, obs):
+            hidden = module.feature_extractor(obs)
+            assert module.torso is None, "Leverage reads the feature extractor of networks without a torso"
+            return hidden
+
+        return algorithm.network.apply(params, obs, method=penultimate).astype(jnp.float32)
+
+    def init(self, algorithm_state: PyTree) -> PyTree:
+        # Until the first rollout is measured, every feature counts as equally covered.
+        return jnp.eye(self.dimension, dtype=jnp.float32)
+
+    def direct(self, selector, algorithm: Algorithm, algorithm_state: PyTree, transitions: Transition) -> PyTree:
+        obs = jax.tree.map(lambda leaf: leaf[:-1], transitions.first.obs)
+        phi = self.features(algorithm, algorithm_state.params, obs)
+        phi = jnp.reshape(phi, (-1, phi.shape[-1]))
+        valid = jnp.reshape(~transitions.second.truncated[:-1].astype(bool), (-1,))
+        count = jnp.maximum(jnp.sum(valid, dtype=jnp.float32), 1.0)
+        weighted = jnp.where(valid[:, None], phi, 0.0)
+        second = weighted.T @ weighted / count
+        dimension = second.shape[0]
+        second = second + self.ridge * jnp.trace(second) / dimension * jnp.eye(dimension)
+        eigenvalues = jnp.clip(jnp.linalg.eigvalsh(second), 1e-30)
+        # The rank of the centred covariance: ReLU features share a large mean, which would
+        # otherwise fill the first direction of the uncentred second moment.
+        mean = jnp.sum(weighted, axis=0) / count
+        centred = jnp.clip(jnp.linalg.eigvalsh(weighted.T @ weighted / count - jnp.outer(mean, mean)), 1e-30)
+
+        def effective_rank(values):
+            share = values / jnp.sum(values)
+            return jnp.exp(-jnp.sum(share * jnp.log(share)))
+
+        lox.log(
+            {
+                "leverage/effective_rank": effective_rank(centred),
+                "leverage/uncentred_rank": effective_rank(eigenvalues),
+                "leverage/log_det": jnp.sum(jnp.log(eigenvalues)),
+                "leverage/dead_features": jnp.mean((jnp.diag(second) < 1e-6 * jnp.trace(second) / dimension).astype(jnp.float32)),
+            }
+        )
+        return jnp.linalg.cholesky(second)
+
+    def __call__(
+        self,
+        selector,
+        state,
+        wrapper,
+        archive_auto_reset_state,
+        algorithm: Algorithm | None = None,
+        algorithm_state=None,
+        **context,
+    ) -> Array:
+        archive_state = archive_auto_reset_state.archive_state
+        mask = archive_state.mask
+        chol = state.direction
+        dimension = chol.shape[0]
+        snapshots = archive_state.cell_states.snapshot
+        inner = wrapper._env
+
+        def leverage_of(snapshot):
+            phi = self.features(algorithm, algorithm_state.params, jax.tree.map(lambda leaf: leaf[None], inner.observe(snapshot)))[0]
+            solved = jax.scipy.linalg.solve_triangular(chol, phi, lower=True)
+            return jnp.sum(solved**2)
+
+        leverage = jax.lax.map(leverage_of, snapshots, batch_size=self.batch_size)
+        ratio = leverage / dimension
+        count = jnp.maximum(jnp.sum(mask, dtype=jnp.float32), 1.0)
+        lox.log(
+            {
+                "leverage/archive_mean": jnp.sum(jnp.where(mask, ratio, 0.0)) / count,
+                "leverage/archive_max": jnp.max(jnp.where(mask, ratio, 0.0)),
+                "leverage/under_covered": jnp.sum(mask & (ratio > 1.0), dtype=jnp.float32) / count,
+            }
+        )
+        return jnp.where(mask, ratio, 0.0)
 
 
 def precondition(direction: PyTree, optimizer_state: PyTree) -> PyTree:
@@ -961,8 +2058,8 @@ class Selector:
     successor: SuccessorRepresentation
     footprint: SuccessorFootprint | UniformFootprint
     relevance: CountedRelevance | UniformRelevance | TargetRelevance
-    gain: Advantage | GreedyAdvantage | UniformGain | ModelAdvantage | TargetAdvantage
-    score: Diagonal | Kernel = Diagonal()
+    gain: Advantage | GreedyAdvantage | UniformGain | ModelAdvantage | TargetAdvantage | SearchGain
+    score: Diagonal | Kernel | Leverage = Diagonal()
     allocation: Marginal | WaterFilling | Uniform | TopK | Softmax | Blend | Importance = Marginal()
     k: float = 4.0
     rate: float = 0.2
@@ -979,7 +2076,29 @@ class Selector:
             successor=self.successor.init(archive_size),
             reach=jnp.zeros(archive_size),
             gain=self.gain.init(archive_size, num_actions),
+            played=self.relevance.init(archive_size) if hasattr(self.relevance, "play") else None,
         )
+
+    def search(self, state: SelectorState, key: Key, wrapper, archive_auto_reset_state, algorithm, algorithm_state):
+        """Runs the tree searches of a search gain or relevance, and logs the simulator steps they cost."""
+        gain_key, play_key = jax.random.split(key)
+        archive_state = archive_auto_reset_state.archive_state
+        spent = jnp.zeros((), jnp.float32)
+        if hasattr(self.gain, "search"):
+            state = state.replace(
+                gain=self.gain.search(state.gain, gain_key, wrapper, archive_state, algorithm, algorithm_state)
+            )
+            spent = spent + getattr(state.gain, "simulator_steps", 0.0)
+        if hasattr(self.relevance, "play"):
+            state = state.replace(
+                played=self.relevance.play(
+                    state.played, wrapper, archive_state, algorithm, algorithm_state, gain_state=state.gain
+                )
+            )
+            spent = spent + state.played.simulator_steps
+        if hasattr(self.gain, "search") or hasattr(self.relevance, "play"):
+            lox.log({"search/simulator_steps": spent})
+        return state
 
     def update(self, state: SelectorState, key: Key, transitions: Transition) -> SelectorState:
         first, second = transitions.first, transitions.second
@@ -1079,8 +2198,9 @@ class Selector:
         return jnp.where(known, weights, 1.0).astype(jnp.float32)
 
     def relevant(self, state: SelectorState) -> Array:
+        played = {} if state.played is None else {"played": state.played}
         return self.relevance(
-            self.successor, state.successor, state.reach, keys=state.keys, mask=state.mask
+            self.successor, state.successor, state.reach, keys=state.keys, mask=state.mask, **played
         )
 
     def diminishing_factor(self, state: SelectorState, visits: Array | float) -> Array:
@@ -1190,6 +2310,9 @@ class Selector:
         value = self.value(state, worth)
         gain = self.gain(state.gain)
         relevance = self.relevant(state)
+        screen = getattr(self.gain, "screen", None)
+        if screen is not None:
+            screen(state.gain, archive_mask)
         lox.log(
             {
                 "archive/noise_scale": state.gain.scale,
@@ -1238,13 +2361,24 @@ class PSR(Pit):
         algorithm_state: PyTree,
     ) -> SelectorState:
         ledger = self.selector.update(ledger, key, transitions)
+        if hasattr(self.selector.gain, "observe_params"):
+            ledger = ledger.replace(gain=self.selector.gain.observe_params(ledger.gain, algorithm_state))
         direction = self.selector.score.direct(
             self.selector, self.algorithm, algorithm_state, transitions
         )
         return ledger.replace(direction=direction)
 
     def __call__(self, key: Key, state):
-        select_key, assign_key = jax.random.split(key)
+        select_key, assign_key, search_key = jax.random.split(key, 3)
+        ledger = self.selector.search(
+            state.pit_state,
+            search_key,
+            self.environment,
+            archive_auto_reset_state(state.environment_state),
+            self.algorithm,
+            state.algorithm_state,
+        )
+        state = state.replace(pit_state=ledger)
 
         def assign(node):
             if isinstance(node, ArchiveAutoResetState):

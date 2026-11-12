@@ -1,0 +1,10 @@
+# @package _global_.curriculum.selector.relevance
+# Where pi_fore goes from the start: probe environments outside the training batch play it and
+# their archive cells are counted. Needs gain=forecast, which keeps the parameter snapshots.
+_target_: boonta.curricula.psr.ForecastRelevance
+num_envs: 64
+num_steps: 16
+kappa: ${curriculum.selector.gain.kappa}
+clip: ${curriculum.selector.gain.clip}
+rate: 0.01
+seed: ${seed}

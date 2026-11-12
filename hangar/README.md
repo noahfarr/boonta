@@ -72,7 +72,7 @@ uv run boonta train -m hydra/sweeper=carbs algorithm=ippo environment=dune_sea/c
     hydra/launcher=submitit_local hydra.launcher.gpus_per_node=1 hydra.launcher.timeout_min=30
 ```
 
-Results go to `sweeps/<algorithm>/<environment>/<time>/`.
+Results go to `outputs/<date>/<time>-sweep/`, next to single runs, with one numbered folder per job; `multirun.yaml` there records what the sweep ran.
 
 Finished sweeps are recorded in `hangar/sweeps/` under the same path: copy `multirun.yaml`, `optimization_results.yaml` and the latest `carbs/carbs_experiment/carbs_<N>obs.pt` from the sweep dir.
 

@@ -1,0 +1,10 @@
+# @package _global_.curriculum.selector.gain
+# The oracle's gain with pi_ref replaced by the policy's own extrapolation,
+# pi_fore ~ pi_t (pi_t / pi_{t-horizon})^kappa: a cell gains sum_a (pi_fore - pi_t)(a|s) A(s, a).
+_target_: boonta.curricula.psr.ForecastAdvantage
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+horizon: 10
+kappa: 1.0
+clip: 5.0

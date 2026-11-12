@@ -485,3 +485,39 @@ def test_without_preempting_the_block_finishes_its_episode_before_it_moves():
     assert bool(jnp.all(~after.rho[block])) and bool(jnp.all(after.current_slots[block] == cell))
     assert bool(jnp.all(after.env_state.tag[block] == stored))
     assert bool(jnp.all(after.rho[~block]))
+
+
+def test_the_episode_statistics_count_only_episodes_that_began_at_the_true_start():
+    from boonta.environments.wrappers import RecordEpisodeStatistics
+
+    env = RecordEpisodeStatistics(build())
+    key = jax.random.key(0)
+    state, _ = env.init(key)
+    counted, from_start, restarted = [], [], []
+    for step in range(6 * LENGTH):
+        if step % LENGTH == 1:
+            inner = state.env_state
+            state = state.replace(env_state=env._env.update(inner, jax.random.key(step), slots=echo(inner)))
+        key, sub = jax.random.split(key)
+        (state, timestep), logs = lox.spool(env.step)(sub, state, jnp.ones(NUM_ENVS, jnp.int32))
+        counted.append(jnp.asarray(logs["episode_statistics/episode_return"]))
+        from_start.append(jnp.asarray(logs["rho/episode_return"]))
+        restarted.append(jnp.asarray(logs["mu/episode_return"]))
+    counted, from_start, restarted = (jnp.concatenate([jnp.ravel(x) for x in xs]) for xs in (counted, from_start, restarted))
+    assert bool(jnp.array_equal(jnp.isnan(counted), jnp.isnan(from_start)))
+    assert bool(jnp.allclose(counted[~jnp.isnan(counted)], from_start[~jnp.isnan(from_start)]))
+    assert int(jnp.sum(~jnp.isnan(counted))) > 0
+    assert int(jnp.sum(~jnp.isnan(restarted))) > int(jnp.sum(~jnp.isnan(counted)))
+
+
+def test_without_an_archive_every_finished_episode_counts():
+    from boonta.environments.wrappers import RecordEpisodeStatistics, SameStepAutoReset
+
+    env = RecordEpisodeStatistics(SameStepAutoReset(Ladder(), NUM_ENVS))
+    key = jax.random.key(0)
+    state, _ = env.init(key)
+    for _ in range(LENGTH):
+        key, sub = jax.random.split(key)
+        (state, timestep), logs = lox.spool(env.step)(sub, state, jnp.zeros(NUM_ENVS, jnp.int32))
+    returns = jnp.ravel(jnp.asarray(logs["episode_statistics/episode_return"]))
+    assert bool(jnp.all(~jnp.isnan(returns)))

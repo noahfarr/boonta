@@ -25,6 +25,53 @@ class PPOConfig:
     gamma: float
     gae_lambda: float
     normalize_advantage: bool = False
+    # States sampled from each batch to log the rank of the encoder's features after the update;
+    # 0 turns the measurement off. It only logs.
+    feature_rank: int = 0
+
+
+def rank_metrics(features: Array) -> dict:
+    """Rank measures of a (samples, units) feature matrix, centred over the samples: the entropy
+    rank exp(H(variance shares)), n99 (eigen-directions for 99% of the variance), srank (singular
+    values for 99% of their sum, Kumar et al. 2021), and the share of units never above zero."""
+    features = features.astype(jnp.float32)
+    centred = features - jnp.mean(features, axis=0)
+    singular = jnp.linalg.svd(centred, compute_uv=False)
+    variance = singular**2
+    share = variance / jnp.maximum(jnp.sum(variance), 1e-30)
+    entropy = jnp.exp(-jnp.sum(jnp.where(share > 0.0, share * jnp.log(jnp.maximum(share, 1e-30)), 0.0)))
+    n99 = 1 + jnp.argmax(jnp.cumsum(share) >= 0.99)
+    srank = 1 + jnp.argmax(jnp.cumsum(singular / jnp.maximum(jnp.sum(singular), 1e-30)) >= 0.99)
+    dead = jnp.mean(jnp.all(features <= 0.0, axis=0).astype(jnp.float32))
+    return {"entropy": entropy, "n99": n99.astype(jnp.float32), "srank": srank.astype(jnp.float32), "dead": dead}
+
+
+def log_feature_rank(network: nn.Module, params: PyTree, obs: PyTree) -> None:
+    """Logs rank_metrics for the feature extractor's output (the penultimate features the heads
+    read) and for every layer inside it."""
+
+    def inside(module, _):
+        return len(module.path) > 0 and module.path[0] == "feature_extractor"
+
+    _, captured = network.apply(
+        params, obs, temperature=1.0, capture_intermediates=inside, mutable=["intermediates"]
+    )
+    logs = {}
+    for path, value in jax.tree_util.tree_flatten_with_path(captured["intermediates"])[0]:
+        # Paths look like feature_extractor/observation_extractor/Dense_0/__call__/0.
+        names = [part.key for part in path if isinstance(part, jax.tree_util.DictKey) and part.key != "__call__"]
+        if jnp.ndim(value) < 2 or value.shape[-1] < 8:
+            continue
+        if names == ["feature_extractor"]:
+            layer = "penultimate"
+        elif len(names) == 2:
+            continue  # the observation extractor's own output, which is the penultimate again
+        else:
+            layer = "/".join(names[2:])
+        flat = jnp.reshape(value, (-1, value.shape[-1]))
+        for name, metric in rank_metrics(flat).items():
+            logs[f"rank/{layer}/{name}"] = metric
+    lox.log(logs)
 
 
 @struct.dataclass(frozen=True)
@@ -235,7 +282,19 @@ class PPO:
             lambda x: flatten(x, start_dim=0, end_dim=1), transitions
         )
 
+        # A key folded off the update's key, so logging never shifts the training randomness.
+        rank_key = jax.random.fold_in(key, 0x52414E4B)
         keys = jax.random.split(key, self.cfg.update_epochs)
         state, _ = jax.lax.scan(epoch_fn, state, keys)
+
+        if self.cfg.feature_rank:
+            sampled = jax.random.choice(
+                rank_key, batch_size, (min(self.cfg.feature_rank, batch_size),), replace=False
+            )
+            log_feature_rank(
+                self.network,
+                state.params,
+                jax.tree.map(lambda leaf: jnp.take(leaf, sampled, axis=0), transitions.first.obs),
+            )
 
         return state

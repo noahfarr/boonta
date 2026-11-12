@@ -2,4 +2,5 @@
 _target_: boonta.artisans.Render
 name: render
 fps: 16
+num_episodes: 1
 kwargs: {}

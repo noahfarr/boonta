@@ -1,0 +1,10 @@
+# @package _global_.curriculum.selector.gain
+# Prioritized State Replay with the return left on the table: max(0, G_hi(c) - V(c)), G_hi a high
+# quantile of the return-to-go seen from the cell (remembered slowly), V the critic's current value.
+_target_: boonta.curricula.psr.HindsightGain
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+quantile: 0.75
+memory_rate: 0.02
+return_lambda: 1.0

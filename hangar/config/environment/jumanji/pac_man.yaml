@@ -1,0 +1,4 @@
+namespace: jumanji
+suite: pac_man
+env_id: PacMan-v1
+kwargs: {}

@@ -1,0 +1,3 @@
+# @package artisans.combination_lock
+_target_: boonta.environments.dune_sea.combination_lock.Scorecard
+name: combination_lock

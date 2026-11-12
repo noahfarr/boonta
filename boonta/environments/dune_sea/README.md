@@ -94,3 +94,68 @@ terminates the episode; `horizon` steps without reaching it truncate it.
 Observations are a one-hot of the agent's cell over the `2 * size**2 - 1` open
 cells. PSR archive keys are that cell index. `env.render(state, tile=32)` draws
 walls grey, the goal green and the agent red.
+
+## Chain
+
+`Chain` is the smallest testbed for restarts: `length` cells in a row, each its
+own bandit. A step answers the current cell, paying 1 for that cell's secret
+action and 0 otherwise. Then the episode ends with probability `hazard`, and
+otherwise moves on to the next cell; it also ends after the last cell.
+`environment.kwargs.seed` draws the secrets, independently of the training `seed`.
+
+```bash
+boonta train algorithm=ppo environment=dune_sea/chain "artisan=[checkpoint,chain,concentration]"
+boonta train algorithm=ppo environment=dune_sea/chain curriculum=psr "artisan=[checkpoint,chain,concentration]"
+```
+
+No action changes where the agent goes, so cell `d` is reached from the start
+with probability `(1 - hazard) ** d` whatever the policy does, and never sooner
+than step `d`. The answers are independent, so the advantage of a cell depends
+only on that cell. Shallow cells get the most data and are learned first; what
+is left to learn then sits in the deep cells, which the start rarely reaches and
+a restart reaches at once. Raise `length` or `hazard` to make the deep cells
+rarer. `hazard=0` keeps every cell certain and leaves only the walk to skip.
+
+Observations are a one-hot of the agent's cell, and PSR archive keys are that
+cell index. The `chain` artisan logs `chain/correct_<d>`, the probability the
+policy gives each cell's secret, their plain mean `chain/correct`, and
+`chain/return`, the exact expected return of the current policy against
+`chain/best_return`. The return weighs each cell by its reach, so it is settled
+by the shallow cells: watch `chain/correct` to see the deep ones.
+
+`Chain` also carries the tables the restart scripts read: `expected_return`,
+`advantages`, `transitions`, `place` and `cell_grid`.
+
+## Combination lock
+
+`CombinationLock` is `Chain` where a wrong answer ends the episode. Each of the
+`length` cells pays 1 for its own secret action, drawn by
+`environment.kwargs.seed`; any other action pays nothing and ends the episode.
+An optional `hazard` (0 by default) also ends it at random after every answer.
+
+```bash
+boonta train algorithm=ppo environment=dune_sea/combination_lock "artisan=[checkpoint,combination_lock,concentration]"
+boonta train algorithm=ppo environment=dune_sea/combination_lock curriculum=psr "artisan=[checkpoint,combination_lock,concentration]"
+```
+
+An episode from the start reaches cell `d` only by answering every cell before
+it, with probability `prod(pi(secret | c) for c < d)` times `(1 - hazard) ** d`.
+Unlike the chain, where the hazard decides the reach whatever the agent does,
+the reach here depends on the policy: deep cells stay rare while the shallow
+ones are still uncertain, and a restart reaches them at once.
+
+`render` draws a padlock: a steel shackle over a brass body holding one number
+wheel per cell, read left to right and top to bottom. Opened wheels show the
+digit of their secret action, the wheel being answered is framed red, and wheels
+ahead are dark and blank (digits are drawn for up to ten actions). The shackle
+sits in empty rows at the top of `cell_grid`, so overlays line up with the
+picture. `Chain` renders the same way.
+
+Set the number of wheels with `environment.kwargs.length`, the actions per wheel
+with `environment.kwargs.num_actions` and the combination with
+`environment.kwargs.seed`.
+
+The `combination_lock` artisan logs the same quantities as `chain`, under
+`combination_lock/`. The tables (`expected_return`, `advantages`, `transitions`,
+`place`, `cell_grid`) take the lock into account; `reached(policy)` gives the
+reach of every cell under a policy.

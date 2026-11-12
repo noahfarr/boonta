@@ -571,3 +571,96 @@ def test_a_target_advantage_is_the_learners_advantage_for_the_targets_actions_an
     )
 
     np.testing.assert_allclose(gain(state), [0.8, 0.0], atol=1e-6)
+
+
+def halved(sums_per_half, counts_per_half):
+    """A gain state whose halves hold the given per-action advantage sums and counts."""
+    from boonta.curricula.psr import DoubleGreedyAdvantage
+
+    gain = DoubleGreedyAdvantage(shrinkage=0.0)
+    halves_counts = jnp.asarray(counts_per_half, jnp.float32)
+    halves_sums = jnp.asarray(sums_per_half, jnp.float32)
+    _, archive_size, num_actions = halves_counts.shape
+    state = gain.init(archive_size, num_actions).replace(
+        action_counts=halves_counts.sum(0),
+        advantage_sums=halves_sums.sum(0),
+        cell_visits=halves_counts.sum((0, 2)),
+        half_counts=halves_counts,
+        half_sums=halves_sums,
+    )
+    return gain, state
+
+
+def unclipped_scores(gain, state):
+    counts, sums = np.asarray(state.half_counts), np.asarray(state.half_sums)
+    means = sums / counts
+    centred = means - (sums.sum(-1) / counts.sum(-1))[..., None]
+    picked = centred.argmax(-1)
+    return np.take_along_axis(centred[::-1], picked[..., None], -1)[..., 0].mean(0)
+
+
+def test_the_double_greedy_gain_drops_the_bias_of_a_maximum_over_noise():
+    rng = np.random.default_rng(0)
+    cells, actions, samples = 2000, 4, 8
+    counts = np.full((2, cells, actions), samples, np.float32)
+    # Every action is equally good, so there is nothing to learn anywhere.
+    noise = rng.normal(size=(2, cells, actions, samples)).sum(-1)
+    gain, state = halved(noise, counts)
+    single, double = np.asarray(gain.greedy(state)), np.asarray(gain(state))
+    assert single.mean() > 0.15  # about the noise of one mean, 1 / sqrt(16)
+    # What is left comes from the clip at zero, not from picking the winner.
+    assert double.mean() < 0.5 * single.mean()
+    assert abs(float(np.mean(unclipped_scores(gain, state)))) < 0.02
+
+
+def test_the_double_greedy_gain_keeps_an_action_that_is_better_in_both_halves():
+    counts = np.full((2, 1, 4), 10.0, np.float32)
+    sums = np.zeros((2, 1, 4), np.float32)
+    sums[:, 0, 2] = 10.0 * 3.0  # action 2 is 3 better than the others in both halves
+    gain, state = halved(sums, counts)
+    np.testing.assert_allclose(np.asarray(gain(state)), np.asarray(gain.greedy(state)), rtol=1e-5)
+    assert float(gain(state)[0]) > 2.0
+
+
+def test_rank_correlation_matches_spearman_with_ties_and_a_mask():
+    from scipy.stats import spearmanr
+
+    from boonta.curricula.psr import rank_correlation
+
+    rng = np.random.default_rng(1)
+    a = np.round(rng.normal(size=200), 1)
+    b = a + rng.normal(size=200)
+    mask = rng.random(200) < 0.7
+    expected = spearmanr(a[mask], b[mask]).statistic
+    np.testing.assert_allclose(float(rank_correlation(jnp.asarray(a), jnp.asarray(b), jnp.asarray(mask))), expected, rtol=1e-4)
+
+
+def test_the_hindsight_gain_is_the_high_quantile_of_the_returns_above_the_value():
+    from boonta.curricula.psr import HindsightGain
+
+    gain = HindsightGain(quantile=0.75)
+    rng = np.random.default_rng(0)
+    returns = np.stack([rng.normal(5.0, 2.0, 20000), rng.normal(1.0, 0.1, 20000), np.zeros(20000)])
+    state = gain.init(3, 4).replace(
+        return_counts=jnp.asarray([20000.0, 20000.0, 0.0]),
+        return_sums=jnp.asarray(returns.sum(-1), jnp.float32),
+        return_squares=jnp.asarray((returns**2).sum(-1), jnp.float32),
+        value_counts=jnp.asarray([1.0, 1.0, 1.0]),
+        value_sums=jnp.asarray([4.0, 2.0, -1.0]),
+    )
+    p = np.asarray(gain(state))
+    # 5 + 0.674 * 2 - 4; the second cell's returns never beat its value; the third saw no return.
+    np.testing.assert_allclose(p, [2.349, 0.0, 0.0], atol=0.05)
+
+
+def test_rank_metrics_count_the_directions_the_features_span():
+    from boonta.algorithms.ppo import rank_metrics
+
+    rng = np.random.default_rng(0)
+    basis = rng.normal(size=(3, 64))
+    features = rng.normal(size=(4096, 3)) @ basis + 7.0  # three directions plus a shared offset
+    metrics = {name: float(value) for name, value in rank_metrics(jnp.asarray(features)).items()}
+    assert metrics["n99"] <= 3 and metrics["entropy"] <= 3.01
+    assert metrics["dead"] == 0.0
+    isotropic = {name: float(value) for name, value in rank_metrics(jnp.asarray(rng.normal(size=(4096, 64)))).items()}
+    assert isotropic["n99"] > 55 and isotropic["entropy"] > 55

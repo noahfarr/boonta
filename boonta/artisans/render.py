@@ -13,16 +13,20 @@ class Render:
         name: str = "render",
         fps: int = 16,
         kwargs: dict | None = None,
+        num_episodes: int = 1,
     ):
+        assert num_episodes >= 1, num_episodes
         self.name = name
         self.fps = fps
         self.kwargs = kwargs or {}
+        # Episodes of the first environment, played back to back into one video.
+        self.num_episodes = num_episodes
 
     def rollout(self, algorithm, environment, algorithm_state, key):
         init_key, key = jax.random.split(key)
         environment_state, timestep = environment.init(init_key)
         _, carry = algorithm.init(init_key, timestep)
-        num_steps = environment.time_limit() + 1
+        num_steps = self.num_episodes * (environment.time_limit() + 1)
 
         def step(loop, key):
             algorithm_state, carry, environment_state, timestep = loop
@@ -62,7 +66,8 @@ class Render:
                 podracer_state.algorithm_state, key
             )
         )
-        num_frames = int(np.argmax(done)) + 1 if done.any() else len(done)
+        ends = np.flatnonzero(done)
+        num_frames = int(ends[self.num_episodes - 1]) + 1 if len(ends) >= self.num_episodes else len(done)
         frames = [
             np.asarray(
                 environment.render(

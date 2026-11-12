@@ -131,29 +131,73 @@ class Hotspots(Environment):
 
 
     def render(self, state: HotspotsState, tile: int = 32) -> Array:
+        """The floor is shaded by how often the walk from the start visits each cell, bright near
+        and dark where it is rare. Hotspots are gold discs whose arrow points the way of their
+        secret, the start has a blue outline, the agent is a red ring, and a bar along the top
+        wall fills up as the episode runs out of time.
+        """
         span = self.width + 2
         pixels = (jnp.arange(span * tile) + 0.5) / tile
         rows, columns = jnp.meshgrid(pixels, pixels, indexing="ij")
         row, column = jnp.floor(rows).astype(jnp.int32), jnp.floor(columns).astype(jnp.int32)
-        down, across = rows - row, columns - column
+        across, down = columns - column - 0.5, rows - row - 0.5
         wall = (row == 0) | (row == span - 1) | (column == 0) | (column == span - 1)
         inside = jnp.clip(row - 1, 0, self.width - 1) * self.width + jnp.clip(column - 1, 0, self.width - 1)
-        hotspot = ~wall & (self.hotspot_index[inside] >= 0)
-        line = 1.0 / tile
-        edge = (down < line) | (across < line) | (down > 1 - line) | (across > 1 - line)
-        agent_row, agent_column = jnp.divmod(state.position, self.width)
-        occupied = (row == agent_row + 1) & (column == agent_column + 1)
-        triangle = (
-            (across > 0.12)
-            & (across < 0.87)
-            & (jnp.abs(down - 0.5) < 0.31 * (0.87 - across) / 0.75)
-        )
-        colour = jnp.zeros((*rows.shape, 3))
-        colour = jnp.where(hotspot[..., None], jnp.array([0.0, 255.0, 0.0]), colour)
-        colour = jnp.where((edge & ~wall)[..., None], jnp.array([100.0, 100.0, 100.0]), colour)
-        colour = jnp.where(wall[..., None], jnp.array([100.0, 100.0, 100.0]), colour)
-        colour = jnp.where((occupied & triangle)[..., None], jnp.array([255.0, 0.0, 0.0]), colour)
+        radius = jnp.hypot(across, down)
+
+        shade = jnp.asarray(visit_shade(self), jnp.float32)[inside][..., None]
+        colour = (1.0 - shade) * jnp.array([22.0, 26.0, 44.0]) + shade * jnp.array([226.0, 232.0, 242.0])
+        line = 0.5 - 1.0 / tile
+        colour = jnp.where(((jnp.abs(across) > line) | (jnp.abs(down) > line))[..., None], 0.8 * colour, colour)
+
+        start = (inside == self.start) & ((jnp.abs(across) > 0.36) | (jnp.abs(down) > 0.36))
+        colour = jnp.where((~wall & start)[..., None], jnp.array([40.0, 110.0, 230.0]), colour)
+
+        index = self.hotspot_index[inside]
+        hotspot = ~wall & (index >= 0)
+        move = jnp.asarray(MOVES, jnp.float32)[self.secrets[jnp.maximum(index, 0)]]
+        along = jnp.clip(down * move[..., 0] + across * move[..., 1], -0.2, 0.2)
+        shaft = jnp.hypot(down - along * move[..., 0], across - along * move[..., 1]) < 0.05
+        forward = down * move[..., 0] + across * move[..., 1]
+        sideways = jnp.abs(down * move[..., 1] - across * move[..., 0])
+        head = (forward > 0.1) & (forward < 0.3) & (sideways < 0.3 - forward)
+        colour = jnp.where((hotspot & (radius < 0.4))[..., None], jnp.array([240.0, 190.0, 40.0]), colour)
+        colour = jnp.where((hotspot & (radius < 0.4) & (radius > 0.34))[..., None], jnp.array([150.0, 105.0, 15.0]), colour)
+        colour = jnp.where((hotspot & (shaft | head))[..., None], jnp.array([70.0, 45.0, 5.0]), colour)
+
+        agent = ~wall & (inside == state.position) & (radius > 0.38) & (radius < 0.49)
+        colour = jnp.where(agent[..., None], jnp.array([235.0, 30.0, 30.0]), colour)
+
+        elapsed = jnp.clip(state.clock / self.horizon, 0.0, 1.0)
+        bar = (row == 0) & (jnp.abs(down) < 0.22) & (columns > 1.0) & (columns < span - 1.0)
+        filled = bar & ((columns - 1.0) / (span - 2.0) < elapsed)
+        colour = jnp.where(wall[..., None], jnp.full(3, 100.0), colour)
+        colour = jnp.where(bar[..., None], jnp.full(3, 60.0), colour)
+        colour = jnp.where(filled[..., None], jnp.array([235.0, 160.0, 40.0]), colour)
         return colour.astype(jnp.uint8)
+
+
+def visits(env) -> np.ndarray:
+    """Expected visits to each cell by an episode of the random walk from the start."""
+    game = getattr(env, "unwrapped", env)
+    walk = random_walk(game)
+    walk[np.asarray(game.hotspots)] = 0.0
+    occupancy = np.zeros(game.num_cells)
+    occupancy[game.start] = 1.0
+    total = occupancy.copy()
+    for _ in range(game.horizon - 1):
+        occupancy = occupancy @ walk
+        total += occupancy
+    return total
+
+
+def visit_shade(env) -> np.ndarray:
+    """Visits on a log scale from 0, the rarest cell, to 1, the most visited."""
+    game = getattr(env, "unwrapped", env)
+    if getattr(game, "_shade", None) is None:
+        logged = np.log(np.maximum(visits(game), 1e-12))
+        game._shade = (logged - logged.min()) / max(logged.max() - logged.min(), 1e-12)
+    return game._shade
 
 
 def random_walk(game) -> np.ndarray:

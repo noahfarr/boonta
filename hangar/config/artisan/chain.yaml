@@ -1,0 +1,3 @@
+# @package artisans.chain
+_target_: boonta.environments.dune_sea.chain.Scorecard
+name: chain

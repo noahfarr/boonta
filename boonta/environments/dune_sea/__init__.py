@@ -2,6 +2,7 @@ from . import wordle
 from .boxoban_tower import BoxobanTower, BoxobanTowerState
 from .chain import Chain, ChainState
 from .chain_of_forks import ChainOfForks, ChainOfForksState
+from .combination_lock import CombinationLock, CombinationLockState
 from .connectx import ConnectX, ConnectXState
 from .hotspots import Hotspots, HotspotsState
 from .maze import Maze, MazeState
@@ -12,6 +13,7 @@ registry = {
     "boxoban_tower": BoxobanTower,
     "chain": Chain,
     "chain_of_forks": ChainOfForks,
+    "combination_lock": CombinationLock,
     "connectx": ConnectX,
     "hotspots": Hotspots,
     "maze": Maze,
@@ -31,6 +33,8 @@ __all__ = [
     "ChainState",
     "ChainOfForks",
     "ChainOfForksState",
+    "CombinationLock",
+    "CombinationLockState",
     "ConnectX",
     "ConnectXState",
     "Hotspots",

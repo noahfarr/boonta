@@ -147,7 +147,21 @@ def binned(env, widths: tuple[float, ...]):
 def make(env_id, params=None, **kwargs):
     import gymnax
 
+    from .wrappers import TimeLimit
+
     env, env_params = gymnax.make(env_id, **kwargs)
     if params:
         env_params = env_params.replace(**params)
-    return Gymnax(env, env_params)
+    if not type(env).__module__.startswith(OWN_CLOCK):
+        return Gymnax(env, env_params)
+    # Gymnax ends these games at its limit as a termination and keeps the clock in a state field
+    # the agent never sees, which a restored snapshot carries along. Boonta's own limit truncates
+    # instead, and a restart resets it.
+    time_limit = int(env_params.max_steps_in_episode)
+    return TimeLimit(Gymnax(env, env_params.replace(max_steps_in_episode=NEVER)), time_limit)
+
+
+# MinAtar's limit only ends the episode; bsuite and misc games also observe theirs. Classic control
+# would qualify too, but DomainRandomization replaces the params of the state it is handed directly.
+OWN_CLOCK = ("gymnax.environments.minatar",)
+NEVER = 2**30

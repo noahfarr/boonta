@@ -1,0 +1,12 @@
+# @package _global_.curriculum.selector.relevance
+_target_: boonta.curricula.psr.SearchRelevance
+# Side environments played from the start with search, outside the training batch: num_envs x
+# num_steps real steps per update, each costing num_simulations simulated steps plus the real one.
+num_envs: 64
+num_steps: 8
+num_simulations: 32
+num_considered: 16
+gamma: ${algorithm.gamma}
+# Decay of the counted visits per update; 1 / rate updates of visits make up the relevance.
+rate: 0.01
+seed: ${seed}

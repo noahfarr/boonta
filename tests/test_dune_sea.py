@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from boonta.environments.dune_sea import ChainOfForks, Hotspots
-from boonta.environments.dune_sea.hotspots import Scorecard, reach
+from boonta.environments.dune_sea.hotspots import MOVES, Scorecard, reach, visit_shade
 
 
 def optimum(env, survival):
@@ -153,21 +153,36 @@ def test_hotspots_sit_at_the_requested_distances_from_the_start():
     np.testing.assert_array_equal(distances, [3, 5, 7, 9, 11, 13])
 
 
-def test_hotspots_render_the_agent_red_and_the_hotspots_green():
-    env = Hotspots(width=9, num_hotspots=4, nearest=2, farthest=7)
+def test_hotspots_render_the_reach_the_secrets_the_start_the_agent_and_the_clock():
+    env = Hotspots(width=9, num_hotspots=4, nearest=2, farthest=7, horizon=40)
     state, _ = env.init(jax.random.key(0))
-    tile = 8
-    image = np.asarray(env.render(state, tile=tile))
+    tile = 40
+    image = np.asarray(env.render(state.replace(clock=jnp.int32(20)), tile=tile)).astype(int)
     assert image.shape == ((env.width + 2) * tile, (env.width + 2) * tile, 3)
-    assert image.dtype == np.uint8
 
-    def centre(cell, across=0.5):
+    def at(cell, across=0.0, down=0.0):
         row, column = divmod(int(cell), env.width)
-        return image[int((row + 1.5) * tile), int((column + 1 + across) * tile)]
+        return image[int((row + 1.5 + down) * tile), int((column + 1.5 + across) * tile)]
 
-    np.testing.assert_array_equal(centre(env.start, across=0.4), [255, 0, 0])
-    for hotspot in np.asarray(env.hotspots):
-        np.testing.assert_array_equal(centre(hotspot), [0, 255, 0])
+    gold, arrow = [240, 190, 40], [70, 45, 5]
+    for hotspot, secret in zip(np.asarray(env.hotspots), np.asarray(env.secrets)):
+        down, across = MOVES[secret]
+        side_down, side_across = across, -down
+        ahead = at(hotspot, 0.15 * across + 0.1 * side_across, 0.15 * down + 0.1 * side_down)
+        behind = at(hotspot, -0.15 * across + 0.1 * side_across, -0.15 * down + 0.1 * side_down)
+        np.testing.assert_array_equal(ahead, arrow)
+        np.testing.assert_array_equal(behind, gold)
+    np.testing.assert_array_equal(at(env.start, across=0.44), [235, 30, 30])
+    np.testing.assert_array_equal(at(env.start, across=0.4, down=0.4), [40, 110, 230])
+
+    shade = visit_shade(env)
+    rare, common = int(np.argmin(shade)), int(np.argmax(shade))
+    assert at(common).sum() > at(rare).sum()
+    assert common == env.start
+
+    bar = image[tile // 2, tile : -tile]
+    filled = np.all(bar == [235, 160, 40], axis=-1)
+    assert abs(filled.mean() - 0.5) < 0.02 and filled[: len(filled) // 3].all()
 
 
 class Oracle:

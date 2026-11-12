@@ -300,6 +300,7 @@ class ArchiveAutoReset(AutoReset):
                 claimed_slots,
                 jnp.ones(self.num_envs, bool),
                 evicted_slots,
+                jnp.zeros(self.num_envs, bool),
             ),
         )
 
@@ -390,14 +391,17 @@ class ArchiveAutoReset(AutoReset):
                     current_slots,
                     done & ~restart_mask,
                     evicted_slots,
+                    episode_mask & rho,
                 )
             ),
         )
 
-    def mark(self, state, timestep, current_slots, start_mask, evicted_slots) -> dict:
+    def mark(self, state, timestep, current_slots, start_mask, evicted_slots, rho_done) -> dict:
         info = timestep.info if isinstance(timestep.info, dict) else {}
         return {
             **info,
+            # An episode that began at the true start ended on its own this step, not cut off by a restart.
+            "rho_done": broadcast(rho_done, timestep.done),
             "cell": current_slots,
             "rho": state.rho,
             "start": start_mask,

@@ -78,6 +78,59 @@ def snake(env, bucket: int = 4, fruit: bool = False):
     return cell
 
 
+def reseed(env_state, key):
+    """Gives restored states their own randomness, so copies of one snapshot draw different fruit."""
+    from .wrappers import WrapperState
+
+    if isinstance(env_state, WrapperState):
+        return env_state.replace(env_state=reseed(env_state.env_state, key))
+    fresh = jax.random.split(key, env_state.key.shape[0])
+    if not jax.dtypes.issubdtype(env_state.key.dtype, jax.dtypes.prng_key):
+        fresh = jax.random.key_data(fresh).astype(env_state.key.dtype)
+    return env_state.replace(key=fresh)
+
+
+def pac_man(env, bucket: int = 32):
+    """Groups PacMan states by where PacMan is, the pellets left in buckets, and the power-ups left."""
+
+    def cell(env_state):
+        player = env_state.player_locations
+        power_ups = jnp.sum(jnp.any(env_state.power_up_locations != 0, axis=-1), axis=-1)
+        features = [player.x, player.y, env_state.pellets // bucket, power_ups]
+        key = jnp.zeros_like(env_state.pellets, jnp.int32)
+        for value in features:
+            key = key * jnp.int32(1000003) + jnp.asarray(value).astype(jnp.int32)
+        return key
+
+    return cell
+
+
+FRIGHTENED = 30  # steps of frightened ghosts after a power-up, fixed by Jumanji's PacMan
+
+
+def pac_man_planes(observation) -> Array:
+    """Jumanji's PacMan observation as image planes: the open floor (Jumanji's grid, 1 where PacMan
+    can walk), PacMan, ghosts, power-ups, pellets and the frightened time left. Ghosts, power-ups and
+    pellets are stored as (column, row), and eaten ones move to (0, 0), a wall."""
+    grid = observation.grid.astype(jnp.float32)
+
+    def plane(points):
+        points = points.astype(jnp.int32)
+        kept = jnp.any(points != 0, axis=-1).astype(jnp.float32)
+        return jnp.zeros_like(grid).at[points[:, 1], points[:, 0]].add(kept)
+
+    player = observation.player_locations
+    planes = [
+        grid,
+        jnp.zeros_like(grid).at[player.x, player.y].set(1.0),
+        plane(observation.ghost_locations),
+        plane(observation.power_up_locations),
+        jnp.minimum(plane(observation.pellet_locations), 1.0),
+        jnp.full_like(grid, jnp.maximum(observation.frightened_state_time, 0) / FRIGHTENED),
+    ]
+    return jnp.stack(planes, axis=-1)
+
+
 def game_2048(env, bucket: int = 32):
     """Groups 2048 states by their age, the bucketed sum of the tiles, and their largest tile.
 
@@ -110,6 +163,7 @@ class Jumanji(Environment):
         self._env = env
         # Board games such as Game2048 observe a board of integers and carry their legal moves.
         self._board = hasattr(env.observation_spec, "board")
+        self._pac_man = hasattr(env.observation_spec, "pellet_locations")
         self._fixed = fixed
         self._pool = pool
         self._pulls = pulls
@@ -126,6 +180,8 @@ class Jumanji(Environment):
     def stack(self, observation) -> Array:
         if self._board:
             return {"board": observation.board, "mask": observation.action_mask}
+        if self._pac_man:
+            return pac_man_planes(observation)
         grid = observation.grid
         clock = jnp.broadcast_to(
             jnp.asarray(observation.step_count, grid.dtype), grid.shape[:-1] + (1,)
@@ -135,6 +191,8 @@ class Jumanji(Environment):
     def observe(self, state) -> Array:
         if self._board:
             return {"board": state.board, "mask": state.action_mask}
+        if self._pac_man:
+            return self.stack(self._env._observation_from_state(state))
         return self.stack(self._env._state_to_observation(state))
 
     def frame(self, timestep, action: Array) -> Timestep:
@@ -184,6 +242,8 @@ class Jumanji(Environment):
                 "mask": Space(shape=mask.shape, dtype=jnp.bool_, low=0, high=1),
             }
         spec = self._env.observation_spec.grid
+        if self._pac_man:
+            return Space(shape=(*spec.shape, 6), dtype=jnp.float32, low=0.0, high=4.0)
         shape = spec.shape[:-1] + (spec.shape[-1] + 1,)
         return Space(shape=shape, dtype=spec.dtype, low=0, high=255)
 
@@ -207,7 +267,11 @@ class Jumanji(Environment):
         viewer = self._env._viewer
         # Jumanji viewers draw to a window unless built for rgb_array, so switch them over.
         viewer._display = viewer._display_rgb_array
-        image = viewer.render(getattr(state, "unwrapped", state))
+        state = getattr(state, "unwrapped", state)
+        if self._pac_man:
+            # The PacMan viewer draws with JAX's .at[] updates, which NumPy arrays lack.
+            state = jax.tree.map(jnp.asarray, state)
+        image = viewer.render(state)
         viewer.close()
         return np.asarray(image)[..., :3]
 
@@ -245,6 +309,15 @@ def make(
                 )
 
         kwargs["reward_fn"] = Scaled()
+    if env_id.startswith("PacMan"):
+        # PacMan keeps its step count in the state and ends at its limit as a termination, so a
+        # restored snapshot would carry its clock along and running out of time would read as
+        # dying. Boonta's limit truncates instead, and a restart resets it.
+        from .wrappers import TimeLimit
+
+        time_limit = kwargs.pop("time_limit", 1000)
+        env = Jumanji(jumanji.make(env_id, time_limit=NEVER, **kwargs))
+        return TimeLimit(env, time_limit)
     return Jumanji(
         jumanji.make(env_id, **kwargs),
         fixed=fixed,
@@ -252,3 +325,6 @@ def make(
         pulls=pulls,
         pulled=pulled,
     )
+
+
+NEVER = 2**30

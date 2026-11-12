@@ -2,5 +2,7 @@ namespace: dune_sea
 suite: chain
 env_id: chain
 kwargs:
-  length: 100
-  num_actions: 2
+  length: 64
+  num_actions: 4
+  hazard: 0.2
+  seed: 0

@@ -38,6 +38,10 @@ class RecordEpisodeStatistics(Wrapper):
     ) -> tuple[RecordEpisodeStatisticsState, Timestep]:
         env_state, timestep = self._env.step(key, state.env_state, action)
         done = timestep.done
+        # Under a restart curriculum only episodes from the true start count, so the statistics stay the
+        # return from rho rather than a mix with restarted and cut-off episodes.
+        info = timestep.info if isinstance(timestep.info, dict) else {}
+        counted = info.get("rho_done", done)
         new_episode_return = state.episode_returns + timestep.reward
         new_discounted_episode_return = (
             state.discounted_episode_returns + state.episode_discount * timestep.reward
@@ -54,13 +58,13 @@ class RecordEpisodeStatistics(Wrapper):
         lox.log(
             {
                 "episode_statistics/episode_return": jnp.where(
-                    done, new_episode_return, jnp.nan
+                    counted, new_episode_return, jnp.nan
                 ),
                 "episode_statistics/discounted_episode_return": jnp.where(
-                    done, new_discounted_episode_return, jnp.nan
+                    counted, new_discounted_episode_return, jnp.nan
                 ),
                 "episode_statistics/episode_length": jnp.where(
-                    done, new_episode_length, jnp.nan
+                    counted, new_episode_length, jnp.nan
                 ),
             }
         )

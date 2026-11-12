@@ -323,6 +323,25 @@ def test_the_render_artisan_stops_when_the_first_episode_ends():
     assert frames == corridor().shortest
 
 
+@pytest.mark.parametrize("num_episodes", [2, 3])
+def test_the_render_artisan_plays_as_many_episodes_back_to_back_as_it_is_asked(num_episodes):
+    environment = zoo.wrap(corridor(), NUM_ENVS)
+    environment.time_limit = lambda: 12
+    environment.render = lambda state: np.zeros((1, 1, 3))
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        return state, carry, timestep.obs.argmax(-1) % 2, {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+    video = Render(num_episodes=num_episodes).craft(
+        jax.random.key(0), SimpleNamespace(algorithm=algorithm, environment=environment), state, {}
+    )
+
+    frames, *_ = video.data.shape
+    assert frames == num_episodes * corridor().shortest
+
+
 def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environment(
     monkeypatch,
 ):

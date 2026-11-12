@@ -1,0 +1,17 @@
+# @package _global_.curriculum.selector.gain
+# Steers like the plain advantage gain and only measures: rank correlations of single greedy, double
+# greedy and search gains with the target gain, from disjoint environment groups, corrected for
+# attenuation by each estimator's split-half reliability.
+_target_: boonta.curricula.psr.FairScreen
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+checkpoint: ${oc.select:curriculum.selector.relevance.checkpoint,null}
+seed: ${seed}
+shrinkage: 4.0
+screen_rate: 0.05
+thresholds: [10.0, 50.0]
+num_cells: 256
+num_simulations: 32
+num_considered: 16
+search_every: 10

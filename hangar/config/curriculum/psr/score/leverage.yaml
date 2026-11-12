@@ -1,0 +1,7 @@
+# @package _global_.curriculum.selector.score
+# Restart where the network's penultimate features are under-covered: worth l(s) / d, with
+# l(s) = phi(s)^T Sigma_batch^-1 phi(s). A Frank-Wolfe step on the D-optimal design of the batch.
+_target_: boonta.curricula.psr.Leverage
+dimension: ${network.features}
+ridge: 1e-3
+batch_size: 2048

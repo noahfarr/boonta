@@ -1,0 +1,15 @@
+# @package _global_.curriculum.selector.gain
+# The expectile gap, V_hi(s) - V(s), from IQL-style heads trained on PPO's rollouts: Q by a mean
+# backup, V_hi the upper expectile of Q over the actions taken, V the mean expectile (baseline: mean)
+# or PPO's critic (baseline: critic).
+_target_: boonta.curricula.psr.ExpectileGain
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+expectile: 0.9
+baseline: mean
+lr: 3e-4
+max_grad_norm: 0.5
+num_minibatches: 8
+polyak: 0.005
+seed: ${seed}
