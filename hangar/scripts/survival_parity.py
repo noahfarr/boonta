@@ -22,6 +22,8 @@ the same cap. Per snapshot, the rank statistic u is the share of copies survivin
 original (ties count a half): 0.5 under parity, near 1 when restored copies die sooner.
 
 Usage: uv run --no-sync python hangar/scripts/survival_parity.py RUN_DIR --epochs 5 81 [--out DIR]
+  [--environment gymnax/minatar/asterix --recipe gymnax minatar -- extra hydra overrides]
+The number of environments, the rollout length and the time limit come from the run's settings.
 """
 
 import argparse
@@ -33,14 +35,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-NUM_ENVS = 1024
-ROLLOUT = 64
-BUILD = 25 * ROLLOUT
-FOLLOW = 4 * ROLLOUT
+BUILD_STEPS = 1600
+FOLLOW_STEPS = 256
 HORIZON = 200
-TIME_LIMIT = 1000
 NUM_SNAPSHOTS = 500
 COPIES = 8
+ENVIRONMENT = "jumanji/pac_man"
+RECIPE = ("jumanji", "pac_man")
+EXTRA: list = []
 
 
 def compose():
@@ -55,11 +57,11 @@ def compose():
             "train",
             overrides=[
                 "algorithm=ppo",
-                "environment=jumanji/pac_man",
+                f"environment={ENVIRONMENT}",
                 "curriculum=psr",
-                f"environment.num_envs={NUM_ENVS}",
                 "logger=[]",
                 "artisan=[]",
+                *EXTRA,
             ],
         )
 
@@ -71,9 +73,13 @@ def run_checkpoint(checkpoint: str, seed: int) -> dict:
     from hangar.recipes import register
 
     cfg = compose()
-    components = register[("ppo", "jumanji", "pac_man")](cfg)
+    components = register[("ppo", *RECIPE)](cfg)
     algorithm, environment, pit = components["algorithm"], components["environment"], components["pit"]
     wrapper = unwrap(environment)
+    NUM_ENVS = wrapper.num_envs
+    ROLLOUT = int(cfg.podracer.config.num_steps)
+    BUILD, FOLLOW = BUILD_STEPS // ROLLOUT * ROLLOUT, FOLLOW_STEPS // ROLLOUT * ROLLOUT
+    TIME_LIMIT = wrapper._env.time_limit()
     key = jax.random.key(seed)
     init_key, ledger_key, key = jax.random.split(key, 3)
     algorithm_state, env_state, _, timestep = restore_policy(algorithm, environment, checkpoint, init_key)
@@ -259,7 +265,12 @@ def main():
     parser.add_argument("run")
     parser.add_argument("--epochs", type=int, nargs="+", default=[5, 81])
     parser.add_argument("--out", default=None)
+    parser.add_argument("--environment", default=ENVIRONMENT)
+    parser.add_argument("--recipe", nargs=2, default=list(RECIPE))
+    parser.add_argument("extra", nargs="*", help="hydra overrides the run was trained with")
     args = parser.parse_args()
+    global ENVIRONMENT, RECIPE, EXTRA
+    ENVIRONMENT, RECIPE, EXTRA = args.environment, tuple(args.recipe), list(args.extra)
     run = Path(args.run)
     out = Path(args.out or run / "survival_parity")
     out.mkdir(parents=True, exist_ok=True)

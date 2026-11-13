@@ -20,6 +20,8 @@ class CellState:
     time: Array
     rho: Array
     eligible: Array
+    # Steps the snapshot's episode had run when it was taken: a progress coordinate in any game.
+    age: Array
 
 
 def admits(
@@ -67,6 +69,7 @@ class Archive:
             time=jax.ShapeDtypeStruct((), jnp.int32),
             rho=jax.ShapeDtypeStruct((), jnp.bool),
             eligible=jax.ShapeDtypeStruct((), jnp.bool),
+            age=jax.ShapeDtypeStruct((), jnp.int32),
         )
         return ArchiveState(
             keys=jnp.zeros((self.archive_size, *key_shape), jnp.int32),
@@ -102,9 +105,11 @@ class Archive:
         done: Array,
         rho: Array | None = None,
         eligible: Array | None = None,
+        age: Array | None = None,
     ) -> tuple[ArchiveState, Array, Array, Array]:
         rho = jnp.ones_like(done) if rho is None else rho
         eligible = jnp.ones_like(done) if eligible is None else eligible
+        age = jnp.zeros(jnp.shape(done), jnp.int32) if age is None else age.astype(jnp.int32)
         cell_keys = self.cell_fn(env_state)
         archive_keys, archive_mask, claimed_slots, opened_mask = claim(
             state.keys,
@@ -142,6 +147,7 @@ class Archive:
             time=jnp.broadcast_to(state.clock, jnp.shape(done)),
             rho=rho,
             eligible=eligible,
+            age=age,
         )
         state = self.put(
             state.replace(keys=archive_keys, mask=archive_mask, clock=state.clock + 1),
@@ -360,6 +366,7 @@ class ArchiveAutoReset(AutoReset):
             ~restart_mask,
             state.rho,
             done | self.check_eligibility(state.env_state),
+            state.age,
         )
         current_slots = jnp.where(restart_mask, state.assigned_slots, claimed_slots)
         decay = self.gamma ** (age - 1).astype(jnp.float32)
@@ -406,6 +413,12 @@ class ArchiveAutoReset(AutoReset):
             # observation is a snapshot an environment was just restarted from.
             "age": state.age,
             "restarted": restarted,
+            # The episode age at which the snapshot this environment stands in was taken (-1 if none).
+            "origin_age": jnp.where(
+                current_slots >= 0,
+                state.archive_state.cell_states.age[jnp.clip(current_slots, 0)],
+                -1,
+            ),
             # An episode that began at the true start ended on its own this step, not cut off by a restart.
             "rho_done": broadcast(rho_done, timestep.done),
             "cell": current_slots,

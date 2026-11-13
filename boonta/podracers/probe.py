@@ -29,6 +29,9 @@ from boonta.utils import PyTree, Transition
 from boonta.utils.typing import Array, Key
 
 
+AGE_EDGES = (16, 32, 64, 128, 256, 512)
+
+
 @struct.dataclass
 class ProbeState:
     previous_params: PyTree
@@ -178,6 +181,13 @@ class SignalProbe:
         def placement_mean(value):
             return jnp.where(jnp.any(placed), jnp.sum(jnp.where(placed, value, 0.0)) / num_placed, jnp.nan)
 
+        # Each placement's snapshot by the episode age at which it was taken, in doubling buckets:
+        # 0-15, 16-31, 32-63, 64-127, 128-255, 256-511, 512 and more steps.
+        origin_age = jnp.take_along_axis(second.info["origin_age"], start[None], axis=0)[0]
+        age_bucket = jnp.searchsorted(jnp.asarray(AGE_EDGES), origin_age, side="right")
+        for bucket in range(len(AGE_EDGES) + 1):
+            logs[f"restart/placement_age_bucket_{bucket}"] = placement_mean((age_bucket == bucket).astype(jnp.float32))
+        logs["restart/placement_origin_age"] = placement_mean(origin_age.astype(jnp.float32))
         logs.update(
             {
                 "restart/placement_length": placement_mean(segment),
@@ -226,3 +236,25 @@ class SignalProbe:
             previous_in=c_in_mean,
             updates=state.updates + 1,
         )
+
+
+def attach(cfg, components: dict, network, num_actions: int, bucket_fn: Callable | None = None, num_buckets: int = 0) -> dict:
+    """Adds the signal probe to a recipe's components when cfg.probe is set. It needs the
+    archive's cells, so the curriculum must restart from an archive (shadow PPO: PSR with k=1)."""
+    if not cfg.get("probe", False):
+        return components
+    from boonta.environments.wrappers.archive_auto_reset import unwrap
+
+    archive = unwrap(components["environment"])
+    assert archive is not None, "the signal probe needs the archive's cells: use a PSR or ERD curriculum (k=1 for shadow PPO)"
+    components["probe"] = SignalProbe(
+        network=network,
+        gamma=cfg.algorithm.gamma,
+        gae_lambda=cfg.algorithm.gae_lambda,
+        archive_size=archive.archive.archive_size,
+        num_actions=num_actions,
+        bucket_fn=bucket_fn,
+        num_buckets=num_buckets,
+    )
+    return components
+

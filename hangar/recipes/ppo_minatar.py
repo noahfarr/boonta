@@ -79,4 +79,7 @@ def make(cfg):
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
+    components = {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
+    from boonta.podracers.probe import attach
+
+    return attach(cfg, components, network, num_actions)

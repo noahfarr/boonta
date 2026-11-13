@@ -521,3 +521,14 @@ def test_without_an_archive_every_finished_episode_counts():
         (state, timestep), logs = lox.spool(env.step)(sub, state, jnp.zeros(NUM_ENVS, jnp.int32))
     returns = jnp.ravel(jnp.asarray(logs["episode_statistics/episode_return"]))
     assert bool(jnp.all(~jnp.isnan(returns)))
+
+
+def test_the_archive_remembers_the_episode_age_of_each_snapshot():
+    import jax.numpy as jnp
+    from boonta.environments.wrappers.archive_auto_reset import Archive
+
+    archive = Archive(archive_size=8, cell_fn=lambda state: state[:, None])
+    state = archive.init(jnp.zeros(3, jnp.int32))
+    state, slots, _, _ = archive.add(state, jnp.array([1, 2, 3], jnp.int32), jnp.ones(3, bool), age=jnp.array([5, 40, 700]))
+    ages = state.cell_states.age[slots]
+    assert ages.tolist() == [5, 40, 700]

@@ -53,7 +53,10 @@ for arm in "${arms[@]}"; do
                 "logger=[file]" "artisan=[]" ;;
         transplant)
             # Uniform restarts with the forecast gain's pellet-bucket schedule (not in the default set).
-            run transplant "range($SEED_START,$LAST)" curriculum=transplant "logger=[file]" "artisan=[]" ;;
+            # The schedule is the forecast gain's per-placement shares from 5 reruns (build_schedule.py).
+            run transplant "range($SEED_START,$LAST)" curriculum=transplant \
+                "curriculum.schedule=$PWD/reports/pacman_signal/forecast_bucket_schedule_placement.json" \
+                "logger=[file]" "artisan=[]" ;;
         *) echo "unknown arm: $arm (ppo_shadow erd psr forecast_gain psr_signal transplant)" >&2; exit 1 ;;
     esac
 done

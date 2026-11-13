@@ -155,19 +155,7 @@ def make(cfg):
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
     components = {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
-    if cfg.get("probe", False):
-        from boonta.environments.wrappers.archive_auto_reset import unwrap
-        from boonta.podracers.probe import SignalProbe
+    from boonta.podracers.probe import attach
 
-        archive = unwrap(env)
-        assert archive is not None, "the signal probe needs the archive's cells: use a PSR or ERD curriculum (k=1 for shadow PPO)"
-        components["probe"] = SignalProbe(
-            network=network,
-            gamma=cfg.algorithm.gamma,
-            gae_lambda=cfg.algorithm.gae_lambda,
-            archive_size=archive.archive.archive_size,
-            num_actions=num_actions,
-            bucket_fn=pellet_bucket,
-            num_buckets=NUM_PELLET_BUCKETS,
-        )
+    attach(cfg, components, network, num_actions, bucket_fn=pellet_bucket, num_buckets=NUM_PELLET_BUCKETS)
     return components
