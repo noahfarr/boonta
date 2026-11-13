@@ -189,11 +189,16 @@ class SignalProbe:
         if self.bucket_fn is not None:
             restarted = second.info["restarted"].astype(bool)
             buckets = jnp.clip(self.bucket_fn(second.obs), 0, self.num_buckets - 1)
-            placed = jnp.maximum(jnp.sum(restarted, dtype=jnp.float32), 1.0)
+            num_restarts = jnp.maximum(jnp.sum(restarted, dtype=jnp.float32), 1.0)
+            # Each placement once: the bucket of the first restart per environment in this rollout.
+            # The shares above count every restart, so snapshots that die and are replayed
+            # within the rollout weigh more there.
+            first_bucket = jnp.take_along_axis(buckets, start[None], axis=0)[0]
             for bucket in range(self.num_buckets):
                 logs[f"restart/bucket_{bucket}"] = jnp.where(
-                    jnp.any(restarted), jnp.sum(restarted & (buckets == bucket), dtype=jnp.float32) / placed, jnp.nan
+                    jnp.any(restarted), jnp.sum(restarted & (buckets == bucket), dtype=jnp.float32) / num_restarts, jnp.nan
                 )
+                logs[f"restart/placement_bucket_{bucket}"] = placement_mean((first_bucket == bucket).astype(jnp.float32))
 
         rank_key = jax.random.fold_in(key, 0x52414E4B)
 

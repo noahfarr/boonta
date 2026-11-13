@@ -51,6 +51,9 @@ for arm in "${arms[@]}"; do
         psr_signal)
             run psr_signal "range($SEED_START,$LAST)" curriculum=psr curriculum/psr/gain=signal \
                 "logger=[file]" "artisan=[]" ;;
-        *) echo "unknown arm: $arm (ppo_shadow erd psr forecast_gain psr_signal)" >&2; exit 1 ;;
+        transplant)
+            # Uniform restarts with the forecast gain's pellet-bucket schedule (not in the default set).
+            run transplant "range($SEED_START,$LAST)" curriculum=transplant "logger=[file]" "artisan=[]" ;;
+        *) echo "unknown arm: $arm (ppo_shadow erd psr forecast_gain psr_signal transplant)" >&2; exit 1 ;;
     esac
 done

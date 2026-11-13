@@ -1,0 +1,18 @@
+# @package _global_
+# Uniform restarts (as ERD) with each restart's game-progress bucket drawn from another arm's
+# schedule. The default schedule is the forecast gain's pellets-left shares on Pac-Man, seeds 5-19.
+
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.transplant.make
+  _partial_: true
+  schedule: ${hydra:runtime.cwd}/reports/pacman_signal/forecast_bucket_schedule.json
+  bucket_fn:
+    _target_: boonta.curricula.transplant.pac_man_pellet_bucket
+    bucket_pellets: 50
+    num_buckets: 7
+  k: 4.0
+  restart_at: rollout
