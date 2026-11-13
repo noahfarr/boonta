@@ -1,0 +1,83 @@
+/home/farr/boonta-psr/reports/pacman_signal/analyze_partA.py:309: RuntimeWarning: All-NaN slice encountered
+  axis.plot(steps, np.nanmedian(curves, 0), color=colors[name], label=ARMS[name][0], linewidth=1.5)
+/home/farr/boonta-psr/reports/pacman_signal/analyze_partA.py:327: RuntimeWarning: All-NaN slice encountered
+  axes[0].plot(steps, np.nanmedian(j - j[:, 1:2], 0), color=colors[name], linestyle="--")
+/home/farr/boonta-psr/reports/pacman_signal/analyze_partA.py:347: RuntimeWarning: All-NaN slice encountered
+  good = np.isfinite(np.nanmedian(curves, 0))
+/home/farr/boonta-psr/reports/pacman_signal/analyze_partA.py:348: RuntimeWarning: All-NaN slice encountered
+  axis.plot(steps[good], np.nanmedian(curves, 0)[good], color=colors[name], label=ARMS[name][0], marker=".")
+== Part A: final from-start return, seeds 5-19 (primary)
+  plain PPO (shadow)     n=15 final  268.3 +- 12.7 | to 300 median   infM (4/15) | peak   277 | len  229 | SPS 0.63M
+  ERD                    n=15 final  309.8 +-  6.3 | to 300 median  73.7M (13/15) | peak   319 | len  284 | SPS 0.98M
+  PSR v1                 n=15 final  303.6 +-  7.0 | to 300 median  96.3M (10/15) | peak   311 | len  283 | SPS 0.64M
+  forecast gain          n=15 final  324.0 +-  9.0 | to 300 median  60.9M (12/15) | peak   333 | len  331 | SPS 0.59M
+  PSR, debiased spread   n=15 final  278.0 +- 10.5 | to 300 median   infM (5/15) | peak   284 | len  242 | SPS 0.63M
+== Differences in final return (bootstrap 95% CI over seeds)
+  forecast gain        - ERD                     +14.2  [  -6.5,  +34.9]
+  forecast gain        - PSR v1                  +20.4  [  -1.8,  +41.2]
+  forecast gain        - plain PPO (shadow)      +55.7  [ +26.2,  +85.2]
+  forecast gain        - PSR, debiased spread    +46.0  [ +19.9,  +71.9]
+  ERD                  - plain PPO (shadow)      +41.5  [ +15.2,  +68.1]
+  PSR v1               - plain PPO (shadow)      +35.3  [  +7.7,  +62.2]
+  PSR, debiased spread - PSR v1                  -25.6  [ -50.0,   -2.0]
+  ERD                  - PSR v1                   +6.2  [ -12.1,  +23.4]
+== Pooled 20 seeds (secondary; seeds 0-4 from the first batch, where plain PPO was not shadow mode)
+  plain PPO (shadow)     n=20  252.2 +- 14.9
+  ERD                    n=20  311.5 +-  4.9
+  PSR v1                 n=20  304.3 +-  5.4
+  forecast gain          n=20  329.0 +-  7.5
+  pooled forecast gain - ERD: +17.5 [+0.4, +34.5]
+  pooled forecast gain - PSR v1: +24.7 [+6.6, +42.1]
+== Shadow check: shadow 268.3 (n=15) vs plain 276.5 (n=10): -8.2 [-65.6, +58.5]
+== T1 accounting: 10M-step windows, sum of held-out C_gamma against change in J_gamma
+  plain PPO (shadow)     whole-run sum C_gamma / delta J_gamma: median 0.38, range [-3.22, 1.11]
+  ERD                    whole-run sum C_gamma / delta J_gamma: median 0.64, range [0.41, 1.03]
+  PSR v1                 whole-run sum C_gamma / delta J_gamma: median 0.76, range [0.11, 1.20]
+  forecast gain          whole-run sum C_gamma / delta J_gamma: median 0.72, range [0.37, 0.98]
+  PSR, debiased spread   whole-run sum C_gamma / delta J_gamma: median 0.77, range [0.38, 1.55]
+  Spearman 0.652; Pearson without the 8 windows below -50: 0.893
+  pooled Pearson r over 750 windows: 0.751
+    windows starting 0-10M: r 0.246, mean sum C 64.34, mean delta J 71.10
+    windows starting 10-30M: r 0.559, mean sum C 4.77, mean delta J 10.48
+    windows starting 30-60M: r 0.135, mean sum C -0.06, mean delta J 2.76
+    windows starting 60-100M: r 0.625, mean sum C -4.02, mean delta J 1.31
+  T1 holds: False
+== T2 budget: mean delta per update by phase
+    0- 20M: plain 0.00177, ERD 0.00128, PSR 0.00205, forecast 0.00200, PSR, 0.00202 | max/min 1.60
+   20- 60M: plain 0.00081, ERD 0.00034, PSR 0.00081, forecast 0.00063, PSR, 0.00073 | max/min 2.41
+   60-100M: plain 0.00166, ERD 0.00051, PSR 0.00056, forecast 0.00049, PSR, 0.00082 | max/min 3.40
+== T4: mean c_out per update over the first 60M steps; cumulative C_gamma against final return
+  plain PPO (shadow)     c_out(0-60M) 0.00220 | cumulative C_gamma   -16.6 | final 268.3
+  ERD                    c_out(0-60M) 0.00214 | cumulative C_gamma    69.0 | final 309.8
+  PSR v1                 c_out(0-60M) 0.00246 | cumulative C_gamma    75.8 | final 303.6
+  forecast gain          c_out(0-60M) 0.00241 | cumulative C_gamma    76.0 | final 324.0
+  PSR, debiased spread   c_out(0-60M) 0.00246 | cumulative C_gamma    84.0 | final 278.0
+  order by cumulative C_gamma: ['psr_signal', 'forecast_gain', 'psr', 'erd', 'ppo_shadow']
+  order by final return:       ['forecast_gain', 'erd', 'psr', 'psr_signal', 'ppo_shadow']
+== P1 delta against half Var(u); P2 brackets; P3 hold-out ratio
+  plain PPO (shadow)     delta/halfvar 0.992 [0.794,1.030] | S_raw/S_cell 127 [23,2117] | rho_low 0.001 | rho_high 0.019 [-0.072,0.220] | holdout 0-5M 0.91 5-20M 0.40 20-60M -0.00 60-99M -0.04
+  ERD                    delta/halfvar 0.995 [0.978,1.009] | S_raw/S_cell 37 [16,119] | rho_low 0.003 | rho_high 0.017 [-0.043,0.102] | holdout 0-5M 0.84 5-20M 0.34 20-60M 0.10 60-99M 0.05
+  PSR v1                 delta/halfvar 0.994 [0.963,1.014] | S_raw/S_cell 49 [16,165] | rho_low 0.003 | rho_high 0.024 [-0.050,0.179] | holdout 0-5M 0.91 5-20M 0.49 20-60M 0.17 60-99M 0.04
+  forecast gain          delta/halfvar 0.993 [0.951,1.019] | S_raw/S_cell 42 [11,147] | rho_low 0.004 | rho_high 0.023 [-0.061,0.177] | holdout 0-5M 0.91 5-20M 0.45 20-60M 0.13 60-99M 0.02
+  PSR, debiased spread   delta/halfvar 0.994 [0.957,1.023] | S_raw/S_cell 70 [22,321] | rho_low 0.003 | rho_high 0.025 [-0.063,0.199] | holdout 0-5M 0.94 5-20M 0.47 20-60M 0.13 60-99M 0.04
+== Feature rank (penultimate, from-start states), by phase
+  plain PPO (shadow)     0-10M n99  36.1 ent 5.69 | 10-30M n99  11.7 ent 1.82 | 30-60M n99   9.0 ent 1.75 | 60-99M n99   8.1 ent 1.69
+  ERD                    0-10M n99  55.9 ent 6.67 | 10-30M n99  23.5 ent 2.21 | 30-60M n99  14.5 ent 1.78 | 60-99M n99  11.6 ent 1.61
+  PSR v1                 0-10M n99  36.0 ent 5.71 | 10-30M n99  16.0 ent 1.95 | 30-60M n99  12.6 ent 1.84 | 60-99M n99   9.4 ent 1.69
+  forecast gain          0-10M n99  37.1 ent 5.77 | 10-30M n99  14.3 ent 1.91 | 30-60M n99  10.3 ent 1.82 | 60-99M n99   8.7 ent 1.67
+  PSR, debiased spread   0-10M n99  35.4 ent 5.74 | 10-30M n99  12.3 ent 1.87 | 30-60M n99  11.1 ent 1.87 | 60-99M n99   9.8 ent 1.80
+  weakest 3 shadow-PPO seeds [19, 12, 14] (final [209. 217. 197.]): n99 0-10M 38.1 10-30M 14.2 30-60M 10.3 60-99M 9.4
+  the other 12:                                     n99 0-10M 35.6 10-30M 11.0 30-60M 8.7 60-99M 7.8
+== Restart diagnostics (restart arms), by phase
+  ERD                    0-10M   pellets buckets (0-49 ... 300+) 0.06 0.19 0.18 0.19 0.15 0.19 0.04 | placement length  25.6, died 0.81, died<=30 0.64 | old metric 3.4
+  ERD                    10-40M  pellets buckets (0-49 ... 300+) 0.24 0.22 0.17 0.15 0.11 0.11 0.00 | placement length  35.9, died 0.64, died<=30 0.46 | old metric 4.3
+  ERD                    40-99M  pellets buckets (0-49 ... 300+) 0.16 0.19 0.17 0.17 0.14 0.16 0.01 | placement length  47.9, died 0.40, died<=30 0.25 | old metric 6.2
+  PSR v1                 0-10M   pellets buckets (0-49 ... 300+) 0.00 0.00 0.00 0.02 0.17 0.43 0.38 | placement length  49.7, died 0.45, died<=30 0.21 | old metric 24.5
+  PSR v1                 10-40M  pellets buckets (0-49 ... 300+) 0.00 0.00 0.01 0.14 0.33 0.41 0.11 | placement length  51.6, died 0.34, died<=30 0.19 | old metric 17.5
+  PSR v1                 40-99M  pellets buckets (0-49 ... 300+) 0.01 0.07 0.21 0.20 0.18 0.27 0.06 | placement length  52.5, died 0.31, died<=30 0.17 | old metric 15.1
+  forecast gain          0-10M   pellets buckets (0-49 ... 300+) 0.00 0.00 0.00 0.07 0.24 0.41 0.28 | placement length  46.6, died 0.55, died<=30 0.25 | old metric 26.7
+  forecast gain          10-40M  pellets buckets (0-49 ... 300+) 0.00 0.03 0.14 0.26 0.22 0.23 0.13 | placement length  46.7, died 0.49, died<=30 0.26 | old metric 20.1
+  forecast gain          40-99M  pellets buckets (0-49 ... 300+) 0.09 0.20 0.24 0.20 0.10 0.11 0.06 | placement length  48.9, died 0.41, died<=30 0.23 | old metric 16.5
+  PSR, debiased spread   0-10M   pellets buckets (0-49 ... 300+) 0.00 0.00 0.00 0.02 0.11 0.29 0.58 | placement length  53.5, died 0.32, died<=30 0.15 | old metric 25.3
+  PSR, debiased spread   10-40M  pellets buckets (0-49 ... 300+) 0.00 0.00 0.02 0.07 0.16 0.32 0.44 | placement length  56.1, died 0.19, died<=30 0.12 | old metric 19.6
+  PSR, debiased spread   40-99M  pellets buckets (0-49 ... 300+) 0.01 0.05 0.08 0.11 0.08 0.27 0.40 | placement length  57.0, died 0.19, died<=30 0.10 | old metric 20.3
