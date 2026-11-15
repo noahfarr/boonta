@@ -8,7 +8,7 @@ from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Blo
                      SinusoidalPositionalEmbedding, SSMCellBase, Stack,
                      Stateless, Tower, causal_attention_mask,
                      joint_attention_mask,
-                     reset_carry, rotary_positional_embedding,
+                     rotary_positional_embedding,
                      sinusoidal_time_embedding)
 from . import distributions
 from .feature_extractor import FeatureExtractor
@@ -69,7 +69,6 @@ __all__ = [
     "get_scan_implementation",
     "joint_attention_mask",
     "llama",
-    "reset_carry",
     "rotary_positional_embedding",
     "sinusoidal_time_embedding",
 ]

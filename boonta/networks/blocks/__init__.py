@@ -16,7 +16,7 @@ from .query_key_norm import QueryKeyNorm
 from .highway import Highway
 from .tower import Tower
 from .residual import Residual
-from .rnn import RNN, RNNCellBase, reset_carry
+from .rnn import RNN, RNNCellBase
 from .rtu import RTUCarry, RTUCell
 from .self_attention import (SelfAttention, SelfAttentionCarry,
                              causal_attention_mask, joint_attention_mask)
@@ -52,7 +52,6 @@ __all__ = [
     "broadcast_carry",
     "causal_attention_mask",
     "joint_attention_mask",
-    "reset_carry",
     "rotary_positional_embedding",
     "sinusoidal_time_embedding",
 ]
