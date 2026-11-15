@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from boonta.utils import broadcast
+from boonta.utils import add_time_axis, broadcast, remove_time_axis
 from boonta.utils.typing import Array, Carry, Key
 
 from .block import Block
@@ -33,7 +33,7 @@ class SSM(Block):
 
     @nn.compact
     def __call__(self, carry: Carry, inputs: Array, done: Array) -> tuple[Carry, Array]:
-        batch_size, _, *features = inputs.shape
+        batch_size, sequence_length, *features = inputs.shape
         initial_carry = self.cell.initialize_carry(
             jax.random.key(0), (batch_size, *features)
         )
@@ -46,6 +46,11 @@ class SSM(Block):
         mask = broadcast(done, b)
         b = b + mask * a * jnp.expand_dims(initial_carry, 1).astype(scan_dtype)
         a = (1 - mask) * a
+
+        if sequence_length == 1:
+            step = remove_time_axis(a) * carry.astype(scan_dtype) + remove_time_axis(b)
+            carries = add_time_axis(step)
+            return step.astype(carry.dtype), self.cell.output(carries, inputs)
 
         scan = get_scan_implementation()
         carries = scan(a, b, carry.astype(scan_dtype))

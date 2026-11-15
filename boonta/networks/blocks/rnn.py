@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from boonta.utils import broadcast
+from boonta.utils import add_time_axis, broadcast, remove_time_axis
 from boonta.utils.typing import Array, Carry, Key
 
 from .block import Block
@@ -32,7 +32,7 @@ class RNN(Block):
 
     @nn.compact
     def __call__(self, carry: Carry, inputs: Array, done: Array) -> tuple[Carry, Array]:
-        batch_size, _sequence_length, *features = inputs.shape
+        batch_size, sequence_length, *features = inputs.shape
         initial_carry = self.cell.initialize_carry(
             jax.random.key(0), (batch_size, *features)
         )
@@ -43,6 +43,16 @@ class RNN(Block):
             features, done = inputs
             carry = reset_carry(done, carry, initial_carry)
             return cell(carry, features)
+
+        if sequence_length == 1:
+            done = remove_time_axis(done)
+            carry = jax.tree.map(
+                lambda initial, leaf: jnp.where(broadcast(done, leaf), initial, leaf),
+                initial_carry,
+                carry,
+            )
+            carry, output = self.cell(carry, remove_time_axis(inputs))
+            return carry, add_time_axis(output)
 
         scan = nn.scan(
             scan_fn,
