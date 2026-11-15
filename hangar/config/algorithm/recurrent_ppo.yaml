@@ -2,7 +2,7 @@
 
 defaults:
   - /torso: default
-  - /cell: gru
+  - /cell: min_gru
   - /stack: default
 
 algorithm:
