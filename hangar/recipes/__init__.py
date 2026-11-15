@@ -76,7 +76,7 @@ register = {
     ("ppo", "kinetix", "kinetix"): ppo_kinetix.make,
     ("ppo", "mujoco_playground", "dm_control_suite"): ppo_mujoco.make,
     ("ppo", "xland_minigrid", "minigrid"): ppo_xland_minigrid.make,
-    ("ppo", "xland_minigrid", "xland"): ppo_xland_minigrid.make,
+    ("ppo", "xland_minigrid", "xland_minigrid"): ppo_xland_minigrid.make,
     ("pqn", "gymnax", "minatar"): pqn_minatar.make,
     ("recurrent_bc", "kinetix", "kinetix"): recurrent_bc_kinetix.make,
     ("recurrent_dqn", "gymnax", "minatar"): recurrent_dqn_minatar.make,
