@@ -75,7 +75,7 @@ uv sync --no-dev --extra hangar     # the core, plus Hydra to run the configs in
 
 | Extra | Adds | Needed for |
 |---|---|---|
-| `hangar` | Hydra, OmegaConf, Rich, Pillow, psutil, nvidia-ml-py | the `boonta` command, the dashboard logger, videos |
+| `hangar` | Hydra, OmegaConf, Rich, Pillow, imageio, imageio-ffmpeg, psutil, nvidia-ml-py | the `boonta` command, the dashboard logger, videos |
 | `gymnax` | Gymnax | the `gymnax` environments, such as MinAtar |
 | `minari` | Minari | the `minari` datasets of BC and IQL |
 | `huggingface` | huggingface-hub, tokenizers, safetensors, Jinja2 | loading Qwen3, Gemma, SigLIP and π0 weights |

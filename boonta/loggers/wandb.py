@@ -94,7 +94,7 @@ class WandbLogger:
             import tempfile
 
             with tempfile.TemporaryDirectory() as directory:
-                path = artifact.encode(f"{directory}/{artifact.name}.gif")
+                path = artifact.encode(f"{directory}/{artifact.name}.mp4")
                 for run in self.runs.values():
                     run.log({artifact.name: wandb.Video(path)}, step=step)
 

@@ -26,7 +26,7 @@ class XdgLogger:
         if sys.platform != "darwin" and not os.environ.get("DISPLAY"):
             return
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = artifact.encode(self.directory / f"{artifact.name}-{step}.gif")
+        path = artifact.encode(self.directory / f"{artifact.name}-{step}.mp4")
         subprocess.Popen([opener, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def log_summary(self, data: PyTree, **kwargs) -> None:

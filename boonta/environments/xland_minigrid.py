@@ -73,6 +73,9 @@ class XLandMiniGrid(Environment):
     def time_limit(self) -> int:
         return int(self.params.max_steps)
 
+    def render(self, state: Any, **kwargs):
+        return self._env.render(self.params, state, **kwargs)
+
 
 def make(env_id, benchmark=None, **kwargs):
     import xminigrid

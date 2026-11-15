@@ -272,12 +272,12 @@ def test_the_file_logger_gives_every_metric_one_row_per_logged_step(tmp_path):
     np.testing.assert_array_equal(metrics["training/episode_return"].ravel(), [np.nan, 2.0, 4.0])
 
 
-def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
+def test_the_file_logger_writes_each_video_as_an_mp4_and_nothing_else(tmp_path):
     logger = FileLogger(directory=tmp_path)
     logger.log_artifact(Video("episode", np.zeros((3, 8, 8), np.uint8)), step=100)
     logger.log_artifact(Checkpoint("checkpoint", {}), step=100)
 
-    assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
+    assert [path.name for path in tmp_path.iterdir()] == ["episode-100.mp4"]
 
 
 def test_the_render_artisan_plays_and_draws_the_first_environment():
