@@ -13,6 +13,12 @@ cell:
   _target_: flax.linen.OptimizedLSTMCell
   features: 256
 
+torso:
+  _target_: boonta.networks.RNN
+  cell: ${cell}
+
+stack: ${torso}
+
 algorithm:
   num_minibatches: 1
   update_epochs: 5
