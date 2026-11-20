@@ -13,4 +13,5 @@ podracer:
     num_steps: 64
 
 algorithm:
-  num_minibatches: 128
+  # 8,192 environment transitions per minibatch, with 4 agents each.
+  num_minibatches: 64
