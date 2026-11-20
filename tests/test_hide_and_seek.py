@@ -5,8 +5,10 @@ import pytest
 
 from boonta import environments
 from boonta.environments.dune_sea import HideAndSeek, Layout
-from boonta.environments.dune_sea.hide_and_seek import (EMPTY, GRAB, HIDER, JUMP, JUMP_SPEED,
-                                                        LEFT, LOCK, NOOP, NUM_ACTIONS, RIGHT,
+from boonta.environments.dune_sea.hide_and_seek import (AGENT_RADIUS, EMPTY, GRAB, GROUND, HIDER,
+                                                        JUMP, JUMP_RIGHT, JUMP_SPEED, LEFT, LOCK,
+                                                        MAX_DOOR_HEIGHT, MIN_DOOR_HEIGHT, NOOP,
+                                                        NUM_ACTIONS, RIGHT, SELF_FEATURES,
                                                         UNLOCKED)
 
 KEY = jax.random.key(0)
@@ -21,6 +23,7 @@ def layout(agent_x, object_x=(), wall_x=(), wall_height=(), mirrored=()):
         object_x=floats(object_x),
         mirrored=jnp.array(mirrored, bool),
         agent_x=floats(agent_x),
+        facing=jnp.ones(len(agent_x), jnp.float32),
     )
 
 
@@ -49,13 +52,63 @@ def play(env, state, actions, steps=1):
 def test_the_default_game_emits_what_its_spaces_promise():
     env = environments.make("dune_sea", "hide_and_seek", kwargs={})
     state, timestep = env.init(KEY)
-    assert timestep.obs.shape == env.observation_space().shape
+    shapes = lambda obs: {name: leaf.shape for name, leaf in obs.items()}
+    promised = {name: space.shape for name, space in env.observation_space().items()}
+    assert shapes(timestep.obs) == promised
     assert timestep.action.shape == env.action_space().shape
     assert env.action_mask(state).shape == (env.num_agents, NUM_ACTIONS)
-    np.testing.assert_array_equal(env.observe(state), timestep.obs)
+    jax.tree.map(np.testing.assert_array_equal, env.observe(state), timestep.obs)
     state, timestep = play(env, state, [NOOP] * env.num_agents)
-    assert timestep.obs.shape == env.observation_space().shape
+    assert shapes(timestep.obs) == promised
     assert timestep.reward.shape == (env.num_agents,)
+
+
+def test_the_shelter_starts_hiders_behind_a_low_door_and_seekers_outside():
+    env = HideAndSeek()
+    layouts = jax.vmap(env.generate)(jax.random.split(KEY, 32))
+    door = np.asarray(layouts.wall_x[:, 0])
+    agents = np.asarray(layouts.agent_x)
+    hiders = np.asarray(env.team) == HIDER
+    left = agents[:, hiders].mean(1) < door
+    assert ((agents[:, hiders] < door[:, None]) == left[:, None]).all()
+    assert ((agents[:, ~hiders] < door[:, None]) != left[:, None]).all()
+    assert left.any() and (~left).any()
+    heights = np.asarray(layouts.wall_height[:, 0])
+    assert ((heights >= MIN_DOOR_HEIGHT) & (heights <= MAX_DOOR_HEIGHT)).all()
+    assert set(np.unique(np.asarray(layouts.facing))) == {-1.0, 1.0}
+
+
+def test_seekers_see_only_inside_their_vision_cone():
+    env, state = arena([6.0, 2.0])
+    seeker = state.sim.circle.position[1]
+    for offset, expected in (((2.0, 0.3), True), ((0.3, 2.0), False), ((-2.0, 0.3), False)):
+        moved = state.sim.circle.replace(position=state.sim.circle.position.at[0].set(seeker + jnp.array(offset)))
+        assert bool(env.sight(state.replace(sim=state.sim.replace(circle=moved)))[1, 0]) == expected
+
+
+def test_an_agent_only_observes_the_facing_of_agents_it_sees():
+    env, state = arena([6.0, 2.0], wall_x=[4.0], wall_height=[TALL])
+    observations = env.observe(state)
+    facing = SELF_FEATURES + 2 * env.num_rays + 5
+    assert float(observations["agent"][0, facing]) == 0.0
+    assert float(observations["state"][0, facing]) == float(state.facing[1])
+
+
+def test_agents_hop_the_door_and_climb_boxes_but_not_walls():
+    def run(env, state, plan):
+        for actions, count in plan:
+            state, _ = play(env, state, actions, steps=count)
+        return state
+
+    hop = [([NOOP, NOOP], 2), ([RIGHT, NOOP], 8)] + [([JUMP_RIGHT, NOOP], 1), ([RIGHT, NOOP], 6)] * 6
+    for height, crosses in ((MAX_DOOR_HEIGHT, True), (1.2, False)):
+        env, state = arena([2.0, 12.0], wall_x=[4.0], wall_height=[height])
+        assert (float(run(env, state, hop).sim.circle.position[0, 0]) > 4.0) == crosses
+
+    env, state = arena([2.0, 12.0], [3.0])
+    climb = [([NOOP, NOOP], 2), ([RIGHT, NOOP], 2), ([JUMP_RIGHT, NOOP], 1), ([RIGHT, NOOP], 3), ([NOOP, NOOP], 15)]
+    state = run(env, state, climb)
+    assert float(state.sim.circle.position[0, 1]) - GROUND - AGENT_RADIUS > 0.45
 
 
 def test_an_agent_carries_the_box_it_grabs_and_drops_it_on_a_second_grab():
@@ -164,7 +217,7 @@ def test_random_play_stays_finite_and_inside_the_world():
         return states, timesteps.obs
 
     states, observations = jax.lax.scan(jax.jit(turn), states, jax.random.split(KEY, 200))
-    assert bool(jnp.isfinite(observations).all())
+    assert all(bool(jnp.isfinite(leaf).all()) for leaf in jax.tree.leaves(observations))
     positions = jnp.concatenate([states.sim.circle.position, states.sim.polygon.position[:, env.first_object :]], 1)
     assert bool(((positions[..., 0] > 0) & (positions[..., 0] < env.width) & (positions[..., 1] > 0)).all())
 

@@ -1,5 +1,6 @@
 from .generators import Generator, cave_generator
-from .hide_and_seek import HideAndSeek, HideAndSeekState, Layout, random_layout
+from .hide_and_seek import (HideAndSeek, HideAndSeekState, Layout, random_layout,
+                            shelter_layout)
 from .jundland import Jundland
 from .state import Agent, Cell, JundlandState
 
@@ -25,4 +26,5 @@ __all__ = [
     "cave_generator",
     "make",
     "random_layout",
+    "shelter_layout",
 ]

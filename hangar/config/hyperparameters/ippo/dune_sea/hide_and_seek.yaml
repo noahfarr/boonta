@@ -13,5 +13,8 @@ podracer:
     num_steps: 64
 
 algorithm:
-  # 8,192 environment transitions per minibatch, with 4 agents each.
-  num_minibatches: 64
+  # 131,072 environment transitions per minibatch, with 4 agents each.
+  # Baker et al. (2019) found that small minibatches never reached ramp defence.
+  num_minibatches: 4
+  # Preparation lasts 96 steps, so hiding pays off far beyond a 0.99 horizon.
+  gamma: 0.998

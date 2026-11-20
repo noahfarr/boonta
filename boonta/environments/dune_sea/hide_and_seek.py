@@ -40,8 +40,12 @@ BOX_SIZE = 0.5
 RAMP_WIDTH = 1.2
 RAMP_HEIGHT = 0.6
 WALL_WIDTH = 0.2
-MIN_WALL_HEIGHT = 1.0
+MIN_WALL_HEIGHT = 1.2
 MAX_WALL_HEIGHT = 2.5
+MIN_DOOR_HEIGHT = 0.4
+MAX_DOOR_HEIGHT = 0.5
+ROOM_SLOTS = 4
+INSIDE_BOXES = 2
 MARGIN = 0.4
 SLOT_WIDTH = 1.3
 AGENT_FRICTION = 0.0
@@ -52,13 +56,14 @@ FALLING = jnp.array([[-RAMP_WIDTH / 2, RAMP_HEIGHT / 2], [RAMP_WIDTH / 2, -RAMP_
 
 SPEED = 3.5
 ACCELERATION = 40.0
-JUMP_SPEED = 5.0
+JUMP_SPEED = 4.0
+VISION_CONE = 135.0
 REACH = 0.3
 STANDING = 0.5
 EPSILON = 1e-8
 
 SELF_FEATURES = 10
-AGENT_FEATURES = 7
+AGENT_FEATURES = 8
 OBJECT_FEATURES = 11
 
 @struct.dataclass
@@ -68,6 +73,7 @@ class Layout:
     object_x: Array
     mirrored: Array
     agent_x: Array
+    facing: Array
 
 
 @struct.dataclass
@@ -83,11 +89,19 @@ class HideAndSeekState:
     time: Array
 
 
-Generator = Callable[[Key, float, int, int, int, int], Layout]
+Generator = Callable[[Key, float, int, int, int, int, int], Layout]
 
 
 def num_slots(width: float) -> int:
     return int((width - 2 * MARGIN) // SLOT_WIDTH)
+
+
+def slot_centres(width: float) -> Array:
+    return MARGIN + SLOT_WIDTH * (jnp.arange(num_slots(width)) + 0.5)
+
+
+def random_facing(key: Key, count: int) -> Array:
+    return jnp.where(jax.random.bernoulli(key, 0.5, (count,)), 1.0, -1.0)
 
 
 def random_layout(
@@ -96,22 +110,73 @@ def random_layout(
     num_walls: int,
     num_boxes: int,
     num_ramps: int,
-    num_agents: int,
+    num_hiders: int,
+    num_seekers: int,
     low: float = MIN_WALL_HEIGHT,
     high: float = MAX_WALL_HEIGHT,
 ) -> Layout:
-    slot_key, height_key, mirror_key = jax.random.split(key, 3)
-    slots = num_slots(width)
-    centres = MARGIN + SLOT_WIDTH * (jnp.arange(slots) + 0.5)
-    order = centres[jax.random.permutation(slot_key, slots)]
+    slot_key, height_key, mirror_key, facing_key = jax.random.split(key, 4)
+    centres = slot_centres(width)
+    order = centres[jax.random.permutation(slot_key, len(centres))]
     num_objects = num_boxes + num_ramps
+    num_agents = num_hiders + num_seekers
     return Layout(
         wall_x=order[:num_walls],
         wall_height=jax.random.uniform(height_key, (num_walls,), minval=low, maxval=high),
         object_x=order[num_walls : num_walls + num_objects],
         mirrored=jax.random.bernoulli(mirror_key, 0.5, (num_ramps,)),
         agent_x=order[num_walls + num_objects : num_walls + num_objects + num_agents],
+        facing=random_facing(facing_key, num_agents),
     )
+
+
+def shelter_layout(
+    key: Key,
+    width: float,
+    num_walls: int,
+    num_boxes: int,
+    num_ramps: int,
+    num_hiders: int,
+    num_seekers: int,
+    room_slots: int = ROOM_SLOTS,
+) -> Layout:
+    slots = num_slots(width)
+    inside_boxes = max(min(INSIDE_BOXES, num_boxes, room_slots - num_hiders), 0)
+    outside = slots - room_slots - 1
+    needed = num_walls - 1 + num_boxes - inside_boxes + num_ramps + num_seekers
+    if num_walls < 1:
+        raise ValueError("The shelter layout needs a wall for the room's door")
+    if num_hiders > room_slots:
+        raise ValueError(f"The shelter room fits {room_slots} hiders, not {num_hiders}")
+    if needed > outside:
+        raise ValueError(f"A width of {width} leaves {outside} slots outside the room, not {needed}")
+    side_key, room_key, yard_key, door_key, height_key, mirror_key, facing_key = jax.random.split(key, 7)
+    centres = slot_centres(width)
+    order = jnp.where(jax.random.bernoulli(side_key), jnp.arange(slots), jnp.arange(slots)[::-1])
+    room = centres[order[:room_slots][jax.random.permutation(room_key, room_slots)]]
+    door = centres[order[room_slots]]
+    yard = centres[order[room_slots + 1 :][jax.random.permutation(yard_key, outside)]]
+    walls, boxes = num_walls - 1, num_boxes - inside_boxes
+    return Layout(
+        wall_x=jnp.concatenate([door[None], yard[:walls]]),
+        wall_height=jnp.concatenate(
+            [
+                jax.random.uniform(door_key, (1,), minval=MIN_DOOR_HEIGHT, maxval=MAX_DOOR_HEIGHT),
+                jax.random.uniform(height_key, (walls,), minval=MIN_WALL_HEIGHT, maxval=MAX_WALL_HEIGHT),
+            ]
+        ),
+        object_x=jnp.concatenate(
+            [room[num_hiders : num_hiders + inside_boxes], yard[walls : walls + boxes + num_ramps]]
+        ),
+        mirrored=jax.random.bernoulli(mirror_key, 0.5, (num_ramps,)),
+        agent_x=jnp.concatenate(
+            [room[:num_hiders], yard[walls + boxes + num_ramps : walls + boxes + num_ramps + num_seekers]]
+        ),
+        facing=random_facing(facing_key, num_hiders + num_seekers),
+    )
+
+
+LAYOUTS = {"random": random_layout, "shelter": shelter_layout}
 
 
 def cross(a: Array, b: Array) -> Array:
@@ -147,7 +212,11 @@ class HideAndSeek(Environment):
         grabbing: bool = True,
         locking: bool = True,
         communication: bool = False,
-        generator: Generator = random_layout,
+        layout: str = "shelter",
+        generator: Generator | None = None,
+        num_solver_iterations: int = 10,
+        vision_cone: float = VISION_CONE,
+        jump_speed: float = JUMP_SPEED,
     ):
         num_agents = num_hiders + num_seekers
         needed = num_walls + num_boxes + num_ramps + num_agents
@@ -155,6 +224,12 @@ class HideAndSeek(Environment):
             raise ValueError("Hide and seek needs at least two agents, since Jax2D cannot pair a lone circle")
         if needed > num_slots(width):
             raise ValueError(f"A width of {width} fits {num_slots(width)} walls, objects and agents, not {needed}")
+        if num_solver_iterations < 1:
+            raise ValueError("Hide and seek needs at least one physics solver iteration")
+        if generator is None and layout not in LAYOUTS:
+            raise ValueError(f"Unknown layout {layout!r}, expected one of {sorted(LAYOUTS)}")
+        if not 0.0 < vision_cone <= 360.0:
+            raise ValueError("The vision cone must be between 0 and 360 degrees")
         self.num_hiders = num_hiders
         self.num_seekers = num_seekers
         self.num_agents = num_agents
@@ -171,7 +246,9 @@ class HideAndSeek(Environment):
         self.grabbing = grabbing
         self.locking = locking
         self.communication = communication
-        self.generator = generator
+        self.generator = generator or LAYOUTS[layout]
+        self.jump_speed = jump_speed
+        self.vision = float(np.cos(np.radians(vision_cone / 2)))
         self.first_object = BOUNDARY + num_walls
         self.num_polygons = self.first_object + self.num_objects
         self.static_params = StaticSimParams(
@@ -180,6 +257,7 @@ class HideAndSeek(Environment):
             num_joints=num_agents,
             num_thrusters=1,
             max_polygon_vertices=4,
+            num_solver_iterations=num_solver_iterations,
             num_static_fixated_polys=self.first_object if self.num_objects else self.first_object - 1,
         )
         self.params = SimParams(clip_position=3 * width)
@@ -198,14 +276,19 @@ class HideAndSeek(Environment):
         self.observation_size = (
             SELF_FEATURES + 2 * num_rays + AGENT_FEATURES * (num_agents - 1) + OBJECT_FEATURES * self.num_objects
         )
+        jax.eval_shape(self.generate, jax.random.key(0))
+
+    def generate(self, key: Key) -> Layout:
+        return self.generator(
+            key, self.width, self.num_walls, self.num_boxes, self.num_ramps, self.num_hiders, self.num_seekers
+        )
 
     def init(self, key: Key) -> tuple[HideAndSeekState, Timestep]:
-        layout = self.generator(key, self.width, self.num_walls, self.num_boxes, self.num_ramps, self.num_agents)
-        state = jax.tree.map(lambda leaf: jnp.asarray(leaf, leaf.dtype), self.build(layout))
+        state = jax.tree.map(lambda leaf: jnp.asarray(leaf, leaf.dtype), self.build(self.generate(key)))
         sight = self.sight(state)
         hidden, seen = self.hidden(sight)
         timestep = Timestep(
-            obs=self.view(state, sight),
+            obs=self.observations(state, sight),
             action=jnp.zeros(self.num_agents, jnp.int32),
             reward=jnp.zeros(self.num_agents, jnp.float32),
             terminated=jnp.ones(self.num_agents, bool),
@@ -258,7 +341,7 @@ class HideAndSeek(Environment):
         objects = slice(self.first_object, self.num_polygons)
         return HideAndSeekState(
             sim=sim,
-            facing=jnp.ones(self.num_agents, jnp.float32),
+            facing=jnp.asarray(layout.facing, jnp.float32),
             grounded=jnp.zeros(self.num_agents, bool),
             holding=jnp.full(self.num_agents, EMPTY, jnp.int32),
             locked_by=jnp.full(self.num_objects, UNLOCKED, jnp.int32),
@@ -283,7 +366,7 @@ class HideAndSeek(Environment):
         score = jnp.where(hidden, 1.0, -1.0)
         reward = jnp.where(preparing, 0.0, jnp.where(self.team == HIDER, score, -score)).astype(jnp.float32)
         timestep = Timestep(
-            obs=self.view(state, sight),
+            obs=self.observations(state, sight),
             action=chosen,
             reward=reward,
             terminated=jnp.zeros(self.num_agents, bool),
@@ -386,7 +469,7 @@ class HideAndSeek(Environment):
         heading = HEADING[action]
         change = ACCELERATION * self.step_time
         across = circle.velocity[:, 0] + jnp.clip(heading * SPEED - circle.velocity[:, 0], -change, change)
-        up = jnp.where(LEAPING[action] & state.grounded, JUMP_SPEED, circle.velocity[:, 1])
+        up = jnp.where(LEAPING[action] & state.grounded, self.jump_speed, circle.velocity[:, 1])
         circle = circle.replace(velocity=jnp.stack([across, up], -1))
         return state.replace(
             sim=state.sim.replace(circle=circle), facing=jnp.where(heading != 0, heading, state.facing)
@@ -420,7 +503,9 @@ class HideAndSeek(Environment):
         def visible(eye, facing, target, owner):
             along, _, crossing = intersect(eye, target - eye, starts, ends)
             blocking = crossing & valid & (occluders[:, None] != owner) & (along > 0.0) & (along < 1.0)
-            return (facing * (target[0] - eye[0]) >= 0.0) & ~blocking.any()
+            offset = target - eye
+            ahead = facing * offset[0] >= self.vision * jnp.linalg.norm(offset)
+            return ahead & ~blocking.any()
 
         looks = jax.vmap(visible, (None, None, 0, 0))
         return jax.vmap(looks, (0, 0, None, None))(sim.circle.position, state.facing, targets, owners)
@@ -444,20 +529,23 @@ class HideAndSeek(Environment):
         cast = jax.vmap(ray, (None, 0))
         return jax.vmap(cast, (0, None))(sim.circle.position, self.rays)
 
-    def observe(self, state: HideAndSeekState) -> Array:
-        return self.view(state, self.sight(state))
+    def observe(self, state: HideAndSeekState) -> dict[str, Array]:
+        return self.observations(state, self.sight(state))
+
+    def observations(self, state: HideAndSeekState, sight: Array) -> dict[str, Array]:
+        return {"agent": self.view(state, sight), "state": self.view(state, jnp.ones_like(sight))}
 
     def view(self, state: HideAndSeekState, sight: Array) -> Array:
         sim = state.sim
         position, velocity = sim.circle.position, sim.circle.velocity
-        scale = jnp.array([SPEED, JUMP_SPEED])
+        scale = jnp.array([SPEED, self.jump_speed])
         preparing = state.time < self.preparation_steps
         own = jnp.stack(
             [
                 position[:, 0] / self.width,
                 (position[:, 1] - GROUND) / self.width,
                 velocity[:, 0] / SPEED,
-                velocity[:, 1] / JUMP_SPEED,
+                velocity[:, 1] / self.jump_speed,
                 state.facing,
                 self.team == SEEKER,
                 state.holding != EMPTY,
@@ -479,6 +567,7 @@ class HideAndSeek(Environment):
                         jnp.ones_like(teammate, jnp.float32),
                         (position[others] - position[:, None]) / self.width,
                         (velocity[others] - velocity[:, None]) / scale,
+                        state.facing[others][..., None],
                         teammate,
                     ],
                     -1,
@@ -535,10 +624,11 @@ class HideAndSeek(Environment):
             info["object_height"] = (sim.polygon.position[objects, 1] - GROUND).max()
         return {name: jnp.asarray(value, jnp.float32) for name, value in info.items()}
 
-    def observation_space(self) -> Space:
-        return Space(
+    def observation_space(self) -> dict[str, Space]:
+        space = lambda: Space(
             shape=(self.num_agents, self.observation_size), dtype=jnp.float32, low=-jnp.inf, high=jnp.inf
         )
+        return {"agent": space(), "state": space()}
 
     def action_space(self) -> Space:
         return Space(shape=(self.num_agents,), dtype=jnp.int32, low=0, high=NUM_ACTIONS - 1)

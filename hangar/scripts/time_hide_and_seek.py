@@ -35,7 +35,8 @@ def components(env, num_envs):
         return state.replace(sim=state.sim.replace(circle=moved))
 
     def touch(state, value):
-        return state.replace(time=state.time + (value.sum() > 1e9))
+        total = sum(leaf.sum() for leaf in jax.tree.leaves(value))
+        return state.replace(time=state.time + (total > 1e9))
 
     return {
         "physics": lambda state, key: state.replace(sim=simulate(state.sim)[0]),

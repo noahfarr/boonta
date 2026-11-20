@@ -27,10 +27,11 @@ FOOTER_HEIGHT = 48
 SHIELD, RAMP = 0, 1
 SCENE = Layout(
     wall_x=jnp.array([8.2]),
-    wall_height=jnp.array([1.0]),
+    wall_height=jnp.array([0.5]),
     object_x=jnp.array([12.6, 4.0]),
     mirrored=jnp.array([False]),
     agent_x=jnp.array([10.0, 11.6, 1.0, 2.2]),
+    facing=jnp.ones(4),
 )
 PLANS = (
     [("lock", RAMP), ("go", 15.0), ("wait",)],

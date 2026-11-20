@@ -10,3 +10,4 @@ kwargs:
   num_walls: 2
   time_limit: 240
   preparation: 0.4
+  num_solver_iterations: 10
