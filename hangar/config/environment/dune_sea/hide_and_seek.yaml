@@ -1,0 +1,12 @@
+namespace: dune_sea
+suite: hide_and_seek
+env_id: hide_and_seek
+num_envs: 64
+kwargs:
+  num_hiders: 2
+  num_seekers: 2
+  num_boxes: 3
+  num_ramps: 1
+  num_walls: 2
+  time_limit: 240
+  preparation: 0.4

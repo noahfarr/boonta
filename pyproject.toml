@@ -10,6 +10,8 @@ dependencies = [
     "flax>=0.12.7",
     "jax[cpu]>=0.10.2; sys_platform == 'darwin'",
     "jax[cuda12]>=0.10.2; sys_platform == 'linux'",
+    "jax2d>=1.0.2",
+    "jaxgl>=1.0.1",
     "lox",
     "numpy>=2.0",
     "optax>=0.2.8",
