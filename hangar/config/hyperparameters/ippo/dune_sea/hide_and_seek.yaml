@@ -1,12 +1,16 @@
 # @package _global_
 
-num_steps: 1_000_000
+# 100 updates at 8,192 environments × 64 steps × 4 agents.
+num_steps: 209_715_200
 # The mean return across both teams cancels in the default 2v2 match.
 score: training/agent_0/episode_return
+
+environment:
+  num_envs: 8192
 
 podracer:
   config:
     num_steps: 64
 
 algorithm:
-  num_minibatches: 4
+  num_minibatches: 128
