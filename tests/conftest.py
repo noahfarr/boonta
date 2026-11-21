@@ -1,8 +1,12 @@
 import os
 
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
+# XLA's CPU fusion emitters crash on some programs split across simulated CPU
+# devices, such as a recurrent PPO update with a MinGRU torso. They are not used
+# on GPU, and a program on one CPU device is not affected.
 os.environ["XLA_FLAGS"] = (
-    "--xla_force_host_platform_device_count=4 " + os.environ.get("XLA_FLAGS", "")
+    "--xla_force_host_platform_device_count=4 --xla_cpu_use_fusion_emitters=false "
+    + os.environ.get("XLA_FLAGS", "")
 )
 
 import numpy as np

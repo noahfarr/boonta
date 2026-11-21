@@ -205,8 +205,61 @@ def test_a_replay_buffer_shards_with_its_environments(build, environment):
         if (collective := COLLECTIVE.search(line))
         for dimensions in SHAPE.findall(line[: collective.start()].split("=", 1)[-1])
     ]
-    assert moved, "the sampled batch should cross devices"
+    assert moved, "devices should exchange gradients"
     assert not [dimensions for dimensions in moved if str(time) in dimensions]
+
+
+DATA_PARALLEL = [
+    pytest.param(zoo.ppo, corridor, 3, id="ppo"),
+    pytest.param(zoo.mmd, corridor, 3, id="mmd"),
+    pytest.param(zoo.grpo, corridor, 3, id="grpo"),
+    pytest.param(zoo.pqn, corridor, 3, id="pqn"),
+    pytest.param(zoo.reppo, reach, 3, id="reppo"),
+    pytest.param(zoo.recurrent_ppo, recall, 3, id="recurrent_ppo"),
+    pytest.param(
+        zoo.recurrent_pupo,
+        recall,
+        3,
+        id="recurrent_pupo",
+        marks=pytest.mark.xfail(
+            strict=True,
+            reason="PUPO draws environments by priority over the whole batch",
+        ),
+    ),
+    pytest.param(zoo.recurrent_grpo, recall, 3, id="recurrent_grpo"),
+    pytest.param(zoo.recurrent_pqn, recall, 3, id="recurrent_pqn"),
+    pytest.param(zoo.dqn, corridor, 20, id="dqn"),
+    pytest.param(zoo.sac, reach, 20, id="sac"),
+    pytest.param(zoo.recurrent_dqn, recall, 20, id="recurrent_dqn"),
+    pytest.param(zoo.recurrent_sac, recall_continuous, 20, id="recurrent_sac"),
+]
+
+
+@pytest.mark.parametrize("build, environment, num_updates", DATA_PARALLEL)
+def test_every_device_learns_from_its_share_of_the_batch(
+    build, environment, num_updates
+):
+    work, learned = [], []
+    for devices in (1, 4):
+        podracer = build(
+            environment(), num_envs=32, podracer=partial(zoo.online, devices=devices)
+        )
+        state = podracer.init(jax.random.key(0))
+        train = podracer.train.lower(state, jax.random.key(1), num_updates).compile()
+        cost = train.cost_analysis()
+        work.append((cost[0] if isinstance(cost, list) else cost)["flops"])
+        state, _ = train(state, jax.random.key(1))
+        learned.append(
+            [
+                np.asarray(leaf)
+                for leaf in jax.tree.leaves(state.algorithm_state)
+                if jnp.issubdtype(leaf.dtype, jnp.floating)
+            ]
+        )
+
+    assert work[1] < work[0] / 3
+    for one, four in zip(*learned):
+        np.testing.assert_allclose(one, four, atol=1e-5)
 
 
 def rollout(environment, boundary, perturbed, num_steps=4, num_envs=4):

@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten
+from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import soft_td_lambda
@@ -258,7 +258,10 @@ class REPPO:
             aux={**transitions.aux, "target_values": target_values}
         )
         transitions = jax.tree.map(
-            lambda x: flatten(x, start_dim=0, end_dim=1), transitions
+            lambda x: jnp.swapaxes(x, 0, 1).reshape(
+                -1, self.cfg.num_minibatches, *x.shape[2:]
+            ),
+            transitions,
         )
 
         def minibatch_fn(
@@ -266,7 +269,8 @@ class REPPO:
         ) -> tuple[REPPOState, None]:
             indices, key = x
             minibatch = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), transitions
+                lambda leaf: jax.vmap(lambda block, index: block[index])(leaf, indices),
+                transitions,
             )
 
             (critic_loss, (variables, q_value)), grads = jax.value_and_grad(
@@ -371,8 +375,10 @@ class REPPO:
 
         def epoch_fn(state, key):
             permutation_key, minibatch_key = jax.random.split(key)
-            permutation = jax.random.permutation(permutation_key, batch_size)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
+            minibatch_indices = jax.vmap(jax.random.permutation, in_axes=(0, None))(
+                jax.random.split(permutation_key, batch_size // self.cfg.num_minibatches),
+                self.cfg.num_minibatches,
+            ).T
             minibatch_keys = jax.random.split(minibatch_key, self.cfg.num_minibatches)
 
             state, _ = jax.lax.scan(

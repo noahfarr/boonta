@@ -1,6 +1,5 @@
 from functools import partial
 
-import flashbax as fbx
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -22,6 +21,7 @@ from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
+from boonta.buffers import make_stratified_buffer
 from boonta.environments.wrappers import (Group,
                                           RecordEpisodeStatistics,
                                           SameStepAutoReset)
@@ -142,7 +142,7 @@ def explore(num_steps):
 
 
 def transitions(num_envs, capacity=4096, batch_size=64):
-    return fbx.make_trajectory_buffer(
+    return make_stratified_buffer(
         max_length_time_axis=capacity // num_envs,
         min_length_time_axis=max(1, batch_size // num_envs),
         sample_batch_size=batch_size,
@@ -153,7 +153,7 @@ def transitions(num_envs, capacity=4096, batch_size=64):
 
 
 def trajectories(num_envs, length=8, capacity=4096, batch_size=32):
-    return fbx.make_trajectory_buffer(
+    return make_stratified_buffer(
         max_length_time_axis=capacity // num_envs,
         min_length_time_axis=length,
         sample_batch_size=batch_size,

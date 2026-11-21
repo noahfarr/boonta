@@ -38,6 +38,22 @@ A field that holds one row per environment is marked `struct.field(metadata={"ax
 
 On-policy advantages come from [`advantage_estimators.generalized_advantage_estimator`](advantage_estimators.py). It accumulates in fp32 whatever the critic's dtype.
 
+## Minibatches across devices
+
+On several devices, an update should learn from the data each device already holds. If a minibatch mixes entries from every device, XLA copies the batch to every device and each device computes the whole update.
+
+Each algorithm therefore cuts its batch into blocks of `num_minibatches` consecutive entries and gives each minibatch one entry of every block, drawn by a random permutation per block. PPO, PQN, GRPO, MMD and REPPO lay the batch out environment by environment, so a block is `num_minibatches` consecutive steps of one environment. Recurrent PPO, PQN and GRPO cut the environments into blocks and keep whole trajectories together with their initial carries. When every device holds whole blocks, each device holds its share of every minibatch, and XLA only exchanges gradients. A run then gives the same result on any number of devices, up to floating-point rounding, which `test_every_device_learns_from_its_share_of_the_batch` checks.
+
+Replay buffers from [`boonta.buffers.make_stratified_buffer`](../buffers/stratified_buffer.py) sample in the same spirit. It is flashbax's trajectory buffer with a different `sample`. The environment rows are cut into `gcd(sample_batch_size, num_envs)` contiguous blocks, and each block samples its share of the batch with flashbax's own sampler. The episode buffers still sample over the whole buffer, and recurrent PUPO still draws environments by priority over the whole batch, so both compute their update on every device.
+
+Each device holds whole blocks when
+
+- `num_envs * num_steps / devices` is a multiple of `num_minibatches` for PPO, PQN, GRPO, MMD and REPPO,
+- `num_envs / devices` is a multiple of `num_minibatches` for the recurrent algorithms,
+- `gcd(sample_batch_size, num_envs)` is a multiple of the number of devices for replay buffers.
+
+Otherwise training is still correct, but XLA moves data between devices.
+
 ## Auxiliary losses
 
 Every algorithm takes `auxiliary_losses: tuple[Callable, ...]` and adds each one to its loss. Each loss is called with keyword arguments.

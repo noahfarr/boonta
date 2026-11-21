@@ -211,15 +211,29 @@ class RecurrentGRPO:
             }
         )
 
+        trajectory = jax.tree.map(
+            lambda leaf: leaf.reshape(
+                leaf.shape[0], -1, self.cfg.num_minibatches, *leaf.shape[2:]
+            ),
+            trajectory,
+        )
+        initial_carry = jax.tree.map(
+            lambda leaf: leaf.reshape(-1, self.cfg.num_minibatches, *leaf.shape[1:]),
+            initial_carry,
+        )
+
         def minibatch_fn(
             state: RecurrentGRPOState, indices: Array
         ) -> tuple[RecurrentGRPOState, tuple]:
             minibatch = jax.tree.map(
-                lambda leaf: jnp.moveaxis(jnp.take(leaf, indices, axis=1), 0, 1),
+                lambda leaf: jax.vmap(
+                    lambda block, index: block[:, index], in_axes=(1, 0)
+                )(leaf, indices),
                 trajectory,
             )
             carry = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), initial_carry
+                lambda leaf: jax.vmap(lambda block, index: block[index])(leaf, indices),
+                initial_carry,
             )
             advantages = minibatch.aux["advantages"]
             episode_mask = minibatch.aux["episode_mask"]
@@ -267,8 +281,10 @@ class RecurrentGRPO:
             return state, None
 
         def epoch_fn(state, key):
-            permutation = jax.random.permutation(key, num_envs)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
+            minibatch_indices = jax.vmap(jax.random.permutation, in_axes=(0, None))(
+                jax.random.split(key, num_envs // self.cfg.num_minibatches),
+                self.cfg.num_minibatches,
+            ).T
             state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
 
             return state, None
