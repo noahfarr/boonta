@@ -56,19 +56,3 @@ def vary(node):
     return jax.tree.map(ensure, node, sharded(node))
 
 
-
-
-def minibatches(key, tree, num_minibatches: int):
-    size = jax.tree.leaves(tree)[0].shape[0]
-    assert size % num_minibatches == 0, (
-        f"{size} entries cannot be split into {num_minibatches} minibatches"
-    )
-    blocks = size // num_minibatches
-    order = jnp.argsort(jax.random.uniform(key, (blocks, num_minibatches)), axis=-1)
-
-    def split(leaf):
-        grouped = leaf.reshape(blocks, num_minibatches, *leaf.shape[1:])
-        index = order.reshape(order.shape + (1,) * (leaf.ndim - 1))
-        return jnp.moveaxis(jnp.take_along_axis(grouped, index, axis=1), 1, 0)
-
-    return jax.tree.map(split, tree)

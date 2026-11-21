@@ -9,8 +9,8 @@ import optax
 from flax import struct
 
 from boonta.utils import (Timestep, Transition, add_feature_axis,
-                          canonicalize_dtype, minibatches,
-                          remove_feature_axis, remove_time_axis)
+                          canonicalize_dtype, remove_feature_axis,
+                          remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import q_lambda
@@ -162,10 +162,30 @@ class RecurrentPQN:
         initial_carry = transitions.start
         transitions = transitions.replace(carry=None)
 
+        transitions = jax.tree.map(
+            lambda leaf: leaf.reshape(
+                leaf.shape[0], -1, self.cfg.num_minibatches, *leaf.shape[2:]
+            ),
+            transitions,
+        )
+        initial_carry = jax.tree.map(
+            lambda leaf: leaf.reshape(-1, self.cfg.num_minibatches, *leaf.shape[1:]),
+            initial_carry,
+        )
+
         def minibatch_fn(
-            state: RecurrentPQNState, batch: tuple[Transition, PyTree]
+            state: RecurrentPQNState, indices: Array
         ) -> tuple[RecurrentPQNState, tuple]:
-            trajectory, carry = batch
+            trajectory = jax.tree.map(
+                lambda leaf: jax.vmap(
+                    lambda block, index: block[:, index], in_axes=(1, 0)
+                )(leaf, indices),
+                transitions,
+            )
+            carry = jax.tree.map(
+                lambda leaf: jax.vmap(lambda block, index: block[index])(leaf, indices),
+                initial_carry,
+            )
             target_q_value = trajectory.aux["target_q_value"]
 
             (loss, (variables, q_value)), grads = jax.value_and_grad(
@@ -199,14 +219,12 @@ class RecurrentPQN:
             )
             return state, None
 
-        by_env = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), transitions)
-
         def epoch_fn(state, key):
-            state, _ = jax.lax.scan(
-                minibatch_fn,
-                state,
-                minibatches(key, (by_env, initial_carry), self.cfg.num_minibatches),
-            )
+            minibatch_indices = jax.vmap(jax.random.permutation, in_axes=(0, None))(
+                jax.random.split(key, num_envs // self.cfg.num_minibatches),
+                self.cfg.num_minibatches,
+            ).T
+            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
 
             return state, None
 

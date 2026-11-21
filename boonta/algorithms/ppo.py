@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, minibatches, remove_feature_axis
+from boonta.utils import Timestep, Transition, canonicalize_dtype, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
@@ -145,9 +145,11 @@ class PPO:
                 value,
             )
 
-        def minibatch_fn(
-            state: PPOState, minibatch: Transition
-        ) -> tuple[PPOState, None]:
+        def minibatch_fn(state: PPOState, indices: Array) -> tuple[PPOState, None]:
+            minibatch = jax.tree.map(
+                lambda leaf: jax.vmap(lambda block, index: block[index])(leaf, indices),
+                transitions,
+            )
             returns = minibatch.aux["returns"]
             advantages = minibatch.aux["advantages"]
 
@@ -196,14 +198,15 @@ class PPO:
             return state, None
 
         def epoch_fn(state: PPOState, key: Key) -> tuple[PPOState, None]:
-            state, _ = jax.lax.scan(
-                minibatch_fn,
-                state,
-                minibatches(key, transitions, self.cfg.num_minibatches),
-            )
+            minibatch_indices = jax.vmap(jax.random.permutation, in_axes=(0, None))(
+                jax.random.split(key, batch_size // self.cfg.num_minibatches),
+                self.cfg.num_minibatches,
+            ).T
+            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
             return state, None
 
         num_steps, num_envs, *_ = transitions.second.reward.shape
+        batch_size = num_steps * num_envs
 
         obs = jax.tree.map(
             lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second.obs
@@ -224,7 +227,9 @@ class PPO:
         )
 
         transitions = jax.tree.map(
-            lambda x: flatten(jnp.swapaxes(x, 0, 1), start_dim=0, end_dim=1),
+            lambda x: jnp.swapaxes(x, 0, 1).reshape(
+                -1, self.cfg.num_minibatches, *x.shape[2:]
+            ),
             transitions,
         )
 

@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, minibatches
+from boonta.utils import Timestep, Transition, canonicalize_dtype
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import group_relative_advantage_estimator
@@ -65,6 +65,7 @@ class GRPO:
 
     def update(self, state: GRPOState, key: Key, transitions: Transition) -> GRPOState:
         num_steps, num_envs = transitions.second.reward.shape
+        batch_size = num_steps * num_envs
 
         def loss_fn(params: PyTree, transitions: Transition) -> tuple[Array, tuple]:
             advantages = transitions.aux["advantages"]
@@ -157,9 +158,15 @@ class GRPO:
             aux={**transitions.aux, "reference_log_prob": reference_log_prob}
         )
 
-        def minibatch_fn(
-            state: GRPOState, minibatch: Transition
-        ) -> tuple[GRPOState, tuple]:
+        transitions = jax.tree.map(
+            lambda x: x.reshape(-1, self.cfg.num_minibatches, *x.shape[1:]), transitions
+        )
+
+        def minibatch_fn(state: GRPOState, indices: Array) -> tuple[GRPOState, tuple]:
+            minibatch = jax.tree.map(
+                lambda leaf: jax.vmap(lambda block, index: block[index])(leaf, indices),
+                transitions,
+            )
             advantages = minibatch.aux["advantages"]
             episode_mask = minibatch.aux["episode_mask"]
             advantage = (advantages * episode_mask).sum() / jnp.maximum(
@@ -206,11 +213,12 @@ class GRPO:
             return state, None
 
         def epoch_fn(state, key):
-            state, _ = jax.lax.scan(
-                minibatch_fn,
-                state,
-                minibatches(key, transitions, self.cfg.num_minibatches),
-            )
+            minibatch_indices = jax.vmap(jax.random.permutation, in_axes=(0, None))(
+                jax.random.split(key, batch_size // self.cfg.num_minibatches),
+                self.cfg.num_minibatches,
+            ).T
+
+            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
 
             return state, None
 
