@@ -1,7 +1,7 @@
 # @package _global_
 
 buffer:
-  _target_: boonta.buffers.make_trajectory_buffer
+  _target_: boonta.buffers.make_stratified_buffer
   max_length_time_axis: ${eval:'${replay.capacity} // ${environment.num_envs}'}
   min_length_time_axis: ${eval:'max(1, ${buffer.sample_batch_size} // ${environment.num_envs})'}
   sample_batch_size: 512
