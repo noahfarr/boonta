@@ -42,6 +42,6 @@ def sample(
     )
 
 
-def make_stratified_buffer(**kwargs) -> TrajectoryBuffer:
+def make_blockwise_buffer(**kwargs) -> TrajectoryBuffer:
     buffer = fbx.make_trajectory_buffer(**kwargs)
     return buffer.replace(sample=partial(sample, **buffer.sample.keywords))
