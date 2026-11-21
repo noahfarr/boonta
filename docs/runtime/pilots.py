@@ -1,7 +1,6 @@
 import dataclasses
 from functools import cache
 
-import flashbax as fbx
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -14,6 +13,7 @@ from boonta.algorithms.dqn import DQN, DQNConfig
 from boonta.algorithms.iql import IQL, IQLConfig
 from boonta.algorithms.ppo import PPO, PPOConfig
 from boonta.algorithms.pqn import PQN, PQNConfig
+from boonta.buffers import make_trajectory_buffer
 from boonta.environments.jumanji import Jumanji
 from boonta.environments.wrappers import RecordEpisodeStatistics, SameStepAutoReset
 from boonta.networks import (ActorCritic, Categorical, EpsilonGreedy,
@@ -206,7 +206,7 @@ def pqn(track, h):
 
 def dqn(track, h):
     num_envs, batch_size = h["num_envs"], h["batch_size"]
-    buffer = fbx.make_trajectory_buffer(
+    buffer = make_trajectory_buffer(
         max_length_time_axis=h["capacity"] // num_envs,
         min_length_time_axis=max(1, h.get("warmup", batch_size) // num_envs),
         sample_batch_size=batch_size,

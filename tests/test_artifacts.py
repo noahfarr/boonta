@@ -20,7 +20,7 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Transcript, Video
-from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
+from boonta.utils import load_checkpoint, minibatches, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief, debrief
 
@@ -453,6 +453,16 @@ jax.tree_util.register_pytree_with_keys(
     ),
     lambda layout, values: Packed(values=values[0], layout=layout.array),
 )
+
+
+def test_minibatches_take_one_entry_from_every_block():
+    entries = jnp.arange(24)
+    split = minibatches(jax.random.key(0), {"entry": entries}, 4)["entry"]
+
+    assert split.shape == (4, 6)
+    assert sorted(split.ravel().tolist()) == entries.tolist()
+    for minibatch in split:
+        assert sorted((minibatch // 4).tolist()) == list(range(6))
 
 
 def test_sharded_keeps_fields_that_are_not_pytree_children():

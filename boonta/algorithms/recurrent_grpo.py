@@ -9,7 +9,7 @@ import optax
 from flax import struct
 
 from boonta.utils import (Timestep, Transition, canonicalize_dtype,
-                          remove_time_axis)
+                          minibatches, remove_time_axis)
 
 
 from boonta.utils.typing import Array, Key, PyTree
@@ -212,15 +212,9 @@ class RecurrentGRPO:
         )
 
         def minibatch_fn(
-            state: RecurrentGRPOState, indices: Array
+            state: RecurrentGRPOState, batch: tuple[Transition, PyTree]
         ) -> tuple[RecurrentGRPOState, tuple]:
-            minibatch = jax.tree.map(
-                lambda leaf: jnp.moveaxis(jnp.take(leaf, indices, axis=1), 0, 1),
-                trajectory,
-            )
-            carry = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), initial_carry
-            )
+            minibatch, carry = batch
             advantages = minibatch.aux["advantages"]
             episode_mask = minibatch.aux["episode_mask"]
             advantage = (advantages * episode_mask).sum() / jnp.maximum(
@@ -266,10 +260,14 @@ class RecurrentGRPO:
             )
             return state, None
 
+        by_env = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), trajectory)
+
         def epoch_fn(state, key):
-            permutation = jax.random.permutation(key, num_envs)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
-            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
+            state, _ = jax.lax.scan(
+                minibatch_fn,
+                state,
+                minibatches(key, (by_env, initial_carry), self.cfg.num_minibatches),
+            )
 
             return state, None
 

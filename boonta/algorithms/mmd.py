@@ -8,7 +8,7 @@ import lox
 import optax
 from flax import struct
 
-from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, remove_feature_axis
+from boonta.utils import Timestep, Transition, canonicalize_dtype, flatten, minibatches, remove_feature_axis
 from boonta.utils.typing import Array, Key, PyTree
 
 from .advantage_estimators import generalized_advantage_estimator
@@ -169,7 +169,6 @@ class MMD:
             )
 
         num_steps, num_envs, *_ = transitions.second.reward.shape
-        batch_size = num_steps * num_envs
 
         obs = jax.tree.map(
             lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second.obs
@@ -190,13 +189,13 @@ class MMD:
         )
 
         transitions = jax.tree.map(
-            lambda x: flatten(x, start_dim=0, end_dim=1), transitions
+            lambda x: flatten(jnp.swapaxes(x, 0, 1), start_dim=0, end_dim=1),
+            transitions,
         )
 
-        def minibatch_fn(state: MMDState, indices: Array) -> tuple[MMDState, tuple]:
-            minibatch = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), transitions
-            )
+        def minibatch_fn(
+            state: MMDState, minibatch: Transition
+        ) -> tuple[MMDState, tuple]:
             returns = minibatch.aux["returns"]
             advantages = minibatch.aux["advantages"]
 
@@ -249,10 +248,11 @@ class MMD:
             return state, None
 
         def epoch_fn(state, key):
-            permutation = jax.random.permutation(key, batch_size)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
-
-            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
+            state, _ = jax.lax.scan(
+                minibatch_fn,
+                state,
+                minibatches(key, transitions, self.cfg.num_minibatches),
+            )
 
             return state, None
 

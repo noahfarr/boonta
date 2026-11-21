@@ -9,8 +9,8 @@ import optax
 from flax import struct
 
 from boonta.utils import (Timestep, Transition, add_feature_axis,
-                          canonicalize_dtype, remove_feature_axis,
-                          remove_time_axis)
+                          canonicalize_dtype, minibatches,
+                          remove_feature_axis, remove_time_axis)
 from boonta.utils.typing import Array, Key, PyTree
 
 from .action_value_estimators import q_lambda
@@ -163,15 +163,9 @@ class RecurrentPQN:
         transitions = transitions.replace(carry=None)
 
         def minibatch_fn(
-            state: RecurrentPQNState, indices: Array
+            state: RecurrentPQNState, batch: tuple[Transition, PyTree]
         ) -> tuple[RecurrentPQNState, tuple]:
-            trajectory = jax.tree.map(
-                lambda leaf: jnp.moveaxis(jnp.take(leaf, indices, axis=1), 0, 1),
-                transitions,
-            )
-            carry = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), initial_carry
-            )
+            trajectory, carry = batch
             target_q_value = trajectory.aux["target_q_value"]
 
             (loss, (variables, q_value)), grads = jax.value_and_grad(
@@ -205,10 +199,14 @@ class RecurrentPQN:
             )
             return state, None
 
+        by_env = jax.tree.map(lambda leaf: jnp.swapaxes(leaf, 0, 1), transitions)
+
         def epoch_fn(state, key):
-            permutation = jax.random.permutation(key, num_envs)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
-            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
+            state, _ = jax.lax.scan(
+                minibatch_fn,
+                state,
+                minibatches(key, (by_env, initial_carry), self.cfg.num_minibatches),
+            )
 
             return state, None
 

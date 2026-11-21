@@ -40,7 +40,7 @@ from .quantization import (
 )
 from .checkpoint import load_checkpoint, resolve_checkpoint
 from .system_monitor import SystemMonitor
-from .sharding import mesh, sharded, vary
+from .sharding import mesh, minibatches, sharded, vary
 from .timestep import Timestep
 from .transition import Transition
 from .typing import Array, Key, PyTree
@@ -73,6 +73,7 @@ __all__ = [
     "load_weights",
     "log_schedule",
     "mesh",
+    "minibatches",
     "place",
     "quantize",
     "quantized_dot_general",

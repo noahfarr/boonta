@@ -14,6 +14,7 @@ from boonta.utils import (
     add_feature_axis,
     canonicalize_dtype,
     flatten,
+    minibatches,
     remove_feature_axis,
 )
 from boonta.utils.typing import Array, Key, PyTree
@@ -109,7 +110,6 @@ class PQN:
             return loss, (variables, q_value)
 
         num_steps, num_envs = transitions.second.reward.shape
-        batch_size = num_steps * num_envs
 
         obs = jax.tree.map(
             lambda leaf: jnp.take(leaf, -1, axis=0), transitions.second.obs
@@ -125,13 +125,13 @@ class PQN:
         )
 
         transitions = jax.tree.map(
-            lambda x: flatten(x, start_dim=0, end_dim=1), transitions
+            lambda x: flatten(jnp.swapaxes(x, 0, 1), start_dim=0, end_dim=1),
+            transitions,
         )
 
-        def minibatch_fn(state: PQNState, indices: Array) -> tuple[PQNState, tuple]:
-            minibatch = jax.tree.map(
-                lambda leaf: jnp.take(leaf, indices, axis=0), transitions
-            )
+        def minibatch_fn(
+            state: PQNState, minibatch: Transition
+        ) -> tuple[PQNState, tuple]:
             target_q_value = minibatch.aux["target_q_value"]
 
             (loss, (variables, q_value)), grads = jax.value_and_grad(
@@ -166,10 +166,11 @@ class PQN:
             return state, None
 
         def epoch_fn(state, key):
-            permutation = jax.random.permutation(key, batch_size)
-            minibatch_indices = permutation.reshape(self.cfg.num_minibatches, -1)
-
-            state, _ = jax.lax.scan(minibatch_fn, state, minibatch_indices)
+            state, _ = jax.lax.scan(
+                minibatch_fn,
+                state,
+                minibatches(key, transitions, self.cfg.num_minibatches),
+            )
 
             return state, None
 

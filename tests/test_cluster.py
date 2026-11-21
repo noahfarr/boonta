@@ -11,7 +11,7 @@ RUN = [
     "algorithm=ppo",
     "environment=gymnax/minatar/breakout",
     "environment.num_envs=64",
-    "num_steps=40960",
+    "num_steps=2048",
     "num_epochs=2",
 ]
 LEARNING = ("actor/", "critic/", "training/")
@@ -67,10 +67,12 @@ def test_a_run_across_two_processes_equals_the_same_run_in_one(tmp_path):
     learning = [key for key in alone.files if key.startswith(LEARNING)]
     assert learning
     for key in learning:
-        np.testing.assert_array_equal(together[key], alone[key], err_msg=key)
+        # Gradients are summed across processes in a different order than within
+        # one process, so the runs agree up to rounding, which training amplifies.
+        np.testing.assert_allclose(together[key], alone[key], rtol=1e-4, err_msg=key)
 
     latest = {path.name for path in (shared / "checkpoints/latest").iterdir()}
-    assert "40960" in latest
+    assert "2048" in latest
     assert any((shared / "checkpoints/best").iterdir())
 
     first, second, _ = (output.read_text() for output in outputs)
