@@ -5,10 +5,12 @@ A podracer is the training loop. It owns the devices and the sharding, calls the
 | Method | Does |
 | --- | --- |
 | `init(key)` | builds the environment and algorithm states |
-| `train(state, key, num_updates)` | runs exactly `num_updates` updates and returns `(state, logs)` |
+| `train(state, key, num_updates)` | runs exactly `num_updates` updates |
 | `evaluate(state, key, num_steps)` | restarts the environment and plays `num_steps` greedy steps |
 | `close(state)` | frees the environment |
 | `batch_size` | the steps one update consumes |
+
+None of these methods return metrics. Components log with `lox.log`, and each podracer's `make` wraps `train` and `evaluate` with `lox.spool`, so the podracer it returns gives back `(state, logs)`.
 
 ## Which one to use
 
