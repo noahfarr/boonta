@@ -906,6 +906,27 @@ def test_a_control_level_starts_from_a_state_its_key_draws(build):
 
 
 @JAXUED
+def test_a_maze_with_named_levels_plays_only_those_levels():
+    from jaxued.environments.maze.level import Level, prefabs
+
+    names = ["SixteenRooms", "Labyrinth"]
+    named = [Level.from_str(prefabs[name]).pad_to_shape(13, 13) for name in names]
+    environment = maze(levels=names)
+    seen = set()
+    for seed in range(16):
+        state, _ = environment.init(jax.random.key(seed))
+        matches = [
+            index
+            for index, level in enumerate(named)
+            if np.array_equal(state.wall_map, level.wall_map)
+            and np.array_equal(state.goal_pos, level.goal_pos)
+        ]
+        assert len(matches) == 1
+        seen.add(matches[0])
+    assert seen == {0, 1}
+
+
+@JAXUED
 def test_the_maze_starts_a_level_the_same_way_whatever_the_key():
     environment = maze()
     state, _ = environment.init(jax.random.key(0))

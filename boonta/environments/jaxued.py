@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import jax
@@ -134,6 +134,23 @@ def maze_generator(
     return make_level_generator(height, width, n_walls)
 
 
+def prefab_sampler(
+    names: Sequence[str], height: int = 13, width: int = 13
+) -> Callable[[Key], PyTree]:
+    """Draw uniformly from JaxUED's named mazes, such as the eight it evaluates on."""
+    from jaxued.environments.maze.level import Level, prefabs
+
+    levels = Level.stack(
+        [Level.from_str(prefabs[name]).pad_to_shape(height, width) for name in names]
+    )
+
+    def sample(key: Key) -> PyTree:
+        index = jax.random.randint(key, (), 0, len(names))
+        return jax.tree.map(lambda leaf: leaf[index], levels)
+
+    return sample
+
+
 def control_generator(env_id: str) -> Callable[[Key], PyTree]:
     import importlib
 
@@ -152,6 +169,7 @@ def make_maze(
     fully_obs: bool = False,
     penalize_time: bool = True,
     max_steps_in_episode: int = 250,
+    levels: Sequence[str] | None = None,
 ) -> Maze:
     from jaxued.environments import maze
 
@@ -166,7 +184,11 @@ def make_maze(
         penalize_time=penalize_time,
     )
     params = env.default_params.replace(max_steps_in_episode=max_steps_in_episode)
-    return Maze(env, params, maze_generator(height, width, n_walls))
+    if levels:
+        sample = prefab_sampler(levels, height, width)
+    else:
+        sample = maze_generator(height, width, n_walls)
+    return Maze(env, params, sample)
 
 
 def make_control(env_id: str, max_steps_in_episode: int | None = None) -> JaxUED:
