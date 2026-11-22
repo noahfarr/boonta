@@ -67,8 +67,6 @@ def test_a_run_across_two_processes_equals_the_same_run_in_one(tmp_path):
     learning = [key for key in alone.files if key.startswith(LEARNING)]
     assert learning
     for key in learning:
-        # Gradients are summed across processes in a different order than within
-        # one process, so the runs agree up to rounding, which training amplifies.
         np.testing.assert_allclose(together[key], alone[key], rtol=1e-4, err_msg=key)
 
     latest = {path.name for path in (shared / "checkpoints/latest").iterdir()}

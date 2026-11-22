@@ -137,7 +137,6 @@ def maze_generator(
 def prefab_sampler(
     names: Sequence[str], height: int = 13, width: int = 13
 ) -> Callable[[Key], PyTree]:
-    """Draw uniformly from JaxUED's named mazes, such as the eight it evaluates on."""
     from jaxued.environments.maze.level import Level, prefabs
 
     levels = Level.stack(
