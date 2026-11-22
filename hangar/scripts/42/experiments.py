@@ -160,7 +160,7 @@ PRECISION = "algorithm=recurrent_pupo environment=gymnax/minatar/breakout cell=m
 def breadth(seeds):
     return [
         *(run(f"cartpole-s{seed}", "cartpole", f"{CARTPOLE} {SEBULBA} seed={seed}", 2) for seed in seeds),
-        *(run(f"wordle-s{seed}", "wordle", f"algorithm=recurrent_grpo environment=dune_sea/wordle seed={seed}") for seed in range(3)),
+        *(run(f"wordle-s{seed}", "wordle", f"algorithm=recurrent_grpo environment=dune_sea/wordle podracer.config.num_steps=6 seed={seed}") for seed in range(3)),
     ]
 
 
@@ -172,6 +172,17 @@ def precision(seeds):
     ]
 
 
+def multinode(seeds):
+    devices = 2 * NODE
+    runs = []
+    for workload, (args, envs, steps, extra) in WEAK.items():
+        runs.append(run(f"weak-{workload}-{devices}gpu", "multinode", f"{with_num_envs(args, envs * devices)} podracer.config.mesh.count={devices} num_steps={steps * devices} {extra(devices)} seed=0", devices))
+    for workload, (args, envs, steps) in STRONG.items():
+        for seed in seeds:
+            runs.append(run(f"strong-{workload}-{devices}gpu-s{seed}", "multinode", f"{with_num_envs(args, envs)} podracer.config.mesh.count={devices} num_steps={steps} seed={seed}", devices))
+    return runs
+
+
 def actors():
     return [
         run(f"actors-{count}-s0", "actors", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count={count} seed=0", count + 1)
@@ -181,9 +192,9 @@ def actors():
 
 def probe():
     return [
-        run("probe-wordle", "probe", "algorithm=recurrent_grpo environment=dune_sea/wordle num_steps=4096 num_epochs=2 seed=0"),
+        run("probe-wordle", "probe", "algorithm=recurrent_grpo environment=dune_sea/wordle podracer.config.num_steps=6 num_steps=4096 num_epochs=2 seed=0"),
+        run("probe-multinode", "probe", f"{PPO_BREAKOUT} podracer.config.mesh.count=16 environment.num_envs=16384 num_steps=20_000_000 num_epochs=2 seed=0", 16),
         run("probe-cartpole", "probe", f"{CARTPOLE} {SEBULBA} num_steps=65536 num_epochs=2 seed=0", 2),
-        run("probe-precision", "probe", f"{PRECISION} network.dtype=bfloat16 num_steps=1_000_000 num_epochs=2 seed=0".replace("num_steps=20_000_000 ", "")),
         run("probe-actors", "probe", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count=2 num_steps=65536 num_epochs=2 seed=0", 3),
     ]
 
@@ -293,6 +304,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *breadth(seeds),
         *precision(range(3)),
         *actors(),
+        *multinode(range(3)),
         *probe(),
     ]
 
@@ -325,7 +337,7 @@ def config(run, project):
                 *run["env"],
             ]
         },
-        "entrypoint": "bash run.sh",
+        "entrypoint": "python3 -m determined.launch.torch_distributed bash run.sh" if run["slots"] > NODE else "bash run.sh",
     }
 
 
