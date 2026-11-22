@@ -151,8 +151,8 @@ def reproduction(seeds, few_seeds):
     for task in OFFLINE:
         for algorithm in ("bc", "iql"):
             for seed in few_seeds:
-                # The checkpoint artisan scores by training returns, which offline training does not log.
-                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} ~artisan podracer.config.mesh.count=1 seed={seed}"))
+                # Offline training logs no returns, so these runs evaluate after each epoch (needs #127).
+                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} evaluate=true podracer.config.mesh.count=1 seed={seed}"))
     for scenario, agents in SMAX.items():
         for algorithm in ("ippo", "mappo"):
             for seed in few_seeds:
