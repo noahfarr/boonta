@@ -177,13 +177,27 @@ DQN_MINATAR_PAPER = (
 )
 
 
+# The five games of the MinAtar paper. Only the official package has Seaquest.
+MINATAR_PAPER = ("asterix", "breakout", "freeway", "seaquest", "space_invaders")
+
+
 def dqn_paper(seeds):
-    """Table 5. boonta's DQN as it is, with the MinAtar paper's settings where they are configuration."""
-    return [
+    """Table 5. boonta's DQN as it is, with the MinAtar paper's settings where they are configuration.
+
+    The official games (needs #129 and the minatar extra on the cluster) are the comparison
+    with the paper. The gymnax games show how much the port alone changes the returns.
+    """
+    official = [
+        run(f"dqn-paper-official-{game}-s{seed}", "dqn-paper", f"{DQN_MINATAR_PAPER} environment=gymnasium/minatar/{game} podracer.config.mesh.count=1 seed={seed}")
+        for game in MINATAR_PAPER
+        for seed in seeds
+    ]
+    gymnax = [
         run(f"dqn-paper-{game}-s{seed}", "dqn-paper", f"{DQN_MINATAR_PAPER} environment=gymnax/minatar/{game} podracer.config.mesh.count=1 seed={seed}")
         for game in MINATAR
         for seed in seeds
     ]
+    return official + gymnax
 
 
 def evaluation(seeds, few_seeds):
