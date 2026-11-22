@@ -209,6 +209,10 @@ def evaluation(seeds, few_seeds):
         args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
         name = "evaluate-" + trained["name"].removeprefix("reproduce-")
         checkpoint = f"checkpoint={RUNS}/{trained['name']}"
+        # DQN's checkpoint holds its replay buffer, whose shape follows the number of
+        # environments, so it plays with the 128 of hangar's DQN instead of evaluate's 64.
+        if "algorithm=dqn" in args:
+            args.append("environment.num_envs=128")
         runs.append(run(name, "evaluation", " ".join([*args, checkpoint, "~artisan"]), env=("BOONTA_COMMAND=evaluate",)))
     return runs
 
