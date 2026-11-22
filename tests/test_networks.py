@@ -154,6 +154,21 @@ def test_every_scan_matches_the_reference(name):
         np.testing.assert_allclose(got, expected, atol=1e-4)
 
 
+def test_an_ssm_runs_the_scan_it_names():
+    from boonta.networks import SSM, MinGRUCell
+
+    x, done = sequence(), starts(3)
+    outputs = {}
+    for name in ("associative", "sequential"):
+        torso = SSM(cell=MinGRUCell(features=zoo.WIDTH), scan=name)
+        carry = torso.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+        params = torso.init(jax.random.key(2), carry, x, done)
+        outputs[name] = torso.apply(params, carry, x, done)[1]
+    np.testing.assert_allclose(outputs["associative"], outputs["sequential"], rtol=1e-5, atol=1e-6)
+    with pytest.raises(KeyError, match="unknown scan implementation"):
+        SSM(cell=MinGRUCell(features=zoo.WIDTH), scan="fast").init(jax.random.key(2), carry, x, done)
+
+
 def test_the_pallas_scan_hands_widths_its_blocks_cannot_tile_to_the_associative_scan():
     keys = jax.random.split(jax.random.key(6), 3)
     a = jax.random.uniform(keys[0], (2, 8, 100), jnp.bfloat16)

@@ -30,6 +30,7 @@ class SSMCellBase(nn.Module):
 
 class SSM(Block):
     cell: SSMCellBase
+    scan: str | None = None
 
     @nn.compact
     def __call__(self, carry: Carry, inputs: Array, done: Array) -> tuple[Carry, Array]:
@@ -47,7 +48,7 @@ class SSM(Block):
         b = b + mask * a * jnp.expand_dims(initial_carry, 1).astype(scan_dtype)
         a = (1 - mask) * a
 
-        scan = get_scan_implementation()
+        scan = get_scan_implementation(self.scan)
         carries = scan(a, b, carry.astype(scan_dtype))
         return (
             jnp.take(carries, -1, axis=1).astype(carry.dtype),
