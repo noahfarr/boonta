@@ -84,7 +84,6 @@ def main(cfg):
         if epoch == 0:
             data = monitor.metrics(step=0)
             logger.log(data, steps=jnp.array([0, 0]))
-            # The artisans also see the untrained state, so a run keeps a checkpoint at step 0.
             craft(state, {}, 0)
 
         for epoch in range(epoch, cfg.num_epochs):

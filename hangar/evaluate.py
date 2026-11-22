@@ -38,8 +38,6 @@ def main(cfg):
 
     init_key, evaluate_key, craft_key = jax.random.split(jax.random.key(cfg.seed), 3)
     state = podracer.init(init_key)
-    # Without a checkpoint, the untrained state plays, which is the one boonta train starts
-    # from with the same seed and podracer.
     if cfg.checkpoint is not None:
         state = load_checkpoint(resolve_checkpoint(cfg.checkpoint), state)
     step = int(jax.device_get(state.algorithm_state.step))
