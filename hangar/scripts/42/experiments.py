@@ -1,9 +1,13 @@
 import argparse
+import json
 import os
 import re
 import shlex
 import shutil
+import ssl
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -401,10 +405,26 @@ def write(runs, out, project):
     return context, paths
 
 
+def active_slots(project_id):
+    master = os.environ["DET_MASTER"]
+    url = f"{master}/api/v1/experiments?projectId={project_id}&states=STATE_ACTIVE&limit=1000"
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['DET_USER_TOKEN']}"})
+    context = ssl._create_unverified_context() if os.environ.get("DET_MASTER_CERT_FILE") == "noverify" else None
+    with urllib.request.urlopen(request, context=context) as response:
+        experiments = json.load(response).get("experiments", [])
+    return sum(int(e["config"]["resources"]["slots_per_trial"]) for e in experiments)
+
+
+def wait_for_slots(project_id, slots, max_slots):
+    while active_slots(project_id) + slots > max_slots:
+        time.sleep(60)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["list", "write", "submit"])
     parser.add_argument("--only", nargs="*", help="groups, run names or name prefixes to include")
+    parser.add_argument("--max-slots", type=int, help="wait until the project holds at most this many slots, needs DET_MASTER and DET_USER_TOKEN")
     parser.add_argument("--seeds", type=int, default=10, help="seeds for curves and returns")
     parser.add_argument("--few-seeds", type=int, default=5, help="seeds for the slower reproduction and Sebulba runs")
     parser.add_argument("--scaling-seeds", type=int, default=3, help="seeds for strong scaling and auto-reset")
@@ -436,10 +456,12 @@ def main():
         return
 
     det = shlex.split(os.environ.get("DET", "det"))
-    for path in paths:
+    for run, path in zip(runs, paths):
         command = [*det, "experiment", "create", "--project_id", str(args.project_id), str(path), str(context)]
         print(" ".join(shlex.quote(part) for part in command))
         if not args.dry_run:
+            if args.max_slots:
+                wait_for_slots(args.project_id, run["slots"], args.max_slots)
             subprocess.run(command, check=True)
 
 
