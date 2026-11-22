@@ -30,7 +30,9 @@ NODE = 8
 MINATAR = ("breakout", "asterix", "freeway", "space_invaders")
 MUJOCO = ("hopper", "walker2d", "halfcheetah", "ant", "humanoid")
 OFFLINE = ("hopper", "walker2d", "halfcheetah")
-SMAX = ("2s3z", "3s5z", "5m_vs_6m", "6h_vs_8z")
+# Agents per SMAX scenario. boonta counts the steps of every agent, so the
+# 10M environment steps of the JaxMARL reference are 10M times the agents.
+SMAX = {"2s3z": 5, "3s5z": 8, "5m_vs_6m": 5, "6h_vs_8z": 6}
 
 # PPO on MinAtar Breakout with the settings of quickstart.ipynb. hangar's defaults
 # learn Breakout far more slowly, which matters for curves and time to target.
@@ -94,10 +96,10 @@ WEAK = {
 }
 
 # The global batch stays fixed, so a run learns the same on any number of GPUs.
+# It is large enough to keep eight GPUs busy (8192 and 4096 environments per GPU).
 STRONG = {
-    "ppo-breakout": (PPO_BREAKOUT, 8192, 20_000_000),
-    "ppo-craftax": (PPO_CRAFTAX, 4096, 200_000_000),
-    "dqn-breakout": (DQN_BREAKOUT, 1024, 10_000_000),
+    "ppo-breakout": (PPO_BREAKOUT, 65536, 200_000_000),
+    "ppo-craftax": (PPO_CRAFTAX, 32768, 1_000_000_000),
 }
 
 
@@ -151,10 +153,10 @@ def reproduction(seeds, few_seeds):
             for seed in few_seeds:
                 # The checkpoint artisan scores by training returns, which offline training does not log.
                 runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} ~artisan podracer.config.mesh.count=1 seed={seed}"))
-    for scenario in SMAX:
+    for scenario, agents in SMAX.items():
         for algorithm in ("ippo", "mappo"):
             for seed in few_seeds:
-                runs.append(run(f"reproduce-{algorithm}-{scenario}-s{seed}", "reproduction", f"algorithm={algorithm} environment=jaxmarl/smax/{scenario} podracer.config.mesh.count=1 seed={seed}"))
+                runs.append(run(f"reproduce-{algorithm}-{scenario}-s{seed}", "reproduction", f"algorithm={algorithm} environment=jaxmarl/smax/{scenario} podracer.config.mesh.count=1 num_steps={10_000_000 * agents} seed={seed}"))
     return runs
 
 
@@ -183,7 +185,8 @@ def smoke():
         algorithm = re.search(r"algorithm=(\S+)", full["args"]).group(1)
         steps = SMOKE_STEPS.get(algorithm, 524_288)
         name = "smoke-" + full["name"].removesuffix("-s0")
-        runs.append(run(name, "smoke", f"{full['args']} num_steps={steps} num_epochs=2", full["slots"]))
+        args = re.sub(r"(^|\s)num_steps=\S+", "", full["args"])
+        runs.append(run(name, "smoke", f"{args} num_steps={steps} num_epochs=2", full["slots"]))
     return runs
 
 
