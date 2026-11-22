@@ -1,4 +1,7 @@
 # @package _global_
+defaults:
+  - /hyperparameters/bc
+  - _self_
 
 environment:
   kwargs:

@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - /hyperparameters/iql/brax/mujoco
+  - _self_
+
+algorithm:
+  reward_scale: 0.0600
