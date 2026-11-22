@@ -221,6 +221,13 @@ def pretraining(seeds):
     return runs
 
 
+def offline_check():
+    return [
+        run(f"offline-check-{algorithm}-hopper", "offline-check", f"algorithm={algorithm} environment=brax/mujoco/hopper podracer.config.mesh.count=1 num_steps=256_000_000 seed=0", env=CHECKPOINTS)
+        for algorithm in ("bc", "iql")
+    ]
+
+
 def multinode(seeds):
     devices = 2 * NODE
     runs = []
@@ -356,6 +363,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *multinode(range(3)),
         *overhead(range(5)),
         *pretraining(range(3)),
+        *offline_check(),
         *probe(),
     ]
 
