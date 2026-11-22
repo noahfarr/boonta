@@ -15,7 +15,7 @@ class Checkpointer:
         score: Callable | None = None,
         fields: Sequence[str] = ("algorithm_state",),
     ):
-        self.score = score or operator.itemgetter("episode_statistics/episode_return")
+        self.score = score or operator.methodcaller("get", "episode_statistics/episode_return")
         self.fields = tuple(fields)
 
     def craft(self, key, algorithm, environment, state, logs) -> Checkpoint:
@@ -24,6 +24,7 @@ class Checkpointer:
             for field in self.fields
             if getattr(state, field) is not None
         }
-        if not logs:
+        returns = self.score(logs) if logs else None
+        if returns is None:
             return Checkpoint(self.name, parts)
-        return Checkpoint(self.name, parts, float(np.nanmean(self.score(logs))))
+        return Checkpoint(self.name, parts, float(np.nanmean(returns)))

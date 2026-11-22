@@ -219,6 +219,7 @@ def test_the_checkpointer_scores_by_mean_episode_return_unless_told_otherwise():
     assert Checkpointer().craft(None, None, None, state, logs).score == 3.0
     assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, None, state, logs).score == 7.0
     assert Checkpointer().craft(None, None, None, state, {}).score == float("-inf")
+    assert Checkpointer().craft(None, None, None, state, {"loss": [1.0]}).score == float("-inf")
 
 
 def log_scores(directory, scores, **options):

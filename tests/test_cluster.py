@@ -50,6 +50,17 @@ def task(index: int, port: int) -> dict[str, str]:
     }
 
 
+def test_a_run_that_evaluates_logs_the_returns_of_every_epoch(tmp_path):
+    output = tmp_path / "run.log"
+    run = launch(tmp_path, 1, ["evaluate=true", "logger=file", "hydra.run.dir=."], output)
+    assert run.wait(timeout=600) == 0, output.read_text()[-4000:]
+
+    with np.load(tmp_path / "metrics.npz") as metrics:
+        returns = metrics["evaluation/episode_return"][metrics["steps"] > 0]
+    assert returns.shape[0] == 2
+    assert np.isfinite(returns).all()
+
+
 def test_a_run_across_two_processes_equals_the_same_run_in_one(tmp_path):
     port = free_port()
     outputs = [tmp_path / f"process{index}.log" for index in range(2)] + [tmp_path / "single.log"]
