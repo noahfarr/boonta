@@ -215,7 +215,7 @@ def multinode(seeds):
 
 def actors():
     return [
-        run(f"actors-{count}-s0", "actors", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count={count} seed=0", count + 1)
+        run(f"actors-{count}-s0", "actors", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count={count} environment.num_envs={64 * count} num_steps=2_000_000 seed=0", count + 1)
         for count in (1, 2, 4, 7)
     ]
 
