@@ -20,7 +20,6 @@ def main(cfg):
     from boonta.utils import load_checkpoint, resolve_checkpoint
     from hangar import recipes
 
-    assert cfg.checkpoint is not None
     podracer = recipes.make(cfg)
     algorithm, environment = podracer.algorithm, podracer.environment
     logger = MultiLogger(
@@ -38,8 +37,9 @@ def main(cfg):
     num_rollouts = -(-int(cfg.num_episodes) // int(cfg.environment.num_envs))
 
     init_key, evaluate_key, craft_key = jax.random.split(jax.random.key(cfg.seed), 3)
-    path = resolve_checkpoint(cfg.checkpoint)
-    state = load_checkpoint(path, podracer.init(init_key))
+    state = podracer.init(init_key)
+    if cfg.checkpoint is not None:
+        state = load_checkpoint(resolve_checkpoint(cfg.checkpoint), state)
     step = int(jax.device_get(state.algorithm_state.step))
 
     try:

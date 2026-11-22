@@ -84,6 +84,7 @@ def main(cfg):
         if epoch == 0:
             data = monitor.metrics(step=0)
             logger.log(data, steps=jnp.array([0, 0]))
+            craft(state, {}, 0)
 
         for epoch in range(epoch, cfg.num_epochs):
             monitor.start()
