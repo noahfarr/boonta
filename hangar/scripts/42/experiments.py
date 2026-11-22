@@ -13,6 +13,7 @@ table or figure each group feeds.
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -25,7 +26,8 @@ HERE = Path(__file__).parent
 DEVICES = (1, 2, 4, 8)
 NODE = 8
 
-MINATAR = ("breakout", "asterix", "freeway", "seaquest", "space_invaders")
+# gymnax has no Seaquest-MinAtar, although hangar has a configuration for it.
+MINATAR = ("breakout", "asterix", "freeway", "space_invaders")
 MUJOCO = ("hopper", "walker2d", "halfcheetah", "ant", "humanoid")
 OFFLINE = ("hopper", "walker2d", "halfcheetah")
 SMAX = ("2s3z", "3s5z", "5m_vs_6m", "6h_vs_8z")
@@ -147,7 +149,8 @@ def reproduction(seeds, few_seeds):
     for task in OFFLINE:
         for algorithm in ("bc", "iql"):
             for seed in few_seeds:
-                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} podracer.config.mesh.count=1 seed={seed}"))
+                # The checkpoint artisan scores by training returns, which offline training does not log.
+                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} ~artisan podracer.config.mesh.count=1 seed={seed}"))
     for scenario in SMAX:
         for algorithm in ("ippo", "mappo"):
             for seed in few_seeds:
@@ -167,6 +170,23 @@ def curricula(seeds, few_seeds):
     return runs
 
 
+# Steps for a short check of every reproduction and curriculum configuration, so
+# that replay buffers fill and every algorithm updates at least twice.
+# Multi-agent updates count the steps of every agent, so SMAX needs more.
+SMOKE_STEPS = {"dqn": 16_384, "sac": 16_384, "bc": 1_024, "iql": 1_024, "ippo": 4_194_304, "mappo": 4_194_304}
+
+
+def smoke():
+    """One short run per reproduction and curriculum configuration before the full runs."""
+    runs = []
+    for full in [*reproduction(range(1), range(1)), *curricula(range(1), range(1))]:
+        algorithm = re.search(r"algorithm=(\S+)", full["args"]).group(1)
+        steps = SMOKE_STEPS.get(algorithm, 524_288)
+        name = "smoke-" + full["name"].removesuffix("-s0")
+        runs.append(run(name, "smoke", f"{full['args']} num_steps={steps} num_epochs=2", full["slots"]))
+    return runs
+
+
 def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
     return [
         *check(),
@@ -177,6 +197,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *autoreset(seeds),
         *reproduction(seeds, few_seeds),
         *curricula(seeds, few_seeds),
+        *smoke(),
     ]
 
 
