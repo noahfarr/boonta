@@ -15,6 +15,8 @@ COLORS = {"ppo-breakout": SET1[1], "ppo-craftax": SET1[0], "dqn-breakout": SET1[
 LABELS = {"ppo-breakout": "PPO, Breakout-MinAtar", "ppo-craftax": "PPO, Craftax-Classic", "dqn-breakout": "DQN, Breakout-MinAtar"}
 PODRACERS = {"anakin": ("Anakin (1 GPU)", SET1[1]), "sebulba": ("Sebulba (2 GPUs)", SET1[0])}
 LINEAR = {"color": "0.45", "linewidth": 0.8, "linestyle": (0, (4, 2))}
+GAMES = {"breakout": "Breakout", "asterix": "Asterix", "freeway": "Freeway", "space_invaders": "Space Invaders"}
+ALGORITHMS = {"ppo": ("PPO", SET1[1]), "dqn": ("DQN", SET1[0]), "pqn": ("PQN", SET1[2])}
 
 TARGETS = {"ppo-breakout": 40.0, "ppo-craftax": 10.0, "dqn-breakout": 20.0}
 
@@ -155,10 +157,54 @@ def draw_scaling(weak, strong, path):
     print(f"wrote {path}")
 
 
+def interval(returns):
+    resampled = returns[np.random.default_rng(0).integers(0, len(returns), (2000, len(returns)))].mean(axis=1)
+    return np.percentile(resampled, [2.5, 97.5], axis=0)
+
+
+def draw_minatar(curves, path):
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    rows = [a for a in ALGORITHMS if any(name.startswith(f"curve-{a}-") for name in curves)]
+    if not rows:
+        return
+    plt.style.use(STYLE)
+    height = TEXT_WIDTH / 4 / GOLDEN_RATIO * 1.2 * len(rows) + 0.35
+    figure, axes = plt.subplots(len(rows), len(GAMES), figsize=(TEXT_WIDTH, height), constrained_layout=True, squeeze=False)
+    figure.get_layout_engine().set(w_pad=0.01, h_pad=0.01, wspace=0.03, hspace=0.04)
+    for row, algorithm in enumerate(rows):
+        label, color = ALGORITHMS[algorithm]
+        for column, (game, title) in enumerate(GAMES.items()):
+            axis = axes[row, column]
+            style(axis)
+            group = [curve for name, curve in curves.items() if re.fullmatch(rf"curve-{algorithm}-{game}-s\d+", name)]
+            if group:
+                steps = group[0]["steps"] / 1e6
+                returns = np.stack([curve["returns"] for curve in group])
+                low, high = interval(returns)
+                axis.fill_between(steps, low, high, color=color, alpha=0.2, linewidth=0)
+                axis.plot(steps, returns.mean(axis=0), color=color)
+                axis.set_xlim(0, steps[-1])
+            axis.xaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
+            axis.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=3))
+            if row == 0:
+                axis.set_title(title)
+            if column == 0:
+                axis.set_ylabel(label, rotation=0, labelpad=12)
+    figure.supxlabel("Environment steps (millions)", fontsize=plt.rcParams["axes.labelsize"])
+    figure.supylabel("Episode return", fontsize=plt.rcParams["axes.labelsize"])
+    figure.savefig(path)
+    plt.close(figure)
+    print(f"wrote {path}")
+
+
 def draw_podracers(curves, path):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
 
+    if not any(name.startswith("curve-podracers-") for name in curves):
+        return
     plt.style.use(STYLE)
     width = TEXT_WIDTH / 2
     figure, axis = plt.subplots(figsize=(width, width / GOLDEN_RATIO * 1.25), constrained_layout=True)
@@ -171,8 +217,7 @@ def draw_podracers(curves, path):
         steps = group[0]["steps"]
         returns = np.stack([curve["returns"] for curve in group])
         mean = returns.mean(axis=0)
-        resampled = returns[np.random.default_rng(0).integers(0, len(returns), (2000, len(returns)))].mean(axis=1)
-        low, high = np.percentile(resampled, [2.5, 97.5], axis=0)
+        low, high = interval(returns)
         axis.fill_between(steps / 1e6, low, high, color=color, alpha=0.2, linewidth=0)
         axis.plot(steps / 1e6, mean, color=color, label=label, zorder=2)
     axis.set_xlim(0, 20)
@@ -204,7 +249,9 @@ def main():
     if args.figures:
         args.figures.mkdir(parents=True, exist_ok=True)
         draw_scaling(weak, strong, args.figures / "scaling.pdf")
-        draw_podracers(collect_curves(args.runs), args.figures / "podracers.pdf")
+        curves = collect_curves(args.runs)
+        draw_podracers(curves, args.figures / "podracers.pdf")
+        draw_minatar(curves, args.figures / "minatar.pdf")
 
 
 if __name__ == "__main__":
