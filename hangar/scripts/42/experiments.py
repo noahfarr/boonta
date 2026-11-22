@@ -53,6 +53,10 @@ HELD_OUT_MAZES = ("SixteenRooms", "SixteenRooms2", "Labyrinth", "LabyrinthFlippe
 # XLA picks GPU kernels by timing when it compiles, so the same run can round
 # differently from one compilation to the next. These flags make it repeatable.
 DETERMINISTIC = ("XLA_FLAGS=--xla_gpu_deterministic_ops=true",)
+# Runs that boonta evaluate plays afterwards save orbax checkpoints.
+CHECKPOINTS = ("BOONTA_LOGGER=[file,orbax]",)
+# Overrides that only matter while training, which boonta evaluate does not take.
+TRAINING_ONLY = ("num_steps", "num_epochs", "environment.num_envs", "podracer.config.num_steps")
 
 
 def with_num_envs(args, num_envs):
@@ -139,27 +143,44 @@ def autoreset(seeds):
 
 
 def reproduction(seeds, few_seeds):
-    """Table 5. Returns against published results, with hangar's settings for each combination."""
+    """Table 5. Returns against published results, with hangar's settings for each combination.
+
+    MinAtar, BC and IQL save checkpoints for the evaluation group, since Freeway episodes
+    rarely end inside an epoch and offline training logs no returns.
+    """
     runs = []
     for game in MINATAR:
         env = f"environment=gymnax/minatar/{game}"
         ppo = PPO_BREAKOUT if game == "breakout" else f"algorithm=ppo {env}"
         for seed in seeds:
-            runs.append(run(f"reproduce-ppo-{game}-s{seed}", "reproduction", f"{ppo} podracer.config.mesh.count=1 seed={seed}"))
-            runs.append(run(f"reproduce-dqn-{game}-s{seed}", "reproduction", f"algorithm=dqn {env} podracer.config.mesh.count=1 seed={seed}"))
-            runs.append(run(f"reproduce-pqn-{game}-s{seed}", "reproduction", f"algorithm=pqn {env} podracer.config.mesh.count=1 seed={seed}"))
+            runs.append(run(f"reproduce-ppo-{game}-s{seed}", "reproduction", f"{ppo} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
+            runs.append(run(f"reproduce-dqn-{game}-s{seed}", "reproduction", f"algorithm=dqn {env} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
+            runs.append(run(f"reproduce-pqn-{game}-s{seed}", "reproduction", f"algorithm=pqn {env} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
     for task in MUJOCO:
         for seed in few_seeds:
             runs.append(run(f"reproduce-sac-{task}-s{seed}", "reproduction", f"algorithm=sac environment=brax/mujoco/{task} podracer.config.mesh.count=1 seed={seed}"))
     for task in OFFLINE:
         for algorithm in ("bc", "iql"):
             for seed in few_seeds:
-                # Offline training logs no returns, so these runs evaluate after each epoch (needs #127).
-                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} evaluate=true podracer.config.mesh.count=1 seed={seed}"))
+                # The checkpoint artisan needs #127 for runs that log no returns.
+                runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
     for scenario, agents in SMAX.items():
         for algorithm in ("ippo", "mappo"):
             for seed in few_seeds:
                 runs.append(run(f"reproduce-{algorithm}-{scenario}-s{seed}", "reproduction", f"algorithm={algorithm} environment=jaxmarl/smax/{scenario} podracer.config.mesh.count=1 num_steps={10_000_000 * agents} seed={seed}"))
+    return runs
+
+
+def evaluation(seeds, few_seeds):
+    """Table 5. boonta evaluate of the last checkpoint of every reproduction run that saves one."""
+    runs = []
+    for trained in reproduction(seeds, few_seeds):
+        if trained["env"] != list(CHECKPOINTS):
+            continue
+        args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
+        name = "evaluate-" + trained["name"].removeprefix("reproduce-")
+        checkpoint = f"checkpoint={RUNS}/{trained['name']}"
+        runs.append(run(name, "evaluation", " ".join([*args, checkpoint, "~artisan"]), env=("BOONTA_COMMAND=evaluate",)))
     return runs
 
 
@@ -170,13 +191,12 @@ def curricula(seeds, few_seeds):
     it finds hardest. The runs save checkpoints, which the mazes group evaluates.
     """
     maze = "algorithm=recurrent_ppo environment=jaxued/maze"
-    checkpoints = ("BOONTA_LOGGER=[file,orbax]",)
     runs = []
     for seed in seeds:
-        runs.append(run(f"curricula-plr-s{seed}", "curricula", f"{maze} curriculum=plr podracer.config.mesh.count=1 seed={seed}", env=checkpoints))
-        runs.append(run(f"curricula-dr-s{seed}", "curricula", f"{maze} podracer.config.mesh.count=1 seed={seed}", env=checkpoints))
+        runs.append(run(f"curricula-plr-s{seed}", "curricula", f"{maze} curriculum=plr podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
+        runs.append(run(f"curricula-dr-s{seed}", "curricula", f"{maze} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
     for seed in few_seeds:
-        runs.append(run(f"curricula-plr-sebulba-s{seed}", "curricula", f"{maze} curriculum=plr {SEBULBA} seed={seed}", 2, env=checkpoints))
+        runs.append(run(f"curricula-plr-sebulba-s{seed}", "curricula", f"{maze} curriculum=plr {SEBULBA} seed={seed}", 2, env=CHECKPOINTS))
     return runs
 
 
@@ -224,6 +244,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *strong(scaling_seeds),
         *autoreset(seeds),
         *reproduction(seeds, few_seeds),
+        *evaluation(seeds, few_seeds),
         *curricula(seeds, few_seeds),
         *mazes(seeds, few_seeds),
         *smoke(),
