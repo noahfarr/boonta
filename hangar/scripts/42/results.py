@@ -171,7 +171,9 @@ def draw_podracers(runs, path):
         steps = group[0]["steps"][1:]
         returns = np.stack([run["returns"][1 : len(steps) + 1] for run in group])
         mean = returns.mean(axis=0)
-        axis.fill_between(steps, returns.min(axis=0), returns.max(axis=0), color=color, alpha=0.15, linewidth=0)
+        resampled = returns[np.random.default_rng(0).integers(0, len(returns), (2000, len(returns)))].mean(axis=1)
+        low, high = np.percentile(resampled, [2.5, 97.5], axis=0)
+        axis.fill_between(steps, low, high, color=color, alpha=0.15, linewidth=0)
         seeds = f"{len(group)} seed" + ("s" if len(group) > 1 else "")
         axis.plot(steps, mean, color=color, linewidth=1.5, solid_capstyle="round", label=f"{label} ({seeds})")
         axis.annotate(label, (steps[-1], mean[-1]), xytext=(4, 0), textcoords="offset points", color=INK, fontsize=8, va="center")

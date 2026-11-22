@@ -14,7 +14,7 @@ These scripts run the paper's experiments on the hessian.AI 42 cluster through D
 | `podracers` | Figure 2 | the same PPO on MinAtar Breakout with Anakin and with Sebulba | 10 | 1 and 2 |
 | `weak` | Figure 3, left | PPO on Breakout, PPO on Craftax-Classic and DQN on Breakout on 1, 2, 4 and 8 GPUs, with fixed work per GPU | 1 | 8 (whole node) |
 | `strong` | Figure 3, right | the same workloads with a fixed global batch | 3 | 8 (whole node) |
-| `autoreset` | Appendix C | PPO on Breakout with same-step, next-step and optimistic auto-reset | 3 | 1 |
+| `autoreset` | Appendix C | PPO on Breakout with same-step, next-step and optimistic auto-reset | 10 | 1 |
 | `reproduction` | Table 5 | PPO, DQN and PQN on five MinAtar games, SAC on five Brax MuJoCo tasks, BC and IQL on three Minari expert datasets, IPPO and MAPPO on four SMAX scenarios | 10 on MinAtar, 5 otherwise | 1 |
 | `curricula` | Section 5, curricula | recurrent PPO on JaxUED mazes with PLR and with domain randomization, and PLR with Sebulba | 10, 5 with Sebulba | 1 and 2 |
 

@@ -43,14 +43,18 @@ PPO_CRAFTAX = "algorithm=ppo environment=craftax/craftax_classic/symbolic"
 DQN_BREAKOUT = "algorithm=dqn environment=gymnax/minatar/breakout"
 SEBULBA = "podracer=sebulba podracer.config.actor.start=1"
 
+# XLA picks GPU kernels by timing when it compiles, so the same run can round
+# differently from one compilation to the next. These flags make it repeatable.
+DETERMINISTIC = ("XLA_FLAGS=--xla_gpu_deterministic_ops=true",)
+
 
 def with_num_envs(args, num_envs):
     parts = [part for part in args.split() if not part.startswith("environment.num_envs=")]
     return " ".join([*parts, f"environment.num_envs={num_envs}"])
 
 
-def run(name, group, args, slots=1):
-    return {"name": name, "group": group, "slots": slots, "args": " ".join(args.split())}
+def run(name, group, args, slots=1, env=()):
+    return {"name": name, "group": group, "slots": slots, "args": " ".join(args.split()), "env": list(env)}
 
 
 def check():
@@ -58,6 +62,16 @@ def check():
         run("check-ppo-breakout-2gpu", "check", f"{PPO_BREAKOUT} podracer.config.mesh.count=2 num_steps=20_000_000 seed=0", 2),
         run("check-recurrent-ppo-mingru-2gpu", "check", "algorithm=recurrent_ppo environment=gymnax/minatar/breakout cell=min_gru torso=ssm podracer.config.mesh.count=2 num_steps=5_000_000 seed=0", 2),
         run("check-ppo-breakout-sebulba", "check", f"{PPO_BREAKOUT} {SEBULBA} num_steps=20_000_000 seed=0", 2),
+    ]
+
+
+def determinism():
+    """Whether two runs with the same seed match under deterministic XLA, and at what cost."""
+    return [
+        run(f"determinism-{copy}", "determinism",
+            f"{PPO_BREAKOUT} podracer.config.mesh.count=1 num_steps=20_000_000 seed=0",
+            env=(*DETERMINISTIC, f"JAX_COMPILATION_CACHE_DIR=/tmp/jax-cache-{copy}"))
+        for copy in ("a", "b")
     ]
 
 
@@ -156,10 +170,11 @@ def curricula(seeds, few_seeds):
 def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
     return [
         *check(),
+        *determinism(),
         *podracers(seeds),
         *weak(),
         *strong(scaling_seeds),
-        *autoreset(scaling_seeds),
+        *autoreset(seeds),
         *reproduction(seeds, few_seeds),
         *curricula(seeds, few_seeds),
     ]
@@ -190,6 +205,7 @@ def config(run, project):
             "environment_variables": [
                 f"RUN_NAME={run['name']}",
                 f"BOONTA_ARGS={run['args']}",
+                *run["env"],
             ]
         },
         "entrypoint": "bash run.sh",
