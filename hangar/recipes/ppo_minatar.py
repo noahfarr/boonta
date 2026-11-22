@@ -10,6 +10,9 @@ from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
+from . import schedules
+from .separate_actor_critic import mlp
+
 
 def observation_extractor():
     return nn.Sequential(
@@ -36,14 +39,33 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 
-    network = Network(
-        feature_extractor=FeatureExtractor(
-            observation_extractor=observation_extractor(),
-        ),
-        head=ActorCritic(
-            actor=Categorical(nn.Dense(num_actions)),
-            critic=nn.Dense(1),
-        ),
+    settings = cfg.get("network") or {}
+    if settings.get("architecture", "cnn") == "mlp":
+        width, activation = settings.get("width", 64), settings.get("activation", "relu")
+        network = Network(
+            feature_extractor=FeatureExtractor(
+                observation_extractor=nn.Sequential(
+                    [lambda obs: obs.astype(jnp.float32), Flatten(start_dim=-3)]
+                ),
+            ),
+            head=ActorCritic(
+                actor=Categorical(mlp(width, activation, num_actions, 0.01)),
+                critic=mlp(width, activation, 1, 1.0),
+            ),
+        )
+    else:
+        network = Network(
+            feature_extractor=FeatureExtractor(
+                observation_extractor=observation_extractor(),
+            ),
+            head=ActorCritic(
+                actor=Categorical(nn.Dense(num_actions)),
+                critic=nn.Dense(1),
+            ),
+        )
+
+    learning_rate = schedules.learning_rate(
+        cfg, batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps
     )
 
     algorithm = PPO(
@@ -51,7 +73,7 @@ def make(cfg):
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-            optax.adam(cfg.optimizer.lr),
+            optax.adam(learning_rate, eps=cfg.optimizer.get("eps", 1e-8)),
         ),
     )
 

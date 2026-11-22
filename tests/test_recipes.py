@@ -358,6 +358,41 @@ def test_an_annealed_learning_rate_decays_over_every_gradient_step():
     assert learning_rate(cfg, batch_size=10) == 1.0
 
 
+def test_a_linear_learning_rate_decays_to_zero_over_every_gradient_step():
+    from omegaconf import OmegaConf
+
+    from hangar.recipes.schedules import learning_rate
+
+    cfg = OmegaConf.create(
+        {
+            "num_steps": 100,
+            "optimizer": {"lr": 1.0, "anneal": "linear"},
+            "algorithm": {"update_epochs": 2, "num_minibatches": 3},
+        }
+    )
+    schedule = learning_rate(cfg, batch_size=10)
+    np.testing.assert_allclose([schedule(0), schedule(30), schedule(60)], [1.0, 0.5, 0.0])
+
+
+@pytest.mark.parametrize(
+    "environment, overrides, missing",
+    [
+        pytest.param(MINATAR, ["+network.architecture=mlp", "+optimizer.anneal=linear", "+optimizer.eps=1e-5"], installed("gymnax"), id="minatar"),
+        pytest.param("brax/mujoco/hopper", ["+network.architecture=separate", "+environment.normalize=true", "+optimizer.eps=1e-5"], installed("brax"), id="brax"),
+    ],
+)
+def test_the_ppo_recipes_build_separate_actor_critics_and_run_one_update(environment, overrides, missing):
+    if missing:
+        pytest.skip(missing)
+    cfg = shrink(configure("ppo", environment, *SMALL, *overrides))
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+    params = podracer.init(jax.random.key(0)).algorithm_state.params["params"]
+    assert {"actor", "critic"} <= set(jax.tree_util.tree_map(lambda _: None, params["head"]).keys())
+    state, _ = podracer.train(podracer.init(jax.random.key(0)), jax.random.key(1), 1)
+    podracer.close(state)
+
+
 KINETIX = pytest.mark.skipif(
     installed("kinetix", "zarr") is not None, reason=str(installed("kinetix", "zarr"))
 )
