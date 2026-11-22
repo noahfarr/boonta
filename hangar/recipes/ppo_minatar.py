@@ -11,7 +11,6 @@ from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
 from . import schedules
-from .separate_actor_critic import mlp
 
 
 def observation_extractor():
@@ -46,8 +45,12 @@ def make(cfg):
             ),
         ),
         head=ActorCritic(
-            actor=Categorical(mlp(64, "relu", num_actions, 0.01)),
-            critic=mlp(64, "relu", 1, 1.0),
+            actor=Categorical(
+                nn.Sequential(
+                    [nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(num_actions)]
+                )
+            ),
+            critic=nn.Sequential([nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(1)]),
         ),
     )
 

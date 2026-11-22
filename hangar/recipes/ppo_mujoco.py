@@ -1,3 +1,4 @@
+import flax.linen as nn
 import optax
 from hydra.utils import instantiate
 
@@ -10,7 +11,6 @@ from boonta.networks import ActorCritic, FeatureExtractor, Gaussian, Network
 from boonta.networks.layers import Identity
 
 from . import schedules
-from .separate_actor_critic import StateIndependentScale, mlp
 
 
 def make(cfg):
@@ -21,8 +21,12 @@ def make(cfg):
     network = Network(
         feature_extractor=FeatureExtractor(observation_extractor=Identity()),
         head=ActorCritic(
-            actor=Gaussian(StateIndependentScale(mlp(256, "tanh", action_dim, 0.01), action_dim)),
-            critic=mlp(256, "tanh", 1, 1.0),
+            actor=Gaussian(
+                nn.Sequential(
+                    [nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(2 * action_dim)]
+                )
+            ),
+            critic=nn.Sequential([nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(1)]),
         ),
     )
 
