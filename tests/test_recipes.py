@@ -373,6 +373,39 @@ def test_an_annealed_learning_rate_decays_over_every_gradient_step():
     assert learning_rate(cfg, batch_size=10) == 1.0
 
 
+def test_a_linear_learning_rate_decays_to_zero_over_every_gradient_step():
+    from omegaconf import OmegaConf
+
+    from hangar.recipes.schedules import learning_rate
+
+    cfg = OmegaConf.create(
+        {
+            "num_steps": 100,
+            "optimizer": {"lr": 1.0, "anneal": "linear"},
+            "algorithm": {"update_epochs": 2, "num_minibatches": 3},
+        }
+    )
+    schedule = learning_rate(cfg, batch_size=10)
+    np.testing.assert_allclose([schedule(0), schedule(30), schedule(60)], [1.0, 0.5, 0.0])
+
+
+@pytest.mark.parametrize(
+    "environment, missing",
+    [
+        pytest.param(MINATAR, installed("gymnax"), id="minatar"),
+        pytest.param("brax/mujoco/hopper", installed("brax"), id="brax"),
+    ],
+)
+def test_the_ppo_recipes_build_separate_actor_and_critic_networks(environment, missing):
+    if missing:
+        pytest.skip(missing)
+    cfg = shrink(configure("ppo", environment, *SMALL))
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+    head = podracer.init(jax.random.key(0)).algorithm_state.params["params"]["head"]
+    assert {"actor", "critic"} <= set(head)
+
+
 KINETIX = pytest.mark.skipif(
     installed("kinetix", "zarr") is not None, reason=str(installed("kinetix", "zarr"))
 )

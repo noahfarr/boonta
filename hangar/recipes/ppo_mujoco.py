@@ -4,8 +4,13 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.ppo import PPO
-from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.environments.wrappers import (ClipAction, NormalizeObservation,
+                                          NormalizeReward,
+                                          RecordEpisodeStatistics)
 from boonta.networks import ActorCritic, FeatureExtractor, Gaussian, Network
+from boonta.networks.layers import Identity
+
+from . import schedules
 
 
 def make(cfg):
@@ -14,19 +19,14 @@ def make(cfg):
     env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
-        feature_extractor=FeatureExtractor(
-            observation_extractor=nn.Sequential(
-                [
-                    nn.Dense(256),
-                    nn.tanh,
-                    nn.Dense(256),
-                    nn.tanh,
-                ]
-            ),
-        ),
+        feature_extractor=FeatureExtractor(observation_extractor=Identity()),
         head=ActorCritic(
-            actor=Gaussian(nn.Dense(2 * action_dim)),
-            critic=nn.Dense(1),
+            actor=Gaussian(
+                nn.Sequential(
+                    [nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(2 * action_dim)]
+                )
+            ),
+            critic=nn.Sequential([nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(1)]),
         ),
     )
 
@@ -35,10 +35,16 @@ def make(cfg):
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-            optax.adam(cfg.optimizer.lr),
+            optax.adam(
+                schedules.learning_rate(
+                    cfg, batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps
+                ),
+                eps=cfg.optimizer.get("eps", 1e-8),
+            ),
         ),
     )
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
+    env = NormalizeReward(NormalizeObservation(ClipAction(env)), gamma=cfg.algorithm.gamma)
     return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}

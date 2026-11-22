@@ -10,6 +10,8 @@ from boonta.environments.wrappers import RecordEpisodeStatistics
 from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
 from boonta.networks.layers import Flatten
 
+from . import schedules
+
 
 def observation_extractor():
     return nn.Sequential(
@@ -38,12 +40,22 @@ def make(cfg):
 
     network = Network(
         feature_extractor=FeatureExtractor(
-            observation_extractor=observation_extractor(),
+            observation_extractor=nn.Sequential(
+                [lambda obs: obs.astype(jnp.float32), Flatten(start_dim=-3)]
+            ),
         ),
         head=ActorCritic(
-            actor=Categorical(nn.Dense(num_actions)),
-            critic=nn.Dense(1),
+            actor=Categorical(
+                nn.Sequential(
+                    [nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(num_actions)]
+                )
+            ),
+            critic=nn.Sequential([nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(1)]),
         ),
+    )
+
+    learning_rate = schedules.learning_rate(
+        cfg, batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps
     )
 
     algorithm = PPO(
@@ -51,7 +63,7 @@ def make(cfg):
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-            optax.adam(cfg.optimizer.lr),
+            optax.adam(learning_rate, eps=cfg.optimizer.get("eps", 1e-8)),
         ),
     )
 

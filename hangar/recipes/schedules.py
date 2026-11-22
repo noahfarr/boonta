@@ -17,6 +17,9 @@ def learning_rate(cfg, batch_size: int):
             decay_steps=updates,
             end_value=cfg.optimizer.get("final_lr", 0.0),
         )
-    if not cfg.optimizer.get("anneal"):
+    anneal = cfg.optimizer.get("anneal")
+    if not anneal:
         return rate
+    if anneal == "linear":
+        return optax.linear_schedule(rate, 0.0, updates)
     return optax.cosine_decay_schedule(rate, updates, alpha=cfg.optimizer.get("alpha", 0.0))
