@@ -31,10 +31,6 @@ NODE = 8
 MINATAR = ("breakout", "asterix", "freeway", "space_invaders")
 MUJOCO = ("hopper", "walker2d", "halfcheetah", "ant", "humanoid")
 OFFLINE = ("hopper", "walker2d", "halfcheetah")
-# Agents per SMAX scenario. boonta counts the steps of every agent, so the
-# 10M environment steps of the JaxMARL reference are 10M times the agents.
-SMAX = {"2s3z": 5, "3s5z": 8, "5m_vs_6m": 5, "6h_vs_8z": 6}
-
 # PPO on MinAtar Breakout with the settings of quickstart.ipynb. hangar's defaults
 # learn Breakout far more slowly, which matters for curves and time to target.
 PPO_BREAKOUT = (
@@ -164,10 +160,6 @@ def reproduction(seeds, few_seeds):
             for seed in few_seeds:
                 # The checkpoint artisan needs #127 for runs that log no returns.
                 runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
-    for scenario, agents in SMAX.items():
-        for algorithm in ("ippo", "mappo"):
-            for seed in few_seeds:
-                runs.append(run(f"reproduce-{algorithm}-{scenario}-s{seed}", "reproduction", f"algorithm={algorithm} environment=jaxmarl/smax/{scenario} podracer.config.mesh.count=1 num_steps={10_000_000 * agents} seed={seed}"))
     return runs
 
 
@@ -219,8 +211,7 @@ def mazes(seeds, few_seeds):
 
 # Steps for a short check of every reproduction and curriculum configuration, so
 # that replay buffers fill and every algorithm updates at least twice.
-# Multi-agent updates count the steps of every agent, so SMAX needs more.
-SMOKE_STEPS = {"dqn": 16_384, "sac": 16_384, "bc": 1_024, "iql": 1_024, "ippo": 4_194_304, "mappo": 4_194_304}
+SMOKE_STEPS = {"dqn": 16_384, "sac": 16_384, "bc": 1_024, "iql": 1_024}
 
 
 def smoke():
