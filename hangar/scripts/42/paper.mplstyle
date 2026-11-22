@@ -1,0 +1,22 @@
+# NeurIPS 2025 paper style: \textwidth = 5.5 in, body = 10 pt Times.
+# Figures are rendered at the exact width they occupy on the page so LaTeX
+# does not rescale them, which would shrink their fonts below the body text.
+# The times package leaves math in Computer Modern, so mathtext matches it.
+
+font.family: serif
+font.serif: Times New Roman, Times, DejaVu Serif, serif
+font.size: 9
+mathtext.fontset: cm
+
+axes.labelsize: 9
+axes.titlesize: 9
+axes.linewidth: 0.6
+xtick.labelsize: 7
+ytick.labelsize: 7
+legend.fontsize: 7
+
+lines.linewidth: 1.0
+
+pdf.fonttype: 42
+ps.fonttype: 42
+savefig.bbox: standard

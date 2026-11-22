@@ -17,12 +17,17 @@ from pathlib import Path
 
 import numpy as np
 
-# The first categorical slots of the validated palette, in fixed order.
-COLORS = {"ppo-breakout": "#2a78d6", "ppo-craftax": "#eb6834", "dqn-breakout": "#1baf7a"}
-LABELS = {"ppo-breakout": "PPO, MinAtar Breakout", "ppo-craftax": "PPO, Craftax-Classic", "dqn-breakout": "DQN, MinAtar Breakout"}
-SHORT = {"ppo-breakout": "PPO Breakout", "ppo-craftax": "PPO Craftax", "dqn-breakout": "DQN Breakout"}
-PODRACERS = {"anakin": ("Anakin", "#2a78d6"), "sebulba": ("Sebulba", "#eb6834")}
-INK, MUTED, GRID, SURFACE = "#1a1a19", "#6b6b66", "#e4e4e1", "#ffffff"
+# Figures share the style of the paper's other plots and are drawn at the width they take
+# on the page (NeurIPS text width 5.5 in), so their fonts match the body text.
+STYLE = Path(__file__).parent / "paper.mplstyle"
+TEXT_WIDTH = 5.5
+GOLDEN_RATIO = 1.618
+# matplotlib's Set1: red, blue, green.
+SET1 = ("#e41a1c", "#377eb8", "#4daf4a")
+COLORS = {"ppo-breakout": SET1[1], "ppo-craftax": SET1[0], "dqn-breakout": SET1[2]}
+LABELS = {"ppo-breakout": "PPO, Breakout-MinAtar", "ppo-craftax": "PPO, Craftax-Classic", "dqn-breakout": "DQN, Breakout-MinAtar"}
+PODRACERS = {"anakin": ("Anakin (1 GPU)", SET1[1]), "sebulba": ("Sebulba (2 GPUs)", SET1[0])}
+LINEAR = {"color": "0.45", "linewidth": 0.8, "linestyle": (0, (4, 2))}
 
 # Returns that count as solved for the time-to-target column. Adjust once the
 # single-device runs show what each workload reaches.
@@ -104,88 +109,62 @@ def print_others(runs):
         print(f"| {name} | {run['sps']:,.0f} | {run['compile']:.0f} | {run['returns'][-1]:.1f} |")
 
 
-def compact(value, _=None):
-    if abs(value) >= 1e9:
-        return f"{value / 1e9:g}B"
-    if abs(value) >= 1e6:
-        return f"{value / 1e6:g}M"
-    if abs(value) >= 1e3:
-        return f"{value / 1e3:g}K"
-    return f"{value:g}"
-
-
 def style(axis):
-    for side in ("top", "right"):
-        axis.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        axis.spines[side].set_color(GRID)
-    axis.grid(True, color=GRID, linewidth=0.75, linestyle="-")
+    import matplotlib.pyplot as plt
+
+    axis.grid(True, alpha=0.2)
     axis.set_axisbelow(True)
-    axis.tick_params(colors=MUTED, labelsize=8, length=0)
-    axis.xaxis.label.set_color(INK)
-    axis.yaxis.label.set_color(INK)
-
-
-def spread(positions, gap):
-    """Moves sorted label positions apart until neighbours are at least gap apart."""
-    order = np.argsort(positions)
-    placed = np.array(positions, dtype=float)[order]
-    for _ in range(100):
-        moved = False
-        for i in range(1, len(placed)):
-            overlap = gap - (placed[i] - placed[i - 1])
-            if overlap > 1e-9:
-                placed[i - 1] -= overlap / 2
-                placed[i] += overlap / 2
-                moved = True
-        if not moved:
-            break
-    result = np.empty_like(placed)
-    result[order] = placed
-    return result
+    for spine in axis.spines.values():
+        spine.set_linewidth(plt.rcParams["axes.linewidth"])
 
 
 def draw_scaling(weak, strong, path):
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import NullLocator
 
-    figure, axes = plt.subplots(1, 2, figsize=(5.5, 2.3), constrained_layout=True)
+    plt.style.use(STYLE)
+    height = TEXT_WIDTH / 2 / GOLDEN_RATIO * 1.2
+    figure, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH, height), constrained_layout=True)
+    figure.get_layout_engine().set(w_pad=0.01, h_pad=0.01, wspace=0.06)
+    drawn = []
     for axis, table, title in ((axes[0], weak, "Weak scaling"), (axes[1], strong, "Strong scaling")):
         style(axis)
         devices = sorted({d for by_devices in table.values() for d in by_devices}) or [1]
-        axis.plot(devices, devices, color=MUTED, linewidth=1.0, linestyle=(0, (4, 3)), zorder=1)
-        labels = [("Linear", devices[-1], MUTED)]
-        for workload in COLORS:
+        axis.plot(devices, devices, zorder=1, **LINEAR)
+        for workload, color in COLORS.items():
             by_devices = table.get(workload)
             if not by_devices or 1 not in by_devices:
                 continue
             base = np.mean([r["sps"] for r in by_devices[1]])
             xs = sorted(by_devices)
             ys = [np.mean([r["sps"] for r in by_devices[d]]) / base for d in xs]
-            axis.plot(xs, ys, color=COLORS[workload], linewidth=1.5, solid_capstyle="round", marker="o", markersize=5,
-                      markeredgecolor=SURFACE, markeredgewidth=1.5, label=LABELS[workload], zorder=3)
-            labels.append((SHORT[workload], ys[-1], INK))
-        # Direct labels sit at the end of their lines, spread apart on the log axis so they never overlap.
-        heights = spread([np.log2(y) for _, y, _ in labels], gap=0.3)
-        for (text, _, color), height in zip(labels, heights):
-            axis.annotate(text, (devices[-1], 2**height), xytext=(5, 0), textcoords="offset points", color=color, fontsize=7, va="center", annotation_clip=False)
+            axis.plot(xs, ys, color=color, marker="o", markersize=3, zorder=3)
+            drawn.append(workload)
         axis.set_xscale("log", base=2)
         axis.set_yscale("log", base=2)
         axis.set_xticks(devices, [str(d) for d in devices])
-        axis.set_yticks(devices, [f"{d}x" for d in devices])
-        axis.set_xlabel("GPUs", fontsize=8)
-        axis.set_title(title, fontsize=9, color=INK, loc="left")
-    axes[0].set_ylabel("Speedup over one GPU", fontsize=8)
-    handles, labels = axes[0].get_legend_handles_labels()
-    if handles:
-        figure.legend(handles, labels, loc="outside lower center", ncol=3, frameon=False, fontsize=8)
-    figure.savefig(path, bbox_inches="tight")
+        axis.set_yticks(devices, [str(d) for d in devices])
+        axis.xaxis.set_minor_locator(NullLocator())
+        axis.yaxis.set_minor_locator(NullLocator())
+        axis.set_title(title)
+        axis.set_xlabel("GPUs")
+    axes[0].set_ylabel("Speedup over one GPU")
+    handles = [plt.Line2D([], [], color=COLORS[w], marker="o", markersize=3, label=LABELS[w]) for w in COLORS if w in drawn]
+    handles.append(plt.Line2D([], [], label="Linear", **LINEAR))
+    figure.legend(handles=handles, loc="outside upper center", ncol=len(handles), frameon=False)
+    figure.savefig(path)
+    plt.close(figure)
     print(f"wrote {path}")
 
 
 def draw_podracers(runs, path):
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
 
-    figure, axis = plt.subplots(figsize=(3.3, 2.3), constrained_layout=True)
+    plt.style.use(STYLE)
+    width = TEXT_WIDTH / 2
+    figure, axis = plt.subplots(figsize=(width, width / GOLDEN_RATIO * 1.25), constrained_layout=True)
+    figure.get_layout_engine().set(w_pad=0.01, h_pad=0.01)
     style(axis)
     for key, (label, color) in PODRACERS.items():
         group = [run for name, run in runs.items() if name.startswith(f"podracers-{key}-")]
@@ -196,18 +175,16 @@ def draw_podracers(runs, path):
         mean = returns.mean(axis=0)
         resampled = returns[np.random.default_rng(0).integers(0, len(returns), (2000, len(returns)))].mean(axis=1)
         low, high = np.percentile(resampled, [2.5, 97.5], axis=0)
-        axis.fill_between(steps, low, high, color=color, alpha=0.15, linewidth=0)
-        seeds = f"{len(group)} seed" + ("s" if len(group) > 1 else "")
-        axis.plot(steps, mean, color=color, linewidth=1.5, solid_capstyle="round", label=f"{label} ({seeds})")
-        axis.annotate(label, (steps[-1], mean[-1]), xytext=(4, 0), textcoords="offset points", color=INK, fontsize=8, va="center")
-    from matplotlib.ticker import FuncFormatter, MaxNLocator
-
-    axis.xaxis.set_major_locator(MaxNLocator(nbins=5))
-    axis.xaxis.set_major_formatter(FuncFormatter(compact))
-    axis.set_xlabel("Environment steps", fontsize=8)
-    axis.set_ylabel("Episode return", fontsize=8)
-    axis.legend(frameon=False, fontsize=8, loc="lower right")
-    figure.savefig(path, bbox_inches="tight")
+        axis.fill_between(steps / 1e6, low, high, color=color, alpha=0.2, linewidth=0)
+        axis.plot(steps / 1e6, mean, color=color, label=label, zorder=2)
+    axis.set_xlim(0, 20)
+    axis.set_xticks([0, 5, 10, 15, 20])
+    axis.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    axis.set_xlabel("Environment steps (millions)")
+    axis.set_ylabel("Episode return")
+    figure.legend(loc="outside upper center", ncol=2, frameon=False)
+    figure.savefig(path)
+    plt.close(figure)
     print(f"wrote {path}")
 
 
