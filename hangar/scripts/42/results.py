@@ -126,6 +126,25 @@ def style(axis):
     axis.yaxis.label.set_color(INK)
 
 
+def spread(positions, gap):
+    """Moves sorted label positions apart until neighbours are at least gap apart."""
+    order = np.argsort(positions)
+    placed = np.array(positions, dtype=float)[order]
+    for _ in range(100):
+        moved = False
+        for i in range(1, len(placed)):
+            overlap = gap - (placed[i] - placed[i - 1])
+            if overlap > 1e-9:
+                placed[i - 1] -= overlap / 2
+                placed[i] += overlap / 2
+                moved = True
+        if not moved:
+            break
+    result = np.empty_like(placed)
+    result[order] = placed
+    return result
+
+
 def draw_scaling(weak, strong, path):
     import matplotlib.pyplot as plt
 
@@ -134,7 +153,7 @@ def draw_scaling(weak, strong, path):
         style(axis)
         devices = sorted({d for by_devices in table.values() for d in by_devices}) or [1]
         axis.plot(devices, devices, color=MUTED, linewidth=1.0, linestyle=(0, (4, 3)), zorder=1)
-        axis.annotate("Linear", (devices[-1], devices[-1]), xytext=(4, 0), textcoords="offset points", color=MUTED, fontsize=8, va="center")
+        labels = [("Linear", devices[-1], MUTED)]
         for workload in COLORS:
             by_devices = table.get(workload)
             if not by_devices or 1 not in by_devices:
@@ -144,7 +163,11 @@ def draw_scaling(weak, strong, path):
             ys = [np.mean([r["sps"] for r in by_devices[d]]) / base for d in xs]
             axis.plot(xs, ys, color=COLORS[workload], linewidth=1.5, solid_capstyle="round", marker="o", markersize=5,
                       markeredgecolor=SURFACE, markeredgewidth=1.5, label=LABELS[workload], zorder=3)
-            axis.annotate(SHORT[workload], (xs[-1], ys[-1]), xytext=(4, 0), textcoords="offset points", color=INK, fontsize=7, va="center")
+            labels.append((SHORT[workload], ys[-1], INK))
+        # Direct labels sit at the end of their lines, spread apart on the log axis so they never overlap.
+        heights = spread([np.log2(y) for _, y, _ in labels], gap=0.3)
+        for (text, _, color), height in zip(labels, heights):
+            axis.annotate(text, (devices[-1], 2**height), xytext=(5, 0), textcoords="offset points", color=color, fontsize=7, va="center", annotation_clip=False)
         axis.set_xscale("log", base=2)
         axis.set_yscale("log", base=2)
         axis.set_xticks(devices, [str(d) for d in devices])
