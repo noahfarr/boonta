@@ -9,3 +9,7 @@ kwargs:
   normalize_obs: true
   penalize_time: true
   max_steps_in_episode: 250
+  # Named JaxUED mazes to play instead of random ones, for example
+  # [SixteenRooms, SixteenRooms2, Labyrinth, LabyrinthFlipped, Labyrinth2,
+  # StandardMaze, StandardMaze2, StandardMaze3] to evaluate on held-out mazes.
+  levels: null
