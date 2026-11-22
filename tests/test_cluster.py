@@ -50,6 +50,30 @@ def task(index: int, port: int) -> dict[str, str]:
     }
 
 
+def evaluate(directory: Path, overrides: list[str]) -> np.ndarray:
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("SLURM_")} | {
+        "JAX_PLATFORMS": "cpu",
+        "PYTHONPATH": os.pathsep.join(filter(None, [str(ROOT), os.environ.get("PYTHONPATH")])),
+    }
+    command = [sys.executable, str(ROOT / "hangar/evaluate.py"), *RUN[:2], "~artisan", "logger=file", f"hydra.run.dir={directory}", *overrides]
+    finished = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=600)
+    assert finished.returncode == 0, finished.stderr[-4000:]
+    with np.load(directory / "metrics.npz") as metrics:
+        return metrics["evaluation/episode_return"]
+
+
+def test_a_run_keeps_its_untrained_policy_which_evaluate_plays_without_a_checkpoint(tmp_path):
+    output = tmp_path / "train.log"
+    run = launch(tmp_path / "train", 1, ["logger=[file,orbax]", "hydra.run.dir=."], output)
+    assert run.wait(timeout=600) == 0, output.read_text()[-4000:]
+    checkpoints = tmp_path / "train" / "checkpoints" / "latest"
+    assert "0" in {path.name for path in checkpoints.iterdir()}
+
+    untrained = evaluate(tmp_path / "untrained", [])
+    saved = evaluate(tmp_path / "saved", [f"checkpoint={checkpoints / '0'}"])
+    np.testing.assert_array_equal(untrained, saved)
+
+
 def test_a_run_across_two_processes_equals_the_same_run_in_one(tmp_path):
     port = free_port()
     outputs = [tmp_path / f"process{index}.log" for index in range(2)] + [tmp_path / "single.log"]
