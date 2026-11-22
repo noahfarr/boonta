@@ -1,16 +1,3 @@
-"""Writes and submits the paper's experiments as Determined experiments on 42.
-
-    python hangar/scripts/42/experiments.py list [--only GROUP ...]
-    python hangar/scripts/42/experiments.py write --out outputs/42
-    python hangar/scripts/42/experiments.py submit --only podracers --project-id 338
-
-Each run trains with `boonta train` from the checkout on /pfss (see run.sh) and
-writes metrics.npz to /pfss/mlde/workspaces/mlde_wsp_RAI_WS/ar44ruca/runs/paper/<name>.
-Scaling runs take a whole node (8 slots) and use the first N GPUs, so that no other
-job shares the node and distorts the throughput. The README lists which paper
-table or figure each group feeds.
-"""
-
 import argparse
 import os
 import re
@@ -27,12 +14,9 @@ RUNS = f"{WORKSPACE}/ar44ruca/runs/paper"
 DEVICES = (1, 2, 4, 8)
 NODE = 8
 
-# gymnax has no Seaquest-MinAtar, although hangar has a configuration for it.
 MINATAR = ("breakout", "asterix", "freeway", "space_invaders")
 MUJOCO = ("hopper", "walker2d", "halfcheetah", "ant", "humanoid")
 OFFLINE = ("hopper", "walker2d", "halfcheetah")
-# PPO on MinAtar Breakout with the settings of quickstart.ipynb. hangar's defaults
-# learn Breakout far more slowly, which matters for curves and time to target.
 PPO_BREAKOUT = (
     "algorithm=ppo environment=gymnax/minatar/breakout environment.num_envs=8192 "
     "podracer.config.num_steps=16 algorithm.num_minibatches=16 algorithm.update_epochs=4 "
@@ -43,15 +27,10 @@ PPO_BREAKOUT = (
 PPO_CRAFTAX = "algorithm=ppo environment=craftax/craftax_classic/symbolic"
 DQN_BREAKOUT = "algorithm=dqn environment=gymnax/minatar/breakout"
 SEBULBA = "podracer=sebulba podracer.config.actor.start=1"
-# The eight hand-designed mazes JaxUED evaluates on.
 HELD_OUT_MAZES = ("SixteenRooms", "SixteenRooms2", "Labyrinth", "LabyrinthFlipped", "Labyrinth2", "StandardMaze", "StandardMaze2", "StandardMaze3")
 
-# XLA picks GPU kernels by timing when it compiles, so the same run can round
-# differently from one compilation to the next. These flags make it repeatable.
 DETERMINISTIC = ("XLA_FLAGS=--xla_gpu_deterministic_ops=true",)
-# Runs that boonta evaluate plays afterwards save orbax checkpoints.
 CHECKPOINTS = ("BOONTA_LOGGER=[file,orbax]",)
-# Overrides that only matter while training, which boonta evaluate does not take.
 TRAINING_ONLY = ("num_steps", "num_epochs", "environment.num_envs", "podracer.config.num_steps")
 
 
@@ -73,7 +52,6 @@ def check():
 
 
 def determinism():
-    """Whether two runs with the same seed match under deterministic XLA, and at what cost."""
     return [
         run(f"determinism-{copy}", "determinism",
             f"{PPO_BREAKOUT} podracer.config.mesh.count=1 num_steps=20_000_000 seed=0",
@@ -83,7 +61,6 @@ def determinism():
 
 
 def podracers(seeds):
-    """Figure 2. The same PPO and JAX environment with Anakin and with Sebulba."""
     runs = []
     for seed in seeds:
         runs.append(run(f"podracers-anakin-s{seed}", "podracers", f"{PPO_BREAKOUT} podracer.config.mesh.count=1 num_steps=20_000_000 seed={seed}", env=CHECKPOINTS))
@@ -91,15 +68,12 @@ def podracers(seeds):
     return runs
 
 
-# Per-GPU work stays fixed, so the global batch grows with the number of GPUs.
 WEAK = {
     "ppo-breakout": (PPO_BREAKOUT, 8192, 50_000_000, lambda d: ""),
     "ppo-craftax": (PPO_CRAFTAX, 1024, 50_000_000, lambda d: ""),
     "dqn-breakout": (DQN_BREAKOUT, 128, 5_000_000, lambda d: f"replay.capacity={262_144 * d} buffer.sample_batch_size={512 * d}"),
 }
 
-# The global batch stays fixed, so a run learns the same on any number of GPUs.
-# It is large enough to keep eight GPUs busy (8192 and 4096 environments per GPU).
 STRONG = {
     "ppo-breakout": (PPO_BREAKOUT, 65536, 200_000_000),
     "ppo-craftax": (PPO_CRAFTAX, 32768, 1_000_000_000),
@@ -107,7 +81,6 @@ STRONG = {
 
 
 def weak():
-    """Figure 3, left. Throughput with a fixed number of environments per GPU."""
     runs = []
     for workload, (args, envs, steps, extra) in WEAK.items():
         for devices in DEVICES:
@@ -118,7 +91,6 @@ def weak():
 
 
 def strong(seeds):
-    """Figure 3, right. Speedup and time to a target return with a fixed global batch."""
     runs = []
     for workload, (args, envs, steps) in STRONG.items():
         for devices in DEVICES:
@@ -129,7 +101,6 @@ def strong(seeds):
 
 
 def autoreset(seeds):
-    """Appendix C. Throughput and return with each auto-reset strategy."""
     return [
         run(f"autoreset-{strategy}-s{seed}", "autoreset",
             f"{PPO_BREAKOUT} environment/auto_reset={strategy} podracer.config.mesh.count=1 num_steps=20_000_000 seed={seed}")
@@ -139,11 +110,6 @@ def autoreset(seeds):
 
 
 def reproduction(seeds, few_seeds):
-    """Table 5. Returns against published results, with hangar's settings for each combination.
-
-    MinAtar, BC and IQL save checkpoints for the evaluation group, since Freeway episodes
-    rarely end inside an epoch and offline training logs no returns.
-    """
     runs = []
     for game in MINATAR:
         env = f"environment=gymnax/minatar/{game}"
@@ -158,17 +124,10 @@ def reproduction(seeds, few_seeds):
     for task in OFFLINE:
         for algorithm in ("bc", "iql"):
             for seed in few_seeds:
-                # The checkpoint artisan needs #127 for runs that log no returns.
                 runs.append(run(f"reproduce-{algorithm}-{task}-s{seed}", "reproduction", f"algorithm={algorithm} environment=brax/mujoco/{task} podracer.config.mesh.count=1 seed={seed}", env=CHECKPOINTS))
     return runs
 
 
-# DQN with the settings of the MinAtar paper (Young & Tian, 2019) that boonta's DQN can
-# take as configuration: one environment, one update per step, batch 32, a 100k buffer that
-# starts sampling after 5000 steps, lr 2.5e-4, epsilon from 1 to 0.1 over about 100k steps and
-# 5M steps. tau=0.001 stands in for a hard target copy every 1000 updates. The network keeps
-# its LayerNorm, the optimizer stays Adam and the loss stays squared error. 50 epochs make each
-# logged return an average over 100k steps, close to the paper's average over 100 episodes.
 DQN_MINATAR_PAPER = (
     "algorithm=dqn environment.num_envs=1 algorithm.updates_per_step=1 algorithm.tau=0.001 "
     "replay.capacity=100000 buffer.sample_batch_size=32 buffer.min_length_time_axis=5000 "
@@ -177,16 +136,10 @@ DQN_MINATAR_PAPER = (
 )
 
 
-# The five games of the MinAtar paper. Only the official package has Seaquest.
 MINATAR_PAPER = ("asterix", "breakout", "freeway", "seaquest", "space_invaders")
 
 
 def dqn_paper(seeds):
-    """Table 5. boonta's DQN as it is, with the MinAtar paper's settings where they are configuration.
-
-    The official games (needs #129 and the minatar extra on the cluster) are the comparison
-    with the paper. The gymnax games show how much the port alone changes the returns.
-    """
     official = [
         run(f"dqn-paper-official-{game}-s{seed}", "dqn-paper", f"{DQN_MINATAR_PAPER} environment=gymnasium/minatar/{game} podracer.config.mesh.count=1 seed={seed}")
         for game in MINATAR_PAPER
@@ -201,19 +154,14 @@ def dqn_paper(seeds):
 
 
 def evaluation_args(trained):
-    """The overrides of a training run that boonta evaluate takes."""
     args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
-    # Every checkpoint plays with Anakin on one GPU, whichever podracer trained it.
     args = [arg for arg in args if not arg.startswith(("podracer=", "podracer.config.actor"))]
-    # DQN's checkpoint holds its replay buffer, whose shape follows the number of
-    # environments, so it plays with the 128 of hangar's DQN instead of evaluate's 64.
     if "algorithm=dqn" in args:
         args.append("environment.num_envs=128")
     return [*args, "~artisan"]
 
 
 def checkpoint_steps(trained):
-    """The steps at which boonta train saved a checkpoint of the run, step 0 included."""
     import sys
 
     sys.path.insert(0, str(HERE.parents[2]))
@@ -231,7 +179,6 @@ def checkpoint_steps(trained):
 
 
 def evaluation(seeds, few_seeds):
-    """Table 5. boonta evaluate of the last checkpoint of every reproduction run that saves one."""
     runs = []
     for trained in reproduction(seeds, few_seeds):
         if trained["env"] != list(CHECKPOINTS):
@@ -243,11 +190,6 @@ def evaluation(seeds, few_seeds):
 
 
 def curves(seeds, few_seeds):
-    """Figure 2 and Appendix E. boonta evaluate of every checkpoint of a run, one multirun per run.
-
-    Needs #130. The podracer runs keep a checkpoint at step 0. The MinAtar runs finished
-    before #130, so their step 0 is the untrained policy of the same seed (checkpoint=null).
-    """
     trained = [*podracers(seeds), *(r for r in reproduction(seeds, few_seeds) if r["env"] == list(CHECKPOINTS) and "minatar" in r["args"])]
     runs = []
     for one in trained:
@@ -261,11 +203,6 @@ def curves(seeds, few_seeds):
 
 
 def curricula(seeds, few_seeds):
-    """Section 5, curricula. Recurrent PPO on JaxUED mazes with PLR and with domain randomization.
-
-    Training returns are not comparable between curricula, since PLR replays the levels
-    it finds hardest. The runs save checkpoints, which the mazes group evaluates.
-    """
     maze = "algorithm=recurrent_ppo environment=jaxued/maze"
     runs = []
     for seed in seeds:
@@ -277,10 +214,6 @@ def curricula(seeds, few_seeds):
 
 
 def mazes(seeds, few_seeds):
-    """Section 5, curricula. Each curriculum run's last checkpoint, played greedily on every held-out maze.
-
-    Needs the curricula group to have finished and #128 on the cluster.
-    """
     levels = ",".join(f"[{maze}]" for maze in HELD_OUT_MAZES)
     return [
         run(
@@ -293,13 +226,10 @@ def mazes(seeds, few_seeds):
     ]
 
 
-# Steps for a short check of every reproduction and curriculum configuration, so
-# that replay buffers fill and every algorithm updates at least twice.
 SMOKE_STEPS = {"dqn": 16_384, "sac": 16_384, "bc": 1_024, "iql": 1_024}
 
 
 def smoke():
-    """One short run per reproduction and curriculum configuration before the full runs."""
     runs = []
     for full in [*reproduction(range(1), range(1)), *curricula(range(1), range(1))]:
         algorithm = re.search(r"algorithm=(\S+)", full["args"]).group(1)

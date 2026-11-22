@@ -1,13 +1,3 @@
-"""Summarises the paper's runs and draws the scaling and podracer figures.
-
-    python hangar/scripts/42/results.py runs/paper --pull 42:/pfss/mlde/workspaces/mlde_wsp_RAI_WS/ar44ruca/runs/paper
-    python hangar/scripts/42/results.py runs/paper --figures paper/figures
-
---pull copies only the metrics.npz files with rsync. Set RSYNC_RSH, for example to
-"ssh -J ias", when the cluster is only reachable through another host. Runs are
-read from <runs>/<name>/metrics.npz, with names as written by experiments.py.
-"""
-
 import argparse
 import os
 import re
@@ -17,20 +7,15 @@ from pathlib import Path
 
 import numpy as np
 
-# Figures share the style of the paper's other plots and are drawn at the width they take
-# on the page (NeurIPS text width 5.5 in), so their fonts match the body text.
 STYLE = Path(__file__).parent / "paper.mplstyle"
 TEXT_WIDTH = 5.5
 GOLDEN_RATIO = 1.618
-# matplotlib's Set1: red, blue, green.
 SET1 = ("#e41a1c", "#377eb8", "#4daf4a")
 COLORS = {"ppo-breakout": SET1[1], "ppo-craftax": SET1[0], "dqn-breakout": SET1[2]}
 LABELS = {"ppo-breakout": "PPO, Breakout-MinAtar", "ppo-craftax": "PPO, Craftax-Classic", "dqn-breakout": "DQN, Breakout-MinAtar"}
 PODRACERS = {"anakin": ("Anakin (1 GPU)", SET1[1]), "sebulba": ("Sebulba (2 GPUs)", SET1[0])}
 LINEAR = {"color": "0.45", "linewidth": 0.8, "linestyle": (0, (4, 2))}
 
-# Returns that count as solved for the time-to-target column. Adjust once the
-# single-device runs show what each workload reaches.
 TARGETS = {"ppo-breakout": 40.0, "ppo-craftax": 10.0, "dqn-breakout": 20.0}
 
 
