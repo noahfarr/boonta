@@ -12,11 +12,13 @@ export JAX_COMPILATION_CACHE_DIR=${JAX_COMPILATION_CACHE_DIR:-$R/jax_compilation
 
 cd "$R/boonta"
 echo "commit $(git -c safe.directory='*' rev-parse --short HEAD) run $RUN_NAME"
-echo "args $BOONTA_ARGS"
+echo "command ${BOONTA_COMMAND:-train} args $BOONTA_ARGS"
 echo "XLA_FLAGS ${XLA_FLAGS:-}"
 nvidia-smi --query-gpu=index,name --format=csv,noheader || true
 
 # BOONTA_ARGS holds space-separated Hydra overrides, so it is split on purpose.
+# A run may set BOONTA_COMMAND=evaluate, and BOONTA_LOGGER=[file,orbax] to save
+# checkpoints.
 # shellcheck disable=SC2086
-exec ./.venv/bin/boonta train $BOONTA_ARGS logger=file \
+exec ./.venv/bin/boonta "${BOONTA_COMMAND:-train}" $BOONTA_ARGS "logger=${BOONTA_LOGGER:-file}" \
   "hydra.run.dir=$R/runs/paper/$RUN_NAME"

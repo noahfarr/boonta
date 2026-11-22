@@ -161,14 +161,19 @@ def reproduction(seeds, few_seeds):
 
 
 def curricula(seeds, few_seeds):
-    """Section 5, curricula. Recurrent PPO on JaxUED mazes with PLR and with domain randomization."""
+    """Section 5, curricula. Recurrent PPO on JaxUED mazes with PLR and with domain randomization.
+
+    Training returns are not comparable between curricula, since PLR replays the levels
+    it finds hardest. The runs save checkpoints, which the mazes group evaluates.
+    """
     maze = "algorithm=recurrent_ppo environment=jaxued/maze"
+    checkpoints = ("BOONTA_LOGGER=[file,orbax]",)
     runs = []
     for seed in seeds:
-        runs.append(run(f"curricula-plr-s{seed}", "curricula", f"{maze} curriculum=plr podracer.config.mesh.count=1 seed={seed}"))
-        runs.append(run(f"curricula-dr-s{seed}", "curricula", f"{maze} podracer.config.mesh.count=1 seed={seed}"))
+        runs.append(run(f"curricula-plr-s{seed}", "curricula", f"{maze} curriculum=plr podracer.config.mesh.count=1 seed={seed}", env=checkpoints))
+        runs.append(run(f"curricula-dr-s{seed}", "curricula", f"{maze} podracer.config.mesh.count=1 seed={seed}", env=checkpoints))
     for seed in few_seeds:
-        runs.append(run(f"curricula-plr-sebulba-s{seed}", "curricula", f"{maze} curriculum=plr {SEBULBA} seed={seed}", 2))
+        runs.append(run(f"curricula-plr-sebulba-s{seed}", "curricula", f"{maze} curriculum=plr {SEBULBA} seed={seed}", 2, env=checkpoints))
     return runs
 
 
@@ -186,7 +191,7 @@ def smoke():
         steps = SMOKE_STEPS.get(algorithm, 524_288)
         name = "smoke-" + full["name"].removesuffix("-s0")
         args = re.sub(r"(^|\s)num_steps=\S+", "", full["args"])
-        runs.append(run(name, "smoke", f"{args} num_steps={steps} num_epochs=2", full["slots"]))
+        runs.append(run(name, "smoke", f"{args} num_steps={steps} num_epochs=2", full["slots"], full["env"]))
     return runs
 
 
