@@ -29,7 +29,7 @@ class GPT2Layer(Block):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=nn.initializers.normal(INITIALIZATION_STD),
-            output_kernel_init=self.residual_init(),
+            out_kernel_init=self.residual_init(),
             name="attention",
         )
 

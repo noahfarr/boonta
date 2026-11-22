@@ -50,9 +50,8 @@ class Quadinaros:
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
-        batch = self.dataset.sample(
-            state.dataset_state, sample_key, self.config.batch_shape,
-            step=state.algorithm_state.step,
+        dataset_state, batch = self.dataset.sample(
+            state.dataset_state, sample_key, self.config.batch_shape
         )
         batch = jax.lax.with_sharding_constraint(
             batch, NamedSharding(self.config.mesh, P("data"))
@@ -64,7 +63,9 @@ class Quadinaros:
             step=algorithm_state.step + self.batch_size
         )
         pit_state = self.pit.update(state.pit_state, pit_key, batch, algorithm_state)
-        state = state.replace(algorithm_state=algorithm_state, pit_state=pit_state)
+        state = state.replace(
+            algorithm_state=algorithm_state, dataset_state=dataset_state, pit_state=pit_state
+        )
         return self.pit(call_key, state), None
 
     def rollout(self, state: QuadinarosState, key, temperature):

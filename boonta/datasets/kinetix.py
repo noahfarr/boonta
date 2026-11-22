@@ -99,15 +99,15 @@ class Kinetix:
         pass
 
     def sample(
-        self, state: KinetixState, key: Key, batch_shape: tuple[int, ...], *, step=None
-    ) -> Transition:
+        self, state: KinetixState, key: Key, batch_shape: tuple[int, ...]
+    ) -> tuple[KinetixState, Transition]:
         assert tuple(batch_shape) == (self.batch_size, self.length), (
             f"quadinaros asks for batch_shape {tuple(batch_shape)} but the "
             f"manager yields ({self.batch_size}, {self.length}) trajectories "
             f"of fixed length. Set batch_shape to match."
         )
-        del state, key
-        return self.weave(self.unpack(io_callback(self.serve, self.shapes, ordered=False)))
+        del key
+        return state, self.weave(self.unpack(io_callback(self.serve, self.shapes, ordered=False)))
 
     def levels(self):
         batch = self.manager.validation_batch

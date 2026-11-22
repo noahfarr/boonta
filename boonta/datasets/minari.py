@@ -55,8 +55,8 @@ class Minari:
         self.executor.shutdown(wait=True, cancel_futures=True)
 
     def sample(
-        self, state: MinariState, key: Key, batch_shape: tuple[int, ...], *, step=None
-    ) -> Transition:
+        self, state: MinariState, key: Key, batch_shape: tuple[int, ...]
+    ) -> tuple[MinariState, Transition]:
         assert len(batch_shape) == 1, (
             f"minari samples single transitions, so batch_shape must be "
             f"(batch,), got {batch_shape}"
@@ -64,7 +64,7 @@ class Minari:
         leaf, *_ = jax.tree.leaves(state.transitions)
         size, *_ = leaf.shape
         index = jax.random.randint(key, batch_shape, 0, size)
-        return jax.tree.map(lambda x: x[index], state.transitions)
+        return state, jax.tree.map(lambda x: x[index], state.transitions)
 
 
 def convert(episode) -> Transition:

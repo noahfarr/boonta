@@ -9,6 +9,7 @@ from boonta.utils import Timestep, Transition
 @struct.dataclass(frozen=True)
 class FineWebState:
     transitions: Transition = struct.field(metadata={"axis": "data"})
+    cursor: jax.Array
 
 
 class FineWeb:
@@ -41,7 +42,8 @@ class FineWeb:
                 ),
                 second=Timestep(obs=None, action=windows[:, 1:]),
                 aux={},
-            )
+            ),
+            np.int32(0),
         )
 
     def init(self):
@@ -51,13 +53,13 @@ class FineWeb:
         seed = int(np.asarray(jax.random.bits(key, (), dtype=np.uint32)))
         return jax.device_put(self.pool(seed), sharding)
 
-    def sample(self, state, key, batch_shape, *, step=None):
+    def sample(self, state, key, batch_shape):
         batch_size, length = batch_shape
         if length != self.length:
             raise ValueError(f"FineWeb expects (batch, {self.length}), got {batch_shape}")
-        start = (step // self.length) % self.pool_size
-        indices = start + jnp.arange(batch_size)
-        return jax.tree.map(lambda leaf: jnp.asarray(leaf)[indices], state.transitions)
+        indices = (state.cursor + jnp.arange(batch_size)) % self.pool_size
+        batch = jax.tree.map(lambda leaf: jnp.asarray(leaf)[indices], state.transitions)
+        return state.replace(cursor=(state.cursor + batch_size) % self.pool_size), batch
 
     def close(self):
         pass

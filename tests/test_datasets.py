@@ -245,7 +245,7 @@ def manager():
 def kinetix_sample():
     dataset = Kinetix(manager(), render=None, batch_size=TRAJECTORIES)
     return jax.jit(
-        lambda: dataset.sample(dataset.init(), jax.random.key(0), (TRAJECTORIES, STEPS))
+        lambda: dataset.sample(dataset.init(), jax.random.key(0), (TRAJECTORIES, STEPS))[1]
     )()
 
 
@@ -274,3 +274,21 @@ def test_kinetix_refuses_a_shape_it_cannot_serve(shape):
     dataset = Kinetix(manager(), render=None, batch_size=TRAJECTORIES)
     with pytest.raises(AssertionError):
         dataset.sample(dataset.init(), jax.random.key(0), shape)
+
+
+def test_fineweb_walks_through_its_pool_without_repeating_a_window(tmp_path):
+    from boonta.datasets.fineweb import FineWeb
+
+    path = tmp_path / "train.bin"
+    np.arange(4096, dtype="<u2").tofile(path)
+    dataset = FineWeb(str(path), length=8, pool_size=6, seed=0)
+    state = dataset.init()
+    sample = jax.jit(lambda state: dataset.sample(state, jax.random.key(0), (2, 8)))
+    windows = []
+    for _ in range(4):
+        state, batch = sample(state)
+        windows.extend(map(tuple, np.asarray(batch.first.obs)))
+    first_pass, second_pass = windows[:6], windows[6:]
+    assert len(set(first_pass)) == 6
+    assert second_pass == first_pass[:2]
+    assert int(state.cursor) == 8 % 6
