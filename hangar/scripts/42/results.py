@@ -56,6 +56,19 @@ def collect(root):
     return runs
 
 
+def collect_curves(root):
+    curves = {}
+    for run in sorted(root.glob("curve-*")):
+        points = []
+        for path in run.glob("*/metrics.npz"):
+            with np.load(path) as data:
+                points.append((float(data["steps"].ravel()[-1]), float(np.nanmean(data["evaluation/episode_return"]))))
+        if points:
+            steps, returns = (np.array(values) for values in zip(*sorted(points)))
+            curves[run.name] = {"steps": steps, "returns": returns}
+    return curves
+
+
 def scaling(runs, kind):
     table = defaultdict(lambda: defaultdict(list))
     pattern = re.compile(rf"^{kind}-(.+)-(\d+)gpu(?:-s\d+)?$")
@@ -142,7 +155,7 @@ def draw_scaling(weak, strong, path):
     print(f"wrote {path}")
 
 
-def draw_podracers(runs, path):
+def draw_podracers(curves, path):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
 
@@ -152,11 +165,11 @@ def draw_podracers(runs, path):
     figure.get_layout_engine().set(w_pad=0.01, h_pad=0.01)
     style(axis)
     for key, (label, color) in PODRACERS.items():
-        group = [run for name, run in runs.items() if name.startswith(f"podracers-{key}-")]
+        group = [curve for name, curve in curves.items() if name.startswith(f"curve-podracers-{key}-")]
         if not group:
             continue
-        steps = group[0]["steps"][1:]
-        returns = np.stack([run["returns"][1 : len(steps) + 1] for run in group])
+        steps = group[0]["steps"]
+        returns = np.stack([curve["returns"] for curve in group])
         mean = returns.mean(axis=0)
         resampled = returns[np.random.default_rng(0).integers(0, len(returns), (2000, len(returns)))].mean(axis=1)
         low, high = np.percentile(resampled, [2.5, 97.5], axis=0)
@@ -191,7 +204,7 @@ def main():
     if args.figures:
         args.figures.mkdir(parents=True, exist_ok=True)
         draw_scaling(weak, strong, args.figures / "scaling.pdf")
-        draw_podracers(runs, args.figures / "podracers.pdf")
+        draw_podracers(collect_curves(args.runs), args.figures / "podracers.pdf")
 
 
 if __name__ == "__main__":
