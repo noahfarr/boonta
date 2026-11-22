@@ -20,6 +20,7 @@ class IQLConfig:
     expectile: float = 0.7
     beta: float = 3.0
     max_advantage_weight: float = 100.0
+    reward_scale: float = 1.0
 
 
 @struct.dataclass(frozen=True)
@@ -111,7 +112,7 @@ class IQL:
                 self.value.apply(state.value_params, transitions.second.obs)
             )
             target_q_value = (
-                transitions.second.reward
+                self.cfg.reward_scale * transitions.second.reward
                 + self.cfg.gamma * (1.0 - transitions.second.terminated) * next_value
             )
 
