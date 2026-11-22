@@ -121,6 +121,17 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def fineweb_dataset(directory):
+    path = directory / "train.bin"
+    (np.arange(256, dtype="<u2") % 32).tofile(path)
+    return [
+        f"dataset.dataset_id={path}", "dataset.kwargs.pool_size=4",
+        "dataset.kwargs.length=16", "algorithm.batch_size=4", "network.vocab_size=32",
+        "cell.features=16", "num_layers=1", "cell.num_heads=2", "cell.context_length=16",
+        "network.dtype=float32", "optimizer.warmup_updates=1",
+    ]
+
+
 MINATAR = "gymnax/minatar/breakout"
 HOPPER = "brax/mujoco/hopper"
 
@@ -188,6 +199,7 @@ CASES = [
     ),
     ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
     ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_bc", "fineweb", None, fineweb_dataset),
 ]
 
 
@@ -291,6 +303,9 @@ def test_every_recipe_builds_and_runs_one_update(
 
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 1)
+    if environment == "fineweb":
+        assert np.isfinite(np.asarray(logs["network/nll"])).all()
+        assert int(state.algorithm_state.step) == cfg.algorithm.batch_size * cfg.dataset.kwargs.length
     for name, values in logs.items():
         values = np.asarray(values, dtype=np.float64)
         assert not np.isinf(values).any(), name

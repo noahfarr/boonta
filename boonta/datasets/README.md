@@ -6,7 +6,7 @@ A dataset is a fixed set of recorded transitions that the [`quadinaros`](../podr
 | --- | --- | --- |
 | `init()` | once, on the host | returns the dataset state |
 | `update(state, key, sharding)` | on the host, once per `train` call | returns the state for the next epoch |
-| `sample(state, key, batch_shape)` | inside the jitted training scan | returns a batch as a `Transition` |
+| `sample(state, key, batch_shape)` | inside the jitted training scan | returns the next state and a batch as a `Transition` |
 | `close()` | at the end of the run | stops any background work |
 
 The state rides inside the podracer state and is split across devices along `data`. So mark the fields of a state dataclass with `metadata={"axis": "data"}`. `sample` must be pure JAX, because it runs inside `jax.jit`. `update` runs outside it, just before each `train` call's jitted scan, so one state lasts one epoch. Raising `num_epochs` refreshes it more often.
@@ -62,11 +62,11 @@ Both trim the rows to a multiple of `num_devices`, so the state splits evenly. `
        def update(self, state, key, sharding) -> EpisodesState:
            return state
 
-       def sample(self, state, key, batch_shape) -> Transition:
+       def sample(self, state, key, batch_shape):
            batch_size, *_ = batch_shape
            count, *_ = state.transitions.second.reward.shape
            index = jax.random.randint(key, (batch_size,), 0, count)
-           return jax.tree.map(lambda leaf: leaf[index], state.transitions)
+           return state, jax.tree.map(lambda leaf: leaf[index], state.transitions)
 
        def close(self) -> None:
            pass

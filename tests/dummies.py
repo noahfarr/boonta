@@ -373,11 +373,11 @@ class Episodes:
     def update(self, state, key, sharding) -> EpisodesState:
         return state
 
-    def sample(self, state, key, batch_shape) -> Transition:
+    def sample(self, state, key, batch_shape):
         batch_size, *_ = batch_shape
         count, *_ = state.transitions.second.reward.shape
         index = jax.random.randint(key, (batch_size,), 0, count)
-        return jax.tree.map(lambda leaf: leaf[index], state.transitions)
+        return state, jax.tree.map(lambda leaf: leaf[index], state.transitions)
 
     def close(self) -> None:
         pass
