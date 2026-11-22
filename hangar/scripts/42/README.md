@@ -8,14 +8,30 @@ These scripts run the paper's experiments on the hessian.AI 42 cluster through D
 
 ## Runs
 
-| Group | Runs | What it measures |
-| --- | --- | --- |
-| `check` | PPO and MinGRU recurrent PPO on 2 GPUs, PPO with Sebulba | that the current code trains on GPUs |
-| `weak` | PPO and DQN on MinAtar Breakout, PPO on Craftax-Classic, on 1, 2, 4 and 8 GPUs | throughput with a fixed number of environments per GPU |
-| `strong` | the same workloads with a fixed global batch, three seeds | speedup and wall-clock time to a target return with unchanged learning dynamics |
-| `podracers` | the same PPO on Breakout with Anakin and with Sebulba, three seeds | learning curves when only the podracer changes |
+| Group | Paper | Runs | Seeds | GPUs per run |
+| --- | --- | --- | --- | --- |
+| `check` | none | PPO and MinGRU recurrent PPO on 2 GPUs, PPO with Sebulba | 1 | 2 |
+| `podracers` | Figure 2 | the same PPO on MinAtar Breakout with Anakin and with Sebulba | 10 | 1 and 2 |
+| `weak` | Figure 3, left | PPO on Breakout, PPO on Craftax-Classic and DQN on Breakout on 1, 2, 4 and 8 GPUs, with fixed work per GPU | 1 | 8 (whole node) |
+| `strong` | Figure 3, right | the same workloads with a fixed global batch | 3 | 8 (whole node) |
+| `autoreset` | Appendix C | PPO on Breakout with same-step, next-step and optimistic auto-reset | 3 | 1 |
+| `reproduction` | Table 5 | PPO, DQN and PQN on five MinAtar games, SAC on five Brax MuJoCo tasks, BC and IQL on three Minari expert datasets, IPPO and MAPPO on four SMAX scenarios | 10 on MinAtar, 5 otherwise | 1 |
+| `curricula` | Section 5, curricula | recurrent PPO on JaxUED mazes with PLR and with domain randomization, and PLR with Sebulba | 10, 5 with Sebulba | 1 and 2 |
 
-Scaling runs request a whole node (8 slots) and use the first N GPUs, so no other job shares the node. The workspace limit is 24 slots, so submit one group at a time.
+That is 350 runs and 704 slot-runs. PPO on Breakout uses the settings of `quickstart.ipynb`, since hangar's defaults learn Breakout far more slowly. All other combinations use hangar's settings. Scaling runs take a whole node and use its first N GPUs, so that no other job shares the node. The workspace limit is 24 slots, so submit one group at a time.
+
+### Before submitting
+
+- The environment on `/pfss` needs the suites the runs use. Install them with `uv sync --frozen --no-dev --extra hangar --extra gymnax --extra jaxued --extra brax --extra jaxmarl --extra craftax --extra minari` from a shell in the checkout.
+- `TARGETS` in `results.py` sets the returns for time to target. Set them from the one-GPU strong-scaling runs.
+
+### Not configured yet
+
+- Two-host runs. `hangar/train.py` starts `jax.distributed` from SLURM, MPI or JAX variables, which Determined does not set, so `run.sh` needs to translate Determined's distributed launcher first.
+- Sebulba throughput as a function of the number of actor GPUs, which is only meaningful with an environment outside JAX. PPO has no ALE recipe, and the ALE adapter needs its native library built.
+- The baselines (PureJaxRL, Stoix, Cleanba and Brax's multi-device PPO). Each needs its own environment on `/pfss` at a pinned commit and a runner script.
+- Evaluation on JaxUED's held-out mazes, which its reference numbers use. boonta evaluates on random mazes only.
+- The league, which has no hangar configuration, and a second algorithm with PLR.
 
 ## Steps
 
