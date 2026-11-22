@@ -153,6 +153,41 @@ def dqn_paper(seeds):
     return official + gymnax
 
 
+CARTPOLE = "algorithm=ppo environment=gymnasium/cartpole"
+PRECISION = "algorithm=recurrent_pupo environment=gymnax/minatar/breakout cell=min_gru podracer.config.mesh.count=1 num_steps=20_000_000"
+
+
+def breadth(seeds):
+    return [
+        *(run(f"cartpole-s{seed}", "cartpole", f"{CARTPOLE} {SEBULBA} seed={seed}", 2) for seed in seeds),
+        *(run(f"wordle-s{seed}", "wordle", f"algorithm=recurrent_grpo environment=dune_sea/wordle seed={seed}") for seed in range(3)),
+    ]
+
+
+def precision(seeds):
+    return [
+        run(f"precision-{dtype}-s{seed}", "precision", f"{PRECISION} network.dtype={dtype} seed={seed}")
+        for dtype in ("float32", "bfloat16")
+        for seed in seeds
+    ]
+
+
+def actors():
+    return [
+        run(f"actors-{count}-s0", "actors", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count={count} seed=0", count + 1)
+        for count in (1, 2, 4, 7)
+    ]
+
+
+def probe():
+    return [
+        run("probe-wordle", "probe", "algorithm=recurrent_grpo environment=dune_sea/wordle num_steps=4096 num_epochs=2 seed=0"),
+        run("probe-cartpole", "probe", f"{CARTPOLE} {SEBULBA} num_steps=65536 num_epochs=2 seed=0", 2),
+        run("probe-precision", "probe", f"{PRECISION} network.dtype=bfloat16 num_steps=1_000_000 num_epochs=2 seed=0".replace("num_steps=20_000_000 ", "")),
+        run("probe-actors", "probe", f"{CARTPOLE} podracer=sebulba podracer.config.actor.start=1 podracer.config.actor.count=2 num_steps=65536 num_epochs=2 seed=0", 3),
+    ]
+
+
 def evaluation_args(trained):
     args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
     args = [arg for arg in args if not arg.startswith(("podracer=", "podracer.config.actor"))]
@@ -255,6 +290,10 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *curricula(seeds, few_seeds),
         *mazes(seeds, few_seeds),
         *smoke(),
+        *breadth(seeds),
+        *precision(range(3)),
+        *actors(),
+        *probe(),
     ]
 
 
