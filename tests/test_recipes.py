@@ -126,6 +126,7 @@ HOPPER = "brax/mujoco/hopper"
 
 CASES = [
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
+    ("dqn", "gymnasium/minatar/breakout", installed("minatar"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
     ("ppo", "dune_sea/chain_of_forks", None, False),
