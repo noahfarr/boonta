@@ -416,7 +416,7 @@ def active_slots(project_id):
 
 
 def wait_for_slots(project_id, slots, max_slots):
-    while active_slots(project_id) + slots > max_slots:
+    while active_slots(project_id) + slots > max(max_slots, slots):
         time.sleep(60)
 
 
@@ -424,7 +424,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["list", "write", "submit"])
     parser.add_argument("--only", nargs="*", help="groups, run names or name prefixes to include")
-    parser.add_argument("--max-slots", type=int, help="wait until the project holds at most this many slots, needs DET_MASTER and DET_USER_TOKEN")
+    parser.add_argument("--max-slots", type=int, help="wait until the project holds at most this many slots, or runs a larger run alone, needs DET_MASTER and DET_USER_TOKEN")
     parser.add_argument("--seeds", type=int, default=10, help="seeds for curves and returns")
     parser.add_argument("--few-seeds", type=int, default=5, help="seeds for the slower reproduction and Sebulba runs")
     parser.add_argument("--scaling-seeds", type=int, default=3, help="seeds for strong scaling and auto-reset")
