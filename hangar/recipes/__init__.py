@@ -49,6 +49,7 @@ from . import (
 register = {
     ("bc", "brax", "mujoco"): bc_mujoco.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
+    ("dqn", "gymnasium", "minatar"): dqn_minatar.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
     ("ippo", "bluffjax", "bluffjax"): ippo_bluffjax.make,
     ("ippo", "dune_sea", "connectx"): ippo_connectx.make,

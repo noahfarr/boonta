@@ -92,6 +92,9 @@ mapox = [
 minari = [
     "minari[hdf5]>=0.5.3",
 ]
+minatar = [
+    "minatar>=1.0.15",
+]
 mujoco-playground = [
     "ml-collections",
     "playground",
@@ -201,6 +204,7 @@ dev = [
     "huggingface-hub>=1.24.0",
     "jinja2>=3.1",
     "minari[hdf5]>=0.5.3",
+    "minatar>=1.0.15",
     "pillow>=10.0",
     "pytest>=8",
     "rich>=15.0.0",

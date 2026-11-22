@@ -1,0 +1,11 @@
+# The official MinAtar, with sticky actions and the full action set (v0) of Young & Tian (2019).
+# gymnax/minatar has neither, ends Asterix, Breakout and Space Invaders after 1000 steps
+# and has no Seaquest.
+namespace: gymnasium
+suite: minatar
+env_id: boonta.environments.register_minatar:MinAtar/SpaceInvaders-v0
+# Gymnasium's vector environment resets each episode itself.
+auto_reset: null
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: sync
