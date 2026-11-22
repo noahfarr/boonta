@@ -163,6 +163,29 @@ def reproduction(seeds, few_seeds):
     return runs
 
 
+# DQN with the settings of the MinAtar paper (Young & Tian, 2019) that boonta's DQN can
+# take as configuration: one environment, one update per step, batch 32, a 100k buffer that
+# starts sampling after 5000 steps, lr 2.5e-4, epsilon from 1 to 0.1 over about 100k steps and
+# 5M steps. tau=0.001 stands in for a hard target copy every 1000 updates. The network keeps
+# its LayerNorm, the optimizer stays Adam and the loss stays squared error. 50 epochs make each
+# logged return an average over 100k steps, close to the paper's average over 100 episodes.
+DQN_MINATAR_PAPER = (
+    "algorithm=dqn environment.num_envs=1 algorithm.updates_per_step=1 algorithm.tau=0.001 "
+    "replay.capacity=100000 buffer.sample_batch_size=32 buffer.min_length_time_axis=5000 "
+    "optimizer.lr=2.5e-4 exploration.end=0.1 exploration.fraction=0.021 "
+    "num_steps=5_000_000 num_epochs=50"
+)
+
+
+def dqn_paper(seeds):
+    """Table 5. boonta's DQN as it is, with the MinAtar paper's settings where they are configuration."""
+    return [
+        run(f"dqn-paper-{game}-s{seed}", "dqn-paper", f"{DQN_MINATAR_PAPER} environment=gymnax/minatar/{game} podracer.config.mesh.count=1 seed={seed}")
+        for game in MINATAR
+        for seed in seeds
+    ]
+
+
 def evaluation(seeds, few_seeds):
     """Table 5. boonta evaluate of the last checkpoint of every reproduction run that saves one."""
     runs = []
@@ -236,6 +259,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *autoreset(seeds),
         *reproduction(seeds, few_seeds),
         *evaluation(seeds, few_seeds),
+        *dqn_paper(seeds),
         *curricula(seeds, few_seeds),
         *mazes(seeds, few_seeds),
         *smoke(),
