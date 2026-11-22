@@ -53,8 +53,6 @@ def main(cfg):
 
     key = jax.random.key(cfg.seed)
     init_key, train_key, craft_key = jax.random.split(key, 3)
-    # Folded in rather than split, so that the other keys stay as they were.
-    evaluate_key = jax.random.fold_in(key, 3)
 
     state = load_checkpoint(resolve_checkpoint(cfg.checkpoint), podracer.init(init_key))
 
@@ -97,19 +95,6 @@ def main(cfg):
                 for name, value in logs.items()
             }
             monitor.stop()
-
-            if cfg.evaluate:
-                _, evaluation = podracer.evaluate(
-                    state,
-                    jax.random.fold_in(evaluate_key, epoch),
-                    environment.time_limit() + 1,
-                )
-                data |= {
-                    "evaluation/" + name.removeprefix("episode_statistics/"): np.nanmean(
-                        value
-                    ).reshape(1, 1)
-                    for name, value in evaluation.items()
-                }
 
             steps = (
                 np.array([epoch, epoch + 1], dtype=np.int64)

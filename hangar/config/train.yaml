@@ -4,9 +4,6 @@ num_processes: 1
 checkpoint: null
 
 num_epochs: 10
-# Play one greedy episode in every environment after each epoch and log its returns
-# under evaluation/. Offline training logs no other returns.
-evaluate: false
 
 score: training/episode_return
 
