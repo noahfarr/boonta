@@ -201,6 +201,22 @@ def overhead(seeds):
     return runs
 
 
+PRETRAINING = "algorithm=recurrent_bc environment=fineweb"
+
+
+def pretraining(seeds):
+    runs = [run(f"pretraining-s{seed}", "pretraining", f"{PRETRAINING} seed={seed}") for seed in seeds]
+    for devices in DEVICES:
+        sequences = 16 * devices
+        runs.append(run(
+            f"pretraining-scaling-{devices}gpu", "pretraining-scaling",
+            f"{PRETRAINING} algorithm.batch_size={sequences} podracer.config.mesh.count={devices} "
+            f"num_steps={300 * sequences * 1024} num_epochs=3 seed=0",
+            NODE,
+        ))
+    return runs
+
+
 def multinode(seeds):
     devices = 2 * NODE
     runs = []
@@ -335,6 +351,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *actors(),
         *multinode(range(3)),
         *overhead(range(5)),
+        *pretraining(range(3)),
         *probe(),
     ]
 
