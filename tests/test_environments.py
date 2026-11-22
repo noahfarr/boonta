@@ -1135,3 +1135,8 @@ def test_ppo_learns_cartpole_through_gymnasium_on_every_podracer(podracer):
     evaluation = np.nanmean(np.asarray(logs["episode_statistics/episode_return"]))
     assert best >= 150  # a random policy scores about 22
     assert 0 < evaluation <= 500
+
+
+def test_a_gymnasium_environment_takes_its_time_limit_from_the_registered_spec():
+    environment = make("CartPole-v1", num_envs=2, vectorization_mode="sync")
+    assert environment.time_limit() == 500

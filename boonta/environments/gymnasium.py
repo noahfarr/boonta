@@ -54,6 +54,7 @@ class Gymnasium(Environment):
             f"the episode's end with the next episode's first observation"
         )
         self.num_envs = probe.num_envs
+        self._time_limit = probe.spec.max_episode_steps if probe.spec else None
         self._observation_space = convert(probe.single_observation_space)
         self._action_space = convert(probe.single_action_space)
         self.lock = threading.Lock()
@@ -61,6 +62,11 @@ class Gymnasium(Environment):
         self.busy = {}
         self.opened = 0
         atexit.register(self.shutdown)
+
+    def time_limit(self) -> int:
+        if self._time_limit is None:
+            raise NotImplementedError
+        return self._time_limit
 
     def observation_space(self) -> Space:
         return self._observation_space
