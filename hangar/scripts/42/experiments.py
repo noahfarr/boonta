@@ -177,15 +177,14 @@ OVERHEAD_MINATAR = (
     "algorithm.update_epochs=4 algorithm.num_minibatches=8 algorithm.gamma=0.99 algorithm.gae_lambda=0.95 "
     "algorithm.clip_coefficient=0.2 algorithm.clip_value_loss=true algorithm.entropy_coefficient=0.01 "
     "algorithm.value_coefficient=0.5 algorithm.normalize_advantage=true optimizer.lr=5e-3 optimizer.max_grad_norm=0.5 "
-    "+optimizer.anneal=linear +optimizer.eps=1e-5 +network.architecture=mlp +network.width=64 +network.activation=relu"
+    "+optimizer.anneal=linear +optimizer.eps=1e-5"
 )
 OVERHEAD_BRAX = (
     "algorithm=ppo environment=brax/mujoco/hopper environment.kwargs.backend=positional environment.num_envs=2048 "
     "podracer.config.num_steps=10 podracer.config.mesh.count=1 algorithm.update_epochs=4 algorithm.num_minibatches=32 "
     "algorithm.gamma=0.99 algorithm.gae_lambda=0.95 algorithm.clip_coefficient=0.2 algorithm.clip_value_loss=true "
     "algorithm.entropy_coefficient=0.0 algorithm.value_coefficient=0.5 algorithm.normalize_advantage=true "
-    "optimizer.lr=3e-4 optimizer.max_grad_norm=0.5 +optimizer.eps=1e-5 +network.architecture=separate "
-    "+environment.normalize=true num_steps=50_000_000"
+    "optimizer.lr=3e-4 optimizer.max_grad_norm=0.5 +optimizer.eps=1e-5 num_steps=50_000_000"
 )
 OVERHEAD_ENVS = {64: 10_000_000, 1024: 20_000_000, 8192: 50_000_000}
 
