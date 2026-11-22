@@ -1,0 +1,9 @@
+namespace: gymnasium
+suite: mujoco
+env_id: Hopper-v5
+task: hopper
+auto_reset: null
+num_envs: 64
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: sync
