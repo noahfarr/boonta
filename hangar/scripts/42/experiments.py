@@ -23,6 +23,7 @@ import yaml
 
 WORKSPACE = "/pfss/mlde/workspaces/mlde_wsp_RAI_WS"
 HERE = Path(__file__).parent
+RUNS = f"{WORKSPACE}/ar44ruca/runs/paper"
 DEVICES = (1, 2, 4, 8)
 NODE = 8
 
@@ -46,6 +47,8 @@ PPO_BREAKOUT = (
 PPO_CRAFTAX = "algorithm=ppo environment=craftax/craftax_classic/symbolic"
 DQN_BREAKOUT = "algorithm=dqn environment=gymnax/minatar/breakout"
 SEBULBA = "podracer=sebulba podracer.config.actor.start=1"
+# The eight hand-designed mazes JaxUED evaluates on.
+HELD_OUT_MAZES = ("SixteenRooms", "SixteenRooms2", "Labyrinth", "LabyrinthFlipped", "Labyrinth2", "StandardMaze", "StandardMaze2", "StandardMaze3")
 
 # XLA picks GPU kernels by timing when it compiles, so the same run can round
 # differently from one compilation to the next. These flags make it repeatable.
@@ -177,6 +180,23 @@ def curricula(seeds, few_seeds):
     return runs
 
 
+def mazes(seeds, few_seeds):
+    """Section 5, curricula. Each curriculum run's last checkpoint, played greedily on every held-out maze.
+
+    Needs the curricula group to have finished and #128 on the cluster.
+    """
+    levels = ",".join(f"[{maze}]" for maze in HELD_OUT_MAZES)
+    return [
+        run(
+            "mazes-" + trained["name"].removeprefix("curricula-"),
+            "mazes",
+            f"-m algorithm=recurrent_ppo environment=jaxued/maze checkpoint={RUNS}/{trained['name']} environment.kwargs.levels={levels} ~artisan",
+            env=("BOONTA_COMMAND=evaluate",),
+        )
+        for trained in curricula(seeds, few_seeds)
+    ]
+
+
 # Steps for a short check of every reproduction and curriculum configuration, so
 # that replay buffers fill and every algorithm updates at least twice.
 # Multi-agent updates count the steps of every agent, so SMAX needs more.
@@ -205,6 +225,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *autoreset(seeds),
         *reproduction(seeds, few_seeds),
         *curricula(seeds, few_seeds),
+        *mazes(seeds, few_seeds),
         *smoke(),
     ]
 

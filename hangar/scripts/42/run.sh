@@ -21,4 +21,4 @@ nvidia-smi --query-gpu=index,name --format=csv,noheader || true
 # checkpoints.
 # shellcheck disable=SC2086
 exec ./.venv/bin/boonta "${BOONTA_COMMAND:-train}" $BOONTA_ARGS "logger=${BOONTA_LOGGER:-file}" \
-  "hydra.run.dir=$R/runs/paper/$RUN_NAME"
+  "hydra.run.dir=$R/runs/paper/$RUN_NAME" "hydra.sweep.dir=$R/runs/paper/$RUN_NAME"

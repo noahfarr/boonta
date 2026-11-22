@@ -17,7 +17,8 @@ These scripts run the paper's experiments on the hessian.AI 42 cluster through D
 | `autoreset` | Appendix C | PPO on Breakout with same-step, next-step and optimistic auto-reset | 10 | 1 |
 | `reproduction` | Table 5 | PPO, DQN and PQN on four MinAtar games (gymnax has no Seaquest), SAC on five Brax MuJoCo tasks, BC and IQL on three Minari expert datasets, IPPO and MAPPO on four SMAX scenarios | 10 on MinAtar, 5 otherwise | 1 |
 | `smoke` | none | one short run of every reproduction and curriculum configuration, to check that each trains before the full runs | 1 | 1 and 2 |
-| `curricula` | Section 5, curricula | recurrent PPO on JaxUED mazes with PLR and with domain randomization, and PLR with Sebulba | 10, 5 with Sebulba | 1 and 2 |
+| `curricula` | Section 5, curricula | recurrent PPO on JaxUED mazes with PLR and with domain randomization, and PLR with Sebulba, saving checkpoints | 10, 5 with Sebulba | 1 and 2 |
+| `mazes` | Section 5, curricula | `boonta evaluate` of each curriculum run's last checkpoint on JaxUED's eight held-out mazes (needs #128) | as `curricula` | 1 |
 
 That is 350 runs and 704 slot-runs. PPO on Breakout uses the settings of `quickstart.ipynb`, since hangar's defaults learn Breakout far more slowly. All other combinations use hangar's settings. Scaling runs take a whole node and use its first N GPUs, so that no other job shares the node. The workspace limit is 24 slots, so submit one group at a time.
 
