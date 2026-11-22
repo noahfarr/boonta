@@ -99,7 +99,7 @@ class Kinetix:
         pass
 
     def sample(
-        self, state: KinetixState, key: Key, batch_shape: tuple[int, ...]
+        self, state: KinetixState, key: Key, batch_shape: tuple[int, ...], *, step=None
     ) -> Transition:
         assert tuple(batch_shape) == (self.batch_size, self.length), (
             f"quadinaros asks for batch_shape {tuple(batch_shape)} but the "

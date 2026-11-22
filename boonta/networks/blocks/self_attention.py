@@ -57,6 +57,7 @@ class SelfAttention(Block):
     param_dtype: Dtype = jnp.float32
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+    output_kernel_init: nn.initializers.Initializer | None = None
 
     @nn.compact
     def __call__(
@@ -153,7 +154,7 @@ class SelfAttention(Block):
             axis=(-2, -1),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            kernel_init=self.kernel_init,
+            kernel_init=self.output_kernel_init or self.kernel_init,
             bias_init=self.bias_init,
             use_bias=self.use_bias,
             name="output_projection",

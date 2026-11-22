@@ -51,7 +51,8 @@ class Quadinaros:
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
         batch = self.dataset.sample(
-            state.dataset_state, sample_key, self.config.batch_shape
+            state.dataset_state, sample_key, self.config.batch_shape,
+            step=state.algorithm_state.step,
         )
         batch = jax.lax.with_sharding_constraint(
             batch, NamedSharding(self.config.mesh, P("data"))

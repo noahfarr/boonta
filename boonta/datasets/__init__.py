@@ -1,7 +1,8 @@
-from . import kinetix, minari
+from . import fineweb, kinetix, minari
 from .dataset import Dataset, DatasetState
 
 registry = {
+    "fineweb": fineweb.FineWeb,
     "kinetix": kinetix.make,
     "minari": minari.Minari,
 }
@@ -15,6 +16,7 @@ def make(namespace, dataset_id, **kwargs):
 __all__ = [
     "Dataset",
     "DatasetState",
+    "fineweb",
     "kinetix",
     "make",
     "minari",
