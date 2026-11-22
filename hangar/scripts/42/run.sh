@@ -2,6 +2,7 @@
 set -euo pipefail
 
 R=/pfss/mlde/workspaces/mlde_wsp_RAI_WS/ar44ruca
+CONTEXT=$(pwd)
 export HOME=$R
 export PATH=$R/bin:/usr/bin:/bin
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
@@ -21,6 +22,12 @@ if [ "${WORLD_SIZE:-1}" -gt 1 ]; then
   export SLURM_STEP_NODELIST=$MASTER_ADDR
   BOONTA_ARGS="$BOONTA_ARGS num_processes=$WORLD_SIZE"
   echo "process $RANK of $WORLD_SIZE, local $LOCAL_RANK, coordinator $MASTER_ADDR"
+fi
+
+if [ -n "${BASELINE:-}" ]; then
+  # shellcheck disable=SC2086
+  exec env PYTHONPATH="$R/purejaxrl-deps" ./.venv/bin/python "$CONTEXT/purejaxrl.py" $BASELINE \
+    --out "$R/runs/paper/$RUN_NAME" --purejaxrl "$R/purejaxrl"
 fi
 
 # shellcheck disable=SC2086

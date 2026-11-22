@@ -172,6 +172,36 @@ def precision(seeds):
     ]
 
 
+OVERHEAD_MINATAR = (
+    "algorithm=ppo environment=gymnax/minatar/space_invaders podracer.config.num_steps=128 podracer.config.mesh.count=1 "
+    "algorithm.update_epochs=4 algorithm.num_minibatches=8 algorithm.gamma=0.99 algorithm.gae_lambda=0.95 "
+    "algorithm.clip_coefficient=0.2 algorithm.clip_value_loss=true algorithm.entropy_coefficient=0.01 "
+    "algorithm.value_coefficient=0.5 algorithm.normalize_advantage=true optimizer.lr=5e-3 optimizer.max_grad_norm=0.5 "
+    "+optimizer.anneal=linear +optimizer.eps=1e-5 +network.architecture=mlp +network.width=64 +network.activation=relu"
+)
+OVERHEAD_BRAX = (
+    "algorithm=ppo environment=brax/mujoco/hopper environment.kwargs.backend=positional environment.num_envs=2048 "
+    "podracer.config.num_steps=10 podracer.config.mesh.count=1 algorithm.update_epochs=4 algorithm.num_minibatches=32 "
+    "algorithm.gamma=0.99 algorithm.gae_lambda=0.95 algorithm.clip_coefficient=0.2 algorithm.clip_value_loss=true "
+    "algorithm.entropy_coefficient=0.0 algorithm.value_coefficient=0.5 algorithm.normalize_advantage=true "
+    "optimizer.lr=3e-4 optimizer.max_grad_norm=0.5 +optimizer.eps=1e-5 +network.architecture=separate "
+    "+environment.normalize=true num_steps=50_000_000"
+)
+OVERHEAD_ENVS = {64: 10_000_000, 1024: 20_000_000, 8192: 50_000_000}
+
+
+def overhead(seeds):
+    runs = []
+    for envs, steps in OVERHEAD_ENVS.items():
+        for seed in seeds:
+            runs.append(run(f"overhead-purejaxrl-minatar-{envs}-s{seed}", "overhead", "", env=(f"BASELINE=minatar --seed {seed} --num-envs {envs} --total-timesteps {steps}",)))
+            runs.append(run(f"overhead-boonta-minatar-{envs}-s{seed}", "overhead", f"{OVERHEAD_MINATAR} environment.num_envs={envs} num_steps={steps} seed={seed}"))
+    for seed in seeds:
+        runs.append(run(f"overhead-purejaxrl-brax-s{seed}", "overhead", "", env=(f"BASELINE=brax --seed {seed}",)))
+        runs.append(run(f"overhead-boonta-brax-s{seed}", "overhead", f"{OVERHEAD_BRAX} seed={seed}"))
+    return runs
+
+
 def multinode(seeds):
     devices = 2 * NODE
     runs = []
@@ -305,6 +335,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *precision(range(3)),
         *actors(),
         *multinode(range(3)),
+        *overhead(range(5)),
         *probe(),
     ]
 
@@ -345,6 +376,7 @@ def write(runs, out, project):
     context = out / "context"
     context.mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / "run.sh", context / "run.sh")
+    shutil.copy(HERE / "purejaxrl.py", context / "purejaxrl.py")
     paths = []
     for run in runs:
         path = out / f"{run['name']}.yaml"
