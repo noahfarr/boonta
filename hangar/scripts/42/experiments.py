@@ -86,8 +86,8 @@ def podracers(seeds):
     """Figure 2. The same PPO and JAX environment with Anakin and with Sebulba."""
     runs = []
     for seed in seeds:
-        runs.append(run(f"podracers-anakin-s{seed}", "podracers", f"{PPO_BREAKOUT} podracer.config.mesh.count=1 num_steps=20_000_000 seed={seed}"))
-        runs.append(run(f"podracers-sebulba-s{seed}", "podracers", f"{PPO_BREAKOUT} {SEBULBA} num_steps=20_000_000 seed={seed}", 2))
+        runs.append(run(f"podracers-anakin-s{seed}", "podracers", f"{PPO_BREAKOUT} podracer.config.mesh.count=1 num_steps=20_000_000 seed={seed}", env=CHECKPOINTS))
+        runs.append(run(f"podracers-sebulba-s{seed}", "podracers", f"{PPO_BREAKOUT} {SEBULBA} num_steps=20_000_000 seed={seed}", 2, env=CHECKPOINTS))
     return runs
 
 
@@ -200,20 +200,63 @@ def dqn_paper(seeds):
     return official + gymnax
 
 
+def evaluation_args(trained):
+    """The overrides of a training run that boonta evaluate takes."""
+    args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
+    # Every checkpoint plays with Anakin on one GPU, whichever podracer trained it.
+    args = [arg for arg in args if not arg.startswith(("podracer=", "podracer.config.actor"))]
+    # DQN's checkpoint holds its replay buffer, whose shape follows the number of
+    # environments, so it plays with the 128 of hangar's DQN instead of evaluate's 64.
+    if "algorithm=dqn" in args:
+        args.append("environment.num_envs=128")
+    return [*args, "~artisan"]
+
+
+def checkpoint_steps(trained):
+    """The steps at which boonta train saved a checkpoint of the run, step 0 included."""
+    import sys
+
+    sys.path.insert(0, str(HERE.parents[2]))
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from hangar import resolvers  # noqa: F401
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(HERE.parents[1] / "config"), version_base=None):
+        cfg = compose("train", overrides=trained["args"].split())
+    batch = int(cfg.environment.num_envs) * int(cfg.podracer.config.num_steps)
+    epoch = int(cfg.num_steps) // (batch * int(cfg.num_epochs)) * batch
+    return [epoch * k for k in range(int(cfg.num_epochs) + 1)]
+
+
 def evaluation(seeds, few_seeds):
     """Table 5. boonta evaluate of the last checkpoint of every reproduction run that saves one."""
     runs = []
     for trained in reproduction(seeds, few_seeds):
         if trained["env"] != list(CHECKPOINTS):
             continue
-        args = [arg for arg in trained["args"].split() if arg.split("=")[0] not in TRAINING_ONLY]
         name = "evaluate-" + trained["name"].removeprefix("reproduce-")
         checkpoint = f"checkpoint={RUNS}/{trained['name']}"
-        # DQN's checkpoint holds its replay buffer, whose shape follows the number of
-        # environments, so it plays with the 128 of hangar's DQN instead of evaluate's 64.
-        if "algorithm=dqn" in args:
-            args.append("environment.num_envs=128")
-        runs.append(run(name, "evaluation", " ".join([*args, checkpoint, "~artisan"]), env=("BOONTA_COMMAND=evaluate",)))
+        runs.append(run(name, "evaluation", " ".join([*evaluation_args(trained), checkpoint]), env=("BOONTA_COMMAND=evaluate",)))
+    return runs
+
+
+def curves(seeds, few_seeds):
+    """Figure 2 and Appendix E. boonta evaluate of every checkpoint of a run, one multirun per run.
+
+    Needs #130. The podracer runs keep a checkpoint at step 0. The MinAtar runs finished
+    before #130, so their step 0 is the untrained policy of the same seed (checkpoint=null).
+    """
+    trained = [*podracers(seeds), *(r for r in reproduction(seeds, few_seeds) if r["env"] == list(CHECKPOINTS) and "minatar" in r["args"])]
+    runs = []
+    for one in trained:
+        steps = checkpoint_steps(one)
+        paths = [f"{RUNS}/{one['name']}/checkpoints/latest/{step}" for step in steps]
+        if one["group"] == "reproduction":
+            paths[0] = "null"
+        name = "curve-" + one["name"].removeprefix("reproduce-")
+        runs.append(run(name, "curves", " ".join(["-m", *evaluation_args(one), "checkpoint=" + ",".join(paths)]), env=("BOONTA_COMMAND=evaluate",)))
     return runs
 
 
@@ -277,6 +320,7 @@ def experiments(seeds=range(10), few_seeds=range(5), scaling_seeds=range(3)):
         *autoreset(seeds),
         *reproduction(seeds, few_seeds),
         *evaluation(seeds, few_seeds),
+        *curves(seeds, few_seeds),
         *dqn_paper(seeds),
         *curricula(seeds, few_seeds),
         *mazes(seeds, few_seeds),
