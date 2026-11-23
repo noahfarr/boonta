@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.population import Population
@@ -98,7 +99,6 @@ class Sebulba:
             first=state.timestep,
             second=timestep,
             aux=aux,
-            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -120,7 +120,13 @@ class Sebulba:
         call_key, rollout_key = jax.random.split(key)
         state = self.pit(call_key, state)
         keys = jax.random.split(rollout_key, self.config.num_steps)
-        return jax.lax.scan(partial(self.rollout, temperature=1.0), state, keys)
+        initial_carry = state.carry
+        state, transitions = jax.lax.scan(
+            partial(self.rollout, temperature=1.0), state, keys
+        )
+        return state, transitions.replace(
+            carry=jax.tree.map(lambda *carry: jnp.stack(carry), initial_carry, state.carry)
+        )
 
     def update(
         self,

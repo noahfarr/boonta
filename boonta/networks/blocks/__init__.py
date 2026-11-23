@@ -1,6 +1,6 @@
 from .adaptive_rms_norm import AdaptiveRMSNorm
 from .block import Block, broadcast_carry
-from .chunked import Chunked
+from .chunked import Chunk, Chunked
 from .ffn import FFN
 from .glu import GLU
 from .identity import Identity
@@ -31,6 +31,7 @@ __all__ = [
     "SSM",
     "AdaptiveRMSNorm",
     "Block",
+    "Chunk",
     "Chunked",
     "Identity",
     "LearnedPositionalEmbedding",

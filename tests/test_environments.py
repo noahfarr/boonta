@@ -19,7 +19,7 @@ from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAc
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
                                           Opponent, OptimisticAutoReset,
-                                          PadAction, PadObservation, Prompt,
+                                          PadAction, PadObservation,
                                           Reasoning, RecordEpisodeStatistics,
                                           RecordMultiAgentEpisodeStatistics,
                                           RecordRestartStatistics,
@@ -85,7 +85,6 @@ STACKS = [
         id="domain_randomization",
     ),
     pytest.param(lambda: Vectorize(tool(Dial()), NUM_ENVS), id="mcp"),
-    pytest.param(lambda: Vectorize(Prompt(Dial(), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
     pytest.param(lambda: Opponent(Vectorize(Team(Dial(), 2), NUM_ENVS), rival, blank), id="opponent"),
     pytest.param(lambda: Vectorize(PadAction(Lever(), 3), NUM_ENVS), id="pad_action"),
     pytest.param(
@@ -110,6 +109,7 @@ STACKS = [
         lambda: RecordEpisodeStatistics(LogInfo(Vectorize(TimeLimit(Dial(), 100), NUM_ENVS))),
         id="a_mixed_stack",
     ),
+    pytest.param(lambda: Vectorize(tool(Dial(), prompt=np.arange(2)), NUM_ENVS), id="prompt"),
 ]
 
 
@@ -164,8 +164,6 @@ def test_every_wrapper_observes_what_it_emits(build):
     environment = build()
     if environment.wraps(MCP):
         pytest.skip("MCP shows the game only on the step a call fires")
-    if environment.wraps(Prompt):
-        pytest.skip("Prompt cannot tell a prompt chunk from the game in its state")
     state, timestep = environment.init(jax.random.key(0))
     observed = jax.tree.leaves(environment.observe(state))
     emitted = jax.tree.leaves(timestep.obs)
@@ -481,7 +479,7 @@ def test_a_reasoning_token_freezes_the_game_and_costs_its_price():
     assert environment.action_space().num_actions == 4
 
 
-def tool(environment, start=0, end=0):
+def tool(environment, start=0, end=0, prompt=()):
     return MCP(
         environment,
         to_action=lambda arguments, cursor: jnp.int32(0),
@@ -492,6 +490,7 @@ def tool(environment, start=0, end=0):
         vocab_size=4,
         capacity=4,
         observation_shape=(3,),
+        prompt=prompt,
     )
 
 
@@ -500,13 +499,6 @@ def test_a_tool_call_reports_the_truncation_of_the_step_it_fires():
     state, _ = environment.init(jax.random.key(0))
     _, timesteps = play(environment, state, [jnp.int32(token) for token in (1, 2, 1, 2)])
     np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, False, True])
-
-
-def test_reading_the_prompt_never_ends_the_episode():
-    environment = Prompt(TimeLimit(Dial(), 1), np.arange(7), pad=0)
-    state, _ = environment.init(jax.random.key(0))
-    _, timesteps = play(environment, state, [jnp.int32(0)] * 3)
-    np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, True])
 
 
 def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
@@ -555,10 +547,17 @@ def test_a_gymnax_game_gymnax_cannot_draw_refuses_to_render():
         environment.render(state)
 
 
-def test_prompt_and_tool_calls_stretch_the_time_limit():
-    calls = tool(TimeLimit(Dial(), 4))
-    assert calls.time_limit() == 4 * 32
-    assert Prompt(calls, np.arange(7), pad=0).time_limit() == 4 * 32 + 3
+def test_the_prompt_opens_every_episode_and_pads_every_other_observation():
+    environment = tool(Dial(), start=1, end=2, prompt=np.arange(7, 10))
+    state, timestep = environment.init(jax.random.key(0))
+    assert environment.observation_space().shape == (6,)
+    np.testing.assert_array_equal(timestep.obs[:3], [7, 8, 9])
+    _, timesteps = play(environment, state, [jnp.int32(token) for token in (1, 2)])
+    np.testing.assert_array_equal(timesteps[-1].obs[:3], [0, 0, 0])
+
+
+def test_tool_calls_stretch_the_time_limit():
+    assert tool(TimeLimit(Dial(), 4)).time_limit() == 4 * 32
 
 
 def test_flatten_observation_flattens_the_space_too():

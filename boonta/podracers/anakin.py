@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from flax import struct
@@ -57,7 +58,6 @@ class Anakin:
             first=state.timestep,
             second=timestep,
             aux=aux,
-            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -106,8 +106,12 @@ class Anakin:
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
+            initial_carry = state.carry
             state, transitions = jax.lax.scan(
                 partial(self.rollout, temperature=1.0), state, rollout_keys
+            )
+            transitions = transitions.replace(
+                carry=jax.tree.map(lambda *carry: jnp.stack(carry), initial_carry, state.carry)
             )
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions

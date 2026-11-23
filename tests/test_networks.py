@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 
 import zoo
-from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
+from boonta.networks import (RNN, ActorCritic, Categorical, Chunk, Chunked, EpsilonGreedy,
                              FeatureExtractor, Gaussian, Highway, Network,
-                             RTUCell, SquashedGaussian, Tower, distributions,
+                             Qwen3, RTUCell, SquashedGaussian, Tower, distributions,
                              llama, repeat)
 from boonta.networks.blocks.ssm import binary_operator
 from boonta.networks.kernels import get_scan_implementation
@@ -388,3 +388,90 @@ def test_attention_picks_cudnn_only_where_it_runs(gpu, capability, head_dim, len
     gpu(capability)
     implementation, _ = get_attention_implementation(head_dim, *lengths)
     assert implementation == expected
+
+
+
+def language_model():
+    return Qwen3(
+        features=32,
+        num_layers=2,
+        num_heads=4,
+        num_groups=2,
+        head_dim=8,
+        hidden_dim=64,
+        max_wavelength=10_000.0,
+        context_length=64,
+    )
+
+
+class ChunkedLanguageModel(nn.Module):
+    budget: int | None = None
+
+    def setup(self):
+        self.embed = nn.Embed(50, 32)
+        self.language_model = language_model()
+        self.torso = Chunked(self.language_model, budget=self.budget)
+
+    def __call__(self, carry, tokens, valid, done):
+        return self.torso(carry, Chunk(self.embed(tokens), valid), done)
+
+    def stream(self, carry, tokens):
+        _, y = self.language_model(carry, self.embed(tokens), jnp.zeros(tokens.shape, bool))
+        return y
+
+
+TOKENS = jax.random.randint(jax.random.key(0), (2, 5, 8), 10, 50)
+VALID = jnp.asarray(
+    [
+        [[1] * 8, [1] + [0] * 7, [1] + [0] * 7, [0] + [1] * 7, [1] + [0] * 7],
+        [[0] + [1] * 7, [1] + [0] * 7, [1, 1, 1, 0, 0, 0, 0, 0], [1] + [0] * 7, [1] + [0] * 7],
+    ],
+    bool,
+)
+DONE = jnp.asarray([[1, 0, 0, 1, 0], [1, 0, 0, 0, 0]], bool)
+
+
+def stream_outputs(model, params):
+    tokens, valid, done = map(np.asarray, (TOKENS, VALID, DONE))
+    outputs = np.zeros((*tokens.shape[:2], 32), np.float32)
+    for row in range(tokens.shape[0]):
+        stream = []
+        for step in range(tokens.shape[1]):
+            if done[row, step]:
+                stream = []
+            stream += [int(t) for t, v in zip(tokens[row, step], valid[row, step]) if v]
+            carry = language_model().initialize_carry(None, (1, len(stream)))
+            y = model.apply(params, carry, jnp.asarray([stream]), method=model.stream)
+            outputs[row, step] = np.asarray(y[0, -1])
+    return outputs
+
+
+@pytest.mark.parametrize("budget", [None, 24])
+def test_chunked_masked_tokens_match_the_token_stream(budget):
+    model = ChunkedLanguageModel(budget=budget)
+    carry = language_model().initialize_carry(None, (2, 1))
+    params = model.init(jax.random.key(1), carry, TOKENS, VALID, DONE)
+    expected = stream_outputs(model, params)
+
+    _, whole = model.apply(params, carry, TOKENS, VALID, DONE)
+    np.testing.assert_allclose(whole, expected, atol=1e-4)
+
+    steps = []
+    for step in range(TOKENS.shape[1]):
+        carry, y = model.apply(
+            params,
+            carry,
+            TOKENS[:, step : step + 1],
+            VALID[:, step : step + 1],
+            DONE[:, step : step + 1],
+        )
+        steps.append(y)
+    np.testing.assert_allclose(jnp.concatenate(steps, axis=1), expected, atol=1e-4)
+
+
+def test_chunked_refuses_more_tokens_than_its_budget():
+    model = ChunkedLanguageModel(budget=8)
+    carry = language_model().initialize_carry(None, (2, 1))
+    params = model.init(jax.random.key(1), carry, TOKENS[:, :1], VALID[:, :1], DONE[:, :1])
+    with pytest.raises(Exception, match="budget"):
+        jax.block_until_ready(model.apply(params, carry, TOKENS, VALID, DONE))

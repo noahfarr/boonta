@@ -45,9 +45,17 @@ class Qwen3Layer(Block):
         )
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self,
+        carry: Carry,
+        x: Array,
+        done: Array,
+        segments: Array | None = None,
+    ) -> tuple[Carry, Array]:
         rms_norm = partial(nn.RMSNorm, dtype=self.dtype, param_dtype=self.param_dtype)
-        carry, y = self.attention()(carry, rms_norm(name="attention_norm")(x), done)
+        carry, y = self.attention()(
+            carry, rms_norm(name="attention_norm")(x), done, segments
+        )
         x = x + y
         _, y = GLU(
             self.features,
@@ -94,13 +102,21 @@ class Qwen3(Block):
         )
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self,
+        carry: Carry,
+        x: Array,
+        done: Array,
+        segments: Array | None = None,
+    ) -> tuple[Carry, Array]:
         layer_cls = nn.remat(Qwen3Layer)
 
         def step(state: tuple[Carry, Array], inputs) -> tuple[Carry, Array]:
             carry, x = state
             index, carry_i = inputs
-            carry_i, x = self.layer(layer_cls, name=f"layers_{index}")(carry_i, x, done)
+            carry_i, x = self.layer(layer_cls, name=f"layers_{index}")(
+                carry_i, x, done, segments
+            )
             return (*carry, carry_i), x
 
         carries = broadcast_carry(carry, self.num_layers)

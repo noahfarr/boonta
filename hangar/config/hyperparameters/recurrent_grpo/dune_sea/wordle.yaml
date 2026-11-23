@@ -2,13 +2,18 @@
 
 environment:
   num_envs: 32
+  kwargs:
+    green_reward: 0.02
+    yellow_reward: 0.01
+    invalid_penalty: 0.02
 
 podracer:
   config:
+    num_steps: 192
     mesh:
       count: 1
 
 network:
-  repo_id: Qwen/Qwen3-0.6B-Base
+  repo_id: Qwen/Qwen3-0.6B
   dtype: bfloat16
   param_dtype: bfloat16

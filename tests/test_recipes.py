@@ -199,8 +199,8 @@ CASES = [
         installed("pynes") or supplied("BOONTA_SMB_ROM"),
         False,
     ),
-    ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
-    ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B"), False),
+    ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B"), False),
     ("recurrent_bc", "fineweb", None, fineweb_dataset),
 ]
 
