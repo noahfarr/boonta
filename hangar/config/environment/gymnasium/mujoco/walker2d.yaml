@@ -1,0 +1,9 @@
+namespace: gymnasium
+suite: mujoco
+env_id: Walker2d-v5
+task: walker2d
+auto_reset: null
+num_envs: 64
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: sync

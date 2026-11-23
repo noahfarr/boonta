@@ -157,6 +157,8 @@ CASES = [
     ("bc", HOPPER, installed("brax"), hopper_dataset),
     ("bc", HOPPER, installed("brax"), hopper_pool),
     ("iql", HOPPER, installed("brax"), hopper_dataset),
+    ("bc", "gymnasium/mujoco/hopper", installed("mujoco"), hopper_dataset),
+    ("iql", "gymnasium/mujoco/hopper", installed("mujoco"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "kinetix/kinetix", installed("kinetix"), False),
     ("recurrent_ppo", "jaxued/maze", installed("jaxued"), False),
@@ -404,6 +406,12 @@ def test_the_ppo_recipes_build_separate_actor_and_critic_networks(environment, m
     podracer = recipes.make(cfg)
     head = podracer.init(jax.random.key(0)).algorithm_state.params["params"]["head"]
     assert {"actor", "critic"} <= set(head)
+
+
+@pytest.mark.parametrize("environment", [HOPPER, "gymnasium/mujoco/hopper"])
+def test_brax_and_gymnasium_hopper_read_the_same_minari_dataset(environment):
+    cfg = configure("bc", environment)
+    assert cfg.dataset.dataset_id == "mujoco/hopper/expert-v0"
 
 
 KINETIX = pytest.mark.skipif(

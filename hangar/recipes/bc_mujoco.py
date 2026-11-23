@@ -12,7 +12,8 @@ from boonta.networks import FeatureExtractor, Gaussian, Network
 def make(cfg):
     env = environments.make(**cfg.environment)
     action_dim, *_ = env.action_space().shape
-    env = instantiate(cfg.environment.auto_reset, env)
+    if cfg.environment.auto_reset is not None:
+        env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=FeatureExtractor(

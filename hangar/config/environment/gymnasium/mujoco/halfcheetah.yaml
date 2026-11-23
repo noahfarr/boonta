@@ -1,0 +1,9 @@
+namespace: gymnasium
+suite: mujoco
+env_id: HalfCheetah-v5
+task: halfcheetah
+auto_reset: null
+num_envs: 64
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: sync
