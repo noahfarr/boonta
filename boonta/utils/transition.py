@@ -17,5 +17,5 @@ class Transition:
         return jax.tree.map(lambda leaf: leaf[0], self.carry)
 
     def tail(self) -> tuple[Timestep, PyTree]:
-        last = jax.tree.map(lambda leaf: leaf[-1][:, None], self.second)
-        return last, jax.tree.map(lambda leaf: leaf[-1], self.carry)
+        final_timestep = jax.tree.map(lambda leaf: leaf[-1][:, None], self.second)
+        return final_timestep, jax.tree.map(lambda leaf: leaf[-1], self.carry)
