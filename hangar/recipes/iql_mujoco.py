@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 
@@ -27,7 +28,16 @@ def make(cfg):
                 ]
             ),
         ),
-        head=Gaussian(nn.Dense(2 * action_dim)),
+        head=Gaussian(
+            nn.Sequential(
+                [
+                    nn.Dense(2 * action_dim),
+                    lambda x: jnp.concatenate(
+                        [jnp.tanh(x[..., :action_dim]), x[..., action_dim:]], axis=-1
+                    ),
+                ]
+            )
+        ),
     )
 
     critic = Network(
@@ -72,7 +82,11 @@ def make(cfg):
         actor=actor,
         critic=critic,
         value=value,
-        actor_optimizer=optax.adam(cfg.optimizer.actor_lr),
+        actor_optimizer=optax.adam(
+            optax.cosine_decay_schedule(
+                cfg.optimizer.actor_lr, int(cfg.num_steps) // cfg.algorithm.batch_size
+            )
+        ),
         critic_optimizer=optax.adam(cfg.optimizer.critic_lr),
         value_optimizer=optax.adam(cfg.optimizer.value_lr),
     )
