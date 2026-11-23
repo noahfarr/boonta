@@ -20,6 +20,7 @@ WORD_LENGTH = 5
 CAPACITY = 32
 FEEDBACK = ["0", "1", "2", "3"]
 SYSTEM_PROMPT = (
+    "<|im_start|>system\n"
     "You are playing Wordle. Guess the secret five-letter word by calling the wordle tool.\n"
     "<tools>\n"
     '{"type": "function", "function": {"name": "wordle", "description": "Submit a five-letter guess.", '
@@ -29,9 +30,12 @@ SYSTEM_PROMPT = (
     '<tool_call>\n{"name": "wordle", "arguments": {"guess": "crane"}}\n</tool_call>\n'
     "The tool replies with one digit per letter: 2 if the letter is in the right place, "
     "1 if it is in the word elsewhere, 0 if it is not in the word, and 3 if it is unknown, "
-    "as on the empty board the game starts with or after a guess that is not a word.\n"
+    "as on the empty board the game starts with or after a guess that is not a word."
 )
-RESPONSE = ("<tool_response>\n", "\n</tool_response>\n")
+RESPONSE = (
+    "<|im_end|>\n<|im_start|>user\n<tool_response>\n",
+    "\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+)
 
 
 class TokenFeatureExtractor(nn.Module):
@@ -47,6 +51,7 @@ class TokenFeatureExtractor(nn.Module):
 
 def make(cfg):
     env = environments.make(**cfg.environment)
+    num_guesses = env.time_limit()
 
     repo_id = cfg.network.repo_id
     config = load_config(repo_id)
@@ -102,6 +107,7 @@ def make(cfg):
         observation_shape=(observation_length,),
         action_shape=(),
     )
+    game_length = env.time_limit() + (num_guesses + 1) * observation_length
     env = instantiate(cfg.environment.auto_reset, env)
     env = Group(
         env,
@@ -119,7 +125,7 @@ def make(cfg):
         head_dim=config["head_dim"],
         hidden_dim=config["intermediate_size"],
         max_wavelength=config["rope_theta"],
-        context_length=cfg.podracer.config.num_steps * (1 + observation_length),
+        context_length=game_length + game_length % 2,
         dtype=dtype,
         param_dtype=param_dtype,
     )

@@ -73,7 +73,7 @@ class SelfAttention(Block):
         batch_size, sequence_length, *_ = x.shape
         context_length = self.context_length or sequence_length
         assert (
-            sequence_length <= context_length
+            valid is not None or sequence_length <= context_length
         ), f"sequence_length must be less than or equal to context_length, but was sequence_length: {sequence_length}, context_length: {context_length}"
         assert (
             self.head_dim is not None or self.features % self.num_heads == 0
