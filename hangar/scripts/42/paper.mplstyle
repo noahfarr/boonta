@@ -1,0 +1,17 @@
+font.family: serif
+font.serif: Times New Roman, Times, DejaVu Serif, serif
+font.size: 9
+mathtext.fontset: cm
+
+axes.labelsize: 9
+axes.titlesize: 9
+axes.linewidth: 0.6
+xtick.labelsize: 7
+ytick.labelsize: 7
+legend.fontsize: 7
+
+lines.linewidth: 1.0
+
+pdf.fonttype: 42
+ps.fonttype: 42
+savefig.bbox: standard
