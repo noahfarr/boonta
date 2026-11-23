@@ -17,6 +17,6 @@ algorithm:
   num_minibatches: 16
 
 network:
-  repo_id: Qwen/Qwen3-0.6B-Base
+  repo_id: Qwen/Qwen3-0.6B
   dtype: bfloat16
   param_dtype: bfloat16
