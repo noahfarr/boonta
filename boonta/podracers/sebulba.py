@@ -120,12 +120,12 @@ class Sebulba:
         call_key, rollout_key = jax.random.split(key)
         state = self.pit(call_key, state)
         keys = jax.random.split(rollout_key, self.config.num_steps)
-        start = state.carry
+        initial_carry = state.carry
         state, transitions = jax.lax.scan(
             partial(self.rollout, temperature=1.0), state, keys
         )
         return state, transitions.replace(
-            carry=jax.tree.map(lambda *carry: jnp.stack(carry), start, state.carry)
+            carry=jax.tree.map(lambda *carry: jnp.stack(carry), initial_carry, state.carry)
         )
 
     def update(
