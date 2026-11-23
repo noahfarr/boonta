@@ -5,3 +5,4 @@ defaults:
 
 algorithm:
   reward_scale: 0.0600
+  beta: 1.0
