@@ -36,7 +36,8 @@ def curiosity_network(head):
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
-    env = instantiate(cfg.environment.auto_reset, env)
+    if cfg.environment.auto_reset is not None:
+        env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=FeatureExtractor(
