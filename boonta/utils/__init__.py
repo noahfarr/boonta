@@ -42,7 +42,7 @@ from .checkpoint import load_checkpoint, resolve_checkpoint
 from .system_monitor import SystemMonitor
 from .sharding import mesh, sharded, vary
 from .timestep import Timestep
-from .transition import Transition
+from .transition import Transition, unroll
 from .typing import Array, Key, PyTree
 
 __all__ = [

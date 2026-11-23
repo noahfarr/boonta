@@ -9,7 +9,7 @@ environment:
 
 podracer:
   config:
-    num_steps: 214
+    num_steps: 192
     mesh:
       count: 1
 

@@ -18,7 +18,6 @@ from .normalize_reward import NormalizeReward, NormalizeRewardState
 from .pad_action import PadAction
 from .pad_observation import PadObservation
 from .pbrs import PBRS, PBRSState
-from .prompt import Prompt, PromptState
 from .reasoning import Reasoning, ReasoningState
 from .record_episode_statistics import (RecordEpisodeStatistics,
                                         RecordEpisodeStatisticsState)
@@ -66,8 +65,6 @@ __all__ = [
     "OptimisticAutoReset",
     "PadAction",
     "PadObservation",
-    "Prompt",
-    "PromptState",
     "Reasoning",
     "ReasoningState",
     "RecordEpisodeStatistics",

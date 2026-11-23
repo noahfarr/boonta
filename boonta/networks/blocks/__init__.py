@@ -1,6 +1,6 @@
 from .adaptive_rms_norm import AdaptiveRMSNorm
 from .block import Block, broadcast_carry
-from .chunked import Chunked
+from .chunked import Chunk, Chunked
 from .ffn import FFN
 from .glu import GLU
 from .identity import Identity
@@ -11,6 +11,7 @@ from .positional_embeddings import (LearnedPositionalEmbedding,
                                     SinusoidalPositionalEmbedding,
                                     rotary_positional_embedding,
                                     sinusoidal_time_embedding)
+from .prefix import Prefix
 from .projection import Projection
 from .query_key_norm import QueryKeyNorm
 from .highway import Highway
@@ -31,12 +32,14 @@ __all__ = [
     "SSM",
     "AdaptiveRMSNorm",
     "Block",
+    "Chunk",
     "Chunked",
     "Identity",
     "LearnedPositionalEmbedding",
     "LoRA",
     "MinGRUCell",
     "PatchEmbedding",
+    "Prefix",
     "Projection",
     "QueryKeyNorm",
     "RNNCellBase",

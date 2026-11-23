@@ -11,7 +11,7 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
+from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate, unroll,
                           sharded, take)
 from boonta.utils.typing import Environment, EnvState
 
@@ -98,7 +98,6 @@ class Sebulba:
             first=state.timestep,
             second=timestep,
             aux=aux,
-            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -120,7 +119,7 @@ class Sebulba:
         call_key, rollout_key = jax.random.split(key)
         state = self.pit(call_key, state)
         keys = jax.random.split(rollout_key, self.config.num_steps)
-        return jax.lax.scan(partial(self.rollout, temperature=1.0), state, keys)
+        return unroll(partial(self.rollout, temperature=1.0), state, keys)
 
     def update(
         self,

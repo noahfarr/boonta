@@ -19,7 +19,7 @@ from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAc
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
                                           Opponent, OptimisticAutoReset,
-                                          PadAction, PadObservation, Prompt,
+                                          PadAction, PadObservation,
                                           Reasoning, RecordEpisodeStatistics,
                                           RecordMultiAgentEpisodeStatistics,
                                           RecordRestartStatistics,
@@ -85,7 +85,6 @@ STACKS = [
         id="domain_randomization",
     ),
     pytest.param(lambda: Vectorize(tool(Dial()), NUM_ENVS), id="mcp"),
-    pytest.param(lambda: Vectorize(Prompt(Dial(), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
     pytest.param(lambda: Opponent(Vectorize(Team(Dial(), 2), NUM_ENVS), rival, blank), id="opponent"),
     pytest.param(lambda: Vectorize(PadAction(Lever(), 3), NUM_ENVS), id="pad_action"),
     pytest.param(
@@ -164,8 +163,6 @@ def test_every_wrapper_observes_what_it_emits(build):
     environment = build()
     if environment.wraps(MCP):
         pytest.skip("MCP shows the game only on the step a call fires")
-    if environment.wraps(Prompt):
-        pytest.skip("Prompt cannot tell a prompt chunk from the game in its state")
     state, timestep = environment.init(jax.random.key(0))
     observed = jax.tree.leaves(environment.observe(state))
     emitted = jax.tree.leaves(timestep.obs)
@@ -502,13 +499,6 @@ def test_a_tool_call_reports_the_truncation_of_the_step_it_fires():
     np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, False, True])
 
 
-def test_reading_the_prompt_never_ends_the_episode():
-    environment = Prompt(TimeLimit(Dial(), 1), np.arange(7), pad=0)
-    state, _ = environment.init(jax.random.key(0))
-    _, timesteps = play(environment, state, [jnp.int32(0)] * 3)
-    np.testing.assert_array_equal([bool(t.truncated) for t in timesteps], [False, False, True])
-
-
 def test_every_wrapper_reports_the_time_limit_of_the_game_it_wraps():
     from boonta.environments import gymnax
 
@@ -555,10 +545,8 @@ def test_a_gymnax_game_gymnax_cannot_draw_refuses_to_render():
         environment.render(state)
 
 
-def test_prompt_and_tool_calls_stretch_the_time_limit():
-    calls = tool(TimeLimit(Dial(), 4))
-    assert calls.time_limit() == 4 * 32
-    assert Prompt(calls, np.arange(7), pad=0).time_limit() == 4 * 32 + 3
+def test_tool_calls_stretch_the_time_limit():
+    assert tool(TimeLimit(Dial(), 4)).time_limit() == 4 * 32
 
 
 def test_flatten_observation_flattens_the_space_too():

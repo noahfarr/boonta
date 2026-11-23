@@ -7,7 +7,7 @@ from boonta.algorithms import Algorithm
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, Transition, sharded
+from boonta.utils import Key, PyTree, Timestep, Transition, sharded, unroll
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -57,7 +57,6 @@ class Anakin:
             first=state.timestep,
             second=timestep,
             aux=aux,
-            carry=state.carry,
         )
 
         algorithm_state = algorithm_state.replace(
@@ -106,7 +105,7 @@ class Anakin:
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
-            state, transitions = jax.lax.scan(
+            state, transitions = unroll(
                 partial(self.rollout, temperature=1.0), state, rollout_keys
             )
             algorithm_state = self.algorithm.update(

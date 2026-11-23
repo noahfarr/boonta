@@ -9,9 +9,9 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.wrappers import MCP, Prompt, RecordEpisodeStatistics
-from boonta.networks import (ActorCritic, Categorical, Chunked, LoRA, Network,
-                             Qwen3, Unembed)
+from boonta.environments.wrappers import MCP, RecordEpisodeStatistics
+from boonta.networks import (ActorCritic, Categorical, Chunk, Chunked, LoRA, Network,
+                             Prefix, Qwen3, Unembed)
 from boonta.networks.pretrained import init_fn
 from boonta.utils import (load_config, load_qwen3, load_tokenizer,
                           load_weights, materialize_gradients, quantize)
@@ -25,9 +25,13 @@ SYSTEM_PROMPT = (
     '{"type": "function", "function": {"name": "wordle", "description": "Submit a five-letter guess.", '
     '"parameters": {"type": "object", "properties": {"guess": {"type": "string"}}, "required": ["guess"]}}}\n'
     "</tools>\n"
-    "Respond with a tool call:\n"
-    '<tool_call>\n{"name": "wordle", "arguments": {"guess": "crane"}}\n</tool_call>'
+    "Respond with a tool call in this format:\n"
+    '<tool_call>\n{"name": "wordle", "arguments": {"guess": "crane"}}\n</tool_call>\n'
+    "The tool replies with one digit per letter: 2 if the letter is in the right place, "
+    "1 if it is in the word elsewhere, 0 if it is not in the word, and 3 if it is unknown, "
+    "as on the empty board the game starts with or after a guess that is not a word.\n"
 )
+RESPONSE = ("<tool_response>\n", "\n</tool_response>\n")
 
 
 class TokenFeatureExtractor(nn.Module):
@@ -35,9 +39,10 @@ class TokenFeatureExtractor(nn.Module):
 
     @nn.compact
     def __call__(self, obs, action=None, reward=None, done=None):
-        return jnp.concatenate(
-            [self.embed(action)[..., None, :], self.embed(obs)], axis=-2
-        )
+        tokens = jnp.concatenate([action[..., None], obs["tokens"]], axis=-1)
+        observed = jnp.broadcast_to(obs["observed"][..., None], obs["tokens"].shape)
+        valid = jnp.concatenate([~done.astype(bool)[..., None], observed], axis=-1)
+        return Chunk(self.embed(tokens), valid)
 
 
 def make(cfg):
@@ -54,6 +59,10 @@ def make(cfg):
     feedback = jnp.asarray(
         [tokenizer.token_to_id(token) for token in FEEDBACK], jnp.int32
     )
+    opening, closing = (
+        jnp.asarray(tokenizer.encode(text).ids, jnp.int32) for text in RESPONSE
+    )
+    observation_length = len(opening) + WORD_LENGTH + len(closing)
 
     def to_action(arguments, cursor):
         def parse(arguments, cursor):
@@ -78,9 +87,8 @@ def make(cfg):
     def to_tokens(obs):
         cells = obs.reshape(WORD_LENGTH, 3)
         revealed = cells.sum(-1) > 0
-        return jnp.where(revealed, feedback[cells.argmax(-1)], feedback[3]).astype(
-            jnp.int32
-        )
+        digits = jnp.where(revealed, feedback[cells.argmax(-1)], feedback[3])
+        return jnp.concatenate([opening, digits.astype(jnp.int32), closing])
 
     env = MCP(
         env,
@@ -91,11 +99,9 @@ def make(cfg):
         pad=pad,
         vocab_size=vocab_size,
         capacity=CAPACITY,
-        observation_shape=(WORD_LENGTH,),
+        observation_shape=(observation_length,),
         action_shape=(),
     )
-    prompt = np.asarray(tokenizer.encode(SYSTEM_PROMPT).ids, np.int32)
-    env = Prompt(env, prompt, pad)
     env = instantiate(cfg.environment.auto_reset, env)
 
     dtype = jnp.dtype(cfg.network.dtype)
@@ -108,7 +114,7 @@ def make(cfg):
         head_dim=config["head_dim"],
         hidden_dim=config["intermediate_size"],
         max_wavelength=config["rope_theta"],
-        context_length=cfg.podracer.config.num_steps * (1 + WORD_LENGTH),
+        context_length=cfg.podracer.config.num_steps * (1 + observation_length),
         dtype=dtype,
         param_dtype=param_dtype,
     )
@@ -118,21 +124,24 @@ def make(cfg):
     embeddings = np.asarray(
         jnp.asarray(weights["model.embed_tokens.weight"], dtype=param_dtype)
     )
-    torso = Chunked(
-        LoRA(
-            block=qwen3,
-            params=quantized_params,
-            rank=8,
-            alpha=16.0,
-        )
-    )
-
     embed = nn.Embed(
         vocab_size,
         config["hidden_size"],
         dtype=dtype,
         param_dtype=param_dtype,
         embedding_init=init_fn(embeddings),
+    )
+    torso = Chunked(
+        Prefix(
+            LoRA(
+                block=qwen3,
+                params=quantized_params,
+                rank=8,
+                alpha=16.0,
+            ),
+            encoder=embed,
+            tokens=tuple(tokenizer.encode(SYSTEM_PROMPT).ids),
+        )
     )
     network = Network(
         feature_extractor=TokenFeatureExtractor(embed=embed),

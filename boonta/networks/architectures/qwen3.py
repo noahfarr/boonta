@@ -45,9 +45,18 @@ class Qwen3Layer(Block):
         )
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self,
+        carry: Carry,
+        x: Array,
+        done: Array,
+        valid: Array | None = None,
+        prefix: Carry = None,
+    ) -> tuple[Carry, Array]:
         rms_norm = partial(nn.RMSNorm, dtype=self.dtype, param_dtype=self.param_dtype)
-        carry, y = self.attention()(carry, rms_norm(name="attention_norm")(x), done)
+        carry, y = self.attention()(
+            carry, rms_norm(name="attention_norm")(x), done, valid, prefix
+        )
         x = x + y
         _, y = GLU(
             self.features,
@@ -94,18 +103,30 @@ class Qwen3(Block):
         )
 
     @nn.compact
-    def __call__(self, carry: Carry, x: Array, done: Array) -> tuple[Carry, Array]:
+    def __call__(
+        self,
+        carry: Carry,
+        x: Array,
+        done: Array,
+        valid: Array | None = None,
+        prefix: Carry = None,
+    ) -> tuple[Carry, Array]:
         layer_cls = nn.remat(Qwen3Layer)
 
         def step(state: tuple[Carry, Array], inputs) -> tuple[Carry, Array]:
             carry, x = state
-            index, carry_i = inputs
-            carry_i, x = self.layer(layer_cls, name=f"layers_{index}")(carry_i, x, done)
+            index, carry_i, prefix_i = inputs
+            carry_i, x = self.layer(layer_cls, name=f"layers_{index}")(
+                carry_i, x, done, valid, prefix_i
+            )
             return (*carry, carry_i), x
 
         carries = broadcast_carry(carry, self.num_layers)
+        prefixes = (None,) * self.num_layers if prefix is None else prefix
         carry, x = reduce(
-            step, zip(range(self.num_layers), carries, strict=True), ((), x)
+            step,
+            zip(range(self.num_layers), carries, prefixes, strict=True),
+            ((), x),
         )
         x = nn.RMSNorm(
             dtype=self.dtype, param_dtype=self.param_dtype, name="output_norm"

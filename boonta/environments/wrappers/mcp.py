@@ -46,7 +46,7 @@ class MCP(Wrapper):
         self._tokens_per_call = tokens_per_call
 
     def init(self, key: Key) -> tuple[MCPState, Timestep]:
-        env_state, _ = self._env.init(key)
+        env_state, initial = self._env.init(key)
         state = MCPState(
             env_state=env_state,
             active=jnp.bool_(False),
@@ -56,7 +56,10 @@ class MCP(Wrapper):
         action = jnp.int32(0)
         _, shapes = jax.eval_shape(self.step, key, state, action)
         timestep = Timestep(
-            obs=jnp.full(self._observation_shape, self._pad, jnp.int32),
+            obs={
+                "tokens": jnp.asarray(self._to_tokens(initial.obs), jnp.int32),
+                "observed": jnp.bool_(True),
+            },
             action=action,
             reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
             terminated=jnp.ones(shapes.terminated.shape, shapes.terminated.dtype),
@@ -98,7 +101,10 @@ class MCP(Wrapper):
 
         env_state = jax.tree.map(select, stepped_state, state.env_state)
         tokens = jnp.asarray(self._to_tokens(stepped.obs), jnp.int32)
-        obs = select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32))
+        obs = {
+            "tokens": select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32)),
+            "observed": fire,
+        }
         reward = select(stepped.reward, jnp.zeros_like(stepped.reward))
         terminated = select(stepped.terminated, jnp.zeros_like(stepped.terminated))
         truncated = select(stepped.truncated, jnp.zeros_like(stepped.truncated))
@@ -123,13 +129,16 @@ class MCP(Wrapper):
         )
         return state, timestep
 
-    def observation_space(self) -> Space:
-        return Space(
-            shape=self._observation_shape,
-            dtype=jnp.int32,
-            low=0,
-            high=self._vocab_size - 1,
-        )
+    def observation_space(self) -> dict[str, Space]:
+        return {
+            "tokens": Space(
+                shape=self._observation_shape,
+                dtype=jnp.int32,
+                low=0,
+                high=self._vocab_size - 1,
+            ),
+            "observed": Space(shape=(), dtype=jnp.bool_, low=0, high=1),
+        }
 
     def action_space(self) -> Space:
         return Space(
