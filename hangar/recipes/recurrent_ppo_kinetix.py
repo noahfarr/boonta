@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 
@@ -13,16 +14,17 @@ from . import schedules
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
+    dtype = (cfg.get("network") or {}).get("dtype")
     env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
         feature_extractor=FeatureExtractor(
-            observation_extractor=nn.Sequential([nn.Dense(256), nn.tanh]),
+            observation_extractor=nn.Sequential([nn.Dense(256, dtype=dtype), nn.tanh]),
         ),
         torso=instantiate(cfg.stack),
         head=ActorCritic(
-            actor=Categorical(nn.Sequential([nn.Dense(256), nn.tanh, nn.Dense(num_actions)])),
-            critic=nn.Sequential([nn.Dense(256), nn.tanh, nn.Dense(1)]),
+            actor=Categorical(nn.Sequential([nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(num_actions, dtype=jnp.float32)])),
+            critic=nn.Sequential([nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(1, dtype=jnp.float32)]),
         ),
     )
 
