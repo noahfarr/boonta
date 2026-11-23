@@ -1,3 +1,6 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+
 namespace: kinetix
 suite: kinetix
 env_id: null
