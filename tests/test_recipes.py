@@ -161,6 +161,7 @@ CASES = [
     ("iql", "gymnasium/mujoco/hopper", installed("mujoco"), hopper_dataset),
     ("recurrent_bc", "kinetix/kinetix", installed("kinetix", "zarr"), kinetix_dataset),
     ("ppo", "kinetix/kinetix", installed("kinetix"), False),
+    ("recurrent_ppo", "kinetix/kinetix", installed("kinetix"), False),
     ("recurrent_ppo", "jaxued/maze", installed("jaxued"), False),
     ("recurrent_ppo", "jaxued/cartpole", installed("jaxued"), False),
     ("recurrent_ppo", "jaxued/acrobot", installed("jaxued"), False),
