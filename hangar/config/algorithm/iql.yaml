@@ -12,6 +12,7 @@ algorithm:
   expectile: 0.7
   beta: 3.0
   max_advantage_weight: 100.0
+  reward_scale: 1.0
 
 environment:
   num_envs: 32
