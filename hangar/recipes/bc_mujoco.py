@@ -5,12 +5,12 @@ from hydra.utils import instantiate
 from boonta import datasets
 from boonta import environments
 from boonta.algorithms.bc import BC
-from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.environments.wrappers import ClipAction, RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, Gaussian, Network
 
 
 def make(cfg):
-    env = environments.make(**cfg.environment)
+    env = ClipAction(environments.make(**cfg.environment))
     action_dim, *_ = env.action_space().shape
     if cfg.environment.auto_reset is not None:
         env = instantiate(cfg.environment.auto_reset, env)
