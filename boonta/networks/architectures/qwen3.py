@@ -50,11 +50,11 @@ class Qwen3Layer(Block):
         carry: Carry,
         x: Array,
         done: Array,
-        valid: Array | None = None,
+        segments: Array | None = None,
     ) -> tuple[Carry, Array]:
         rms_norm = partial(nn.RMSNorm, dtype=self.dtype, param_dtype=self.param_dtype)
         carry, y = self.attention()(
-            carry, rms_norm(name="attention_norm")(x), done, valid
+            carry, rms_norm(name="attention_norm")(x), done, segments
         )
         x = x + y
         _, y = GLU(
@@ -107,7 +107,7 @@ class Qwen3(Block):
         carry: Carry,
         x: Array,
         done: Array,
-        valid: Array | None = None,
+        segments: Array | None = None,
     ) -> tuple[Carry, Array]:
         layer_cls = nn.remat(Qwen3Layer)
 
@@ -115,7 +115,7 @@ class Qwen3(Block):
             carry, x = state
             index, carry_i = inputs
             carry_i, x = self.layer(layer_cls, name=f"layers_{index}")(
-                carry_i, x, done, valid
+                carry_i, x, done, segments
             )
             return (*carry, carry_i), x
 

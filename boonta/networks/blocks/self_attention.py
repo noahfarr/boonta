@@ -65,12 +65,12 @@ class SelfAttention(Block):
         carry: SelfAttentionCarry | None,
         x: Array,
         done: Array,
-        valid: Array | None = None,
+        segments: Array | None = None,
     ) -> tuple[SelfAttentionCarry, Array]:
         batch_size, sequence_length, *_ = x.shape
         context_length = self.context_length or sequence_length
         assert (
-            valid is not None or sequence_length <= context_length
+            segments is not None or sequence_length <= context_length
         ), f"sequence_length must be less than or equal to context_length, but was sequence_length: {sequence_length}, context_length: {context_length}"
         assert (
             self.head_dim is not None or self.features % self.num_heads == 0
@@ -99,19 +99,15 @@ class SelfAttention(Block):
         new_key = projection(features=(num_groups, head_dim), name="key")(x)
         new_value = projection(features=(num_groups, head_dim), name="value")(x)
 
-        valid = (
-            jnp.ones((batch_size, sequence_length), bool)
-            if valid is None
-            else valid.astype(bool)
-        )
-        done = done.astype(bool)
+        if segments is None:
+            segments = 1 + jnp.cumsum(done.astype(jnp.int32), axis=1)
+        valid = segments > 0
         count = jnp.cumsum(valid, axis=1, dtype=jnp.int32)
         positions = carry.position_offset + count - valid
         slots = jnp.where(valid, jnp.mod(positions, context_length), context_length)
         batch_index = jnp.arange(batch_size)[:, None]
-        increments = jnp.cumsum(done.astype(jnp.int32), axis=1)
         query_position = positions
-        query_segment = carry.segment_offset + increments
+        query_segment = jnp.where(valid, carry.segment_offset + segments - 1, -1)
 
         filled = (jnp.arange(context_length) < carry.position_offset) | (
             carry.position_offset >= context_length
@@ -122,7 +118,7 @@ class SelfAttention(Block):
         )
         key_position = jnp.concatenate([carry.position, query_position], axis=1)
         key_segment = jnp.concatenate([carry.segment, query_segment], axis=1)
-        key_valid = jnp.concatenate([filled, valid], axis=1)
+        key_valid = jnp.concatenate([filled, jnp.ones_like(valid)], axis=1)
         window = key_position[:, None, :] > query_position[:, :, None] - context_length
 
         mask = (key_valid[:, None, :] & window)[:, None]
@@ -130,14 +126,6 @@ class SelfAttention(Block):
             mask = mask & self.attention_mask(
                 query_position, key_position, query_segment, key_segment, key_valid
             )
-        own = jnp.concatenate(
-            [
-                jnp.zeros((sequence_length, context_length), bool),
-                jnp.eye(sequence_length, dtype=bool),
-            ],
-            axis=1,
-        )
-        mask = mask | own[None, None]
 
         attention_query, attention_key, bias = self.positional_embedding(
             query, keys, query_position, key_position
@@ -155,7 +143,7 @@ class SelfAttention(Block):
         position = carry.position.at[batch_index, slots].set(query_position, mode="drop")
         segment = carry.segment.at[batch_index, slots].set(query_segment, mode="drop")
         position_offset = carry.position_offset + count[:, -1:]
-        segment_offset = carry.segment_offset + increments[:, -1:]
+        segment_offset = carry.segment_offset + jnp.maximum(segments.max(axis=1, keepdims=True), 1) - 1
 
         implementation, attention_dtype = get_attention_implementation(
             attention_query.shape[-1], sequence_length, num_keys

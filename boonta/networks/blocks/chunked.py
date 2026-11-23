@@ -41,8 +41,7 @@ class Chunked(Block):
 
         features, valid = x.features, x.valid.astype(bool)
         batch_size, sequence_length, num_tokens, width = features.shape
-        first = jnp.cumsum(valid, axis=-1) == 1
-        starts = valid & first & done.astype(bool)[..., None]
+        starts = done.astype(bool)[..., None] & (jnp.cumsum(valid, axis=-1) == 1)
         length = sequence_length * num_tokens
         budget = min(length, self.budget or length)
 
@@ -57,12 +56,11 @@ class Chunked(Block):
                 leaf, order.reshape(batch_size, budget, *(1,) * (leaf.ndim - 2)), axis=1
             )
 
-        carry, y = self.block(
-            carry,
-            pack(features),
-            pack(starts),
-            valid=jnp.arange(budget) < count[:, None],
+        starts = pack(starts & valid.reshape(starts.shape))
+        segments = jnp.where(
+            jnp.arange(budget) < count[:, None], 1 + jnp.cumsum(starts, axis=1), 0
         )
+        carry, y = self.block(carry, pack(features), starts, segments=segments)
         last = jnp.cumsum(valid.reshape(batch_size, sequence_length, num_tokens).sum(-1), axis=-1) - 1
         return carry, jnp.take_along_axis(y, jnp.clip(last, 0, budget - 1)[..., None], axis=1)
 
