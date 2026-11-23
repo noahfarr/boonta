@@ -9,8 +9,9 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_grpo import RecurrentGRPO
-from boonta.environments.wrappers import MCP, Group, RecordEpisodeStatistics
-from boonta.networks import (Categorical, Chunk, Chunked, LoRA, Network, Prefix, Qwen3,
+from boonta.environments.wrappers import (MCP, Group, Prompt,
+                                          RecordEpisodeStatistics)
+from boonta.networks import (Categorical, Chunk, Chunked, LoRA, Network, Qwen3,
                              Unembed)
 from boonta.networks.pretrained import init_fn
 from boonta.utils import (load_config, load_qwen3, load_tokenizer,
@@ -18,6 +19,7 @@ from boonta.utils import (load_config, load_qwen3, load_tokenizer,
 
 WORD_LENGTH = 5
 CAPACITY = 32
+BUDGET = 4096
 FEEDBACK = ["0", "1", "2", "3"]
 SYSTEM_PROMPT = (
     "<|im_start|>system\n"
@@ -40,12 +42,12 @@ RESPONSE = (
 
 class TokenFeatureExtractor(nn.Module):
     embed: nn.Embed
+    pad: int
 
     @nn.compact
     def __call__(self, obs, action=None, reward=None, done=None):
-        tokens = jnp.concatenate([action[..., None], obs["tokens"]], axis=-1)
-        observed = jnp.broadcast_to(obs["observed"][..., None], obs["tokens"].shape)
-        valid = jnp.concatenate([~done.astype(bool)[..., None], observed], axis=-1)
+        tokens = jnp.concatenate([action[..., None], obs], axis=-1)
+        valid = jnp.concatenate([~done.astype(bool)[..., None], obs != self.pad], axis=-1)
         return Chunk(self.embed(tokens), valid)
 
 
@@ -107,7 +109,9 @@ def make(cfg):
         observation_shape=(observation_length,),
         action_shape=(),
     )
-    game_length = env.time_limit() + (num_guesses + 1) * observation_length
+    prompt = tokenizer.encode(SYSTEM_PROMPT).ids
+    game_length = len(prompt) + env.time_limit() + (num_guesses + 1) * observation_length
+    env = Prompt(env, prompt, pad)
     env = instantiate(cfg.environment.auto_reset, env)
     env = Group(
         env,
@@ -143,19 +147,16 @@ def make(cfg):
         embedding_init=init_fn(embeddings),
     )
     torso = Chunked(
-        Prefix(
-            LoRA(
-                block=qwen3,
-                params=quantized_params,
-                rank=8,
-                alpha=16.0,
-            ),
-            encoder=embed,
-            tokens=tuple(tokenizer.encode(SYSTEM_PROMPT).ids),
-        )
+        LoRA(
+            block=qwen3,
+            params=quantized_params,
+            rank=8,
+            alpha=16.0,
+        ),
+        budget=BUDGET,
     )
     network = Network(
-        feature_extractor=TokenFeatureExtractor(embed=embed),
+        feature_extractor=TokenFeatureExtractor(embed=embed, pad=pad),
         torso=torso,
         head=Categorical(Unembed(embed=embed)),
     )

@@ -18,6 +18,7 @@ from .normalize_reward import NormalizeReward, NormalizeRewardState
 from .pad_action import PadAction
 from .pad_observation import PadObservation
 from .pbrs import PBRS, PBRSState
+from .prompt import Prompt
 from .reasoning import Reasoning, ReasoningState
 from .record_episode_statistics import (RecordEpisodeStatistics,
                                         RecordEpisodeStatisticsState)
@@ -41,6 +42,7 @@ from .wrapper import Wrapper, WrapperState
 __all__ = [
     "MCP",
     "PBRS",
+    "Prompt",
     "PBRSState",
     "AutoReset",
     "Batched",

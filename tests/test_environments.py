@@ -19,7 +19,7 @@ from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAc
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
                                           Opponent, OptimisticAutoReset,
-                                          PadAction, PadObservation,
+                                          PadAction, PadObservation, Prompt,
                                           Reasoning, RecordEpisodeStatistics,
                                           RecordMultiAgentEpisodeStatistics,
                                           RecordRestartStatistics,
@@ -109,6 +109,7 @@ STACKS = [
         lambda: RecordEpisodeStatistics(LogInfo(Vectorize(TimeLimit(Dial(), 100), NUM_ENVS))),
         id="a_mixed_stack",
     ),
+    pytest.param(lambda: Vectorize(Prompt(tool(Dial()), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
 ]
 
 
@@ -543,6 +544,15 @@ def test_a_gymnax_game_gymnax_cannot_draw_refuses_to_render():
     state, _ = environment.init(jax.random.key(0))
     with pytest.raises(NotImplementedError):
         environment.render(state)
+
+
+def test_the_prompt_opens_every_episode_and_pads_every_other_observation():
+    environment = Prompt(tool(Dial(), start=1, end=2), np.arange(7, 10), pad=0)
+    state, timestep = environment.init(jax.random.key(0))
+    assert environment.observation_space().shape == (6,)
+    np.testing.assert_array_equal(timestep.obs[:3], [7, 8, 9])
+    _, timesteps = play(environment, state, [jnp.int32(token) for token in (1, 2)])
+    np.testing.assert_array_equal(timesteps[-1].obs[:3], [0, 0, 0])
 
 
 def test_tool_calls_stretch_the_time_limit():

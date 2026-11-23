@@ -56,10 +56,7 @@ class MCP(Wrapper):
         action = jnp.int32(0)
         _, shapes = jax.eval_shape(self.step, key, state, action)
         timestep = Timestep(
-            obs={
-                "tokens": jnp.asarray(self._to_tokens(initial.obs), jnp.int32),
-                "observed": jnp.bool_(True),
-            },
+            obs=jnp.asarray(self._to_tokens(initial.obs), jnp.int32),
             action=action,
             reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
             terminated=jnp.ones(shapes.terminated.shape, shapes.terminated.dtype),
@@ -101,10 +98,7 @@ class MCP(Wrapper):
 
         env_state = jax.tree.map(select, stepped_state, state.env_state)
         tokens = jnp.asarray(self._to_tokens(stepped.obs), jnp.int32)
-        obs = {
-            "tokens": select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32)),
-            "observed": fire,
-        }
+        obs = select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32))
         reward = select(stepped.reward, jnp.zeros_like(stepped.reward))
         terminated = select(stepped.terminated, jnp.zeros_like(stepped.terminated))
         truncated = select(stepped.truncated, jnp.zeros_like(stepped.truncated))
@@ -129,16 +123,13 @@ class MCP(Wrapper):
         )
         return state, timestep
 
-    def observation_space(self) -> dict[str, Space]:
-        return {
-            "tokens": Space(
-                shape=self._observation_shape,
-                dtype=jnp.int32,
-                low=0,
-                high=self._vocab_size - 1,
-            ),
-            "observed": Space(shape=(), dtype=jnp.bool_, low=0, high=1),
-        }
+    def observation_space(self) -> Space:
+        return Space(
+            shape=self._observation_shape,
+            dtype=jnp.int32,
+            low=0,
+            high=self._vocab_size - 1,
+        )
 
     def action_space(self) -> Space:
         return Space(

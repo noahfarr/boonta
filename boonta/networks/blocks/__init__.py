@@ -11,7 +11,6 @@ from .positional_embeddings import (LearnedPositionalEmbedding,
                                     SinusoidalPositionalEmbedding,
                                     rotary_positional_embedding,
                                     sinusoidal_time_embedding)
-from .prefix import Prefix
 from .projection import Projection
 from .query_key_norm import QueryKeyNorm
 from .highway import Highway
@@ -39,7 +38,6 @@ __all__ = [
     "LoRA",
     "MinGRUCell",
     "PatchEmbedding",
-    "Prefix",
     "Projection",
     "QueryKeyNorm",
     "RNNCellBase",

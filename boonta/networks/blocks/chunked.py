@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 from flax import struct
 
@@ -13,35 +14,57 @@ class Chunk:
     valid: Array
 
 
+def check_budget(count, budget):
+    if int(count) > budget:
+        raise ValueError(
+            f"a sequence holds {int(count)} tokens, more than Chunked's budget of {budget}"
+        )
+
+
 class Chunked(Block):
     block: Block
+    budget: int | None = None
 
     @nn.compact
-    def __call__(
-        self, carry: Carry, x: Array | Chunk, done: Array
-    ) -> tuple[Carry, Array]:
-        x, valid = (x.features, x.valid) if isinstance(x, Chunk) else (x, None)
-        batch_size, sequence_length, num_tokens, features = x.shape
-        x = x.reshape(batch_size, sequence_length * num_tokens, features)
-        done = (
-            jnp.zeros((batch_size, sequence_length, num_tokens), done.dtype)
-            .at[:, :, 0]
-            .set(done)
-        )
-        done = done.reshape(batch_size, sequence_length * num_tokens)
-        if valid is None:
-            carry, x = self.block(carry, x, done)
-            last = jnp.full((batch_size, sequence_length), num_tokens - 1)
-        else:
+    def __call__(self, carry: Carry, x: Array | Chunk, done: Array) -> tuple[Carry, Array]:
+        if not isinstance(x, Chunk):
+            batch_size, sequence_length, num_tokens, features = x.shape
+            starts = jnp.zeros((batch_size, sequence_length, num_tokens), done.dtype)
+            starts = starts.at[:, :, 0].set(done)
             carry, x = self.block(
                 carry,
-                x,
-                done,
-                valid=valid.reshape(batch_size, sequence_length * num_tokens),
+                x.reshape(batch_size, sequence_length * num_tokens, features),
+                starts.reshape(batch_size, sequence_length * num_tokens),
             )
-            last = num_tokens - 1 - jnp.argmax(valid[..., ::-1], axis=-1)
-        x = x.reshape(batch_size, sequence_length, num_tokens, features)
-        return carry, jnp.take_along_axis(x, last[..., None, None], axis=2)[:, :, 0]
+            x = x.reshape(batch_size, sequence_length, num_tokens, features)
+            return carry, x[:, :, -1]
+
+        features, valid = x.features, x.valid.astype(bool)
+        batch_size, sequence_length, num_tokens, width = features.shape
+        first = jnp.cumsum(valid, axis=-1) == 1
+        starts = valid & first & done.astype(bool)[..., None]
+        length = sequence_length * num_tokens
+        budget = min(length, self.budget or length)
+
+        valid = valid.reshape(batch_size, length)
+        order = jnp.argsort(~valid, axis=-1, stable=True)[:, :budget]
+        count = valid.sum(axis=-1)
+        jax.debug.callback(check_budget, count.max(), budget)
+
+        def pack(leaf):
+            leaf = leaf.reshape(batch_size, length, *leaf.shape[3:])
+            return jnp.take_along_axis(
+                leaf, order.reshape(batch_size, budget, *(1,) * (leaf.ndim - 2)), axis=1
+            )
+
+        carry, y = self.block(
+            carry,
+            pack(features),
+            pack(starts),
+            valid=jnp.arange(budget) < count[:, None],
+        )
+        last = jnp.cumsum(valid.reshape(batch_size, sequence_length, num_tokens).sum(-1), axis=-1) - 1
+        return carry, jnp.take_along_axis(y, jnp.clip(last, 0, budget - 1)[..., None], axis=1)
 
     @nn.nowrap
     def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> Carry:

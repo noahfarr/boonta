@@ -17,11 +17,9 @@ class SelfAttentionCarry:
     key: Array
     value: Array
     position: Array
-    rotation: Array
     segment: Array
     position_offset: Array
     segment_offset: Array
-    episode_start: Array
 
 
 def causal_attention_mask(
@@ -68,7 +66,6 @@ class SelfAttention(Block):
         x: Array,
         done: Array,
         valid: Array | None = None,
-        prefix: SelfAttentionCarry | None = None,
     ) -> tuple[SelfAttentionCarry, Array]:
         batch_size, sequence_length, *_ = x.shape
         context_length = self.context_length or sequence_length
@@ -115,11 +112,6 @@ class SelfAttention(Block):
         increments = jnp.cumsum(done.astype(jnp.int32), axis=1)
         query_position = positions
         query_segment = carry.segment_offset + increments
-        episode_start = jax.lax.cummax(
-            jnp.where(done, positions, carry.episode_start), axis=1
-        )
-        prefix_length = 0 if prefix is None else prefix.position_offset[:1]
-        query_rotation = prefix_length + positions - episode_start
 
         filled = (jnp.arange(context_length) < carry.position_offset) | (
             carry.position_offset >= context_length
@@ -129,7 +121,6 @@ class SelfAttention(Block):
             [carry.value, new_value.astype(carry.value.dtype)], axis=1
         )
         key_position = jnp.concatenate([carry.position, query_position], axis=1)
-        key_rotation = jnp.concatenate([carry.rotation, query_rotation], axis=1)
         key_segment = jnp.concatenate([carry.segment, query_segment], axis=1)
         key_valid = jnp.concatenate([filled, valid], axis=1)
         window = key_position[:, None, :] > query_position[:, :, None] - context_length
@@ -148,31 +139,8 @@ class SelfAttention(Block):
         )
         mask = mask | own[None, None]
 
-        if prefix is not None:
-            prefix_slots, *_ = prefix.position.shape[1:]
-            prefix_valid = jnp.arange(prefix_slots) < prefix.position_offset[:1]
-            keys = jnp.concatenate(
-                [jnp.broadcast_to(prefix.key[:1], (batch_size, *prefix.key.shape[1:])).astype(keys.dtype), keys], axis=1
-            )
-            values = jnp.concatenate(
-                [jnp.broadcast_to(prefix.value[:1], (batch_size, *prefix.value.shape[1:])).astype(values.dtype), values], axis=1
-            )
-            key_rotation = jnp.concatenate(
-                [jnp.broadcast_to(prefix.rotation[:1], (batch_size, prefix_slots)), key_rotation], axis=1
-            )
-            mask = jnp.concatenate(
-                [
-                    jnp.broadcast_to(
-                        prefix_valid[:, None, None, :],
-                        (batch_size, 1, sequence_length, prefix_slots),
-                    ),
-                    mask,
-                ],
-                axis=-1,
-            )
-
         attention_query, attention_key, bias = self.positional_embedding(
-            query, keys, query_rotation, key_rotation
+            query, keys, query_position, key_position
         )
 
         num_keys = keys.shape[1]
@@ -185,7 +153,6 @@ class SelfAttention(Block):
             new_value.astype(carry.value.dtype), mode="drop"
         )
         position = carry.position.at[batch_index, slots].set(query_position, mode="drop")
-        rotation = carry.rotation.at[batch_index, slots].set(query_rotation, mode="drop")
         segment = carry.segment.at[batch_index, slots].set(query_segment, mode="drop")
         position_offset = carry.position_offset + count[:, -1:]
         segment_offset = carry.segment_offset + increments[:, -1:]
@@ -217,11 +184,9 @@ class SelfAttention(Block):
             key=key,
             value=value,
             position=position,
-            rotation=rotation,
             segment=segment,
             position_offset=position_offset,
             segment_offset=segment_offset,
-            episode_start=episode_start[:, -1:],
         )
         return carry, y
 
@@ -241,9 +206,7 @@ class SelfAttention(Block):
                 (batch_size, context_length, num_groups, head_dim), dtype=self.dtype
             ),
             position=jnp.zeros((batch_size, context_length), dtype=jnp.int32),
-            rotation=jnp.zeros((batch_size, context_length), dtype=jnp.int32),
             segment=jnp.zeros((batch_size, context_length), dtype=jnp.int32),
             position_offset=jnp.zeros((batch_size, 1), dtype=jnp.int32),
             segment_offset=jnp.zeros((batch_size, 1), dtype=jnp.int32),
-            episode_start=jnp.zeros((batch_size, 1), dtype=jnp.int32),
         )

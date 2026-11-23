@@ -2,7 +2,7 @@ from .actor_critic import ActorCritic
 from .architectures import (GPT2, PI0, Expert, Gemma, GemmaLayer, GPT2Layer, PI0Layer, Qwen3,
                             ViT, ViTLayer)
 from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Block, Chunk, Chunked,
-                     Highway, Identity, LearnedPositionalEmbedding, LoRA, Prefix,
+                     Highway, Identity, LearnedPositionalEmbedding, LoRA,
                      MinGRUCell, PatchEmbedding, Projection, QueryKeyNorm,
                      Residual, RNNCellBase, SelfAttention, SelfAttentionCarry,
                      SinusoidalPositionalEmbedding, SSMCellBase, Stack,
@@ -42,7 +42,6 @@ __all__ = [
     "Identity",
     "LearnedPositionalEmbedding",
     "LoRA",
-    "Prefix",
     "MinGRUCell",
     "Network",
     "PI0Layer",
