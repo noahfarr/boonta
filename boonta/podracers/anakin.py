@@ -106,16 +106,12 @@ class Anakin:
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
-
-            def record(carried, key):
-                state, _ = carried
-                next_state, transition = self.rollout(state, key, temperature=1.0)
-                return (next_state, state.carry), transition
-
             start = state.carry
-            (state, last), transitions = jax.lax.scan(record, (state, start), rollout_keys)
+            state, transitions = jax.lax.scan(
+                partial(self.rollout, temperature=1.0), state, rollout_keys
+            )
             transitions = transitions.replace(
-                carry=jax.tree.map(lambda first, final: jnp.stack([first, final]), start, last)
+                carry=jax.tree.map(lambda *carry: jnp.stack(carry), start, state.carry)
             )
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions

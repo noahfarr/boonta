@@ -524,6 +524,9 @@ def test_the_tail_of_a_rollout_bootstraps_the_value_the_next_step_would_have_see
     state = podracer.init(jax.random.key(0))
     keys = jax.random.split(jax.random.key(1), podracer.config.num_steps)
     after, transitions = jax.lax.scan(partial(podracer.rollout, temperature=1.0), state, keys)
+    transitions = transitions.replace(
+        carry=jax.tree.map(lambda *carry: jnp.stack(carry), state.carry, after.carry)
+    )
 
     sequence, carry = transitions.tail()
     _, (_, values) = algorithm.network.apply(
