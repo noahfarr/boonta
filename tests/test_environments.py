@@ -19,7 +19,7 @@ from boonta.environments.wrappers import (MCP, PBRS, AutoReset, Batched, ChunkAc
                                           MaskObservation, NextStepAutoReset,
                                           NormalizeObservation, NormalizeReward,
                                           Opponent, OptimisticAutoReset,
-                                          PadAction, PadObservation, Prompt,
+                                          PadAction, PadObservation,
                                           Reasoning, RecordEpisodeStatistics,
                                           RecordMultiAgentEpisodeStatistics,
                                           RecordRestartStatistics,
@@ -109,7 +109,7 @@ STACKS = [
         lambda: RecordEpisodeStatistics(LogInfo(Vectorize(TimeLimit(Dial(), 100), NUM_ENVS))),
         id="a_mixed_stack",
     ),
-    pytest.param(lambda: Vectorize(Prompt(tool(Dial()), np.arange(2), pad=0), NUM_ENVS), id="prompt"),
+    pytest.param(lambda: Vectorize(tool(Dial(), prompt=np.arange(2)), NUM_ENVS), id="prompt"),
 ]
 
 
@@ -479,7 +479,7 @@ def test_a_reasoning_token_freezes_the_game_and_costs_its_price():
     assert environment.action_space().num_actions == 4
 
 
-def tool(environment, start=0, end=0):
+def tool(environment, start=0, end=0, prompt=()):
     return MCP(
         environment,
         to_action=lambda arguments, cursor: jnp.int32(0),
@@ -490,6 +490,7 @@ def tool(environment, start=0, end=0):
         vocab_size=4,
         capacity=4,
         observation_shape=(3,),
+        prompt=prompt,
     )
 
 
@@ -547,7 +548,7 @@ def test_a_gymnax_game_gymnax_cannot_draw_refuses_to_render():
 
 
 def test_the_prompt_opens_every_episode_and_pads_every_other_observation():
-    environment = Prompt(tool(Dial(), start=1, end=2), np.arange(7, 10), pad=0)
+    environment = tool(Dial(), start=1, end=2, prompt=np.arange(7, 10))
     state, timestep = environment.init(jax.random.key(0))
     assert environment.observation_space().shape == (6,)
     np.testing.assert_array_equal(timestep.obs[:3], [7, 8, 9])

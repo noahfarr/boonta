@@ -9,7 +9,7 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
-from boonta.environments.wrappers import MCP, Prompt, RecordEpisodeStatistics
+from boonta.environments.wrappers import MCP, RecordEpisodeStatistics
 from boonta.networks import (ActorCritic, Categorical, Chunk, Chunked, LoRA, Network,
                              Qwen3, Unembed)
 from boonta.networks.pretrained import init_fn
@@ -96,6 +96,7 @@ def make(cfg):
         digits = jnp.where(revealed, feedback[cells.argmax(-1)], feedback[3])
         return jnp.concatenate([opening, digits.astype(jnp.int32), closing])
 
+    prompt = tokenizer.encode(SYSTEM_PROMPT).ids
     env = MCP(
         env,
         to_action=to_action,
@@ -107,10 +108,9 @@ def make(cfg):
         capacity=CAPACITY,
         observation_shape=(observation_length,),
         action_shape=(),
+        prompt=prompt,
     )
-    prompt = tokenizer.encode(SYSTEM_PROMPT).ids
     game_length = len(prompt) + env.time_limit() + (num_guesses + 1) * observation_length
-    env = Prompt(env, prompt, pad)
     env = instantiate(cfg.environment.auto_reset, env)
 
     dtype = jnp.dtype(cfg.network.dtype)

@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 
 from boonta.utils import Array, Key, Timestep
@@ -32,6 +33,7 @@ class MCP(Wrapper):
         observation_shape: tuple[int, ...],
         action_shape: tuple[int, ...] = (),
         tokens_per_call: int = 32,
+        prompt: Array = (),
     ):
         super().__init__(env)
         self._to_action = to_action
@@ -44,6 +46,7 @@ class MCP(Wrapper):
         self._observation_shape = observation_shape
         self._action_shape = action_shape
         self._tokens_per_call = tokens_per_call
+        self._prompt = jnp.asarray(np.asarray(prompt, np.int32))
 
     def init(self, key: Key) -> tuple[MCPState, Timestep]:
         env_state, initial = self._env.init(key)
@@ -56,7 +59,9 @@ class MCP(Wrapper):
         action = jnp.int32(0)
         _, shapes = jax.eval_shape(self.step, key, state, action)
         timestep = Timestep(
-            obs=jnp.asarray(self._to_tokens(initial.obs), jnp.int32),
+            obs=jnp.concatenate(
+                [self._prompt, jnp.asarray(self._to_tokens(initial.obs), jnp.int32)]
+            ),
             action=action,
             reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
             terminated=jnp.ones(shapes.terminated.shape, shapes.terminated.dtype),
@@ -98,7 +103,12 @@ class MCP(Wrapper):
 
         env_state = jax.tree.map(select, stepped_state, state.env_state)
         tokens = jnp.asarray(self._to_tokens(stepped.obs), jnp.int32)
-        obs = select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32))
+        obs = jnp.concatenate(
+            [
+                jnp.full_like(self._prompt, self._pad),
+                select(tokens, jnp.full(self._observation_shape, self._pad, jnp.int32)),
+            ]
+        )
         reward = select(stepped.reward, jnp.zeros_like(stepped.reward))
         terminated = select(stepped.terminated, jnp.zeros_like(stepped.terminated))
         truncated = select(stepped.truncated, jnp.zeros_like(stepped.truncated))
@@ -124,8 +134,9 @@ class MCP(Wrapper):
         return state, timestep
 
     def observation_space(self) -> Space:
+        (length,) = self._observation_shape
         return Space(
-            shape=self._observation_shape,
+            shape=(len(self._prompt) + length,),
             dtype=jnp.int32,
             low=0,
             high=self._vocab_size - 1,
