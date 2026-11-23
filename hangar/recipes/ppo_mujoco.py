@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 
@@ -14,6 +15,7 @@ from . import schedules
 
 
 def make(cfg):
+    dtype = (cfg.get("network") or {}).get("dtype")
     env = environments.make(**cfg.environment)
     action_dim, *_ = env.action_space().shape
     env = instantiate(cfg.environment.auto_reset, env)
@@ -23,10 +25,10 @@ def make(cfg):
         head=ActorCritic(
             actor=Gaussian(
                 nn.Sequential(
-                    [nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(2 * action_dim)]
+                    [nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(2 * action_dim, dtype=jnp.float32)]
                 )
             ),
-            critic=nn.Sequential([nn.Dense(256), nn.tanh, nn.Dense(256), nn.tanh, nn.Dense(1)]),
+            critic=nn.Sequential([nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(256, dtype=dtype), nn.tanh, nn.Dense(1, dtype=jnp.float32)]),
         ),
     )
 

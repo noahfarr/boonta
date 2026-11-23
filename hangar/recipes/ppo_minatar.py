@@ -36,6 +36,7 @@ def curiosity_network(head):
 def make(cfg):
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
+    dtype = (cfg.get("network") or {}).get("dtype")
     env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
@@ -47,10 +48,10 @@ def make(cfg):
         head=ActorCritic(
             actor=Categorical(
                 nn.Sequential(
-                    [nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(num_actions)]
+                    [nn.Dense(64, dtype=dtype), nn.relu, nn.Dense(64, dtype=dtype), nn.relu, nn.Dense(num_actions, dtype=jnp.float32)]
                 )
             ),
-            critic=nn.Sequential([nn.Dense(64), nn.relu, nn.Dense(64), nn.relu, nn.Dense(1)]),
+            critic=nn.Sequential([nn.Dense(64, dtype=dtype), nn.relu, nn.Dense(64, dtype=dtype), nn.relu, nn.Dense(1, dtype=jnp.float32)]),
         ),
     )
 
