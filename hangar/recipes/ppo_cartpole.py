@@ -1,41 +1,33 @@
 import flax.linen as nn
-import jax
 import optax
 from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.ppo import PPO
-from boonta.environments.wrappers import (DomainRandomization,
-                                          RecordEpisodeStatistics)
-from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
+from boonta.environments.wrappers import RecordEpisodeStatistics
+from boonta.networks import ActorCritic, Categorical, Network
 
-
-def randomize_gravity(key, params):
-    gravity = jax.random.uniform(key, minval=5.0, maxval=20.0)
-    return params.replace(gravity=gravity)
+from . import schedules
 
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    env = DomainRandomization(env, randomize_gravity)
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 
     network = Network(
-        feature_extractor=FeatureExtractor(
-            observation_extractor=nn.Sequential(
-                [
-                    nn.Dense(64),
-                    nn.tanh,
-                    nn.Dense(64),
-                    nn.tanh,
-                ]
-            ),
-        ),
         head=ActorCritic(
-            actor=Categorical(nn.Dense(num_actions)),
-            critic=nn.Dense(1),
+            actor=Categorical(
+                nn.Sequential(
+                    [nn.Dense(64), nn.tanh, nn.Dense(64), nn.tanh, nn.Dense(num_actions)]
+                )
+            ),
+            critic=nn.Sequential([nn.Dense(64), nn.tanh, nn.Dense(64), nn.tanh, nn.Dense(1)]),
         ),
+    )
+
+    learning_rate = schedules.learning_rate(
+        cfg, batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps
     )
 
     algorithm = PPO(
@@ -43,7 +35,7 @@ def make(cfg):
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
-            optax.adam(cfg.optimizer.lr),
+            optax.adam(learning_rate, eps=cfg.optimizer.get("eps", 1e-8)),
         ),
     )
 
