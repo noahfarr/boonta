@@ -2,9 +2,14 @@
 
 environment:
   num_envs: 32
+  kwargs:
+    green_reward: 0.02
+    yellow_reward: 0.01
+    invalid_penalty: 0.02
 
 podracer:
   config:
+    num_steps: 214
     mesh:
       count: 1
 

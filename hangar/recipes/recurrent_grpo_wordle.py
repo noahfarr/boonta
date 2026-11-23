@@ -42,7 +42,6 @@ class TokenFeatureExtractor(nn.Module):
 
 def make(cfg):
     env = environments.make(**cfg.environment)
-    num_guesses = env.time_limit()
 
     repo_id = cfg.network.repo_id
     config = load_config(repo_id)
@@ -114,7 +113,7 @@ def make(cfg):
         head_dim=config["head_dim"],
         hidden_dim=config["intermediate_size"],
         max_wavelength=config["rope_theta"],
-        context_length=num_guesses * (1 + WORD_LENGTH),
+        context_length=cfg.podracer.config.num_steps * (1 + WORD_LENGTH),
         dtype=dtype,
         param_dtype=param_dtype,
     )
