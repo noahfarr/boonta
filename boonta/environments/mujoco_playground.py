@@ -19,16 +19,13 @@ class MuJoCoPlayground(Environment):
         state = state.replace(info={**state.info, "steps": steps})
         action_space = self.action_space()
         action = jnp.zeros(action_space.shape, action_space.dtype)
-        _, shapes = jax.eval_shape(self.step, key, state, action)
         timestep = Timestep(
             obs=state.obs,
             action=action,
-            reward=jnp.zeros(shapes.reward.shape, shapes.reward.dtype),
-            terminated=jnp.ones(shapes.terminated.shape, shapes.terminated.dtype),
-            truncated=jnp.zeros(shapes.truncated.shape, shapes.truncated.dtype),
-            info=jax.tree.map(
-                lambda leaf: jnp.zeros(leaf.shape, leaf.dtype), shapes.info
-            ),
+            reward=jnp.zeros_like(state.reward),
+            terminated=jnp.ones_like(state.done, dtype=jnp.bool),
+            truncated=jnp.zeros_like(state.done, dtype=jnp.bool),
+            info=jax.tree.map(jnp.zeros_like, state.info),
         )
         return state, timestep
 
