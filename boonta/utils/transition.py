@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -26,16 +24,3 @@ class Transition:
             self.second,
         )
         return last, jax.tree.map(lambda leaf: leaf[-1], self.carry)
-
-
-def unroll(rollout: Callable, state: PyTree, keys: PyTree) -> tuple[PyTree, Transition]:
-    def body(scanned, key):
-        state, _ = scanned
-        entering = state.carry
-        state, transition = rollout(state, key)
-        return (state, entering), transition
-
-    start = state.carry
-    (state, last), transitions = jax.lax.scan(body, (state, start), keys)
-    carry = jax.tree.map(lambda first, final: jnp.stack([first, final]), start, last)
-    return state, transitions.replace(carry=carry)

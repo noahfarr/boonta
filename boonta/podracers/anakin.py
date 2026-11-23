@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, Transition, sharded, unroll
+from boonta.utils import Key, PyTree, Timestep, Transition, sharded
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -105,8 +106,16 @@ class Anakin:
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
-            state, transitions = unroll(
-                partial(self.rollout, temperature=1.0), state, rollout_keys
+
+            def record(carried, key):
+                state, _ = carried
+                next_state, transition = self.rollout(state, key, temperature=1.0)
+                return (next_state, state.carry), transition
+
+            start = state.carry
+            (state, last), transitions = jax.lax.scan(record, (state, start), rollout_keys)
+            transitions = transitions.replace(
+                carry=jax.tree.map(lambda first, final: jnp.stack([first, final]), start, last)
             )
             algorithm_state = self.algorithm.update(
                 state.algorithm_state, update_key, transitions
