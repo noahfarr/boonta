@@ -1,0 +1,29 @@
+# @package _global_
+
+num_steps: 10_737_418_240
+
+algorithm:
+  num_minibatches: 32
+  update_epochs: 8
+  clip_coefficient: 0.2
+  entropy_coefficient: 0.01
+  value_coefficient: 0.5
+  gamma: 0.995
+  gae_lambda: 0.9
+
+cell:
+  features: 256
+
+podracer:
+  config:
+    num_steps: 64
+
+environment:
+  num_envs: 2048
+  kwargs:
+    action_type: discrete
+    observation_type: symbolic_flat
+
+optimizer:
+  lr: 5e-5
+  max_grad_norm: 1.0
