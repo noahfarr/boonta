@@ -31,7 +31,6 @@
 | gymnax/minatar/asterix | recurrent_ppo | 512 | 8,192 | 2,719,566 | 1,216,209 | 268,072 | 241,357 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/asterix | pqn | 4,096 | 65,536 | 3,063,796 | 2,330,436 | 8,047,569 | 1,947,903 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/asterix | recurrent_pqn | 128 | 2,048 | 722,909 | 326,287 | 456,362 | 281,841 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
-| gymnax/minatar/asterix | recurrent_pupo | 8,192 | 524,288 | 3,252,241 | 2,714,425 | 4,948,415 | 1,739,807 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/breakout | dqn | 128 | 128 | 224,749 | 35,796 | 14,756 | 22,574 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/breakout | recurrent_dqn | 128 | 128 | 250,448 | 29,214 | 2,190 | 2,517 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/breakout | grpo | 512 | 131,072 | 10,220,299 | 5,431,376 | 5,528,313 | 3,120,120 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
@@ -39,7 +38,6 @@
 | gymnax/minatar/breakout | recurrent_ppo | 512 | 8,192 | 7,810,619 | 3,371,798 | 267,718 | 264,066 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/breakout | pqn | 4,096 | 65,536 | 42,644,752 | 12,597,997 | 7,080,405 | 5,364,895 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/breakout | recurrent_pqn | 128 | 2,048 | 2,219,644 | 856,017 | 393,568 | 415,288 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
-| gymnax/minatar/breakout | recurrent_pupo | 8,192 | 524,288 | 74,463,452 | 13,877,312 | 4,806,070 | 3,657,048 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/freeway | dqn | 128 | 128 | 189,457 | 19,061 | 12,142 | 22,495 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/freeway | recurrent_dqn | 128 | 128 | 202,582 | 17,685 | 2,091 | 2,183 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |
 | gymnax/minatar/freeway | grpo | 512 | 131,072 | 3,970,416 | 2,778,829 | 3,618,962 | 1,963,013 | NVIDIA GeForce RTX 5080 | 166de39-dirty | 2026-10-02 |

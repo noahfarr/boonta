@@ -28,7 +28,6 @@ LEARNERS = [
     pytest.param(zoo.sac, reach, 1000, id="sac-reach"),
     pytest.param(zoo.reppo, reach, 300, id="reppo-reach"),
     pytest.param(zoo.recurrent_ppo, recall, 100, id="recurrent_ppo-recall"),
-    pytest.param(zoo.recurrent_pupo, recall, 100, id="recurrent_pupo-recall"),
     pytest.param(zoo.recurrent_grpo, recall, 100, id="recurrent_grpo-recall"),
     pytest.param(zoo.recurrent_pqn, recall, 100, id="recurrent_pqn-recall"),
     pytest.param(zoo.recurrent_dqn, recall, 400, id="recurrent_dqn-recall"),
@@ -47,7 +46,6 @@ TEAMS = [
     pytest.param(zoo.ppo, team(match), 100, id="ppo-match"),
     pytest.param(zoo.mmd, team(match), 100, id="mmd-match"),
     pytest.param(zoo.recurrent_ppo, team(recall), 100, id="recurrent_ppo-recall"),
-    pytest.param(zoo.recurrent_pupo, team(recall), 100, id="recurrent_pupo-recall"),
 ]
 
 
@@ -82,7 +80,6 @@ def test_learns(build, environment, num_updates):
 
 RECURRENT = [
     pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
-    pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
     pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),
@@ -216,16 +213,6 @@ DATA_PARALLEL = [
     pytest.param(zoo.pqn, corridor, 3, id="pqn"),
     pytest.param(zoo.reppo, reach, 3, id="reppo"),
     pytest.param(zoo.recurrent_ppo, recall, 3, id="recurrent_ppo"),
-    pytest.param(
-        zoo.recurrent_pupo,
-        recall,
-        3,
-        id="recurrent_pupo",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="PUPO draws environments by priority over the whole batch",
-        ),
-    ),
     pytest.param(zoo.recurrent_grpo, recall, 3, id="recurrent_grpo"),
     pytest.param(zoo.recurrent_pqn, recall, 3, id="recurrent_pqn"),
     pytest.param(zoo.dqn, corridor, 20, id="dqn"),
@@ -388,7 +375,6 @@ REPLAYERS = [
     pytest.param(zoo.grpo, corridor, log_prob_gap, id="grpo"),
     pytest.param(zoo.pqn, corridor, q_value_gap, id="pqn"),
     pytest.param(zoo.recurrent_ppo, recall, log_prob_gap, id="recurrent_ppo"),
-    pytest.param(zoo.recurrent_pupo, recall, log_prob_gap, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, log_prob_gap, id="recurrent_grpo"),
     pytest.param(zoo.recurrent_pqn, recall, q_value_gap, id="recurrent_pqn"),
 ]
@@ -446,7 +432,6 @@ STATEFUL = [
     pytest.param(zoo.sac, reach, id="sac"),
     pytest.param(zoo.reppo, reach, id="reppo"),
     pytest.param(zoo.recurrent_ppo, recall, id="recurrent_ppo"),
-    pytest.param(zoo.recurrent_pupo, recall, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, id="recurrent_grpo"),
     pytest.param(zoo.recurrent_pqn, recall, id="recurrent_pqn"),
     pytest.param(zoo.recurrent_dqn, recall, id="recurrent_dqn"),

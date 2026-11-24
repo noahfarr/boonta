@@ -6,12 +6,15 @@ from hydra.utils import instantiate
 from optax.contrib._muon import MuonDimensionNumbers
 
 from boonta import environments
-from boonta.algorithms.recurrent_pupo import RecurrentPuPO
+from boonta.algorithms.recurrent_ppo import RecurrentPPO
 from boonta.environments.wrappers import (RecordEpisodeStatistics,
                                           RecordRestartStatistics)
-from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
+from boonta.networks import (SSM, ActorCritic, Categorical, FeatureExtractor,
+                             Highway, MinGRUCell, Network, Tower)
 
 from . import schedules
+
+FEATURES = 256
 
 
 class Ram(nn.Module):
@@ -33,16 +36,18 @@ def make(cfg):
         kwargs=dict(cfg.environment.get("kwargs") or {}),
     )
     num_actions = env.action_space().num_actions
-    hidden_dim = cfg.cell.features
 
     network = Network(
         feature_extractor=FeatureExtractor(
-            observation_extractor=Ram(features=hidden_dim, dtype=dtype),
+            observation_extractor=Ram(features=FEATURES, dtype=dtype),
         ),
-        torso=instantiate(cfg.stack),
+        torso=Tower(
+            Highway(SSM(MinGRUCell(features=FEATURES, dtype=dtype)), dtype=dtype),
+            num_layers=2,
+        ),
         head=ActorCritic(
-            actor=Categorical(nn.Dense(num_actions, use_bias=False, dtype=dtype)),
-            critic=nn.Dense(1, use_bias=False, dtype=dtype),
+            actor=Categorical(nn.Dense(num_actions, use_bias=False, dtype=jnp.float32)),
+            critic=nn.Dense(1, use_bias=False, dtype=jnp.float32),
         ),
     )
 
@@ -50,9 +55,8 @@ def make(cfg):
         cfg, batch_size=cfg.environment.num_envs * cfg.podracer.config.num_steps
     )
 
-    algorithm = RecurrentPuPO(
+    algorithm = RecurrentPPO(
         cfg=instantiate(cfg.algorithm),
-        importance_exponent=instantiate(cfg.importance_exponent),
         network=network,
         optimizer=optax.chain(
             optax.clip_by_global_norm(cfg.optimizer.max_grad_norm),
@@ -67,9 +71,7 @@ def make(cfg):
                 lambda params: jax.tree.map(
                     lambda p: "muon" if p.ndim >= 2 else "adam", params
                 ),
-            )
-            if cfg.optimizer.get("name") == "muon"
-            else optax.adam(learning_rate),
+            ),
         ),
     )
 
