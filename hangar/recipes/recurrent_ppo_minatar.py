@@ -17,6 +17,7 @@ from . import schedules
 
 def make(cfg):
     linear = (cfg.get("network") or {}).get("encoder") == "linear"
+    dtype = (cfg.get("network") or {}).get("dtype")
 
     env = environments.make(**cfg.environment)
     sticky = cfg.environment.get("sticky_action_prob", 0.0)
@@ -33,15 +34,15 @@ def make(cfg):
     if linear:
         encoder = [
             lambda obs: obs.astype(jnp.float32),
-            nn.Dense(hidden_dim),
+            nn.Dense(hidden_dim, dtype=dtype),
         ]
     else:
         encoder = [
             lambda obs: obs.astype(jnp.float32),
-            nn.Conv(16, (3, 3), padding="VALID"),
+            nn.Conv(16, (3, 3), padding="VALID", dtype=dtype),
             nn.relu,
             Flatten(start_dim=-3),
-            nn.Dense(hidden_dim),
+            nn.Dense(hidden_dim, dtype=dtype),
             nn.relu,
         ]
 
@@ -51,8 +52,8 @@ def make(cfg):
         ),
         torso=torso,
         head=ActorCritic(
-            actor=Categorical(nn.Dense(num_actions)),
-            critic=nn.Dense(1),
+            actor=Categorical(nn.Dense(num_actions, dtype=jnp.float32)),
+            critic=nn.Dense(1, dtype=jnp.float32),
         ),
     )
 

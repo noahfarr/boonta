@@ -19,5 +19,6 @@ environment:
 
 optimizer:
   actor_lr: 3e-4
+  anneal: true
   critic_lr: 3e-4
   value_lr: 3e-4

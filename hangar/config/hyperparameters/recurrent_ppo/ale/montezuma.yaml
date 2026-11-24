@@ -13,12 +13,6 @@ podracer:
     mesh:
       count: 1
 
-num_layers: 2
-
-cell:
-  features: 256
-  dtype: bfloat16
-
 network:
   dtype: bfloat16
 
@@ -33,7 +27,6 @@ algorithm:
   gae_lambda: 0.95
 
 optimizer:
-  name: muon
   lr: 0.005
   anneal: true
   alpha: 0.0

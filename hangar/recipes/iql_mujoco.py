@@ -10,6 +10,8 @@ from boonta.environments.wrappers import ClipAction, RecordEpisodeStatistics
 from boonta.networks import FeatureExtractor, Gaussian, Network
 from boonta.networks.layers import Identity
 
+from . import schedules
+
 
 def make(cfg):
     env = ClipAction(environments.make(**cfg.environment))
@@ -83,8 +85,8 @@ def make(cfg):
         critic=critic,
         value=value,
         actor_optimizer=optax.adam(
-            optax.cosine_decay_schedule(
-                cfg.optimizer.actor_lr, int(cfg.num_steps) // cfg.algorithm.batch_size
+            schedules.learning_rate(
+                cfg, batch_size=cfg.algorithm.batch_size, rate=cfg.optimizer.actor_lr
             )
         ),
         critic_optimizer=optax.adam(cfg.optimizer.critic_lr),

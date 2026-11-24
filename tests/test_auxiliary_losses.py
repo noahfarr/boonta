@@ -94,7 +94,6 @@ EVERY = [
     pytest.param(zoo.sac, reach, set(), id="sac"),
     pytest.param(zoo.reppo, reach, set(), id="reppo"),
     pytest.param(zoo.recurrent_ppo, recall, {"value", "carry"}, id="recurrent_ppo"),
-    pytest.param(zoo.recurrent_pupo, recall, {"value", "carry"}, id="recurrent_pupo"),
     pytest.param(zoo.recurrent_grpo, recall, {"carry"}, id="recurrent_grpo"),
     pytest.param(zoo.recurrent_pqn, recall, {"q_values", "carry"}, id="recurrent_pqn"),
     pytest.param(zoo.recurrent_dqn, recall, {"q_values", "carry"}, id="recurrent_dqn"),

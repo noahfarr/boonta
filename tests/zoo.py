@@ -17,7 +17,6 @@ from boonta.algorithms.recurrent_dqn import RecurrentDQN, RecurrentDQNConfig
 from boonta.algorithms.recurrent_grpo import RecurrentGRPO, RecurrentGRPOConfig
 from boonta.algorithms.recurrent_ppo import RecurrentPPO, RecurrentPPOConfig
 from boonta.algorithms.recurrent_pqn import RecurrentPQN, RecurrentPQNConfig
-from boonta.algorithms.recurrent_pupo import RecurrentPuPO, RecurrentPuPOConfig
 from boonta.algorithms.recurrent_sac import RecurrentSAC, RecurrentSACConfig
 from boonta.algorithms.reppo import REPPO, REPPOConfig
 from boonta.algorithms.sac import SAC, SACConfig
@@ -402,37 +401,6 @@ def recurrent_ppo(
 ):
     algorithm = RecurrentPPO(
         cfg=RecurrentPPOConfig(
-            num_minibatches=4,
-            update_epochs=4,
-            clip_coefficient=0.2,
-            clip_value_loss=True,
-            entropy_coefficient=0.01,
-            value_coefficient=0.5,
-            gamma=0.99,
-            gae_lambda=0.95,
-        ),
-        network=Network(
-            feature_extractor=encoder(),
-            torso=torso or gru(),
-            head=ActorCritic(actor=policy(environment), critic=nn.Dense(1)),
-        ),
-        optimizer=optimizer or adam(),
-        auxiliary_losses=auxiliary_losses,
-    )
-    return podracer(algorithm, wrap(environment, num_envs), num_envs, num_steps)
-
-
-def recurrent_pupo(
-    environment,
-    num_envs=32,
-    num_steps=16,
-    podracer=online,
-    optimizer=None,
-    auxiliary_losses=(),
-    torso=None,
-):
-    algorithm = RecurrentPuPO(
-        cfg=RecurrentPuPOConfig(
             num_minibatches=4,
             update_epochs=4,
             clip_coefficient=0.2,

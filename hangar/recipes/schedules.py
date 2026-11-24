@@ -1,8 +1,8 @@
 import optax
 
 
-def learning_rate(cfg, batch_size: int):
-    rate = cfg.optimizer.lr
+def learning_rate(cfg, batch_size: int, rate: float | None = None):
+    rate = cfg.optimizer.lr if rate is None else rate
     updates = (
         int(cfg.num_steps)
         // batch_size
