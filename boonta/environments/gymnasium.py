@@ -174,6 +174,9 @@ def make(
     vector_kwargs = {"autoreset_mode": AutoresetMode.SAME_STEP}
     if vectorization_mode == "async":
         vector_kwargs |= {"context": "forkserver"}
+    if vectorization_mode == "vector_entry_point":
+        kwargs |= vector_kwargs
+        vector_kwargs = {}
 
     def factory():
         return gymnasium.make_vec(
