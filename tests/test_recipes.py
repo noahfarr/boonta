@@ -199,6 +199,7 @@ CASES = [
     ),
     ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B"), False),
     ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B"), False),
+    ("recurrent_grpo", "dune_sea/guess_number", cached("Qwen/Qwen3-0.6B"), False),
     ("recurrent_bc", "fineweb", None, fineweb_dataset),
 ]
 

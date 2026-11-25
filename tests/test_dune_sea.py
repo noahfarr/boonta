@@ -48,3 +48,18 @@ def test_only_forks_and_dead_ends_offer_a_choice():
     successor = np.asarray(env.successor)
     choices = np.sum(successor[:, 0] != successor[:, 1])
     assert choices == 2 * 6
+
+
+def test_guess_number_points_toward_the_secret_and_ends_on_a_win():
+    from boonta.environments.dune_sea import guess_number
+
+    environment = guess_number.GuessNumber()
+    state, _ = environment.init(jax.random.key(0))
+    secret = int(state.secret)
+    state, lower = environment.step(jax.random.key(1), state, jnp.int32(secret + 1 if secret < 100 else secret - 1))
+    assert int(lower.obs) == (guess_number.LOWER if secret < 100 else guess_number.HIGHER)
+    assert not bool(lower.terminated)
+    state, won = environment.step(jax.random.key(2), state, jnp.int32(secret))
+    assert int(won.obs) == guess_number.CORRECT and float(won.reward) == 1.0 and bool(won.terminated)
+    _, invalid = environment.step(jax.random.key(3), environment.init(jax.random.key(4))[0], jnp.int32(0))
+    assert int(invalid.obs) == guess_number.INVALID and float(invalid.reward) == 0.0

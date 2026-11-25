@@ -1,0 +1,6 @@
+defaults:
+  - /artisan/transcript
+
+namespace: dune_sea
+suite: guess_number
+env_id: guess_number
