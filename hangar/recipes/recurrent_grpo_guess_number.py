@@ -22,19 +22,19 @@ REPLIES = (
     "The secret number is higher.",
     "The secret number is lower.",
     "Correct.",
-    "Guess a whole number from 1 to 100.",
-    "The game has started.",
+    "Guess a whole number from {low} to {high}.",
+    "Make your first guess.",
 )
 SYSTEM_PROMPT = (
     "<|im_start|>system\n"
-    "You are playing a guessing game. Find the secret whole number from 1 to 100 "
-    "in at most seven guesses by calling the guess tool.\n"
+    "You are playing a guessing game. Find the secret whole number from {low} to {high} "
+    "in at most {guesses} guesses by calling the guess tool.\n"
     "<tools>\n"
-    '{"type": "function", "function": {"name": "guess", "description": "Guess the secret number.", '
-    '"parameters": {"type": "object", "properties": {"number": {"type": "integer"}}, "required": ["number"]}}}\n'
+    '{{"type": "function", "function": {{"name": "guess", "description": "Guess the secret number.", '
+    '"parameters": {{"type": "object", "properties": {{"number": {{"type": "integer"}}}}, "required": ["number"]}}}}}}\n'
     "</tools>\n"
     "Respond with a tool call in this format:\n"
-    '<tool_call>\n{"name": "guess", "arguments": {"number": 50}}\n</tool_call>\n'
+    '<tool_call>\n{{"name": "guess", "arguments": {{"number": {example}}}}}\n</tool_call>\n'
     "The tool replies whether the secret number is higher or lower than your guess."
 )
 RESPONSE = (
@@ -69,7 +69,8 @@ def make(cfg):
     opening, closing = (
         jnp.asarray(tokenizer.encode(text).ids, jnp.int32) for text in RESPONSE
     )
-    replies = [tokenizer.encode(text).ids for text in REPLIES]
+    bounds = {"low": env.low, "high": env.high}
+    replies = [tokenizer.encode(text.format(**bounds)).ids for text in REPLIES]
     reply_length = max(len(reply) for reply in replies)
     replies = jnp.asarray(
         [reply + [pad] * (reply_length - len(reply)) for reply in replies], jnp.int32
@@ -96,7 +97,9 @@ def make(cfg):
     def to_tokens(obs):
         return jnp.concatenate([opening, replies[obs], closing])
 
-    prompt = tokenizer.encode(SYSTEM_PROMPT).ids
+    prompt = tokenizer.encode(
+        SYSTEM_PROMPT.format(**bounds, guesses=num_guesses, example=(env.low + env.high) // 2)
+    ).ids
     env = MCP(
         env,
         to_action=to_action,
