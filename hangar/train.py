@@ -79,6 +79,8 @@ def main(cfg):
         for key, artisan in zip(keys, artisans):
             logger.log_artifact(artisan.craft(key, algorithm, environment, state, logs), step)
 
+    summarize = jax.jit(lambda logs: jax.tree.map(jnp.nanmean, logs))
+
     try:
         data = {}
         if epoch == 0:
@@ -89,6 +91,7 @@ def main(cfg):
         for epoch in range(epoch, cfg.num_epochs):
             monitor.start()
             state, logs = podracer.train(state, train_keys[epoch], num_updates)
+            logs = summarize(logs)
             data = {
                 name.replace("episode_statistics/", "training/"): np.nanmean(
                     value
