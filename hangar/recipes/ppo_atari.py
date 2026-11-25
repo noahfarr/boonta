@@ -31,6 +31,10 @@ def tower(outputs, dtype):
 
 
 def make(cfg):
+    import ale_py
+    import gymnasium
+
+    gymnasium.register_envs(ale_py)
     env = environments.make(**cfg.environment)
     num_actions = env.action_space().num_actions
     dtype = (cfg.get("network") or {}).get("dtype")
