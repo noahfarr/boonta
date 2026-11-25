@@ -1,0 +1,10 @@
+namespace: gymnasium
+suite: atari
+env_id: ALE/Breakout-v5
+num_envs: 128
+kwargs:
+  num_envs: ${environment.num_envs}
+  vectorization_mode: vector_entry_point
+  repeat_action_probability: 0.25
+  noop_max: 1
+  full_action_space: true
