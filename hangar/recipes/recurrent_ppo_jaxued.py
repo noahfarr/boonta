@@ -9,7 +9,8 @@ from hydra.utils import instantiate
 from boonta import environments
 from boonta.algorithms.recurrent_ppo import RecurrentPPO
 from boonta.environments.wrappers import RecordEpisodeStatistics
-from boonta.networks import ActorCritic, Categorical, FeatureExtractor, Network
+from boonta.networks import (Categorical, FeatureExtractor, Network,
+                             RecurrentActorCritic)
 
 from . import schedules
 
@@ -29,26 +30,32 @@ def make(cfg):
     num_actions = env.action_space().num_actions
     env = instantiate(cfg.environment.auto_reset, env)
 
-    network = Network(
-        feature_extractor=FeatureExtractor(observation_extractor=MazeEncoder()),
-        torso=instantiate(cfg.stack),
-        head=ActorCritic(
-            actor=Categorical(
-                nn.Sequential(
-                    [
-                        nn.Dense(32, kernel_init=orthogonal(2.0)),
-                        nn.relu,
-                        nn.Dense(num_actions, kernel_init=orthogonal(0.01)),
-                    ]
-                )
-            ),
-            critic=nn.Sequential(
-                [
-                    nn.Dense(32, kernel_init=orthogonal(2.0)),
-                    nn.relu,
-                    nn.Dense(1, kernel_init=orthogonal(1.0)),
-                ]
-            ),
+    actor = Categorical(
+        nn.Sequential(
+            [
+                nn.Dense(32, kernel_init=orthogonal(2.0)),
+                nn.relu,
+                nn.Dense(num_actions, kernel_init=orthogonal(0.01)),
+            ]
+        )
+    )
+    critic = nn.Sequential(
+        [
+            nn.Dense(32, kernel_init=orthogonal(2.0)),
+            nn.relu,
+            nn.Dense(1, kernel_init=orthogonal(1.0)),
+        ]
+    )
+    network = RecurrentActorCritic(
+        actor=Network(
+            feature_extractor=FeatureExtractor(observation_extractor=MazeEncoder()),
+            torso=instantiate(cfg.stack),
+            head=actor,
+        ),
+        critic=Network(
+            feature_extractor=FeatureExtractor(observation_extractor=MazeEncoder()),
+            torso=instantiate(cfg.stack),
+            head=critic,
         ),
     )
 

@@ -2,6 +2,8 @@
 
 A recipe turns a config into the parts of a run. It is the only place where the packages meet. Algorithms never import environments, environments never import networks, and podracers only call the methods of what they are given. A recipe builds an environment, a network, an optimizer and an algorithm, and hands them to a podracer.
 
+The recurrent PPO maze recipe uses independent actor and critic networks: each has its own image encoder, recurrent torso, head, and carry. Both Dune Sea and JaxUED mazes use this architecture. Checkpoints from the previous shared network need conversion before loading into this recipe.
+
 There is one file per algorithm and suite, named `<algorithm>_<suite>.py`, such as [`ppo_minatar.py`](ppo_minatar.py). Each file is plain and readable on its own. There is no shared helper layer.
 
 ## How a recipe is picked

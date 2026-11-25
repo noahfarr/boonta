@@ -561,3 +561,57 @@ def test_an_artisan_seed_can_be_built_from_a_step_count_beyond_32_bits():
 
     assert folded.shape == key.shape
 
+
+
+def test_the_render_artisan_records_episodes_back_to_back_at_its_temperature():
+    from boonta.environments.dune_sea import Level, Maze
+    from boonta.environments.dune_sea.maze import FORWARD, NOOP
+
+    wall = jnp.ones((3, 9)).at[1, 1:-1].set(0.0)
+    level = Level(wall=wall, start=jnp.array([1, 1]), direction=jnp.int32(0), goal=jnp.array([1, 7]))
+    environment = zoo.wrap(Maze(time_limit=20, generator=lambda key: level), NUM_ENVS)
+
+    def step(state, carry, key, timestep, temperature=1.0):
+        action = jnp.where(temperature > 0, FORWARD, NOOP)
+        return state, carry, jnp.full((NUM_ENVS,), action, jnp.int32), {}
+
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+    state = SimpleNamespace(algorithm_state=None)
+
+    def frames(**settings):
+        return Render(**settings).craft(jax.random.key(0), algorithm, environment, state, {}).data.shape[0]
+
+    assert frames() == 20
+    assert frames(temperature=1.0) == 6
+    assert frames(temperature=1.0, num_episodes=3) == 18
+    assert frames(num_episodes=2) == 40
+
+
+@pytest.mark.parametrize("threaded", [False, True])
+@pytest.mark.parametrize("smooth", [1, 3])
+def test_render_plays_episodes_longer_than_a_chunk_and_bounds_pixels(threaded, smooth):
+    from boonta.environments.dune_sea import Level, Maze
+    from boonta.environments.dune_sea.maze import FORWARD
+
+    wall = jnp.ones((3, 9)).at[1, 1:-1].set(0.0)
+    level = Level(wall=wall, start=jnp.array([1, 1]), direction=jnp.int32(0), goal=jnp.array([1, 7]))
+    state = SimpleNamespace(algorithm_state=None)
+
+    def video(action, time_limit, **settings):
+        environment = zoo.wrap(Maze(time_limit=time_limit, generator=lambda key: level), NUM_ENVS)
+        environment.thread_safe_render = threaded
+
+        def step(state, carry, key, timestep, temperature=1.0):
+            return state, carry, jnp.full((NUM_ENVS,), action, jnp.int32), {}
+
+        algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
+        artisan = Render(chunk=4, smooth=smooth, kwargs={"tile": 2}, **settings)
+        return artisan.craft(jax.random.key(0), algorithm, environment, state, {})
+
+    assert video(FORWARD, 20, num_episodes=3).data.shape[0] == 18 * smooth
+    assert video(0, 11).data.shape[0] == 11 * smooth
+
+    frame_bytes = 3 * 2 * 9 * 2 * 3
+    with pytest.warns(RuntimeWarning, match="Render clip stopped"):
+        clipped = video(0, 4_000_000, max_bytes=7 * frame_bytes * smooth)
+    assert clipped.data.shape[0] == 7 * smooth

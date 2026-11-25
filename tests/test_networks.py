@@ -9,7 +9,7 @@ import pytest
 import zoo
 from boonta.networks import (RNN, ActorCritic, Categorical, EpsilonGreedy,
                              FeatureExtractor, Gaussian, Highway, Network,
-                             RTUCell, SquashedGaussian, Tower, distributions,
+                             RTUCell, RecurrentActorCritic, SquashedGaussian, Tower, distributions,
                              llama, repeat)
 from boonta.networks.blocks.ssm import binary_operator
 from boonta.networks.kernels import get_scan_implementation
@@ -315,6 +315,63 @@ def test_a_half_precision_critic_reports_its_value_in_single_precision():
     params = network.init(jax.random.key(4), x, temperature=1.0)
     _, value = network.apply(params, x, temperature=1.0)
     assert value.dtype == jnp.float32
+
+
+@pytest.mark.parametrize("torso", [zoo.gru, zoo.min_gru], ids=["gru", "min_gru"])
+def test_separate_recurrent_actor_and_critic_have_independent_gradients_and_carries(torso):
+    network = RecurrentActorCritic(
+        actor=Network(
+            feature_extractor=FeatureExtractor(nn.Dense(zoo.WIDTH)),
+            torso=torso(),
+            head=Categorical(nn.Dense(5)),
+        ),
+        critic=Network(
+            feature_extractor=FeatureExtractor(nn.Dense(zoo.WIDTH)),
+            torso=torso(),
+            head=nn.Dense(1),
+        ),
+    )
+    x, done = sequence(), starts(3)
+    carry = network.initialize_carry(KEY, (BATCH, zoo.WIDTH))
+    assert set(carry) == {"actor", "critic"}
+    variables = network.init(KEY, x, done=done, carry=carry, temperature=1.0)
+    assert set(variables["params"]) == {"actor", "critic"}
+
+    def loss(params, actor):
+        _, (distribution, value) = network.apply(
+            {"params": params}, x, done=done, carry=carry, temperature=1.0
+        )
+        return -distribution.log_prob(jnp.zeros((BATCH, LENGTH), jnp.int32)).mean() if actor else (value**2).mean()
+
+    for actor in (True, False):
+        grads = jax.grad(loss)(variables["params"], actor)
+        active, inactive = ("actor", "critic") if actor else ("critic", "actor")
+        assert all(np.count_nonzero(leaf) == 0 for leaf in jax.tree.leaves(grads[inactive]))
+        for component in ("feature_extractor", "torso", "head"):
+            assert any(np.count_nonzero(leaf) for leaf in jax.tree.leaves(grads[active][component]))
+
+    final, (distribution, value) = network.apply(
+        variables, x, done=done, carry=carry, temperature=1.0
+    )
+    current = carry
+    logits, values = [], []
+    for start in range(0, LENGTH, CHUNK):
+        current, (chunk_dist, chunk_value) = network.apply(
+            variables, x[:, start:start + CHUNK],
+            done=done[:, start:start + CHUNK], carry=current, temperature=1.0,
+        )
+        logits.append(chunk_dist.logits)
+        values.append(chunk_value)
+    jax.tree.map(lambda a, b: np.testing.assert_allclose(a, b, atol=1e-5), current, final)
+    np.testing.assert_allclose(jnp.concatenate(logits, 1), distribution.logits, atol=1e-5)
+    np.testing.assert_allclose(jnp.concatenate(values, 1), value, atol=1e-5)
+
+    greedy_carry, (greedy, greedy_value) = network.apply(
+        variables, x, done=done, carry=carry, temperature=0.0
+    )
+    np.testing.assert_array_equal(greedy.sample(seed=KEY), jnp.argmax(distribution.logits, -1))
+    np.testing.assert_array_equal(greedy_value, value)
+    jax.tree.map(np.testing.assert_array_equal, greedy_carry, final)
 
 
 @pytest.mark.parametrize("name", zoo.TORSOS)

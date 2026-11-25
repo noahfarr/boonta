@@ -42,14 +42,19 @@ def main(cfg):
     state = load_checkpoint(path, podracer.init(init_key))
     step = int(jax.device_get(state.algorithm_state.step))
 
+    summarize = hasattr(podracer, "evaluate_summary")
+    evaluate = podracer.evaluate_summary if summarize else podracer.evaluate
     try:
-        _, logs = zip(
-            *(
-                podracer.evaluate(state, rollout_key, num_steps)
-                for rollout_key in jax.random.split(evaluate_key, num_rollouts)
-            )
-        )
+        logs = []
+        for rollout_key in jax.random.split(evaluate_key, num_rollouts):
+            _, rollout_logs = evaluate(state, rollout_key, num_steps, float(cfg.temperature))
+            logs.append(rollout_logs)
         logs = jax.tree.map(lambda *values: np.stack(values), *logs)
+        if summarize:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                logs = jax.tree.map(
+                    lambda values: values[..., 0].sum() / values[..., 1].sum(), logs
+                )
         data = {
             name.replace("episode_statistics/", "evaluation/"): np.nanmean(
                 value

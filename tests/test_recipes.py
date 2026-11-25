@@ -128,8 +128,6 @@ CASES = [
     ("ppo", "gymnasium/cartpole", installed("gymnasium"), False),
     ("ppo", "gymnax/classic_control/cartpole", None, False),
     ("ppo", "gymnax/bsuite/deep_sea", None, False),
-    ("ppo", "dune_sea/chain_of_forks", None, False),
-    ("recurrent_ppo", "dune_sea/t_maze", None, False),
     ("ppo", MINATAR, None, False),
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
@@ -162,10 +160,12 @@ CASES = [
     ("recurrent_ippo", "dune_sea/jundland", None, few_resets),
     ("ippo", "dune_sea/hide_and_seek", None, False),
     ("recurrent_ippo", "dune_sea/hide_and_seek", None, False),
-    ("ippo", "dune_sea/connectx", None, False),
+    ("recurrent_ppo", "dune_sea/maze", None, False),
+    ("recurrent_ppo", "dune_sea/maze", None, lambda directory: ["curriculum=plr"]),
+    ("ippo", "connectx", None, False),
     ("ippo", "bluffjax/kuhn_poker", installed("bluffjax"), False),
     ("ippo", "bluffjax/goofspiel", installed("bluffjax"), False),
-    ("mmd", "dune_sea/connectx", None, False),
+    ("mmd", "connectx", None, False),
     ("ippo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("mappo", "jaxmarl/smax/3m", installed("jaxmarl"), False),
     ("ippo", "mapox/find_return", installed("mapox"), False),
@@ -189,8 +189,8 @@ CASES = [
         installed("pynes") or supplied("BOONTA_SMB_ROM"),
         False,
     ),
-    ("recurrent_ppo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
-    ("recurrent_grpo", "dune_sea/wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_ppo", "wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
+    ("recurrent_grpo", "wordle", cached("Qwen/Qwen3-0.6B-Base"), False),
 ]
 
 
@@ -263,14 +263,14 @@ def test_a_sweep_seeds_each_trial_with_its_number(overrides, seed):
 
 def test_only_carbs_sweeps_the_search_space():
     assert "search_space" not in configure("dqn", MINATAR)
-    plain = configure("ippo", "dune_sea/connectx", "hydra.mode=MULTIRUN")
+    plain = configure("ippo", "connectx", "hydra.mode=MULTIRUN")
     assert len(plain.search_space) == 13
     assert plain.hydra.sweeper.params is None
 
 
 @pytest.mark.skipif(bool(installed("carbs")), reason="needs carbs")
 def test_carbs_reads_the_search_space():
-    swept = configure("ippo", "dune_sea/connectx", "hydra/sweeper=carbs")
+    swept = configure("ippo", "connectx", "hydra/sweeper=carbs")
     params = instantiate(swept.hydra.sweeper).search.params
     assert len(params) == 13
     assert params["optimizer.lr"].center == 1.46e-3
@@ -319,7 +319,7 @@ def test_the_ppo_recipe_explores_with_rnd_when_asked():
 
 @pytest.mark.parametrize("algorithm", ["recurrent_ppo", "recurrent_grpo"])
 def test_a_wordle_recipe_loads_the_model_its_config_names(algorithm, monkeypatch):
-    cfg = configure(algorithm, "dune_sea/wordle", "network.repo_id=someone/else")
+    cfg = configure(algorithm, "wordle", "network.repo_id=someone/else")
     recipe = importlib.import_module(f"hangar.recipes.{algorithm}_wordle")
     loaded = []
 
@@ -461,3 +461,61 @@ def test_kinetix_evaluates_on_the_levels_the_dataset_reserved(tmp_path):
 
     state, _ = podracer.evaluate(state, jax.random.key(2), 4)
     podracer.close(state)
+
+
+def test_evaluation_samples_at_the_temperature_its_config_names():
+    with initialize_config_dir(config_dir=str(CONFIG), version_base=None):
+        cfg = compose(
+            "evaluate",
+            overrides=[
+                "algorithm=recurrent_ppo",
+                "environment=dune_sea/maze",
+                "environment.kwargs.height=3",
+                "environment.kwargs.width=3",
+                "environment.num_envs=32",
+                "temperature=1.0",
+            ],
+            return_hydra_config=True,
+        )
+    assert cfg.temperature == 1.0
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+    state = podracer.init(jax.random.key(0))
+
+    def finished(*temperature):
+        _, logs = podracer.evaluate(state, jax.random.key(1), 200, *temperature)
+        return int(np.isfinite(np.asarray(logs["episode_statistics/episode_length"], float)).sum())
+
+    assert finished(float(cfg.temperature)) > finished() == finished(0.0)
+    podracer.close(state)
+
+
+def test_maze_separate_networks_train_restore_and_evaluate(tmp_path):
+    import orbax.checkpoint as ocp
+
+    from boonta.networks import RecurrentActorCritic
+    from boonta.utils import load_checkpoint
+
+    cfg = shrink(configure(
+        "recurrent_ppo", "dune_sea/maze",
+        "environment.num_envs=8",
+        "environment.kwargs.height=3", "environment.kwargs.width=3",
+        "+environment.kwargs.time_limit=16",
+    ))
+    HydraConfig.instance().set_config(cfg)
+    podracer = recipes.make(cfg)
+    assert isinstance(podracer.algorithm.network, RecurrentActorCritic)
+    state = podracer.init(jax.random.key(0))
+    assert set(state.algorithm_state.params["params"]) == {"actor", "critic"}
+    assert set(state.carry) == {"actor", "critic"}
+    state, _ = podracer.train(state, jax.random.key(1), 1)
+
+    with ocp.StandardCheckpointer() as checkpointer:
+        checkpointer.save(str(tmp_path / "algorithm_state"), state.algorithm_state)
+    restored = load_checkpoint(tmp_path, podracer.init(jax.random.key(2)))
+    jax.tree.map(
+        np.testing.assert_array_equal, state.algorithm_state, restored.algorithm_state
+    )
+    evaluated, _ = podracer.evaluate(restored, jax.random.key(3), 4, 1.0)
+    assert int(evaluated.algorithm_state.step) == int(restored.algorithm_state.step) + 32
+    podracer.close(evaluated)

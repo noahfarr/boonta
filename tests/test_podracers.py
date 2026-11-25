@@ -402,3 +402,32 @@ def test_quadinaros_never_gathers_the_whole_dataset_onto_one_device():
     assert f"f32[{rows // 2},3]" in text
     gathers = [line for line in text.splitlines() if "all-gather(" in line]
     assert all(f"[{rows}," not in line for line in gathers)
+
+
+def test_evaluation_summary_matches_full_logs_without_storing_each_step():
+    class Statistics(Lap):
+        def __call__(self, key, state):
+            values = jnp.arange(NUM_ENVS, dtype=jnp.float32)
+            lox.log({
+                "statistics/value": jnp.where(
+                    values < (state.algorithm_state.step // NUM_ENVS) % NUM_ENVS,
+                    values + state.algorithm_state.step,
+                    jnp.nan,
+                ),
+                "statistics/empty": jnp.full((NUM_ENVS,), jnp.nan),
+            })
+            return state
+
+    podracer = on_anakin(lap=Statistics())
+    state = podracer.init(jax.random.key(0))
+    expected_state, full = podracer.evaluate(state, jax.random.key(1), 17, 1.0)
+    actual_state, summary = podracer.evaluate_summary(state, jax.random.key(1), 17, 1.0)
+    jax.tree.map(np.testing.assert_array_equal, expected_state, actual_state)
+    for name, values in full.items():
+        assert summary[name].shape == (1, 2)
+        total, count = np.asarray(summary[name])[0]
+        with np.errstate(invalid="ignore"):
+            actual = total / count
+            expected = np.nansum(values) / np.sum(~np.isnan(values))
+        np.testing.assert_allclose(actual, expected, rtol=1e-6)
+        assert count == np.sum(~np.isnan(values))

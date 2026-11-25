@@ -126,7 +126,9 @@ class Quadinaros:
         )
         return self.fit(state.replace(dataset_state=dataset_state), key, num_updates)
 
-    def evaluate(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
+    def evaluate(
+        self, state: QuadinarosState, key: Key, num_steps: int, temperature: float = 0.0
+    ) -> PyTree:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
@@ -143,7 +145,7 @@ class Quadinaros:
             ),
         )
         state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), state, rollout_keys
+            partial(self.rollout, temperature=temperature), state, rollout_keys
         )
         self.environment.close(state.environment_state)
         return state
@@ -198,7 +200,7 @@ def make(
     )
     podracer.evaluate = jax.jit(
         evaluate,
-        static_argnums=(2,),
+        static_argnums=(2, 3),
         in_shardings=(shardings, replicated),
         out_shardings=(shardings, replicated),
     )

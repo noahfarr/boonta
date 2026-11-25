@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from flax import struct
@@ -122,25 +123,77 @@ class Anakin:
         state, _ = jax.lax.scan(step, state, keys)
         return state
 
-    def evaluate(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
+    def evaluate(
+        self, state: AnakinState, key: Key, num_steps: int, temperature: float = 0.0
+    ) -> PyTree:
+        return self._evaluate(state, key, num_steps, temperature)
+
+    def evaluate_summary(
+        self, state: AnakinState, key: Key, num_steps: int, temperature: float = 0.0
+    ) -> PyTree:
+        # Each logged metric contains [sum, non-NaN count], allowing callers
+        # to combine rollouts with different numbers of completed episodes.
+        return self._evaluate(state, key, num_steps, temperature, summarize=True)
+
+    def _evaluate(self, state, key, num_steps, temperature, summarize=False):
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
         _, carry = self.algorithm.init(reset_key, timestep)
-        state = self.pit(
-            call_key,
-            self.lap(
-                lap_key,
-                state.replace(
-                    timestep=timestep,
-                    environment_state=environment_state,
-                    carry=carry,
+
+        def prepare(state):
+            return self.pit(
+                call_key,
+                self.lap(
+                    lap_key,
+                    state.replace(
+                        timestep=timestep,
+                        environment_state=environment_state,
+                        carry=carry,
+                    ),
                 ),
-            ),
-        )
-        state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), state, rollout_keys
-        )
+            )
+
+        if summarize:
+            state, initial_logs = lox.spool(lox.strip(prepare, tags=["training"]))(state)
+        else:
+            state = prepare(state)
+        rollout = partial(self.rollout, temperature=temperature)
+        if summarize:
+            # Capture one step at a time so the scan carries sums and counts,
+            # rather than a num_steps x num_envs array for every logged metric.
+            rollout = lox.spool(lox.strip(rollout, tags=["training"]))
+            _, shapes = jax.eval_shape(rollout, state, rollout_keys[0])
+            names = set(shapes) | set(initial_logs)
+            sums = {
+                name: jnp.nansum(initial_logs.get(name, jnp.float32(0))).astype(jnp.float32)
+                for name in names
+            }
+            counts = {
+                name: (~jnp.isnan(initial_logs[name])).sum()
+                if name in initial_logs else jnp.int32(0)
+                for name in names
+            }
+
+            def advance(carry, step_key):
+                state, sums, counts = carry
+                (state, _), logs = rollout(state, step_key)
+                sums = {
+                    name: total + jnp.nansum(logs[name]) if name in logs else total
+                    for name, total in sums.items()
+                }
+                counts = {
+                    name: total + (~jnp.isnan(logs[name])).sum() if name in logs else total
+                    for name, total in counts.items()
+                }
+                return (state, sums, counts), None
+
+            (state, sums, counts), _ = jax.lax.scan(
+                advance, (state, sums, counts), rollout_keys
+            )
+            lox.log(jax.tree.map(lambda total, count: jnp.stack((total, count)), sums, counts))
+        else:
+            state, _ = jax.lax.scan(rollout, state, rollout_keys)
         self.environment.close(state.environment_state)
         return state
 
@@ -162,6 +215,8 @@ def make(
     train = lox.spool(lox.strip(podracer.train, tags=["evaluation"]))
     evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
 
+    evaluate_summary = lox.spool(lox.strip(podracer.evaluate_summary, tags=["training"]))
+
     replicated = NamedSharding(config.mesh, P())
     axes = sharded(jax.eval_shape(initialize, jax.random.key(0)))
 
@@ -179,7 +234,13 @@ def make(
     )
     podracer.evaluate = jax.jit(
         evaluate,
-        static_argnums=(2,),
+        static_argnums=(2, 3),
+        in_shardings=(shardings, replicated),
+        out_shardings=(shardings, replicated),
+    )
+    podracer.evaluate_summary = jax.jit(
+        evaluate_summary,
+        static_argnums=(2, 3),
         in_shardings=(shardings, replicated),
         out_shardings=(shardings, replicated),
     )

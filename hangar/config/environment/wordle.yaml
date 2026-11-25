@@ -1,6 +1,6 @@
 defaults:
   - /artisan/transcript
 
-namespace: dune_sea
+namespace: wordle
 suite: wordle
 env_id: wordle

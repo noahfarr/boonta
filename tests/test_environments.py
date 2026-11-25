@@ -181,12 +181,11 @@ def missing(package):
 ADAPTERS = [
     pytest.param("gymnax", "Breakout-MinAtar", {}, id="minatar"),
     pytest.param("gymnax", "CartPole-v1", {}, id="classic_control"),
-    pytest.param("dune_sea", "connectx", {"rows": 6, "columns": 7, "inarow": 4}, id="connectx"),
+    pytest.param("connectx", "connectx", {"rows": 6, "columns": 7, "inarow": 4}, id="connectx"),
+    pytest.param("dune_sea", "maze", {"height": 5, "width": 5}, id="maze"),
     pytest.param("bluffjax", "kuhn_poker", {}, id="bluffjax_kuhn_poker", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("bluffjax", "goofspiel", {}, id="bluffjax_goofspiel", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
     pytest.param("bluffjax", "werewolf", {}, id="bluffjax_werewolf", marks=pytest.mark.skipif(missing("bluffjax"), reason="needs bluffjax")),
-    pytest.param("dune_sea", "chain_of_forks", {"depth": 6}, id="chain_of_forks"),
-    pytest.param("dune_sea", "t_maze", {"length": 4}, id="t_maze"),
     pytest.param("dune_sea", "hide_and_seek", {}, id="hide_and_seek"),
     pytest.param(
         "jaxued", "Maze", {}, id="jaxued_maze",

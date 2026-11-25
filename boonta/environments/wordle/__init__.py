@@ -194,6 +194,7 @@ def encode_words(words: list[str]) -> np.ndarray:
 
 
 def make(
+    env_id=None,
     answer_pool_path=None,
     guess_pool_path=None,
     num_guesses=6,

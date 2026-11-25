@@ -4,3 +4,7 @@ name: render
 fps: 16
 kwargs: {}
 smooth: 1
+num_episodes: 1
+temperature: ${oc.select:temperature,0.0}
+chunk: 256
+max_bytes: 2147483648

@@ -1,4 +1,4 @@
-namespace: dune_sea
+namespace: connectx
 suite: connectx
 env_id: connectx
 num_envs: 1024

@@ -300,14 +300,18 @@ class Sebulba:
             concatenate(logs),
         )
 
-    def evaluate(self, state: SebulbaState, key: Key, num_steps: int) -> PyTree:
+    def evaluate(
+        self, state: SebulbaState, key: Key, num_steps: int, temperature: float = 0.0
+    ) -> PyTree:
         device, *_ = self.config.actor.devices.flat
         actor_state, *_ = state.actors
         rollout_state = actor_state.board(state.algorithm_state, state.pit_state)
         rollout_state, key = jax.device_put((rollout_state, key), device)
-        return self.assess(rollout_state, key, num_steps)
+        return self.assess(rollout_state, key, num_steps, temperature)
 
-    def assess(self, state: RolloutState, key: Key, num_steps: int) -> PyTree:
+    def assess(
+        self, state: RolloutState, key: Key, num_steps: int, temperature: float = 0.0
+    ) -> PyTree:
         env_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         environment_state, timestep = self.environment.init(env_key)
         _, carry = self.algorithm.init(env_key, timestep)
@@ -324,7 +328,7 @@ class Sebulba:
         )
         rollout_keys = jax.random.split(rollout_key, num_steps)
         state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), state, rollout_keys
+            partial(self.rollout, temperature=temperature), state, rollout_keys
         )
         self.environment.close(state.environment_state)
         return state
@@ -381,6 +385,6 @@ def make(
     )
     podracer.assess = jax.jit(
         lox.spool(lox.strip(podracer.assess, tags=["training"])),
-        static_argnums=(2,),
+        static_argnums=(2, 3),
     )
     return podracer

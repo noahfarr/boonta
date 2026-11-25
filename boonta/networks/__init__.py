@@ -1,4 +1,4 @@
-from .actor_critic import ActorCritic
+from .actor_critic import ActorCritic, RecurrentActorCritic
 from .architectures import (PI0, Expert, Gemma, GemmaLayer, PI0Layer, Qwen3,
                             ViT, ViTLayer)
 from .blocks import (FFN, GLU, RNN, SSM, RTUCarry, RTUCell, AdaptiveRMSNorm, Block, Chunked,
@@ -26,6 +26,7 @@ __all__ = [
     "RNN",
     "SSM",
     "ActorCritic",
+    "RecurrentActorCritic",
     "AdaptiveRMSNorm",
     "Block",
     "Categorical",

@@ -1,0 +1,14 @@
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: optimistic
+  - _self_
+
+namespace: dune_sea
+suite: maze
+env_id: maze
+kwargs:
+  height: 13
+  width: 13
+  braid: 0.0
+  view_size: 5
+auto_reset:
+  ratio: 8
