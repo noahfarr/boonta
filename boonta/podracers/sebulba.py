@@ -1,6 +1,6 @@
 import queue
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 
 import jax
@@ -75,15 +75,9 @@ class Sebulba:
     config: SebulbaConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit | None = None
-    lap: Lap | None = None
+    pit: Pit = field(default_factory=Pit)
+    lap: Lap = field(default_factory=Lap)
     shardings: PyTree = None
-
-    def __post_init__(self):
-        if self.pit is None:
-            self.pit = Pit()
-        if self.lap is None:
-            self.lap = Lap()
 
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -345,8 +339,8 @@ def make(
     config: SebulbaConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit | None = None,
-    lap: Lap | None = None,
+    pit: Pit = Pit(),
+    lap: Lap = Lap(),
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)

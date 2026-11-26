@@ -24,6 +24,7 @@ from boonta.curricula.psro import (
     periodic, prioritized_fictitious_self_play, self_play, threshold)
 from boonta.environments.wrappers import Opponent
 from boonta.podracers import anakin
+from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import Timestep, Transition, mesh
 
 DEFAULT = Path(__file__).parents[1] / "hangar/config/curriculum/default.yaml"
@@ -776,7 +777,7 @@ def test_psro_composes_a_roster_an_opponent_environment_and_a_psro_pit():
     assert dealt["learners"] == pit.learners
     assert dealt["lineages"] == pit.names
     assert dict(dealt["assignments"]) == {"exploiter": "alakazam"}
-    assert lap is None
+    assert type(lap) is Lap
 
 
 def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
@@ -795,8 +796,8 @@ def test_the_default_curriculum_changes_nothing_and_ignores_the_league_extras():
 
     assert wrapped is algorithm
     assert placed is environment
-    assert pit is None
-    assert lap is None
+    assert type(pit) is Pit
+    assert type(lap) is Lap
 
 
 @pytest.fixture(scope="module")
