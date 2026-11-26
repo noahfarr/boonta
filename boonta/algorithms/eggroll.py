@@ -1,23 +1,15 @@
-from __future__ import annotations
-
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import lox
 import optax
 from flax import struct
 
-from boonta.networks.low_rank_perturbations import (
-    LowRankPerturbedMLP,
-    MirroredDensePerturbation,
-)
+from boonta.networks.low_rank_perturbations import MirroredDensePerturbation
 from boonta.utils import Array, Key, PyTree, Timestep, Transition, canonicalize_dtype
-
-if TYPE_CHECKING:
-    from boonta.environments.spaces import Space
 
 
 @struct.dataclass(frozen=True)
@@ -25,11 +17,9 @@ class EGGROLLConfig:
     population_size: int = 64
     rank: int = 1
     sigma: float = 0.05
-    input_support: str = "none"
+    temperature: float = 0.0
 
     def __post_init__(self):
-        if self.input_support not in ("none", "pair", "population"):
-            raise ValueError("input_support must be none, pair, or population")
         if self.population_size < 2 or self.population_size % 2:
             raise ValueError("EGGROLL population_size must be even and at least two")
         if self.rank < 1 or not math.isfinite(self.sigma) or self.sigma <= 0:
@@ -58,21 +48,8 @@ def _sample_layer(key, kernel, pairs, rank):
 @dataclass
 class EGGROLL:
     cfg: EGGROLLConfig
-    network: LowRankPerturbedMLP
-    action_space: Space
+    network: nn.Module
     optimizer: optax.GradientTransformation
-
-    def __post_init__(self):
-        self.discrete = jnp.issubdtype(self.action_space.dtype, jnp.integer)
-        if self.discrete and self.action_space.shape:
-            raise ValueError("EGGROLL requires a scalar discrete or continuous action space")
-        output_size = (
-            self.action_space.num_actions
-            if self.discrete
-            else math.prod(self.action_space.shape)
-        )
-        if not self.network.widths or self.network.widths[-1] != output_size:
-            raise ValueError("EGGROLL policy output width must match the action space")
 
     def init(self, key: Key, timestep: Timestep) -> tuple[EGGROLLState, None]:
         if timestep.reward.ndim != 1 or timestep.reward.shape[0] % self.cfg.population_size:
@@ -80,7 +57,7 @@ class EGGROLL:
                 "EGGROLL requires single-agent rollouts with num_envs divisible by population_size"
             )
         params_key, noise_key = jax.random.split(key)
-        params = self.network.init(params_key, timestep.obs)["params"]
+        params = self.network.init(params_key, timestep.obs, temperature=1.0)["params"]
         state = EGGROLLState(
             step=jnp.array(0, dtype=canonicalize_dtype(jnp.int64)),
             params=params,
@@ -97,7 +74,7 @@ class EGGROLL:
                 self.cfg.population_size // 2,
                 self.cfg.rank,
             )
-            for index in range(len(self.network.widths))
+            for index in range(len(params))
         )
 
     def step(
@@ -108,23 +85,14 @@ class EGGROLL:
         timestep: Timestep,
         temperature: float = 1.0,
     ) -> tuple[EGGROLLState, PyTree, Array, dict]:
-        noise = self.draw(state.params, state.noise_key) if temperature else None
-        outputs = self.network.apply(
+        dist = self.network.apply(
             {"params": state.params},
             timestep.obs,
-            noise,
+            temperature=self.cfg.temperature * temperature,
+            noise=self.draw(state.params, state.noise_key),
             sigma=self.cfg.sigma * temperature,
         )
-        if self.discrete:
-            action = jnp.argmax(outputs, axis=-1) + self.action_space.low
-        else:
-            action = jnp.tanh(outputs).reshape((-1, *self.action_space.shape))
-            low, high = self.action_space.low, self.action_space.high
-            bounded = jnp.isfinite(low) & jnp.isfinite(high)
-            lower = jnp.where(bounded, low, -1.0)
-            upper = jnp.where(bounded, high, 1.0)
-            action = jnp.clip(lower + (action + 1) * 0.5 * (upper - lower), low, high)
-        return state, carry, action.astype(self.action_space.dtype), {}
+        return state, carry, dist.sample(seed=key), {}
 
     def update(
         self, state: EGGROLLState, key: Key, transitions: Transition
@@ -142,15 +110,8 @@ class EGGROLL:
         weights = -paired_scores / (self.cfg.population_size * self.cfg.sigma)
         gradients = {}
         for index, noise in enumerate(self.draw(state.params, state.noise_key)):
-            inputs = noise.inputs
-            if index == 0 and self.cfg.input_support != "none":
-                obs = transitions.first.obs.reshape(*alive.shape, inputs.shape[1])
-                used = (obs != 0) & alive[..., None]
-                support = used.reshape(len(obs), inputs.shape[0], -1, inputs.shape[1]).any(axis=(0, 2))
-                if self.cfg.input_support == "population":
-                    support = support.any(axis=0, keepdims=True)
-                inputs = inputs * support[..., None]
-            inputs = inputs.transpose(1, 0, 2).reshape(inputs.shape[1], -1)
+            _, input_size, _ = noise.inputs.shape
+            inputs = noise.inputs.transpose(1, 0, 2).reshape(input_size, -1)
             outputs = noise.outputs * weights[:, None, None]
             outputs = outputs.reshape(-1, outputs.shape[-1])
             gradients[f"dense_{index}"] = {

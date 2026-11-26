@@ -7,7 +7,8 @@ from hydra.utils import instantiate
 
 from boonta import environments
 from boonta.algorithms.eggroll import EGGROLL
-from boonta.environments.wrappers import Group, RecordEpisodeStatistics
+from boonta.environments.wrappers import Group, RecordEpisodeStatistics, TransformAction
+from boonta.networks import Categorical, SquashedGaussian
 from boonta.networks.low_rank_perturbations import LowRankPerturbedMLP
 
 
@@ -21,21 +22,19 @@ def make(cfg):
 
     env = environments.make(**cfg.environment)
     action_space = env.action_space()
+    widths = tuple(cfg.network.hidden_sizes)
     if jnp.issubdtype(action_space.dtype, jnp.integer):
-        if action_space.shape:
-            raise ValueError(
-                "EGGROLL requires a scalar discrete or continuous action space"
-            )
-        output_size = action_space.num_actions
+        network = Categorical(LowRankPerturbedMLP(widths + (action_space.num_actions,)))
     else:
-        output_size = math.prod(action_space.shape)
+        low, high = action_space.low, action_space.high
+        network = SquashedGaussian(
+            LowRankPerturbedMLP(widths + (2 * math.prod(action_space.shape),))
+        )
+        env = TransformAction(env, lambda action: low + (action + 1.0) * 0.5 * (high - low))
 
     algorithm = EGGROLL(
         cfg=instantiate(cfg.algorithm),
-        network=LowRankPerturbedMLP(
-            widths=tuple(cfg.network.hidden_sizes) + (output_size,),
-        ),
-        action_space=action_space,
+        network=network,
         optimizer=optax.adam(cfg.optimizer.lr),
     )
     env = instantiate(cfg.environment.auto_reset, env)

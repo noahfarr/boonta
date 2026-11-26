@@ -12,6 +12,7 @@ from jax.scipy.special import erf, erfc
 from boonta import environments
 from boonta.algorithms.eggroll import EGGROLL, EGGROLLConfig
 from boonta.environments.wrappers import SameStepAutoReset
+from boonta.networks import Categorical
 from boonta.networks.low_rank_perturbations import LowRankPerturbedMLP
 from boonta.utils import load_checkpoint
 
@@ -42,10 +43,10 @@ def interval(logits, actions, slope, z, alive):
     return lower, upper
 
 
-def make_batch(env, algorithm, horizon, conditioned, normalize_fitness=False):
+def make_batch(env, algorithm, mlp, horizon, conditioned, normalize_fitness=False):
     pairs = algorithm.cfg.population_size // 2
     sigma = algorithm.cfg.sigma
-    last_hidden = f"dense_{len(algorithm.network.widths) - 2}"
+    last_hidden = f"dense_{len(mlp.widths) - 2}"
 
     @jax.jit
     def batch(params, key):
@@ -61,7 +62,7 @@ def make_batch(env, algorithm, horizon, conditioned, normalize_fitness=False):
             env_state, timestep, alive, total, lower, upper, prefix = carry
             args = ({"params": params}, timestep.obs, noise)
             if conditioned:
-                logits, variables = algorithm.network.apply(
+                logits, variables = mlp.apply(
                     *args, sigma=sigma, mutable=["intermediates"],
                     capture_intermediates=lambda module, method: module.name == last_hidden and method == "__call__",
                 )
@@ -70,7 +71,7 @@ def make_batch(env, algorithm, horizon, conditioned, normalize_fitness=False):
                 slope = jnp.einsum("psbi,pi->psb", hidden, inputs) * sigma
                 slope *= jnp.array([1, -1])[None, :, None]
             else:
-                logits = algorithm.network.apply(*args, sigma=sigma)
+                logits = mlp.apply(*args, sigma=sigma)
             actions = jnp.argmax(logits, axis=-1)
             if conditioned:
                 lo, hi = interval(
@@ -164,9 +165,10 @@ def main():
     single = environments.make("gymnax", args.env_id)
     space = single.action_space()
     env = SameStepAutoReset(single, 256)
-    algorithm = EGGROLL(EGGROLLConfig(), LowRankPerturbedMLP((64, 64, space.num_actions)), space, optax.sgd(1))
-    raw_batch = make_batch(env, algorithm, args.horizon, False, args.normalize_fitness)
-    conditioned_batch = make_batch(env, algorithm, args.horizon, True, args.normalize_fitness)
+    mlp = LowRankPerturbedMLP((64, 64, space.num_actions))
+    algorithm = EGGROLL(EGGROLLConfig(), Categorical(mlp), optax.sgd(1))
+    raw_batch = make_batch(env, algorithm, mlp, args.horizon, False, args.normalize_fitness)
+    conditioned_batch = make_batch(env, algorithm, mlp, args.horizon, True, args.normalize_fitness)
     keys = jax.random.split(jax.random.key(771), args.batches)
     ref_keys = jax.random.split(jax.random.key(772), args.reference_batches)
     for step in args.steps:
