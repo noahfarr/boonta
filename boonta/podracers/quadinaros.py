@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from functools import partial
 
 import jax
-import jax.numpy as jnp
 import lox
 from boonta.algorithms import Algorithm
 from boonta.datasets import Dataset, DatasetState
@@ -150,18 +149,6 @@ class Quadinaros:
         return state
 
 
-def untangle(tree: PyTree) -> PyTree:
-    seen = set()
-
-    def own(leaf):
-        if id(leaf) in seen:
-            return jnp.copy(leaf)
-        seen.add(id(leaf))
-        return leaf
-
-    return jax.tree.map(own, tree)
-
-
 def make(
     config: QuadinarosConfig,
     algorithm: Algorithm,
@@ -184,7 +171,7 @@ def make(
         lambda axis: NamedSharding(config.mesh, P(axis)) if axis else replicated, axes
     )
 
-    podracer.init = lambda key: jax.device_put(untangle(init(key)), shardings)
+    podracer.init = lambda key: jax.device_put(init(key), shardings, may_alias=False)
     podracer.fit = jax.jit(
         fit,
         static_argnums=(2,),
