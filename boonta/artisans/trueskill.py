@@ -95,9 +95,8 @@ class TrueSkill:
 
         return dict(walk(state.algorithm_state.params, []))
 
-    def craft(
-        self, key: Key, algorithm: object, environment: object, state: PyTree, logs: dict
-    ) -> Metrics:
+    def craft(self, key: Key, podracer: object, state: PyTree, logs: dict) -> Metrics:
+        algorithm, environment = podracer.algorithm, podracer.environment
         subjects = self.subjects(state)
         for name in (*subjects, *self.opponents):
             self.ratings.setdefault(name, RATER.create_rating())

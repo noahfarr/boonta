@@ -21,7 +21,7 @@ def main(cfg):
     from hangar import recipes
 
     podracer = recipes.make(cfg)
-    algorithm, environment = podracer.algorithm, podracer.environment
+    environment = podracer.environment
     logger = MultiLogger(
         [
             instantiate(
@@ -61,7 +61,7 @@ def main(cfg):
             jax.random.split(craft_key, max(len(artisans), 1)), artisans
         ):
             logger.log_artifact(
-                artisan.craft(key, algorithm, environment, state, logs), step
+                artisan.craft(key, podracer, state, logs), step
             )
         logger.log(data, steps=jnp.array([step, step]))
     finally:

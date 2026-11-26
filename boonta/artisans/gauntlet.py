@@ -68,11 +68,13 @@ class Gauntlet:
 
         return jax.jit(play)
 
-    def craft(self, key, algorithm, environment, state, logs) -> Metrics:
+    def craft(self, key, podracer, state, logs) -> Metrics:
         data = {}
         for index, (name, opponent) in enumerate(self.opponents.items()):
             if name not in self.matches:
-                self.matches[name] = self.match(algorithm, environment, opponent)
+                self.matches[name] = self.match(
+                    podracer.algorithm, podracer.environment, opponent
+                )
             score, _ = self.matches[name](
                 state.algorithm_state, jax.random.fold_in(key, index)
             )
