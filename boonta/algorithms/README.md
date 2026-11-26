@@ -157,3 +157,34 @@ Run one case with
 ## Wrappers
 
 [`wrappers/`](wrappers) wrap an algorithm in the same interface. `Population` runs N copies on slices of the batch. `Roster` is a `Population` that can start its copies from given `initial_params`, keeps their initial states and can anchor each one near them. The [`psro`](../curricula/psro.py) curriculum trains a `Roster`, and its `PSRO` pit keeps the pool, the payoffs and the opponent choice. `sebulba` rejects both. `RND` adds a random network distillation bonus, scored by its own critic and added to the advantage through the `advantage_estimator` of `PPO` or `RecurrentPPO`. It wraps the algorithm directly, inside any other wrapper.
+
+## EGGROLL
+
+[EGGROLL](https://arxiv.org/abs/2511.16652) trains a policy by scoring
+perturbed weights on rollouts. Each update is one generation. The state keeps
+the generation's `noise_key`, from which `step` draws the mirrored low-rank
+perturbations and `update` redraws them; `update` then stores its own key as the
+next generation's. Fitness is the first episode of each rollout, so EGGROLL
+needs every rollout to start fresh episodes: wrap the environment in
+`Group(num_steps=<rollout length>)` after its auto-reset, as the recipe does.
+
+The network is the policy, as for every algorithm: a head such as `Categorical`
+or `SquashedGaussian` around a `LowRankPerturbedMLP`, whose dense layers share
+one projection and add each pair's perturbation as two low-rank projections.
+EGGROLL samples the head at `algorithm.temperature`, so the default of 0 plays
+the deterministic policy and 1 a stochastic one. The podracer's temperature
+scales both the policy temperature and the perturbation, so evaluation at
+temperature 0 plays the greedy, unperturbed policy.
+
+```sh
+python -m hangar.train algorithm=eggroll environment=gymnax/classic_control/cartpole
+```
+
+The recipe covers single-agent Gymnax classic control, MinAtar and Brax. It
+picks `Categorical` for discrete actions and `SquashedGaussian` for continuous
+ones, whose actions it rescales from [-1, 1] to the environment's bounds.
+`algorithm.population_size` must be even and divide `environment.num_envs`.
+Each candidate gets `num_envs / population_size` rollouts, and fitness
+averages their first episode returns up to `podracer.config.num_steps`. For
+Brax, set that horizon to 1000 to score full-length episodes under the default
+environment limit.

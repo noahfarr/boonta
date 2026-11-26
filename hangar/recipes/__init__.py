@@ -5,6 +5,7 @@ from .. import resolvers  # noqa: F401 -- registers OmegaConf resolvers on impor
 from . import (
     bc_mujoco,
     dqn_minatar,
+    eggroll_gymnax,
     grpo_minatar,
     ippo_bluffjax,
     ippo_connectx,
@@ -52,6 +53,9 @@ register = {
     ("bc", "gymnasium", "mujoco"): bc_mujoco.make,
     ("dqn", "gymnax", "minatar"): dqn_minatar.make,
     ("dqn", "gymnasium", "minatar"): dqn_minatar.make,
+    ("eggroll", "brax", "mujoco"): eggroll_gymnax.make,
+    ("eggroll", "gymnax", "classic_control"): eggroll_gymnax.make,
+    ("eggroll", "gymnax", "minatar"): eggroll_gymnax.make,
     ("grpo", "gymnax", "minatar"): grpo_minatar.make,
     ("ippo", "bluffjax", "bluffjax"): ippo_bluffjax.make,
     ("ippo", "dune_sea", "connectx"): ippo_connectx.make,
