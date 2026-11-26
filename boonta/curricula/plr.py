@@ -336,7 +336,7 @@ def make(
     generate_level: Callable[[Key], PyTree],
     score: Callable[[LevelStats, Array], Array] = positive_value_loss,
     **kwargs,
-) -> tuple[Algorithm, UED, PLR, Lap | None]:
+) -> tuple[Algorithm, UED, PLR, Lap]:
     pit = PLR(
         UED(environment),
         buffer_size=buffer_size,
@@ -350,4 +350,4 @@ def make(
         generate_level=generate_level,
         score=score,
     )
-    return algorithm, pit.environment, pit, None
+    return algorithm, pit.environment, pit, Lap()

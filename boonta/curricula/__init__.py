@@ -9,8 +9,8 @@ from .curriculum import Curriculum
 
 def default(
     algorithm: Algorithm, environment: Environment, **kwargs
-) -> tuple[Algorithm, Environment, Pit | None, Lap | None]:
-    return algorithm, environment, None, None
+) -> tuple[Algorithm, Environment, Pit, Lap]:
+    return algorithm, environment, Pit(), Lap()
 
 
 __all__ = [

@@ -516,7 +516,7 @@ def make(
     pool=(),
     deal=lambda environment, learners, lineages, **table: lambda state: state,
     **table,
-) -> tuple[Roster, Environment, PSRO, Lap | None]:
+) -> tuple[Roster, Environment, PSRO, Lap]:
     learners = list(learners)
     roster = Roster(
         algorithm,
@@ -541,4 +541,4 @@ def make(
         pool=pool,
         dress=deal(environment, learners, lineages(learners, pool), **table),
     )
-    return roster, environment, pit, None
+    return roster, environment, pit, Lap()

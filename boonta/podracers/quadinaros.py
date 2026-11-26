@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 
 import jax
@@ -39,14 +39,8 @@ class Quadinaros:
     algorithm: Algorithm
     environment: Environment
     dataset: Dataset
-    pit: Pit | None = None
-    lap: Lap | None = None
-
-    def __post_init__(self):
-        if self.pit is None:
-            self.pit = Pit()
-        if self.lap is None:
-            self.lap = Lap()
+    pit: Pit = field(default_factory=Pit)
+    lap: Lap = field(default_factory=Lap)
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
@@ -173,8 +167,8 @@ def make(
     algorithm: Algorithm,
     environment: Environment,
     dataset: Dataset,
-    pit: Pit | None = None,
-    lap: Lap | None = None,
+    pit: Pit = Pit(),
+    lap: Lap = Lap(),
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)

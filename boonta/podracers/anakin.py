@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 
 import jax
@@ -35,14 +35,8 @@ class Anakin:
     config: AnakinConfig
     algorithm: Algorithm
     environment: Environment
-    pit: Pit | None = None
-    lap: Lap | None = None
-
-    def __post_init__(self):
-        if self.pit is None:
-            self.pit = Pit()
-        if self.lap is None:
-            self.lap = Lap()
+    pit: Pit = field(default_factory=Pit)
+    lap: Lap = field(default_factory=Lap)
 
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -157,8 +151,8 @@ def make(
     config: AnakinConfig,
     algorithm: Algorithm,
     environment: Environment,
-    pit: Pit | None = None,
-    lap: Lap | None = None,
+    pit: Pit = Pit(),
+    lap: Lap = Lap(),
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 
