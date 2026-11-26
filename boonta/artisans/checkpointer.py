@@ -18,7 +18,7 @@ class Checkpointer:
         self.score = score or operator.methodcaller("get", "episode_statistics/episode_return")
         self.fields = tuple(fields)
 
-    def craft(self, key, algorithm, environment, state, logs) -> Checkpoint:
+    def craft(self, key, podracer, state, logs) -> Checkpoint:
         parts = {
             field: getattr(state, field)
             for field in self.fields

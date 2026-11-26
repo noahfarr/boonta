@@ -3,6 +3,7 @@ from functools import partial
 import jax
 import numpy as np
 
+from boonta.podracers.sebulba import SebulbaState
 from boonta.utils import load_tokenizer
 
 from .artifact import Text
@@ -15,38 +16,32 @@ class Transcript:
         self.name = name
         self._num_examples = num_examples
 
-    def rollout(self, algorithm, environment, num_steps, algorithm_state, key):
-        init_key, key = jax.random.split(key)
-        environment_state, timestep = environment.init(init_key)
-        _, carry = algorithm.init(init_key, timestep)
-
-        def step(loop, key):
-            algorithm_state, carry, environment_state, timestep = loop
-            algorithm_key, environment_key = jax.random.split(key)
-            algorithm_state, carry, action, _ = algorithm.step(
-                algorithm_state, carry, algorithm_key, timestep, temperature=0.0
-            )
-            environment_state, timestep = environment.step(
-                environment_key, environment_state, action
-            )
-            return (algorithm_state, carry, environment_state, timestep), action
-
-        (_, _, environment_state, _), actions = jax.lax.scan(
-            step,
-            (algorithm_state, carry, environment_state, timestep),
-            jax.random.split(key, num_steps),
+    def rollout(self, podracer, state, key):
+        reset_key, lap_key, call_key, key = jax.random.split(key, 4)
+        environment_state, timestep = podracer.environment.init(reset_key)
+        _, carry = podracer.algorithm.init(reset_key, timestep)
+        state = state.replace(
+            timestep=timestep, environment_state=environment_state, carry=carry
         )
-        environment.close(environment_state)
+        state = podracer.pit(call_key, podracer.lap(lap_key, state))
+        num_steps = podracer.environment.time_limit() + 1
+
+        def step(state, key):
+            state, transition = podracer.rollout(state, key, temperature=0.0)
+            return state, transition.second.action
+
+        state, actions = jax.lax.scan(step, state, jax.random.split(key, num_steps))
+        podracer.environment.close(state.environment_state)
         return actions
 
-    def craft(self, key, algorithm, environment, state, logs) -> Text:
-        actions = np.asarray(
-            jax.jit(
-                partial(
-                    self.rollout, algorithm, environment, environment.time_limit() + 1
-                )
-            )(state.algorithm_state, key)
-        )
+    def craft(self, key, podracer, state, logs) -> Text:
+        if isinstance(state, SebulbaState):
+            device, *_ = podracer.config.actor.devices.flat
+            actor, *_ = state.actors
+            state, key = jax.device_put(
+                (actor.board(state.algorithm_state, state.pit_state), key), device
+            )
+        actions = np.asarray(jax.jit(partial(self.rollout, podracer))(state, key))
         *_, num_envs = actions.shape
         transcript = "\n\n".join(
             f"{env}: {self._tokenizer.decode(actions[:, env].tolist())}"

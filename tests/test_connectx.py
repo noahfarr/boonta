@@ -183,5 +183,6 @@ def test_the_gauntlet_scores_every_game_from_the_learners_seat(learner, opponent
     assert bool(over.all())
     assert low <= float(score.mean()) <= high
 
-    metrics = gauntlet.craft(jax.random.key(0), scripted(learner), Vectorize(ConnectX(), 1), SimpleNamespace(algorithm_state=None), {})
+    podracer = SimpleNamespace(algorithm=scripted(learner), environment=Vectorize(ConnectX(), 1))
+    metrics = gauntlet.craft(jax.random.key(0), podracer, SimpleNamespace(algorithm_state=None), {})
     assert set(metrics.data) == {"gauntlet/rival", "gauntlet/mean"}

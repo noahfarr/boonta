@@ -20,7 +20,8 @@ from boonta.algorithms.wrappers.population import Population
 from boonta.artisans import Checkpointer
 from boonta.loggers import FileLogger, OrbaxLogger
 from boonta.artisans import Checkpoint, Render, Transcript, Video
-from boonta.utils import load_checkpoint, resolve_checkpoint, sharded
+from boonta.podracers import anakin
+from boonta.utils import load_checkpoint, mesh, resolve_checkpoint, sharded
 from dummies import corridor
 from hangar.brief import brief, debrief
 
@@ -55,7 +56,7 @@ def train(podracer):
 def save(directory, state, **options):
     logger = OrbaxLogger(str(directory / "checkpoints"))
     logs = {"episode_statistics/episode_return": np.ones(4)}
-    logger.log_artifact(Checkpointer(**options).craft(None, None, None, state, logs), step=96)
+    logger.log_artifact(Checkpointer(**options).craft(None, None, state, logs), step=96)
     logger.finish()
 
 
@@ -203,9 +204,9 @@ def test_resolve_checkpoint_finds_the_latest_checkpoint_of_a_run_directory(tmp_p
 def test_the_checkpointer_saves_exactly_the_fields_it_names():
     state = SimpleNamespace(algorithm_state="learned", environment_state="played")
 
-    default = Checkpointer().craft(None, None, None, state, {})
+    default = Checkpointer().craft(None, None, state, {})
     both = Checkpointer(fields=["algorithm_state", "environment_state"]).craft(
-        None, None, None, state, {}
+        None, None, state, {}
     )
 
     assert default.data == {"algorithm_state": "learned"}
@@ -216,10 +217,10 @@ def test_the_checkpointer_scores_by_mean_episode_return_unless_told_otherwise():
     state = SimpleNamespace(algorithm_state="learned")
     logs = {"episode_statistics/episode_return": np.array([1.0, np.nan, 5.0]), "bonus": [7.0]}
 
-    assert Checkpointer().craft(None, None, None, state, logs).score == 3.0
-    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, None, state, logs).score == 7.0
-    assert Checkpointer().craft(None, None, None, state, {}).score == float("-inf")
-    assert Checkpointer().craft(None, None, None, state, {"loss": [1.0]}).score == float("-inf")
+    assert Checkpointer().craft(None, None, state, logs).score == 3.0
+    assert Checkpointer(score=lambda logs: logs["bonus"]).craft(None, None, state, logs).score == 7.0
+    assert Checkpointer().craft(None, None, state, {}).score == float("-inf")
+    assert Checkpointer().craft(None, None, state, {"loss": [1.0]}).score == float("-inf")
 
 
 def log_scores(directory, scores, **options):
@@ -281,6 +282,17 @@ def test_the_file_logger_writes_each_video_as_a_gif_and_nothing_else(tmp_path):
     assert [path.name for path in tmp_path.iterdir()] == ["episode-100.gif"]
 
 
+@struct.dataclass
+class Count:
+    step: jax.Array
+
+
+def race(step, environment):
+    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (Count(jnp.array(0)), None))
+    podracer = anakin.Anakin(anakin.AnakinConfig(num_steps=1, mesh=mesh(1)), algorithm, environment)
+    return podracer, podracer.init(jax.random.key(1))
+
+
 def test_the_render_artisan_plays_and_draws_the_first_environment():
     from boonta.environments import gymnax
 
@@ -293,9 +305,8 @@ def test_the_render_artisan_plays_and_draws_the_first_environment():
         action = jax.random.randint(key, (NUM_ENVS,), 0, num_actions, space.dtype)
         return state, carry, action, {}
 
-    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
-    state = SimpleNamespace(algorithm_state=None)
-    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+    podracer, state = race(step, environment)
+    video = Render().craft(jax.random.key(0), podracer, state, {})
 
     frames, _, _, channels = video.data.shape
     assert 1 < frames <= 16 and channels == 3
@@ -310,9 +321,8 @@ def test_the_render_artisan_stops_when_the_first_episode_ends():
     def step(state, carry, key, timestep, temperature=1.0):
         return state, carry, timestep.obs.argmax(-1) % 2, {}
 
-    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
-    state = SimpleNamespace(algorithm_state=None)
-    video = Render().craft(jax.random.key(0), algorithm, environment, state, {})
+    podracer, state = race(step, environment)
+    video = Render().craft(jax.random.key(0), podracer, state, {})
 
     frames, *_ = video.data.shape
     assert frames == corridor().shortest
@@ -332,11 +342,8 @@ def test_the_transcript_artisan_plays_its_own_episode_and_decodes_each_environme
     def step(state, carry, key, timestep, temperature=1.0):
         return state, carry, jnp.arange(NUM_ENVS, dtype=jnp.int32) % 2, {}
 
-    algorithm = SimpleNamespace(step=step, init=lambda key, timestep: (None, None))
-    state = SimpleNamespace(algorithm_state=None)
-    text = Transcript("repo", num_examples=3).craft(
-        jax.random.key(0), algorithm, environment, state, {}
-    )
+    podracer, state = race(step, environment)
+    text = Transcript("repo", num_examples=3).craft(jax.random.key(0), podracer, state, {})
 
     assert text.data == "0: 0 0 0 0\n\n1: 1 1 1 1\n\n2: 0 0 0 0"
 
