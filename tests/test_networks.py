@@ -507,15 +507,15 @@ def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(
         head=Categorical(Unembed(embed=embed)),
     )
     obs = jax.random.randint(jax.random.key(2), (8, 3), 1, 64)
-    done = jnp.zeros((8, 3), bool)
+    action, done = jnp.zeros((8, 3), jnp.int32), jnp.zeros((8, 3), bool)
 
     def build(key):
         carry = network.initialize_carry(key, (8, 3, 1))
-        params = network.init(key, obs, obs[..., 0], None, done, carry=carry, temperature=1.0)
+        params = network.init(key, obs, action, None, done, carry=carry, temperature=1.0)
         return AnakinState(timestep=Timestep(obs=obs), environment_state=None, carry=carry, algorithm_state=params)
 
     def logits(state):
-        _, dist = network.apply(state.algorithm_state, obs, obs[..., 0], None, done, carry=state.carry, temperature=1.0)
+        _, dist = network.apply(state.algorithm_state, obs, action, None, done, carry=state.carry, temperature=1.0)
         return dist.logits
 
     def forward(model, rules):
