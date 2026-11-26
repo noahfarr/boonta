@@ -12,6 +12,8 @@ from boonta.algorithms.recurrent_grpo import RecurrentGRPO
 from boonta.environments.wrappers import MCP, Group, RecordEpisodeStatistics
 from boonta.networks import (Categorical, Chunk, Chunked, LoRA, Network, Qwen3,
                              Unembed)
+from boonta.networks.architectures.qwen3 import partition_rules as qwen3_rules
+from boonta.networks.blocks.lora import partition_rules as lora_rules
 from boonta.networks.pretrained import init_fn
 from boonta.utils import (load_config, load_qwen3, load_tokenizer,
                           load_weights, materialize_gradients, quantize)
@@ -175,4 +177,10 @@ def make(cfg):
 
     algorithm, env, pit, lap = instantiate(cfg.curriculum)(algorithm, env)
     env = RecordEpisodeStatistics(env, gamma=cfg.algorithm.gamma)
-    return {"algorithm": algorithm, "environment": env, "pit": pit, "lap": lap}
+    return {
+        "algorithm": algorithm,
+        "environment": env,
+        "pit": pit,
+        "lap": lap,
+        "partition_rules": qwen3_rules + lora_rules,
+    }

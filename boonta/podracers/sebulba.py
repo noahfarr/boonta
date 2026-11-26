@@ -1,4 +1,5 @@
 import queue
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
@@ -12,8 +13,8 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
-                          sharded, take)
+from boonta.utils import (Key, PyTree, Timestep, Transition, batch_spec,
+                          concatenate, partition, pin, take)
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -131,7 +132,7 @@ class Sebulba:
     ):
         algorithm_key, pit_key = jax.random.split(key)
         algorithm_state = self.algorithm.update(
-            algorithm_state, algorithm_key, transitions
+            pin(algorithm_state, self.shardings), algorithm_key, transitions
         )
         pit_state = self.pit.update(pit_state, pit_key, transitions, algorithm_state)
         return algorithm_state, pit_state
@@ -203,7 +204,7 @@ class Sebulba:
 
     def train(self, state: SebulbaState, key: Key, num_updates: int) -> PyTree:
         replicated = NamedSharding(self.config.learner, P())
-        sharded = NamedSharding(self.config.learner, P(None, "data"))
+        sharded = NamedSharding(self.config.learner, P(None, *batch_spec(self.config.learner)))
         devices = list(self.config.actor.devices.flat)
         num_devices = len(devices)
         actor_key, learner_key = jax.random.split(key)
@@ -341,6 +342,7 @@ def make(
     environment: Environment,
     pit: Pit = Pit(),
     lap: Lap = Lap(),
+    partition_rules: Sequence[tuple[str, P]] = (),
 ) -> Sebulba:
 
     podracer = Sebulba(config, algorithm, environment, pit, lap)
@@ -366,11 +368,10 @@ def make(
         ]
         return algorithm.init(key, concatenate(timesteps))[0]
 
-    axes = sharded(jax.eval_shape(initialize, jax.random.key(0)))
-    podracer.shardings = jax.tree.map(
-        lambda axis: NamedSharding(config.learner, P(axis)) if axis else replicated,
-        axes,
+    specs = partition(
+        jax.eval_shape(initialize, jax.random.key(0)), config.learner, partition_rules
     )
+    podracer.shardings = jax.tree.map(lambda spec: NamedSharding(config.learner, spec), specs)
 
     podracer.unroll = jax.jit(
         lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))

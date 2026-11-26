@@ -1,4 +1,5 @@
 import threading
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -14,7 +15,9 @@ from boonta.podracers import anakin, quadinaros, sebulba
 from boonta.podracers.podracer import Lap, Pit
 from boonta.utils import mesh
 
-from dummies import Dial, Episodes, Probe, demonstrations, flatten, publish, recordings
+import zoo
+from dummies import (Dial, Episodes, Probe, corridor, demonstrations, flatten, publish,
+                     recordings)
 
 NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 
@@ -402,3 +405,104 @@ def test_quadinaros_never_gathers_the_whole_dataset_onto_one_device():
     assert f"f32[{rows // 2},3]" in text
     gathers = [line for line in text.splitlines() if "all-gather(" in line]
     assert all(f"[{rows}," not in line for line in gathers)
+
+
+MEGATRON = (
+    (r"layers_0/kernel$", P("fsdp", "model")),
+    (r"layers_0/bias$", P("model")),
+    (r"layers_2/kernel$", P("model", "fsdp")),
+    (r".*", P()),
+)
+
+
+def sharded_anakin(algorithm, environment, num_envs, num_steps, fsdp=1, model=1, rules=MEGATRON):
+    config = anakin.AnakinConfig(num_steps=num_steps, mesh=mesh(4, fsdp=fsdp, model=model))
+    return anakin.make(config, algorithm, environment, partition_rules=rules)
+
+
+def sharded_sebulba(algorithm, environment, num_envs, num_steps, fsdp=1):
+    config = sebulba.SebulbaConfig(
+        num_steps=num_steps, learner=mesh(2, fsdp=fsdp), actor=mesh(2, start=2)
+    )
+    return sebulba.make(config, algorithm, environment, partition_rules=MEGATRON)
+
+
+def sharded_quadinaros(algorithm, environment, dataset, batch_shape, num_envs=16, fsdp=1, model=1):
+    config = quadinaros.QuadinarosConfig(batch_shape=batch_shape, mesh=mesh(4, fsdp=fsdp, model=model))
+    return quadinaros.make(
+        config, algorithm, zoo.wrap(environment, num_envs), dataset, partition_rules=MEGATRON
+    )
+
+
+def extractor(state, layer):
+    return state.algorithm_state.params["params"]["feature_extractor"]["observation_extractor"][layer]
+
+
+def assert_same_parameters(replicated, sharded):
+    for left, right in zip(jax.tree.leaves(replicated), jax.tree.leaves(sharded), strict=True):
+        np.testing.assert_allclose(np.asarray(left), np.asarray(right), atol=1e-5)
+
+
+def train_ppo(podracer, num_updates=5):
+    built = zoo.ppo(corridor(), num_envs=8, podracer=podracer)
+    state, _ = built.train(built.init(jax.random.key(0)), jax.random.key(1), num_updates)
+    return state
+
+
+@pytest.mark.parametrize("fsdp, model", [(2, 1), (1, 2), (2, 2), (4, 1), (1, 4)])
+def test_anakin_trains_the_same_with_its_parameters_and_moments_sharded(fsdp, model):
+    replicated = train_ppo(partial(sharded_anakin, rules=()))
+    sharded = train_ppo(partial(sharded_anakin, fsdp=fsdp, model=model))
+
+    kernel = extractor(sharded, "layers_0")["kernel"]
+    moment = sharded.algorithm_state.optimizer_state[1][0].mu["feature_extractor"]["observation_extractor"]["layers_2"]["kernel"]
+    assert kernel.addressable_shards[0].data.shape == (4 // fsdp, 32 // model)
+    assert moment.addressable_shards[0].data.shape == (32 // model, 32 // fsdp)
+    assert_same_parameters(replicated.algorithm_state.params, sharded.algorithm_state.params)
+
+
+def test_sebulba_trains_the_same_with_its_learner_sharded():
+    replicated = train_ppo(partial(sharded_sebulba, fsdp=1))
+    sharded = train_ppo(partial(sharded_sebulba, fsdp=2))
+
+    assert extractor(sharded, "layers_0")["kernel"].addressable_shards[0].data.shape == (2, 32)
+    assert_same_parameters(replicated.algorithm_state.params, sharded.algorithm_state.params)
+
+
+@pytest.mark.parametrize("fsdp, model", [(2, 1), (1, 2), (2, 2)])
+def test_quadinaros_trains_the_same_with_its_parameters_sharded(fsdp, model, monkeypatch):
+    def fit(**shape):
+        monkeypatch.setattr(zoo, "offline", partial(sharded_quadinaros, **shape))
+        built = zoo.bc(corridor())
+        state, _ = built.train(built.init(jax.random.key(0)), jax.random.key(1), 5)
+        return state
+
+    replicated, sharded = fit(), fit(fsdp=fsdp, model=model)
+
+    assert extractor(sharded, "layers_0")["kernel"].addressable_shards[0].data.shape == (4 // fsdp, 32 // model)
+    assert_same_parameters(replicated.algorithm_state.params, sharded.algorithm_state.params)
+
+
+def test_partition_rules_leave_the_batch_dimension_to_the_environments():
+    built = zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, fsdp=2))
+    state = built.init(jax.random.key(0))
+
+    for leaf in jax.tree.leaves((state.timestep, state.environment_state)):
+        assert leaf.sharding.spec == P(("data", "fsdp"))
+
+
+def test_a_sharded_mesh_without_partition_rules_is_refused():
+    with pytest.raises(AssertionError, match="partition rules"):
+        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, fsdp=2, rules=()))
+
+
+def test_a_parameter_no_partition_rule_covers_is_refused():
+    rules = MEGATRON[:-1]
+    with pytest.raises(ValueError, match="no partition rule matches .*layers_2/bias"):
+        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, fsdp=2, rules=rules))
+
+
+def test_a_partition_rule_that_cannot_split_a_dimension_evenly_is_refused():
+    rules = ((r"head/critic/kernel$", P(None, "fsdp")),) + MEGATRON
+    with pytest.raises(ValueError, match="head/critic/kernel has shape \\(32, 1\\)"):
+        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, fsdp=2, rules=rules))

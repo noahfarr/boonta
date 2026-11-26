@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -8,7 +9,7 @@ from boonta.algorithms import Algorithm
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, Transition, sharded
+from boonta.utils import Key, PyTree, Timestep, Transition, partition, pin
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -37,6 +38,7 @@ class Anakin:
     environment: Environment
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
+    shardings: PyTree = None
 
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -99,6 +101,7 @@ class Anakin:
         def step(state: AnakinState, key):
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
+            state = pin(state, self.shardings)
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
             initial_carry = state.carry
             state, transitions = jax.lax.scan(
@@ -114,7 +117,7 @@ class Anakin:
                 state.pit_state, pit_key, transitions, algorithm_state
             )
             state = state.replace(algorithm_state=algorithm_state, pit_state=pit_state)
-            return self.pit(call_key, state), None
+            return pin(self.pit(call_key, state), self.shardings), None
 
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(step, state, keys)
@@ -137,7 +140,7 @@ class Anakin:
             ),
         )
         state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), state, rollout_keys
+            partial(self.rollout, temperature=0.0), pin(state, self.shardings), rollout_keys
         )
         self.environment.close(state.environment_state)
         return state
@@ -153,6 +156,7 @@ def make(
     environment: Environment,
     pit: Pit = Pit(),
     lap: Lap = Lap(),
+    partition_rules: Sequence[tuple[str, P]] = (),
 ) -> Anakin:
     podracer = Anakin(config, algorithm, environment, pit, lap)
 
@@ -161,11 +165,11 @@ def make(
     evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
 
     replicated = NamedSharding(config.mesh, P())
-    axes = sharded(jax.eval_shape(initialize, jax.random.key(0)))
-
-    shardings = jax.tree.map(
-        lambda axis: NamedSharding(config.mesh, P(axis)) if axis else replicated, axes
+    specs = partition(
+        jax.eval_shape(initialize, jax.random.key(0)), config.mesh, partition_rules
     )
+    shardings = jax.tree.map(lambda spec: NamedSharding(config.mesh, spec), specs)
+    podracer.shardings = shardings
 
     podracer.init = jax.jit(initialize, out_shardings=shardings)
     podracer.train = jax.jit(

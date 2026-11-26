@@ -475,3 +475,60 @@ def test_chunked_refuses_more_tokens_than_its_budget():
     params = model.init(jax.random.key(1), carry, TOKENS[:, :1], VALID[:, :1], DONE[:, :1])
     with pytest.raises(Exception, match="budget"):
         jax.block_until_ready(model.apply(params, carry, TOKENS, VALID, DONE))
+
+
+class Tokens(nn.Module):
+    embed: nn.Embed
+
+    @nn.compact
+    def __call__(self, obs, action=None, reward=None, done=None):
+        return self.embed(obs)
+
+
+@pytest.mark.parametrize("fsdp, model", [(2, 1), (1, 2), (2, 2)])
+def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(fsdp, model):
+    from jax.sharding import NamedSharding
+    from boonta.networks import LoRA, Network, Qwen3, Unembed
+    from boonta.networks.architectures.qwen3 import partition_rules as qwen3_rules
+    from boonta.networks.blocks.lora import partition_rules as lora_rules
+    from boonta.networks.pretrained import init_fn
+    from boonta.podracers.anakin import AnakinState
+    from boonta.utils import Timestep, mesh, partition, quantize
+
+    qwen3 = Qwen3(features=32, num_layers=2, num_heads=4, num_groups=2, head_dim=8,
+                  hidden_dim=48, max_wavelength=10000.0, context_length=16)
+    x, done = jnp.zeros((2, 3, 32)), jnp.zeros((2, 3), bool)
+    base = qwen3.init(jax.random.key(0), qwen3.initialize_carry(None, x.shape), x, done)["params"]
+    table = np.asarray(jax.random.normal(jax.random.key(1), (64, 32)))
+    embed = nn.Embed(64, 32, embedding_init=init_fn(table))
+    network = Network(
+        feature_extractor=Tokens(embed=embed),
+        torso=LoRA(block=qwen3, params=jax.tree.map(np.asarray, quantize(base)), rank=2),
+        head=Categorical(Unembed(embed=embed)),
+    )
+    obs = jax.random.randint(jax.random.key(2), (8, 3), 1, 64)
+    done = jnp.zeros((8, 3), bool)
+
+    def build(key):
+        carry = network.initialize_carry(key, (8, 3, 1))
+        params = network.init(key, obs, obs[..., 0], None, done, carry=carry, temperature=1.0)
+        return AnakinState(timestep=Timestep(obs=obs), environment_state=None, carry=carry, algorithm_state=params)
+
+    def logits(state):
+        _, dist = network.apply(state.algorithm_state, obs, obs[..., 0], None, done, carry=state.carry, temperature=1.0)
+        return dist.logits
+
+    def forward(fsdp, model):
+        devices = mesh(4, fsdp=fsdp, model=model)
+        specs = partition(jax.eval_shape(build, jax.random.key(3)), devices, qwen3_rules + lora_rules)
+        shardings = jax.tree.map(lambda spec: NamedSharding(devices, spec), specs)
+        state = jax.jit(build, out_shardings=shardings)(jax.random.key(3))
+        return state, jax.jit(logits)(state)
+
+    _, replicated = forward(1, 1)
+    state, sharded = forward(fsdp, model)
+
+    query = state.algorithm_state["frozen_params"]["torso"]["base"]["layers_0"]["attention"]["query"]["kernel"].values
+    assert query.addressable_shards[0].data.shape == (32 // fsdp, 4 // model, 8)
+    assert state.carry[0].key.addressable_shards[0].data.shape == (8 // (4 // model), 16, 2 // model, 8)
+    np.testing.assert_allclose(sharded, replicated, atol=1e-5)

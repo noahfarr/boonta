@@ -36,7 +36,16 @@ The podracer counts steps into `algorithm_state.step`. The online podracers add 
 
 ## Sharding
 
-Each podracer builds its shardings from the state's dataclass fields. A field marked `metadata={"axis": "data"}` is split along the mesh's `data` axis. On `anakin` and `quadinaros` the environment states and timesteps are always split this way, as are the recurrent carry, which the podracer owns, and the replay buffers the algorithm marks. Everything else, such as parameters, is replicated on every device. On `sebulba` each actor device keeps its own environments whole, and only the learner's state is sharded by these marks. The mesh comes from `boonta.utils.mesh(count, start)`, and the configs in [`hangar/config/podracer/`](../../hangar/config/podracer) build it over every device by default.
+The mesh is `boonta.utils.mesh(count, start, fsdp=1, model=1)`, with axes `("data", "fsdp", "model")` built by `jax.make_mesh`. By default every device is on `data`. The configs in [`hangar/config/podracer/`](../../hangar/config/podracer) build it over every device, and `podracer.config.mesh.fsdp=2 podracer.config.mesh.model=2` reshapes it.
+
+Each podracer resolves every leaf of its state to a `PartitionSpec` in one place, `boonta.utils.partition`:
+
+- A field marked `metadata={"axis": "data"}` splits its leading dimension over the batch, `("data", "fsdp")`. On `anakin` and `quadinaros` the environment states, timesteps and recurrent carry are always split this way, as are the replay buffers the algorithm marks. On `sebulba` each actor keeps its environments whole, and only the learner's state is sharded.
+- Everything else is replicated, unless the recipe passes `partition_rules`: ordered `(regex, PartitionSpec)` pairs matched against each leaf's path, first match winning, the way EasyLM shards. A rule names both axes of a weight, for example `P("fsdp", "model")` for a column-parallel kernel and `P("model", "fsdp")` for the row-parallel one after it, so FSDP and tensor parallelism come from one table. Optimizer moments, target and reference parameters live under the same paths and follow the same rules. On a leaf marked with `axis`, the mark keeps the leading dimension and the rule fills in the rest, so a catch-all `(".*", P())` never replicates an environment and the KV cache rule splits heads over `model` while its batch stays split.
+- Every architecture exports its rules next to its definition, such as `boonta.networks.architectures.qwen3.partition_rules`, and `boonta.networks.blocks.lora.partition_rules` covers LoRA's adapters. A mesh with `fsdp` or `model` above one refuses to run without rules, a leaf no rule matches is an error instead of a silent replica, and a rule that cannot split a dimension evenly names the leaf.
+- Specs drop the `fsdp` and `model` axes when they have size one, so the default mesh compiles to the same program as before.
+
+Inside `jit` XLA chooses where to gather, and left alone it gathered the parameters before the update loop and carried them whole through it. Each podracer therefore pins its state to the resolved shardings at both ends of every update with `boonta.utils.pin`, which keeps parameters and moments sharded through the update and its inner loops. XLA then hoists what the rollout needs out of the rollout scan, so acting does not gather once per environment step.
 
 ## pit and lap
 
@@ -54,7 +63,7 @@ Each hook must fire in all those places. `evaluate` restarts the environment at 
 
 ## anakin
 
-`init`, `train` and `evaluate` are each one `jax.jit` call. `train` scans over updates, and each update scans `num_steps` environment steps and then calls `algorithm.update`. Parameters are replicated and the environments are split across the mesh.
+`init`, `train` and `evaluate` are each one `jax.jit` call. `train` scans over updates, and each update scans `num_steps` environment steps and then calls `algorithm.update`. The environments are split across the mesh, and parameters are replicated unless partition rules shard them.
 
 ## sebulba
 

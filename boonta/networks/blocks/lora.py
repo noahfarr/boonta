@@ -1,10 +1,14 @@
 import flax.linen as nn
+from jax.sharding import PartitionSpec as P
 
 from boonta.utils.typing import Array, Carry, Key, PyTree
 
 from ..layers import LoRA as LoRAParams
 from ..pretrained import init_fn
 from .block import Block
+
+
+partition_rules = ((r"LoRA_\d+/[^/]+_kernel_[ab]$", P()),)
 
 
 class LoRA(Block):

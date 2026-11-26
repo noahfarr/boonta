@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -9,7 +10,7 @@ from boonta.datasets import Dataset, DatasetState
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, sharded
+from boonta.utils import Key, PyTree, Timestep, batch_spec, partition, pin
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -40,14 +41,16 @@ class Quadinaros:
     dataset: Dataset
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
+    shardings: PyTree = None
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
+        state = pin(state, self.shardings)
         dataset_state, batch = self.dataset.sample(
             state.dataset_state, sample_key, self.config.batch_shape
         )
         batch = jax.lax.with_sharding_constraint(
-            batch, NamedSharding(self.config.mesh, P("data"))
+            batch, NamedSharding(self.config.mesh, batch_spec(self.config.mesh))
         )
         algorithm_state = self.algorithm.update(
             state.algorithm_state, update_key, batch
@@ -59,7 +62,7 @@ class Quadinaros:
         state = state.replace(
             algorithm_state=algorithm_state, dataset_state=dataset_state, pit_state=pit_state
         )
-        return self.pit(call_key, state), None
+        return pin(self.pit(call_key, state), self.shardings), None
 
     def rollout(self, state: QuadinarosState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -156,6 +159,7 @@ def make(
     dataset: Dataset,
     pit: Pit = Pit(),
     lap: Lap = Lap(),
+    partition_rules: Sequence[tuple[str, P]] = (),
 ) -> Quadinaros:
     config = config.replace(batch_shape=tuple(config.batch_shape))
     podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)
@@ -165,11 +169,9 @@ def make(
     evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
 
     replicated = NamedSharding(config.mesh, P())
-    axes = sharded(jax.eval_shape(init, jax.random.key(0)))
-
-    shardings = jax.tree.map(
-        lambda axis: NamedSharding(config.mesh, P(axis)) if axis else replicated, axes
-    )
+    specs = partition(jax.eval_shape(init, jax.random.key(0)), config.mesh, partition_rules)
+    shardings = jax.tree.map(lambda spec: NamedSharding(config.mesh, spec), specs)
+    podracer.shardings = shardings
 
     podracer.init = lambda key: jax.device_put(init(key), shardings, may_alias=False)
     podracer.fit = jax.jit(
