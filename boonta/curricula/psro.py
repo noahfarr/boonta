@@ -30,7 +30,7 @@ class Meta:
         return self.lineages == self.names.index(lineage)
 
 
-def winrate(meta: Meta) -> Array:
+def _winrate(meta: Meta) -> Array:
     row = jnp.take(meta.payoff, meta.index, axis=0)
     counts = jnp.take(meta.counts, meta.index, axis=0)
     return (row / jnp.maximum(counts, 1.0) + 1.0) / 2.0
@@ -67,7 +67,7 @@ def fictitious_self_play() -> Solver:
 
 
 def weighted(meta: Meta, eligible: Array, weighting: Callable) -> Array:
-    weight = jnp.where(eligible, weighting(winrate(meta)), 0.0)
+    weight = jnp.where(eligible, weighting(_winrate(meta)), 0.0)
     total = weight.sum()
     uniform = meta.members / meta.members.sum()
     return jnp.where(total > 0, weight / jnp.maximum(total, 1e-8), uniform)
@@ -98,7 +98,7 @@ def forgotten(
     lineage: str, weighting: Callable[[Array], Array], level: float = 0.7
 ) -> Solver:
     def solver(meta: Meta) -> Array:
-        eligible = (meta.members > 0) & meta.descends(lineage) & (winrate(meta) < level)
+        eligible = (meta.members > 0) & meta.descends(lineage) & (_winrate(meta) < level)
         return weighted(meta, eligible, weighting)
 
     return solver
@@ -127,7 +127,7 @@ def nash(iterations: int = 128) -> Solver:
 def ladder(primary: Solver, fallback: Solver, level: float = 0.2) -> Solver:
     def solver(meta: Meta) -> Array:
         distribution = primary(meta)
-        losing = jnp.sum(distribution * winrate(meta)) < level
+        losing = jnp.sum(distribution * _winrate(meta)) < level
         return jnp.where(losing, fallback(meta), distribution)
 
     return solver
@@ -144,11 +144,11 @@ def mixture(solvers: list[Solver], weights: list[float]) -> Solver:
 
 
 def hard(exponent: float = 1.0) -> Callable[[Array], Array]:
-    return lambda winrate: jnp.maximum(1.0 - winrate, 1e-8) ** exponent
+    return lambda _winrate: jnp.maximum(1.0 - _winrate, 1e-8) ** exponent
 
 
 def even() -> Callable[[Array], Array]:
-    return lambda winrate: winrate * (1.0 - winrate)
+    return lambda _winrate: _winrate * (1.0 - _winrate)
 
 
 class Admit(Protocol):
@@ -165,7 +165,7 @@ def always() -> Admit:
 def threshold(level: float = 0.7, minimum: float = 1.0) -> Admit:
     def admit(meta: Meta) -> Array:
         played = jnp.take(meta.counts, meta.index, axis=0) > minimum
-        rate = jnp.sum(jnp.where(played, winrate(meta), 0.0)) / jnp.maximum(
+        rate = jnp.sum(jnp.where(played, _winrate(meta), 0.0)) / jnp.maximum(
             played.sum(), 1.0
         )
         return (played.sum() > 0) & (rate > level)
@@ -335,7 +335,7 @@ class PSRO(Pit):
             }
         )
         if self.pool:
-            reference = winrate(meta)[
+            reference = _winrate(meta)[
                 len(self.learners) : len(self.learners) + len(self.pool)
             ]
             lox.log({f"learner_{index}/reference": reference.mean()})

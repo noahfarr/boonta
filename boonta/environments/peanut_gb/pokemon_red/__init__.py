@@ -59,7 +59,7 @@ def x_position(ram):
     return byte(ram, X)
 
 
-def y_position(ram):
+def _y_position(ram):
     return byte(ram, Y)
 
 
@@ -197,14 +197,14 @@ def extent(ram):
 def walk(ram):
     here = place(ram)
     x = jnp.clip(x_position(ram), 0, WIDTHS[here] - 1)
-    y = jnp.clip(y_position(ram), 0, HEIGHTS[here] - 1)
+    y = jnp.clip(_y_position(ram), 0, HEIGHTS[here] - 1)
     return OFFSETS[here] + y * WIDTHS[here] + x
 
 
 def crop(seen, ram, height, width):
     here = place(ram)
     wide, tall = WIDTHS[here], HEIGHTS[here]
-    down = y_position(ram) + (jnp.arange(height) - height // 2)[:, None]
+    down = _y_position(ram) + (jnp.arange(height) - height // 2)[:, None]
     across = x_position(ram) + (jnp.arange(width) - width // 2)[None, :]
     inside = (across >= 0) & (across < wide) & (down >= 0) & (down < tall)
     index = OFFSETS[here] + jnp.clip(down, 0, tall - 1) * wide + jnp.clip(across, 0, wide - 1)

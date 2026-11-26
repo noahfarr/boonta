@@ -34,7 +34,7 @@ def register():
     registered = True
 
 
-def rom_path(game: str) -> str:
+def _rom_path(game: str) -> str:
     import ale_py.roms as roms
 
     return os.path.join(os.path.dirname(roms.__file__), f"{game}.bin")
@@ -65,7 +65,7 @@ class ALE(Environment):
         self.num_actions = 18
         self._attrs = dict(
             num_envs=num_envs,
-            rom=rom_path(game),
+            rom=_rom_path(game),
             frame_skip=frame_skip,
             threads=num_threads,
             fraction_ppm=int(fraction * 1_000_000),

@@ -186,22 +186,22 @@ class GameBoyState:
     tallied: Array
 
 
-def visit(visited: Array, index: Array) -> tuple[Array, Array]:
+def _visit(visited: Array, index: Array) -> tuple[Array, Array]:
     word, bit = index // 32, jnp.uint32(1) << (index % 32).astype(jnp.uint32)
     seen = (visited[word] & bit) > 0
     return visited.at[word].set(visited[word] | bit), seen
 
 
-def forget(visited: Array, stale: Array) -> Array:
+def _forget(visited: Array, stale: Array) -> Array:
     return jnp.where(stale, jnp.zeros_like(visited), visited)
 
 
-def visits(visited: Array) -> Array:
+def _visits(visited: Array) -> Array:
     return jnp.sum(jax.lax.population_count(visited))
 
 
 def sift(held: Array, fresh: Array) -> tuple[Array, Array]:
-    gained = (visits(fresh) - visits(held)).astype(jnp.float32)
+    gained = (_visits(fresh) - _visits(held)).astype(jnp.float32)
     sane = gained <= BURST
     return jnp.where(sane, fresh, held), jnp.where(sane, gained, 0.0)
 
@@ -256,8 +256,8 @@ class GameBoy(Environment):
         self._render = renderer(pool)
         emulator, frame, ram = snapshot
         ram = jnp.asarray(ram)
-        visited, _ = visit(jnp.zeros((game.NUM_MAPS + 31) // 32, jnp.uint32), game.place(ram))
-        walked, _ = visit(jnp.zeros((game.NUM_CELLS + 31) // 32, jnp.uint32), game.walk(ram))
+        visited, _ = _visit(jnp.zeros((game.NUM_MAPS + 31) // 32, jnp.uint32), game.place(ram))
+        walked, _ = _visit(jnp.zeros((game.NUM_CELLS + 31) // 32, jnp.uint32), game.walk(ram))
         self.start = GameBoyState(
             emulator=jnp.asarray(emulator),
             frames=jnp.repeat(jnp.asarray(frame)[None], stack, axis=0),
@@ -284,8 +284,8 @@ class GameBoy(Environment):
 
     def tally(self, state: GameBoyState, fell: Array, mending: Array) -> dict:
         info = jax.tree.map(lambda value: value.astype(jnp.float32), self.game.annotate(state.ram))
-        info["maps"] = visits(state.visited).astype(jnp.float32)
-        info["tiles"] = visits(state.walked).astype(jnp.float32)
+        info["maps"] = _visits(state.visited).astype(jnp.float32)
+        info["tiles"] = _visits(state.walked).astype(jnp.float32)
         info["deaths"] = fell.astype(jnp.float32) * self._horizon
         info["healed"] = mending * self._horizon
         info["experience"] = state.trained
@@ -330,11 +330,11 @@ class GameBoy(Environment):
         reward -= self.menu_penalty * game.menu(ram).astype(jnp.float32)
 
         stale = gained > 0
-        visited, seen = visit(forget(state.visited, stale), game.place(ram))
+        visited, seen = _visit(_forget(state.visited, stale), game.place(ram))
         entered = (1.0 - seen.astype(jnp.float32)) * (1.0 - stale.astype(jnp.float32))
         reward += self.map_reward * game.extent(ram) * entered
-        walked, trod = visit(forget(state.walked, stale), game.walk(ram))
-        charted, _ = visit(state.charted, game.walk(ram))
+        walked, trod = _visit(_forget(state.walked, stale), game.walk(ram))
+        charted, _ = _visit(state.charted, game.walk(ram))
         reward += self.tile_reward * (1.0 - trod.astype(jnp.float32))
 
         state = GameBoyState(

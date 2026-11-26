@@ -14,7 +14,7 @@ class Chunk:
     valid: Array
 
 
-def check_budget(count, budget):
+def _check_budget(count, budget):
     if int(count) > budget:
         raise ValueError(
             f"a sequence holds {int(count)} tokens, more than Chunked's budget of {budget}"
@@ -48,7 +48,7 @@ class Chunked(Block):
         valid = valid.reshape(batch_size, length)
         order = jnp.argsort(~valid, axis=-1, stable=True)[:, :budget]
         count = valid.sum(axis=-1)
-        jax.debug.callback(check_budget, count.max(), budget)
+        jax.debug.callback(_check_budget, count.max(), budget)
 
         def pack(leaf):
             leaf = leaf.reshape(batch_size, length, *leaf.shape[3:])

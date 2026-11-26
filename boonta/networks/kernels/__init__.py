@@ -11,7 +11,7 @@ IMPLEMENTATIONS = {
 
 def get_scan_implementation(name: str | None = None):
     if name is None:
-        return pallas if accelerated() else associative
+        return pallas if _accelerated() else associative
     if name not in IMPLEMENTATIONS:
         raise KeyError(
             f"unknown scan implementation {name!r}, have {sorted(IMPLEMENTATIONS)}"
@@ -19,7 +19,7 @@ def get_scan_implementation(name: str | None = None):
     return IMPLEMENTATIONS[name]
 
 
-def accelerated() -> bool:
+def _accelerated() -> bool:
     return jax.default_backend() == "gpu" and any(
         "nvidia" in device.device_kind.lower()
         and float(device.compute_capability) >= 9.0

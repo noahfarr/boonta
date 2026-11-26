@@ -10,11 +10,11 @@ from .environment import Environment
 from .spaces import Space
 
 
-def strong_leaf(leaf: Any) -> Array:
+def _strong_leaf(leaf: Any) -> Array:
     return jnp.asarray(leaf, jnp.asarray(leaf).dtype)
 
 
-def convert_space(space) -> Space:
+def _convert_space(space) -> Space:
     from gymnax.environments import spaces as gymnax_spaces
 
     if isinstance(space, gymnax_spaces.Discrete):
@@ -33,7 +33,7 @@ class JaxUED(Environment):
         return self.settle(state)
 
     def settle(self, state: Any) -> Any:
-        return jax.tree.map(strong_leaf, state)
+        return jax.tree.map(_strong_leaf, state)
 
     def cut(self, state: Any, reward: Array, done: Array) -> Array:
         unlimited = self._params.replace(
@@ -85,12 +85,12 @@ class JaxUED(Environment):
 
     def observation_space(self) -> Space:
         if hasattr(self._env, "observation_space"):
-            return convert_space(self._env.observation_space(self._params))
+            return _convert_space(self._env.observation_space(self._params))
         shape = jax.eval_shape(self.init, jax.random.key(0))[1].obs
         return Space(shape=shape.shape, dtype=shape.dtype, low=-jnp.inf, high=jnp.inf)
 
     def action_space(self) -> Space:
-        return convert_space(self._env.action_space(self._params))
+        return _convert_space(self._env.action_space(self._params))
 
     def time_limit(self) -> int:
         return int(self._params.max_steps_in_episode)
@@ -134,7 +134,7 @@ def maze_generator(
     return make_level_generator(height, width, n_walls)
 
 
-def prefab_sampler(
+def _prefab_sampler(
     names: Sequence[str], height: int = 13, width: int = 13
 ) -> Callable[[Key], PyTree]:
     from jaxued.environments.maze.level import Level, prefabs
@@ -157,7 +157,7 @@ def control_generator(env_id: str) -> Callable[[Key], PyTree]:
     return module.make_level_generator()
 
 
-def make_maze(
+def _make_maze(
     env_id: str = "Maze",
     height: int = 13,
     width: int = 13,
@@ -184,13 +184,13 @@ def make_maze(
     )
     params = env.default_params.replace(max_steps_in_episode=max_steps_in_episode)
     if levels:
-        sample = prefab_sampler(levels, height, width)
+        sample = _prefab_sampler(levels, height, width)
     else:
         sample = maze_generator(height, width, n_walls)
     return Maze(env, params, sample)
 
 
-def make_control(env_id: str, max_steps_in_episode: int | None = None) -> JaxUED:
+def _make_control(env_id: str, max_steps_in_episode: int | None = None) -> JaxUED:
     import importlib
 
     module = importlib.import_module(f"jaxued.environments.gymnax.{CONTROL[env_id]}")
@@ -203,5 +203,5 @@ def make_control(env_id: str, max_steps_in_episode: int | None = None) -> JaxUED
 
 def make(env_id: str = "Maze", **kwargs):
     if env_id in CONTROL:
-        return make_control(env_id, **kwargs)
-    return make_maze(env_id, **kwargs)
+        return _make_control(env_id, **kwargs)
+    return _make_maze(env_id, **kwargs)

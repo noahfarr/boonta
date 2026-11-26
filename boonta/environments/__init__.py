@@ -7,7 +7,7 @@ from pathlib import Path
 import jax
 
 
-def capsule(address):
+def _capsule(address):
     PyCapsule_New = ctypes.pythonapi.PyCapsule_New
     PyCapsule_New.restype = ctypes.py_object
     PyCapsule_New.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
@@ -40,7 +40,7 @@ def register_targets(lib, targets):
         for platform, suffix in (("cpu", "_cpu"), ("CUDA", "_cuda")):
             handler = getattr(lib, getter + suffix)
             handler.restype = ctypes.c_void_p
-            jax.ffi.register_ffi_target(target, capsule(handler()), platform=platform)
+            jax.ffi.register_ffi_target(target, _capsule(handler()), platform=platform)
 
 
 from . import (ale, bluffjax, brax, craftax, dune_sea, gymnasium, gymnax,
