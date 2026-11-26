@@ -8,7 +8,7 @@ from boonta.utils import Timestep, Transition
 
 @struct.dataclass(frozen=True)
 class FineWebState:
-    transitions: Transition = struct.field(metadata={"axis": "data"})
+    transitions: Transition = struct.field(metadata={"axis": "batch"})
     cursor: jax.Array
 
 

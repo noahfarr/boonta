@@ -10,7 +10,7 @@ from boonta.datasets import Dataset, DatasetState
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, batch_spec, partition, pin
+from boonta.utils import Key, PyTree, Timestep, partition, pin
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -24,10 +24,10 @@ class QuadinarosConfig:
 
 @struct.dataclass(frozen=True)
 class QuadinarosState:
-    timestep: Timestep = struct.field(metadata={"axis": "data"})
-    environment_state: EnvState = struct.field(metadata={"axis": "data"})
-    dataset_state: DatasetState = struct.field(metadata={"axis": "data"})
-    carry: PyTree = struct.field(metadata={"axis": "data"})
+    timestep: Timestep = struct.field(metadata={"axis": "batch"})
+    environment_state: EnvState = struct.field(metadata={"axis": "batch"})
+    dataset_state: DatasetState = struct.field(metadata={"axis": "batch"})
+    carry: PyTree = struct.field(metadata={"axis": "batch"})
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
@@ -50,7 +50,7 @@ class Quadinaros:
             state.dataset_state, sample_key, self.config.batch_shape
         )
         batch = jax.lax.with_sharding_constraint(
-            batch, NamedSharding(self.config.mesh, batch_spec(self.config.mesh))
+            batch, NamedSharding(self.config.mesh, P("data"))
         )
         algorithm_state = self.algorithm.update(
             state.algorithm_state, update_key, batch

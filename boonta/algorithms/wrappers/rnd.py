@@ -22,7 +22,7 @@ class RNDState(WrapperState):
     predictor_params: PyTree
     critic_params: PyTree
     curiosity_state: optax.OptState
-    intrinsic_returns: Array = struct.field(metadata={"axis": "data"})
+    intrinsic_returns: Array = struct.field(metadata={"axis": "batch"})
     obs_normalizer: EMA
     reward_normalizer: EMA
 

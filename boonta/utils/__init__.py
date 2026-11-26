@@ -40,7 +40,7 @@ from .quantization import (
 )
 from .checkpoint import load_checkpoint, resolve_checkpoint
 from .system_monitor import SystemMonitor
-from .sharding import batch_spec, mesh, partition, pin, sharded, vary
+from .sharding import mesh, partition, pin, sharded, vary
 from .timestep import Timestep
 from .transition import Transition
 from .typing import Array, Key, PyTree
@@ -53,7 +53,6 @@ __all__ = [
     "add_batch_axis",
     "add_feature_axis",
     "add_time_axis",
-    "batch_spec",
     "broadcast",
     "canonicalize_dtype",
     "concatenate",

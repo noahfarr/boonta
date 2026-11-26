@@ -466,10 +466,10 @@ jax.tree_util.register_pytree_with_keys(
 def test_sharded_keeps_fields_that_are_not_pytree_children():
     node = Packed(values=jnp.zeros((4, 2)), layout=np.arange(3))
 
-    axes = sharded(node, "data")
+    axes = sharded(node, "batch")
     roundtrip = jax.tree.map(lambda axis: axis, axes)
 
-    assert roundtrip.values == "data"
+    assert roundtrip.values == "batch"
     np.testing.assert_array_equal(roundtrip.layout, np.arange(3))
 
 
@@ -480,13 +480,13 @@ class Weights:
 
 @struct.dataclass
 class Seat:
-    carry: jax.Array = struct.field(metadata={"axis": "data"})
+    carry: jax.Array = struct.field(metadata={"axis": "batch"})
     opponents: jax.Array = struct.field(metadata={"axis": None})
     weights: Weights
     step: jax.Array
 
 
-@pytest.mark.parametrize("root", [False, "data"], ids=["replicated", "sharded"])
+@pytest.mark.parametrize("root", [False, "batch"], ids=["replicated", "sharded"])
 def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
     seat = Seat(
         carry=jnp.zeros((4, 2)),
@@ -497,7 +497,7 @@ def test_sharded_follows_a_fields_axis_and_inherits_its_parents_otherwise(root):
 
     axes = sharded(seat, root)
 
-    assert axes.carry == "data"
+    assert axes.carry == "batch"
     assert axes.opponents is None
     assert axes.weights.kernel == root
     assert axes.step is False

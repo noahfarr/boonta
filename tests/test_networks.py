@@ -485,8 +485,8 @@ class Tokens(nn.Module):
         return self.embed(obs)
 
 
-@pytest.mark.parametrize("fsdp, model", [(2, 1), (1, 2), (2, 2)])
-def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(fsdp, model):
+@pytest.mark.parametrize("model", [1, 2], ids=["fsdp", "fsdp-and-tensor"])
+def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(model):
     from jax.sharding import NamedSharding
     from boonta.networks import LoRA, Network, Qwen3, Unembed
     from boonta.networks.architectures.qwen3 import partition_rules as qwen3_rules
@@ -518,17 +518,18 @@ def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(
         _, dist = network.apply(state.algorithm_state, obs, obs[..., 0], None, done, carry=state.carry, temperature=1.0)
         return dist.logits
 
-    def forward(fsdp, model):
-        devices = mesh(4, fsdp=fsdp, model=model)
-        specs = partition(jax.eval_shape(build, jax.random.key(3)), devices, qwen3_rules + lora_rules)
+    def forward(model, rules):
+        devices = mesh(4, model=model)
+        specs = partition(jax.eval_shape(build, jax.random.key(3)), devices, rules)
         shardings = jax.tree.map(lambda spec: NamedSharding(devices, spec), specs)
         state = jax.jit(build, out_shardings=shardings)(jax.random.key(3))
         return state, jax.jit(logits)(state)
 
-    _, replicated = forward(1, 1)
-    state, sharded = forward(fsdp, model)
+    _, replicated = forward(1, ())
+    state, sharded = forward(model, qwen3_rules + lora_rules)
+    data = 4 // model
 
     query = state.algorithm_state["frozen_params"]["torso"]["base"]["layers_0"]["attention"]["query"]["kernel"].values
-    assert query.addressable_shards[0].data.shape == (32 // fsdp, 4 // model, 8)
-    assert state.carry[0].key.addressable_shards[0].data.shape == (8 // (4 // model), 16, 2 // model, 8)
+    assert query.addressable_shards[0].data.shape == (32 // data, 4 // model, 8)
+    assert state.carry[0].key.addressable_shards[0].data.shape == (8 // data, 16, 2 // model, 8)
     np.testing.assert_allclose(sharded, replicated, atol=1e-5)

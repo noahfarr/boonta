@@ -13,8 +13,8 @@ from boonta.algorithms.wrappers.wrapper import Wrapper
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import (Key, PyTree, Timestep, Transition, batch_spec,
-                          concatenate, partition, pin, take)
+from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
+                          partition, pin, take)
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -204,7 +204,7 @@ class Sebulba:
 
     def train(self, state: SebulbaState, key: Key, num_updates: int) -> PyTree:
         replicated = NamedSharding(self.config.learner, P())
-        sharded = NamedSharding(self.config.learner, P(None, *batch_spec(self.config.learner)))
+        sharded = NamedSharding(self.config.learner, P(None, "data"))
         devices = list(self.config.actor.devices.flat)
         num_devices = len(devices)
         actor_key, learner_key = jax.random.split(key)

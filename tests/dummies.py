@@ -360,7 +360,7 @@ def publish(episodes: list, dataset_id: str = "dummy/dial/expert-v0") -> str:
 
 @struct.dataclass(frozen=True)
 class EpisodesState:
-    transitions: Transition = struct.field(metadata={"axis": "data"})
+    transitions: Transition = struct.field(metadata={"axis": "batch"})
 
 
 class Episodes:

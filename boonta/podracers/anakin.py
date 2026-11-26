@@ -23,9 +23,9 @@ class AnakinConfig:
 
 @struct.dataclass(frozen=True)
 class AnakinState:
-    timestep: Timestep = struct.field(metadata={"axis": "data"})
-    environment_state: EnvState = struct.field(metadata={"axis": "data"})
-    carry: PyTree = struct.field(metadata={"axis": "data"})
+    timestep: Timestep = struct.field(metadata={"axis": "batch"})
+    environment_state: EnvState = struct.field(metadata={"axis": "batch"})
+    carry: PyTree = struct.field(metadata={"axis": "batch"})
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None

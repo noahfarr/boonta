@@ -8,22 +8,17 @@ import jax.numpy as jnp
 from jax.sharding import AxisType, Mesh
 from jax.sharding import PartitionSpec as P
 
-BATCH = ("data", "fsdp")
-
-
-def mesh(count: int, start: int = 0, fsdp: int = 1, model: int = 1) -> Mesh:
+def mesh(count: int, start: int = 0, model: int = 1) -> Mesh:
     devices = jax.devices()[start : start + count]
     assert len(devices) == count, (
         f"requested devices [{start}:{start + count}) but only "
         f"{jax.device_count()} exist"
     )
-    assert count % (fsdp * model) == 0, (
-        f"{count} devices do not split into fsdp={fsdp} by model={model}"
-    )
+    assert count % model == 0, f"{count} devices do not split into model={model}"
     return jax.make_mesh(
-        (count // (fsdp * model), fsdp, model),
-        ("data", "fsdp", "model"),
-        axis_types=(AxisType.Auto,) * 3,
+        (count // model, model),
+        ("data", "model"),
+        axis_types=(AxisType.Auto,) * 2,
         devices=devices,
     )
 
@@ -44,10 +39,6 @@ def _normalize(spec: P, mesh: Mesh) -> P:
     while entries and entries[-1] is None:
         entries.pop()
     return P(*entries)
-
-
-def batch_spec(mesh: Mesh) -> P:
-    return _normalize(P(BATCH), mesh)
 
 
 def _name(path) -> str:
@@ -75,9 +66,10 @@ def _resolve(name, leaf, axis, mesh, rules) -> P | None:
     if leaf is None or axis is None:
         return None
     shape = tuple(jnp.shape(leaf))
-    leading = BATCH if axis == "data" else axis
+    leading = "data" if axis == "batch" else axis
     for pattern, spec in rules:
         if re.search(pattern, name):
+            spec = P(*("data" if entry == "batch" else entry for entry in spec))
             if axis:
                 spec = P(leading, *spec[1:])
             return _fit(name, shape, _normalize(spec, mesh), mesh)
@@ -102,10 +94,10 @@ def pin(tree, shardings):
 
 
 def partition(node, mesh: Mesh, rules: Sequence[tuple[str, P]] = ()):
-    fsdp, model = mesh.shape.get("fsdp", 1), mesh.shape.get("model", 1)
-    assert rules or (fsdp == 1 and model == 1), (
-        f"a mesh with fsdp={fsdp} and model={model} "
-        f"shards parameters only through partition rules, and none were given"
+    model = mesh.shape.get("model", 1)
+    assert rules or model == 1, (
+        f"a mesh with model={model} needs partition rules to split the model across its "
+        f"devices, and none were given"
     )
     is_none = lambda value: value is None
     paths, treedef = jax.tree_util.tree_flatten_with_path(node, is_leaf=is_none)
@@ -152,6 +144,7 @@ def vary(node):
     def ensure(leaf, axis):
         if not axis:
             return leaf
+        axis = "data" if axis == "batch" else axis
         if axis in jax.typeof(leaf).manual_axis_type.varying:
             return leaf
         return jax.lax.pcast(leaf, axis, to="varying")

@@ -4,22 +4,21 @@ import flax.linen as nn
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
 
-from boonta.utils.sharding import BATCH
 from boonta.utils.typing import Array, Carry, Dtype, Key
 
 from ..blocks import (GLU, Block, QueryKeyNorm, SelfAttention, broadcast_carry,
                       causal_attention_mask, rotary_positional_embedding)
 
 partition_rules = (
-    (r"attention/(query|key|value)/kernel(/values)?$", P("fsdp", "model", None)),
-    (r"attention/output_projection/kernel(/values)?$", P("model", None, "fsdp")),
-    (r"swi_glu/(gate|up)/kernel(/values)?$", P("fsdp", "model")),
+    (r"attention/(query|key|value)/kernel(/values)?$", P("data", "model", None)),
+    (r"attention/output_projection/kernel(/values)?$", P("model", None, "data")),
+    (r"swi_glu/(gate|up)/kernel(/values)?$", P("data", "model")),
     (r"swi_glu/(gate|up)/kernel/scale$", P(None, "model")),
-    (r"swi_glu/down/kernel(/values)?$", P("model", "fsdp")),
+    (r"swi_glu/down/kernel(/values)?$", P("model", "data")),
     (r"/kernel/scale$", P()),
     (r"(_norm|positional_embedding/(query|key))/scale$", P()),
-    (r"embed/embedding$", P("model", "fsdp")),
-    (r"carry/(\d+/)?(key|value)$", P(BATCH, None, "model", None)),
+    (r"embed/embedding$", P("model", "data")),
+    (r"carry/(\d+/)?(key|value)$", P("batch", None, "model", None)),
 )
 
 

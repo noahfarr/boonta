@@ -722,10 +722,10 @@ def test_ued_runs_without_a_set_of_theta():
 
 def test_the_set_of_theta_stays_replicated_inside_a_sharded_state():
     environment, state, _ = ued(Dial())
-    axes = sharded(state, "data")
+    axes = sharded(state, "batch")
     assert jax.tree.leaves(axes.theta, is_leaf=lambda leaf: leaf is None) == [None]
     assert axes.weights is None
-    assert axes.playing == "data"
+    assert axes.playing == "batch"
 
 
 JAXUED = pytest.mark.skipif(
@@ -975,9 +975,9 @@ def test_a_pole_terminates_when_it_falls_and_a_pendulum_truncates_at_its_time_li
 
 def test_rival_parameters_stay_replicated_inside_a_sharded_state():
     state, _ = duel().init(jax.random.key(0))
-    axes = sharded(state, "data")
+    axes = sharded(state, "batch")
     assert jax.tree.leaves(axes.params, is_leaf=lambda leaf: leaf is None) == [None]
-    assert axes.carry == "data"
+    assert axes.carry == "batch"
 
 
 def cartpole(num_envs=4):
