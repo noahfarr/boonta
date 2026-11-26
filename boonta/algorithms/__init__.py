@@ -2,6 +2,7 @@ from .algorithm import Algorithm
 from .auxiliary_losses import DR3, Anchor
 from .bc import BC
 from .dqn import DQN
+from .eggroll import EGGROLL
 from .grpo import GRPO
 from .iql import IQL
 from .mmd import MMD
@@ -20,6 +21,7 @@ __all__ = [
     "BC",
     "DQN",
     "DR3",
+    "EGGROLL",
     "GRPO",
     "IQL",
     "MMD",

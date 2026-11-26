@@ -121,6 +121,10 @@ def few_resets(directory):
     return ["environment.auto_reset.ratio=8"]
 
 
+def small_population(directory):
+    return ["algorithm.population_size=8"]
+
+
 def fineweb_dataset(directory):
     path = directory / "train.bin"
     (np.arange(256, dtype="<u2") % 32).tofile(path)
@@ -146,6 +150,9 @@ CASES = [
     ("dqn", MINATAR, None, False),
     ("pqn", MINATAR, None, False),
     ("grpo", MINATAR, None, False),
+    ("eggroll", MINATAR, None, small_population),
+    ("eggroll", "gymnax/classic_control/cartpole", None, small_population),
+    ("eggroll", HOPPER, installed("brax"), small_population),
     ("recurrent_ppo", MINATAR, None, False),
     ("recurrent_dqn", MINATAR, None, False),
     ("recurrent_pqn", MINATAR, None, False),

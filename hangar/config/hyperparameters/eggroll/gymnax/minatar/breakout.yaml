@@ -1,0 +1,5 @@
+# @package _global_
+
+podracer:
+  config:
+    num_steps: 64

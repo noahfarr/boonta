@@ -1,0 +1,23 @@
+# @package _global_
+
+score: eggroll/fitness_mean
+
+algorithm:
+  _target_: boonta.algorithms.eggroll.EGGROLLConfig
+  population_size: 64
+  rank: 1
+  sigma: 0.05
+  input_support: none
+
+network:
+  hidden_sizes: [64, 64]
+
+podracer:
+  config:
+    num_steps: 500
+
+environment:
+  num_envs: 256
+
+optimizer:
+  lr: 0.01
