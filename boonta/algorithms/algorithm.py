@@ -1,8 +1,15 @@
-from typing import Protocol, TypeVar
+from typing import Protocol, Self, TypeVar
 
 from boonta.utils import Array, Key, PyTree, Timestep, Transition
 
-State = TypeVar("State")
+
+class AlgorithmState(Protocol):
+    step: Array
+
+    def replace(self, **changes) -> Self: ...
+
+
+State = TypeVar("State", bound=AlgorithmState)
 
 
 class Algorithm(Protocol[State]):
