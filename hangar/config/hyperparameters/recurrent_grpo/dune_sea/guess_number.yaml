@@ -1,0 +1,21 @@
+# @package _global_
+
+num_steps: 2_000_000
+num_epochs: 40
+
+environment:
+  num_envs: 32
+
+podracer:
+  config:
+    num_steps: 160
+    mesh:
+      count: 1
+
+network:
+  repo_id: Qwen/Qwen3-0.6B
+  dtype: bfloat16
+  param_dtype: bfloat16
+
+optimizer:
+  lr: 5e-5

@@ -1,0 +1,10 @@
+defaults:
+  - /artisan/transcript
+
+namespace: dune_sea
+suite: guess_number
+env_id: guess_number
+kwargs:
+  low: 1
+  high: 30
+  num_guesses: 5
