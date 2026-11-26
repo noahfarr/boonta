@@ -17,7 +17,7 @@ from rich.table import Table
 from boonta.artisans import Metrics, Text
 from boonta.utils import PyTree
 
-def uncover() -> None:
+def _uncover() -> None:
     stream = sys.__stdout__
     if stream is not None and not stream.closed:
         stream.write("\x1b[?25h")
@@ -65,7 +65,7 @@ class DashboardLogger:
             transient=False,
         )
         self.live.start()
-        atexit.register(uncover)
+        atexit.register(_uncover)
         if threading.current_thread() is threading.main_thread():
             for received in (signal.SIGINT, signal.SIGTERM):
                 previous = signal.getsignal(received)
@@ -105,7 +105,7 @@ class DashboardLogger:
 
     def interrupted(self, previous):
         def handle(received, frame):
-            uncover()
+            _uncover()
             if callable(previous):
                 previous(received, frame)
             elif previous == signal.SIG_IGN:
@@ -122,8 +122,8 @@ class DashboardLogger:
             return
         self.live.stop()
         self.console.show_cursor(True)
-        uncover()
-        atexit.unregister(uncover)
+        _uncover()
+        atexit.unregister(_uncover)
 
     def group(self, data: dict[str, PyTree]) -> dict[str, dict[str, Any]]:
         groups = defaultdict(dict)

@@ -48,7 +48,7 @@ def encode(letters: Array) -> Array:
     return jnp.sum(letters * weights, dtype=jnp.int32)
 
 
-def is_allowed(word_id: Array, allowed_guesses: Array) -> Array:
+def _is_allowed(word_id: Array, allowed_guesses: Array) -> Array:
     num_allowed, *_ = allowed_guesses.shape
     index = jnp.clip(jnp.searchsorted(allowed_guesses, word_id), 0, num_allowed - 1)
     return allowed_guesses[index] == word_id
@@ -111,7 +111,7 @@ class Wordle(Environment):
         action: Array,
     ) -> tuple[EnvState, Timestep]:
         guess = jnp.asarray(action, jnp.int32)
-        legal_guesses = is_allowed(encode(guess), self.guess_pool)
+        legal_guesses = _is_allowed(encode(guess), self.guess_pool)
         matched_secret = jnp.all(guess == state.secret_answer)
 
         guess_feedback = feedback(guess, state.secret_answer)
@@ -175,7 +175,7 @@ class Wordle(Environment):
         return cells.transpose(1, 0, 2, 3).reshape(cell, WORD_LENGTH * cell, 3)
 
 
-def load_words(path: Path) -> list[str]:
+def _load_words(path: Path) -> list[str]:
     return sorted(
         {
             word
@@ -187,7 +187,7 @@ def load_words(path: Path) -> list[str]:
     )
 
 
-def encode_words(words: list[str]) -> np.ndarray:
+def _encode_words(words: list[str]) -> np.ndarray:
     letters = np.array(
         [[ord(c) - ord("a") for c in word] for word in words], dtype=np.int64
     )
@@ -208,8 +208,8 @@ def make(
     answer_pool_path = answer_pool_path or data / "answer_pool.txt"
     guess_pool_path = guess_pool_path or data / "guess_pool.txt"
 
-    answer_pool = load_words(answer_pool_path)
-    guess_words = load_words(guess_pool_path)
+    answer_pool = _load_words(answer_pool_path)
+    guess_words = _load_words(guess_pool_path)
 
     missing_words = set(answer_pool) - set(guess_words)
     assert not missing_words, (
@@ -220,7 +220,7 @@ def make(
     letters = np.array(
         [[ord(c) - ord("a") for c in answer] for answer in answer_pool], dtype=np.int32
     )
-    guess_pool = encode_words(guess_words)
+    guess_pool = _encode_words(guess_words)
 
     env = Wordle(
         answer_pool=letters,

@@ -13,7 +13,7 @@ BOX = 4
 MOVES = jnp.array([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)
 
 
-def unsolve(state, key: Key, iters: int):
+def _unsolve(state, key: Key, iters: int):
     fixed = state.fixed_grid
     size, *_ = fixed.shape
     boxes = (fixed == TARGET).astype(jnp.uint8) * jnp.uint8(BOX)
@@ -106,7 +106,7 @@ class Jumanji(Environment):
             pulled = jax.random.uniform(coin_key) < self._pulled
             state = jax.tree.map(
                 lambda a, b: jnp.where(pulled, a, b),
-                unsolve(state, pull_key, self._pulls),
+                _unsolve(state, pull_key, self._pulls),
                 state,
             )
             timestep = timestep.replace(

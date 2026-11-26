@@ -17,7 +17,7 @@ class UEDState(WrapperState):
     playing: Array
 
 
-def tag_theta(timestep: Timestep, playing: Array) -> Timestep:
+def _tag_theta(timestep: Timestep, playing: Array) -> Timestep:
     return timestep.replace(info={**(timestep.info or {}), "theta": playing})
 
 
@@ -34,7 +34,7 @@ class UED(Wrapper):
             upcoming=playing,
             playing=playing,
         )
-        return state, tag_theta(timestep, playing)
+        return state, _tag_theta(timestep, playing)
 
     def start_theta(
         self, key: Key, state: UEDState, env_state, index: Array, chosen: Array
@@ -114,7 +114,7 @@ class UED(Wrapper):
             )
         else:
             playing = state.playing
-        timestep = tag_theta(timestep, state.playing)
+        timestep = _tag_theta(timestep, state.playing)
         state = state.replace(
             env_state=env_state,
             playing=playing,

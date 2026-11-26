@@ -16,12 +16,12 @@ class RTUCarry:
     imaginary: Array
 
 
-def init_nu(key, shape, dtype=jnp.float32, r_min=0.0, r_max=1.0):
+def _init_nu(key, shape, dtype=jnp.float32, r_min=0.0, r_max=1.0):
     u = jax.random.uniform(key, shape, dtype)
     return jnp.log(-0.5 * jnp.log(u * (r_max**2 - r_min**2) + r_min**2))
 
 
-def init_theta(key, shape, dtype=jnp.float32, max_phase=6.28):
+def _init_theta(key, shape, dtype=jnp.float32, max_phase=6.28):
     u = jax.random.uniform(key, shape, dtype)
     return jnp.log(max_phase * u)
 
@@ -47,13 +47,13 @@ class RTUCell(RNNCellBase):
         )
         nu = self.param(
             "nu_log",
-            partial(init_nu, r_min=self.r_min, r_max=self.r_max),
+            partial(_init_nu, r_min=self.r_min, r_max=self.r_max),
             (self.features,),
             self.param_dtype,
         )
         theta = self.param(
             "theta_log",
-            partial(init_theta, max_phase=self.max_phase),
+            partial(_init_theta, max_phase=self.max_phase),
             (self.features,),
             self.param_dtype,
         )

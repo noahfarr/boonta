@@ -25,14 +25,14 @@ def remote_parts(path):
     return match["host"], match["path"]
 
 
-def cache_directory():
+def _cache_directory():
     return (
         Path(os.environ.get("BOONTA_CACHE", "~/.cache/boonta")).expanduser()
         / "checkpoints"
     )
 
 
-def quoted(path):
+def _quoted(path):
     return (
         '"$HOME"/' + shlex.quote(path[2:])
         if path.startswith("~/")
@@ -40,10 +40,10 @@ def quoted(path):
     )
 
 
-def pull_checkpoint(host, path):
+def _pull_checkpoint(host, path):
     ssh = ["ssh", "-o", "BatchMode=yes", host]
     found = subprocess.run(
-        [*ssh, LATEST.format(path=quoted(path))], capture_output=True, text=True
+        [*ssh, LATEST.format(path=_quoted(path))], capture_output=True, text=True
     )
     remote = (
         found.stdout.strip().splitlines()[-1]
@@ -54,7 +54,7 @@ def pull_checkpoint(host, path):
         raise RuntimeError(
             f"could not reach {host}:{path} over ssh: {found.stderr.strip()}"
         )
-    target = cache_directory() / host / remote.lstrip("/")
+    target = _cache_directory() / host / remote.lstrip("/")
     if (target / ".complete").exists():
         return str(target)
     target.mkdir(parents=True, exist_ok=True)
@@ -77,15 +77,15 @@ def pull_checkpoint(host, path):
     return str(target)
 
 
-def localize(path):
+def _localize(path):
     parts = remote_parts(path) if path is not None else None
-    return pull_checkpoint(*parts) if parts else path
+    return _pull_checkpoint(*parts) if parts else path
 
 
 def resolve_checkpoint(path):
     if path is None:
         return None
-    path = localize(path)
+    path = _localize(path)
     held = Path(path)
     if (held / "checkpoints").is_dir():
         held = held / "checkpoints" / "latest"
@@ -97,7 +97,7 @@ def resolve_checkpoint(path):
     return str(max(steps, key=lambda item: int(item.name)))
 
 
-def restore_item(directory, node):
+def _restore_item(directory, node):
     import orbax.checkpoint as ocp
 
     checkpoint = ocp.StandardCheckpointer().restore(
@@ -117,7 +117,7 @@ def restore_item(directory, node):
 def load_checkpoint(path, target=None):
     if path is None:
         return target
-    path = Path(localize(path))
+    path = Path(_localize(path))
     if not path.is_dir():
         data = path.read_bytes()
         if target is None:
@@ -135,5 +135,5 @@ def load_checkpoint(path, target=None):
     if not items:
         raise FileNotFoundError(f"no checkpoint items under {path}")
     return target.replace(
-        **{item.name: restore_item(os.path.abspath(str(item)), getattr(target, item.name)) for item in items}
+        **{item.name: _restore_item(os.path.abspath(str(item)), getattr(target, item.name)) for item in items}
     )

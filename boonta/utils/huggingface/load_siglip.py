@@ -10,7 +10,7 @@ def kernel(weight: jax.Array, shape: tuple[int, ...]) -> jax.Array:
     return weight.T.reshape(shape)
 
 
-def conv_kernel(weight: jax.Array, shape: tuple[int, ...]) -> jax.Array:
+def _conv_kernel(weight: jax.Array, shape: tuple[int, ...]) -> jax.Array:
     return jnp.transpose(weight, (2, 3, 1, 0)).reshape(shape)
 
 
@@ -38,7 +38,7 @@ ROOT = {
     ("output_norm", "bias"): ("post_layernorm.bias", reshape),
     ("patch_embedding", "projection", "kernel"): (
         "embeddings.patch_embedding.weight",
-        conv_kernel,
+        _conv_kernel,
     ),
     ("patch_embedding", "projection", "bias"): (
         "embeddings.patch_embedding.bias",

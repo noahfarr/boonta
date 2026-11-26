@@ -70,7 +70,7 @@ EXPERT_PREFIXES = (
 VISION_PREFIX = "paligemma_with_expert.paligemma.model.vision_tower.vision_model"
 
 
-def expert_key(index: int, keys: tuple[str, ...]) -> tuple[str, ...]:
+def _expert_key(index: int, keys: tuple[str, ...]) -> tuple[str, ...]:
     if keys[0] == "attention":
         return ("attention", f"{keys[1]}_{index}", *keys[2:])
     return (f"{keys[0]}_{index}", *keys[1:])
@@ -85,7 +85,7 @@ def table(num_layers: int) -> dict:
         )
         for layer in range(num_layers):
             for keys, (name, transform) in GEMMA_LAYER.items():
-                sources[(f"layers_{layer}", *expert_key(index, keys))] = (
+                sources[(f"layers_{layer}", *_expert_key(index, keys))] = (
                     f"{prefix}.layers.{layer}.{name}",
                     transform,
                 )

@@ -9,7 +9,7 @@ from boonta.utils.typing import Array, Dtype, Key
 from .block import Block
 
 
-def episode_positions(position: Array, done: Array) -> tuple[Array, Array]:
+def _episode_positions(position: Array, done: Array) -> tuple[Array, Array]:
     _, sequence_length = done.shape
     index = add_batch_axis(jnp.arange(sequence_length))
     last_start = jax.lax.cummax(jnp.where(done.astype(bool), index, -1), axis=1)
@@ -19,7 +19,7 @@ def episode_positions(position: Array, done: Array) -> tuple[Array, Array]:
     return remove_time_axis(positions[:, -1:]) + 1, positions
 
 
-def rotate(x: Array, positions: Array, max_wavelength: float) -> Array:
+def _rotate(x: Array, positions: Array, max_wavelength: float) -> Array:
     assert (
         x.shape[-1] % 2 == 0
     ), f"features must be even, but was features: {x.shape[-1]}"
@@ -44,8 +44,8 @@ def rotary_positional_embedding(
     max_wavelength: float = 10_000.0,
 ) -> tuple[Array, Array, None]:
     return (
-        rotate(query, query_positions, max_wavelength),
-        rotate(key, key_positions, max_wavelength),
+        _rotate(query, query_positions, max_wavelength),
+        _rotate(key, key_positions, max_wavelength),
         None,
     )
 
@@ -69,7 +69,7 @@ class SinusoidalPositionalEmbedding(Block):
             self.features % 2 == 0
         ), f"features must be even, but was features: {self.features}"
 
-        carry, positions = episode_positions(carry, done)
+        carry, positions = _episode_positions(carry, done)
 
         half = self.features // 2
         frequencies = self.max_wavelength ** (-jnp.arange(half) / half)
@@ -91,7 +91,7 @@ class LearnedPositionalEmbedding(Block):
 
     @nn.compact
     def __call__(self, carry: Array, x: Array, done: Array) -> tuple[Array, Array]:
-        carry, positions = episode_positions(carry, done)
+        carry, positions = _episode_positions(carry, done)
         embedding = nn.Embed(
             self.max_length,
             self.features,
