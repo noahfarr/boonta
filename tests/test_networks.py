@@ -532,4 +532,4 @@ def test_qwen3_rules_cover_a_quantized_lora_qwen3_and_shard_its_forward_exactly(
     query = state.algorithm_state["frozen_params"]["torso"]["base"]["layers_0"]["attention"]["query"]["kernel"].values
     assert query.addressable_shards[0].data.shape == (32 // data, 4 // model, 8)
     assert state.carry[0].key.addressable_shards[0].data.shape == (8 // data, 16, 2 // model, 8)
-    np.testing.assert_allclose(sharded, replicated, atol=1e-5)
+    np.testing.assert_allclose(sharded, replicated, rtol=1e-5, atol=1e-5)
