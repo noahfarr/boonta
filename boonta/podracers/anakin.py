@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -38,7 +38,33 @@ class Anakin:
     environment: Environment
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
-    shardings: PyTree = None
+    partition_rules: Sequence[tuple[str, P]] = ()
+    shardings: PyTree = field(init=False, repr=False)
+    init: Callable = field(init=False, repr=False)
+    train: Callable = field(init=False, repr=False)
+    evaluate: Callable = field(init=False, repr=False)
+    close: Callable = field(init=False, repr=False)
+
+    def __post_init__(self):
+        mesh = self.config.mesh
+        replicated = NamedSharding(mesh, P())
+        specs = partition(jax.eval_shape(self.start, jax.random.key(0)), mesh, self.partition_rules)
+        self.shardings = jax.tree.map(lambda spec: NamedSharding(mesh, spec), specs)
+        self.init = jax.jit(self.start, out_shardings=self.shardings)
+        self.train = jax.jit(
+            lox.spool(lox.strip(self.race, tags=["evaluation"])),
+            static_argnums=(2,),
+            donate_argnames=("state",),
+            in_shardings=(self.shardings, replicated),
+            out_shardings=(self.shardings, replicated),
+        )
+        self.evaluate = jax.jit(
+            lox.spool(lox.strip(self.assess, tags=["training"])),
+            static_argnums=(2,),
+            in_shardings=(self.shardings, replicated),
+            out_shardings=(self.shardings, replicated),
+        )
+        self.close = jax.jit(self.park, in_shardings=(self.shardings,))
 
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -71,7 +97,7 @@ class Anakin:
         )
         return state, transition
 
-    def init(self, key: Key) -> AnakinState:
+    def start(self, key: Key) -> AnakinState:
         environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
         pit_key, call_key = jax.random.split(pit_key)
         lap_key, step_key = jax.random.split(lap_key)
@@ -97,7 +123,7 @@ class Anakin:
             * self.environment.num_agents
         )
 
-    def train(self, state: AnakinState, key: Key, num_updates: int) -> PyTree:
+    def race(self, state: AnakinState, key: Key, num_updates: int) -> PyTree:
         def step(state: AnakinState, key):
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
@@ -123,7 +149,7 @@ class Anakin:
         state, _ = jax.lax.scan(step, state, keys)
         return state
 
-    def evaluate(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
+    def assess(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
@@ -145,45 +171,7 @@ class Anakin:
         self.environment.close(state.environment_state)
         return state
 
-    def close(self, state: AnakinState) -> AnakinState:
+    def park(self, state: AnakinState) -> AnakinState:
         self.environment.close(state.environment_state)
         return state
 
-
-def make(
-    config: AnakinConfig,
-    algorithm: Algorithm,
-    environment: Environment,
-    pit: Pit = Pit(),
-    lap: Lap = Lap(),
-    partition_rules: Sequence[tuple[str, P]] = (),
-) -> Anakin:
-    podracer = Anakin(config, algorithm, environment, pit, lap)
-
-    initialize, close = podracer.init, podracer.close
-    train = lox.spool(lox.strip(podracer.train, tags=["evaluation"]))
-    evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
-
-    replicated = NamedSharding(config.mesh, P())
-    specs = partition(
-        jax.eval_shape(initialize, jax.random.key(0)), config.mesh, partition_rules
-    )
-    shardings = jax.tree.map(lambda spec: NamedSharding(config.mesh, spec), specs)
-    podracer.shardings = shardings
-
-    podracer.init = jax.jit(initialize, out_shardings=shardings)
-    podracer.train = jax.jit(
-        train,
-        static_argnums=(2,),
-        donate_argnames=("state",),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    podracer.evaluate = jax.jit(
-        evaluate,
-        static_argnums=(2,),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    podracer.close = jax.jit(close, in_shardings=(shardings,))
-    return podracer

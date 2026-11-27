@@ -10,7 +10,9 @@ A podracer is the training loop. It owns the devices and the sharding, calls the
 | `close(state)` | frees the environment |
 | `batch_size` | the steps one update consumes |
 
-None of these methods return metrics. Components log with `lox.log`, and each podracer's `make` wraps `train` and `evaluate` with `lox.spool`, so the podracer it returns gives back `(state, logs)`.
+None of these methods return metrics. Components log with `lox.log`, and each podracer wraps `train` and `evaluate` with `lox.spool`, so both give back `(state, logs)`.
+
+A podracer compiles itself. Constructing one resolves its shardings and builds its jitted functions in `__post_init__`. On `anakin`, `init`, `train`, `evaluate` and `close` are those jitted functions, so `podracer.train.lower(...)` shows the compiled program. `quadinaros` jits `fit` and `evaluate`, and its `train` updates the dataset on the host before calling `fit`. `sebulba` runs its actors' threads around jitted pieces. The loop they compile stays public under its own names (`start`, `race`, `assess` and `park`, and `rollout` on every podracer), for an artisan or a test that drives the loop itself.
 
 ## Which one to use
 
@@ -89,4 +91,4 @@ Set `num_processes` to the total number of processes and start one per GPU, for 
 
 ## Add a podracer
 
-A new podracer implements the methods above and a `make(config, algorithm, environment, ..., pit, lap)` function, and gets a config file in `hangar/config/podracer/`. Add a builder like `on_anakin` to [`tests/test_podracers.py`](../../tests/test_podracers.py) and put it in `EVERY`, so the shared contract tests run on it.
+A new podracer is a dataclass taking `(config, algorithm, environment, ..., pit, lap, partition_rules)` that implements the methods above and compiles its loop in `__post_init__`, and gets a config file in `hangar/config/podracer/` whose `_target_` is the class. Add a builder like `on_anakin` to [`tests/test_podracers.py`](../../tests/test_podracers.py) and put it in `EVERY`, so the shared contract tests run on it.

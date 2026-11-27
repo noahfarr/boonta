@@ -175,7 +175,7 @@ def group(environment, num_envs, num_steps, group_size, gamma=0.99):
 
 def online(algorithm, environment, num_envs, num_steps, devices=1):
     config = anakin.AnakinConfig(num_steps=num_steps, mesh=mesh(devices))
-    return anakin.make(config, algorithm, environment)
+    return anakin.Anakin(config, algorithm, environment)
 
 
 def asynchronous(algorithm, environment, num_envs, num_steps, actors=2):
@@ -184,12 +184,12 @@ def asynchronous(algorithm, environment, num_envs, num_steps, actors=2):
         learner=mesh(actors),
         actor=mesh(actors, start=actors),
     )
-    return sebulba.make(config, algorithm, environment)
+    return sebulba.Sebulba(config, algorithm, environment)
 
 
 def offline(algorithm, environment, dataset, batch_shape, num_envs=16):
     config = quadinaros.QuadinarosConfig(batch_shape=batch_shape, mesh=mesh(1))
-    return quadinaros.make(
+    return quadinaros.Quadinaros(
         config, algorithm, wrap(environment, num_envs), dataset
     )
 

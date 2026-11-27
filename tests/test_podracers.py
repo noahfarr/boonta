@@ -25,7 +25,7 @@ NUM_ENVS, NUM_STEPS, ACTORS = 8, 3, 2
 def on_anakin(algorithm=None, environment=None, **hooks):
     config = anakin.AnakinConfig(num_steps=NUM_STEPS, mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
-    return anakin.make(config, algorithm or Probe(), environment, **hooks)
+    return anakin.Anakin(config, algorithm or Probe(), environment, **hooks)
 
 
 def on_sebulba(algorithm=None, environment=None, **hooks):
@@ -35,14 +35,14 @@ def on_sebulba(algorithm=None, environment=None, **hooks):
         actor=mesh(ACTORS, start=ACTORS),
     )
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
-    return sebulba.make(config, algorithm or Probe(), environment, **hooks)
+    return sebulba.Sebulba(config, algorithm or Probe(), environment, **hooks)
 
 
 def on_quadinaros(algorithm=None, environment=None, dataset=None, **hooks):
     config = quadinaros.QuadinarosConfig(batch_shape=(16,), mesh=mesh(2))
     environment = Vectorize(environment or Dial(), num_envs=NUM_ENVS)
     dataset = dataset or Episodes(flatten(demonstrations(Dial(), jax.random.key(0), 16)))
-    return quadinaros.make(config, algorithm or Probe(), environment, dataset, **hooks)
+    return quadinaros.Quadinaros(config, algorithm or Probe(), environment, dataset, **hooks)
 
 
 ONLINE = [on_anakin, on_sebulba]
@@ -417,17 +417,17 @@ MEGATRON = (
 
 def sharded_anakin(algorithm, environment, num_envs, num_steps, model=1, rules=MEGATRON):
     config = anakin.AnakinConfig(num_steps=num_steps, mesh=mesh(4, model=model))
-    return anakin.make(config, algorithm, environment, partition_rules=rules)
+    return anakin.Anakin(config, algorithm, environment, partition_rules=rules)
 
 
 def sharded_sebulba(algorithm, environment, num_envs, num_steps, rules=MEGATRON):
     config = sebulba.SebulbaConfig(num_steps=num_steps, learner=mesh(2), actor=mesh(2, start=2))
-    return sebulba.make(config, algorithm, environment, partition_rules=rules)
+    return sebulba.Sebulba(config, algorithm, environment, partition_rules=rules)
 
 
 def sharded_quadinaros(algorithm, environment, dataset, batch_shape, num_envs=16, model=1, rules=MEGATRON):
     config = quadinaros.QuadinarosConfig(batch_shape=batch_shape, mesh=mesh(4, model=model))
-    return quadinaros.make(
+    return quadinaros.Quadinaros(
         config, algorithm, zoo.wrap(environment, num_envs), dataset, partition_rules=rules
     )
 

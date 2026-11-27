@@ -285,7 +285,7 @@ def build(
         ],
         **extras,
     )
-    return config, anakin.make(config, algorithm, environment, pit=pit, lap=lap)
+    return config, anakin.Anakin(config, algorithm, environment, pit=pit, lap=lap)
 
 
 def slices(num_envs):

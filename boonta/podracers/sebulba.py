@@ -78,7 +78,41 @@ class Sebulba:
     environment: Environment
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
-    shardings: PyTree = None
+    partition_rules: Sequence[tuple[str, P]] = ()
+    shardings: PyTree = field(init=False, repr=False)
+
+    def __post_init__(self):
+        assert (
+            self.environment.num_envs % self.config.learner.size == 0
+        ), "num_envs must be divisible by the number of learner devices"
+        assert not (
+            isinstance(self.algorithm, Population)
+            or (isinstance(self.algorithm, Wrapper) and self.algorithm.wraps(Population))
+        ), (
+            f"{type(self.algorithm).__name__} runs a population, which sebulba does not support: "
+            f"their step counts never reach the learner, and the league would credit each rollout to "
+            f"the opponent drawn one update after the one that played it. Use anakin."
+        )
+        learner = self.config.learner
+        replicated = NamedSharding(learner, P())
+        specs = partition(
+            jax.eval_shape(self._learner_state, jax.random.key(0)), learner, self.partition_rules
+        )
+        self.shardings = jax.tree.map(lambda spec: NamedSharding(learner, spec), specs)
+        self._unroll = jax.jit(lox.spool(lox.strip(self.unroll, tags=["evaluation"])))
+        self._update = jax.jit(
+            lox.spool(self.update), out_shardings=((self.shardings, replicated), replicated)
+        )
+        self._assess = jax.jit(
+            lox.spool(lox.strip(self.assess, tags=["training"])), static_argnums=(2,)
+        )
+
+    def _learner_state(self, key):
+        timesteps = [
+            self.environment.init(jax.random.fold_in(key, index))[1]
+            for index in range(self.config.actor.size)
+        ]
+        return self.algorithm.init(key, concatenate(timesteps))[0]
 
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -233,7 +267,7 @@ class Sebulba:
                         device,
                     )
                     (rollout_state, transitions), log = jax.block_until_ready(
-                        self.unroll(rollout_state, unroll_key)
+                        self._unroll(rollout_state, unroll_key)
                     )
                     log = jax.device_put(log, replicated)
                     num_laps = rollout_state.algorithm_state.step - before
@@ -279,7 +313,7 @@ class Sebulba:
                 update_key = jax.device_put(
                     jax.random.fold_in(learner_key, update), replicated
                 )
-                (algorithm_state, pit_state), update_log = self.update(
+                (algorithm_state, pit_state), update_log = self._update(
                     algorithm_state, pit_state, update_key, transitions
                 )
                 for parameter_queue in parameter_queues:
@@ -306,7 +340,7 @@ class Sebulba:
         actor_state, *_ = state.actors
         rollout_state = actor_state.board(state.algorithm_state, state.pit_state)
         rollout_state, key = jax.device_put((rollout_state, key), device)
-        return self.assess(rollout_state, key, num_steps)
+        return self._assess(rollout_state, key, num_steps)
 
     def assess(self, state: RolloutState, key: Key, num_steps: int) -> PyTree:
         env_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
@@ -335,53 +369,3 @@ class Sebulba:
             self.environment.close(actor_state.environment_state)
         return state
 
-
-def make(
-    config: SebulbaConfig,
-    algorithm: Algorithm,
-    environment: Environment,
-    pit: Pit = Pit(),
-    lap: Lap = Lap(),
-    partition_rules: Sequence[tuple[str, P]] = (),
-) -> Sebulba:
-
-    podracer = Sebulba(config, algorithm, environment, pit, lap)
-
-    assert (
-        environment.num_envs % config.learner.size == 0
-    ), "num_envs must be divisible by the number of learner devices"
-    assert not (
-        isinstance(algorithm, Population)
-        or (isinstance(algorithm, Wrapper) and algorithm.wraps(Population))
-    ), (
-        f"{type(algorithm).__name__} runs a population, which sebulba does not support: "
-        f"their step counts never reach the learner, and the league would credit each rollout to "
-        f"the opponent drawn one update after the one that played it. Use anakin."
-    )
-
-    replicated = NamedSharding(config.learner, P())
-
-    def initialize(key):
-        timesteps = [
-            environment.init(jax.random.fold_in(key, index))[1]
-            for index in range(config.actor.size)
-        ]
-        return algorithm.init(key, concatenate(timesteps))[0]
-
-    specs = partition(
-        jax.eval_shape(initialize, jax.random.key(0)), config.learner, partition_rules
-    )
-    podracer.shardings = jax.tree.map(lambda spec: NamedSharding(config.learner, spec), specs)
-
-    podracer.unroll = jax.jit(
-        lox.spool(lox.strip(podracer.unroll, tags=["evaluation"]))
-    )
-    podracer.update = jax.jit(
-        lox.spool(podracer.update),
-        out_shardings=((podracer.shardings, replicated), replicated),
-    )
-    podracer.assess = jax.jit(
-        lox.spool(lox.strip(podracer.assess, tags=["training"])),
-        static_argnums=(2,),
-    )
-    return podracer

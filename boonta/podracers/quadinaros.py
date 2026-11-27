@@ -1,5 +1,5 @@
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -41,7 +41,33 @@ class Quadinaros:
     dataset: Dataset
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
-    shardings: PyTree = None
+    partition_rules: Sequence[tuple[str, P]] = ()
+    shardings: PyTree = field(init=False, repr=False)
+    fit: Callable = field(init=False, repr=False)
+    evaluate: Callable = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.config = self.config.replace(batch_shape=tuple(self.config.batch_shape))
+        mesh = self.config.mesh
+        replicated = NamedSharding(mesh, P())
+        specs = partition(jax.eval_shape(self.start, jax.random.key(0)), mesh, self.partition_rules)
+        self.shardings = jax.tree.map(lambda spec: NamedSharding(mesh, spec), specs)
+        self.fit = jax.jit(
+            lox.spool(lox.strip(self.race, tags=["evaluation"])),
+            static_argnums=(2,),
+            donate_argnames=("state",),
+            in_shardings=(self.shardings, replicated),
+            out_shardings=(self.shardings, replicated),
+        )
+        self.evaluate = jax.jit(
+            lox.spool(lox.strip(self.assess, tags=["training"])),
+            static_argnums=(2,),
+            in_shardings=(self.shardings, replicated),
+            out_shardings=(self.shardings, replicated),
+        )
+
+    def init(self, key: Key) -> QuadinarosState:
+        return jax.device_put(self.start(key), self.shardings, may_alias=False)
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
@@ -89,7 +115,7 @@ class Quadinaros:
         )
         return state, None
 
-    def init(self, key: Key) -> QuadinarosState:
+    def start(self, key: Key) -> QuadinarosState:
         environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
         pit_key, call_key = jax.random.split(pit_key)
         lap_key, step_key = jax.random.split(lap_key)
@@ -112,7 +138,7 @@ class Quadinaros:
     def batch_size(self) -> int:
         return math.prod(self.config.batch_shape)
 
-    def fit(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
+    def race(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(self.step, state, keys)
         return state
@@ -124,7 +150,7 @@ class Quadinaros:
         )
         return self.fit(state.replace(dataset_state=dataset_state), key, num_updates)
 
-    def evaluate(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
+    def assess(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
         environment_state, timestep = self.environment.init(reset_key)
@@ -151,40 +177,3 @@ class Quadinaros:
         self.dataset.close()
         return state
 
-
-def make(
-    config: QuadinarosConfig,
-    algorithm: Algorithm,
-    environment: Environment,
-    dataset: Dataset,
-    pit: Pit = Pit(),
-    lap: Lap = Lap(),
-    partition_rules: Sequence[tuple[str, P]] = (),
-) -> Quadinaros:
-    config = config.replace(batch_shape=tuple(config.batch_shape))
-    podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)
-
-    init = podracer.init
-    fit = lox.spool(lox.strip(podracer.fit, tags=["evaluation"]))
-    evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
-
-    replicated = NamedSharding(config.mesh, P())
-    specs = partition(jax.eval_shape(init, jax.random.key(0)), config.mesh, partition_rules)
-    shardings = jax.tree.map(lambda spec: NamedSharding(config.mesh, spec), specs)
-    podracer.shardings = shardings
-
-    podracer.init = lambda key: jax.device_put(init(key), shardings, may_alias=False)
-    podracer.fit = jax.jit(
-        fit,
-        static_argnums=(2,),
-        donate_argnames=("state",),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    podracer.evaluate = jax.jit(
-        evaluate,
-        static_argnums=(2,),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    return podracer
