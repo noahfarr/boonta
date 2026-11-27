@@ -37,7 +37,7 @@ class SACState:
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     alpha_optimizer_state: optax.OptState
-    buffer_state: BufferState = struct.field(metadata={"axis": "data"})
+    buffer_state: BufferState = struct.field(metadata={"axis": "batch"})
 
 
 @dataclass

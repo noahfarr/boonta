@@ -9,7 +9,7 @@ from boonta.utils import Key, Timestep, Transition, canonicalize_dtype
 
 @struct.dataclass(frozen=True)
 class MinariState:
-    transitions: Transition = struct.field(metadata={"axis": "data"})
+    transitions: Transition = struct.field(metadata={"axis": "batch"})
 
 
 class Minari:

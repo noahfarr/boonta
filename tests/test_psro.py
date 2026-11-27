@@ -285,7 +285,7 @@ def build(
         ],
         **extras,
     )
-    return config, anakin.make(config, algorithm, environment, pit=pit, lap=lap)
+    return config, anakin.Anakin(config, algorithm, environment, pit=pit, lap=lap)
 
 
 def slices(num_envs):
@@ -324,7 +324,8 @@ def divide_population():
 
 
 def divide_psro():
-    build([entry("main"), entry("exploiter", latest()), entry("rival", fictitious_self_play())])
+    _, podracer = build([entry("main"), entry("exploiter", latest()), entry("rival", fictitious_self_play())])
+    podracer.init(jax.random.key(0))
 
 
 def test_a_league_trains_its_learners_and_keeps_the_meta_game():

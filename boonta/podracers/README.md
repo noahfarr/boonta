@@ -10,7 +10,9 @@ A podracer is the training loop. It owns the devices and the sharding, calls the
 | `close(state)` | frees the environment |
 | `batch_size` | the steps one update consumes |
 
-None of these methods return metrics. Components log with `lox.log`, and each podracer's `make` wraps `train` and `evaluate` with `lox.spool`, so the podracer it returns gives back `(state, logs)`.
+None of these methods return metrics. Components log with `lox.log`, and each podracer wraps `train` and `evaluate` with `lox.spool`, so both give back `(state, logs)`.
+
+Each compiled method is an ordinary `jax.jit`, with the podracer as a static argument (`@partial(jax.jit, static_argnums=0)`, which is why podracers are `@dataclass(eq=False)`), and `train` and `evaluate` stack `lox.spool` and `lox.strip` under it. No method passes `in_shardings` or `out_shardings`: inputs arrive already placed, and every output takes its layout from the `pin` it ends with. On `anakin` that covers `init`, `train`, `evaluate` and `close`. `quadinaros` jits `fit` and `evaluate`, and its `train` updates the dataset on the host before calling `fit`. `sebulba` jits `unroll`, `update` and `assess`, which its actors' threads and its learner call. `rollout` stays a plain method on every podracer, for an artisan that drives the loop itself, and `type(podracer).train.lower(podracer, ...)` shows a compiled program.
 
 ## Which one to use
 
@@ -36,7 +38,16 @@ The podracer counts steps into `algorithm_state.step`. The online podracers add 
 
 ## Sharding
 
-Each podracer builds its shardings from the state's dataclass fields. A field marked `metadata={"axis": "data"}` is split along the mesh's `data` axis. On `anakin` and `quadinaros` the environment states and timesteps are always split this way, as are the recurrent carry, which the podracer owns, and the replay buffers the algorithm marks. Everything else, such as parameters, is replicated on every device. On `sebulba` each actor device keeps its own environments whole, and only the learner's state is sharded by these marks. The mesh comes from `boonta.utils.mesh(count, start)`, and the configs in [`hangar/config/podracer/`](../../hangar/config/podracer) build it over every device by default.
+The mesh is `boonta.utils.mesh(count, start, model=1)`, with axes `("data", "model")` built by `jax.make_mesh`. `model` takes `model` devices for tensor parallelism and `data` takes the rest. The configs in [`hangar/config/podracer/`](../../hangar/config/podracer) build it over every device, and `podracer.config.mesh.model=2` reshapes it.
+
+Each podracer resolves every leaf of its state to a `PartitionSpec` in one place, `boonta.utils.partition`:
+
+- A field marked `metadata={"axis": "batch"}` holds one row per environment and splits its leading dimension over `data`. On `anakin` and `quadinaros` the environment states, timesteps and recurrent carry are always split this way, as are the replay buffers the algorithm marks. On `sebulba` each actor keeps its environments whole, and only the learner's state is sharded.
+- Everything else is replicated, unless the recipe passes `partition_rules`: ordered `(regex, PartitionSpec)` pairs matched against each leaf's path, first match winning, the way EasyLM shards. A rule names both axes of a weight, for example `P("data", "model")` for a column-parallel kernel and `P("model", "data")` for the row-parallel one after it. `data` is FSDP and `model` is tensor parallelism, so one table gives both, and an architecture with rules is sharded over every `data` device by default. Optimizer moments, target and reference parameters live under the same paths and follow the same rules. On a leaf marked `batch`, the mark keeps the leading dimension and the rule fills in the rest, so a catch-all `(".*", P())` never replicates an environment and the KV cache rule splits heads over `model` while its batch stays split. A rule may write `"batch"` for a batch dimension.
+- Every architecture exports its rules next to its definition, such as `boonta.networks.architectures.qwen3.partition_rules`, and `boonta.networks.blocks.lora.partition_rules` covers LoRA's adapters. A `model` axis above one refuses to run without rules, a leaf no rule matches is an error instead of a silent replica, and a rule that cannot split a dimension evenly names the leaf.
+- Specs drop `model` when it has size one, so a recipe without rules compiles to the same program as before.
+
+Each podracer pins its state with `self.pin`, which resolves the shardings from the mesh and the partition rules at trace time and constrains every leaf to them with `boonta.utils.pin`: at the start of every update, so each loop carries exactly the layout the rules give, and on what `train`, `evaluate` and `init` return. `boonta.utils.put` does the same with `jax.device_put` outside `jit`, for `quadinaros`'s eager `init` and `sebulba`'s hand-over to the learner. A missing or uneven partition rule therefore fails at the first trace, in `init`. Constrained only at its boundary, XLA kept the parameters sharded through the loops but chose its own layout inside them, sharding leaves the rules replicate and gathering them again at the end. Pinned at the start of every update, nothing is gathered outside the loops. XLA gathers what the rollout needs once per update, before the rollout scan, so acting never gathers per environment step, and during the rollout each device holds those weights whole along `data`.
 
 ## pit and lap
 
@@ -48,13 +59,13 @@ A `pit` is a [`Pit`](podracer.py) with three methods, like an algorithm that act
 - `update(pit_state, key, transitions, algorithm_state)` learns from the rollout and returns the new pit state. It fires after every `algorithm.update`, with the transitions that update trained on and the updated algorithm state. It never touches the environment. On `quadinaros` the transitions are the sampled batch.
 - `pit(key, state)` acts: it reads `state.pit_state` and rewrites the environment, such as a curriculum choosing the next level or a league seating an opponent. It fires once per update, at `init`, after every `update`, and after `evaluate` restarts the environment. It never sees transitions. It may also rewrite `state.algorithm_state`, as the league does to restart a learner it just admitted. Since `evaluate` fires it again without an update in between, the call must give the same result when repeated.
 
-A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key, state)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "data"}`.
+A `lap` is a [`Lap`](podracer.py): a pit without `update`. `init(key, state)` returns its state, which the podracer keeps in `state.lap_state`, and `lap(key, state)` fires after every environment step, and at `init` and `evaluate` just before `pit`. Use it for state the environment must see every step. It needs no `update` because it learns and acts in the same place: the call can read the latest timestep and rewrite `state.lap_state` itself. Both states are replicated unless their own dataclass fields mark an axis, so a lap that keeps one value per environment marks that field `metadata={"axis": "batch"}`.
 
 Each hook must fire in all those places. `evaluate` restarts the environment at its default settings, so a `pit` skipped there would evaluate a game training never played. A recipe passes the hooks by returning `pit` or `lap` in its dict. A [curriculum](../curricula/curriculum.py) supplies both: it takes `(algorithm, environment, **kwargs)` and returns `(algorithm, environment, pit, lap)`. [`tests/test_podracers.py`](../../tests/test_podracers.py) counts the calls on every podracer.
 
 ## anakin
 
-`init`, `train` and `evaluate` are each one `jax.jit` call. `train` scans over updates, and each update scans `num_steps` environment steps and then calls `algorithm.update`. Parameters are replicated and the environments are split across the mesh.
+`init`, `train` and `evaluate` are each one `jax.jit` call. `train` scans over updates, and each update scans `num_steps` environment steps and then calls `algorithm.update`. The environments are split across the mesh, and parameters are replicated unless partition rules shard them.
 
 ## sebulba
 
@@ -80,4 +91,4 @@ Set `num_processes` to the total number of processes and start one per GPU, for 
 
 ## Add a podracer
 
-A new podracer implements the methods above and a `make(config, algorithm, environment, ..., pit, lap)` function, and gets a config file in `hangar/config/podracer/`. Add a builder like `on_anakin` to [`tests/test_podracers.py`](../../tests/test_podracers.py) and put it in `EVERY`, so the shared contract tests run on it.
+A new podracer is a `@dataclass(eq=False)` taking `(config, algorithm, environment, ..., pit, lap, partition_rules)` that implements the methods above, jits the ones that compile with the podracer as a static argument, and pins its state where its loops begin and its compiled methods return. It gets a config file in `hangar/config/podracer/` whose `_target_` is the class.

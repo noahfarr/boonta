@@ -1,4 +1,4 @@
-_target_: boonta.podracers.sebulba.make
+_target_: boonta.podracers.sebulba.Sebulba
 _partial_: true
 config:
   _target_: boonta.podracers.sebulba.SebulbaConfig

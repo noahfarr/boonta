@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -9,7 +10,7 @@ from boonta.datasets import Dataset, DatasetState
 from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, sharded
+from boonta.utils import Key, PyTree, Timestep, pin, put
 from boonta.utils.typing import Environment, EnvState
 
 from .podracer import Lap, Pit
@@ -23,16 +24,16 @@ class QuadinarosConfig:
 
 @struct.dataclass(frozen=True)
 class QuadinarosState:
-    timestep: Timestep = struct.field(metadata={"axis": "data"})
-    environment_state: EnvState = struct.field(metadata={"axis": "data"})
-    dataset_state: DatasetState = struct.field(metadata={"axis": "data"})
-    carry: PyTree = struct.field(metadata={"axis": "data"})
+    timestep: Timestep = struct.field(metadata={"axis": "batch"})
+    environment_state: EnvState = struct.field(metadata={"axis": "batch"})
+    dataset_state: DatasetState = struct.field(metadata={"axis": "batch"})
+    carry: PyTree = struct.field(metadata={"axis": "batch"})
     algorithm_state: PyTree
     pit_state: PyTree = None
     lap_state: PyTree = None
 
 
-@dataclass
+@dataclass(eq=False)
 class Quadinaros:
     config: QuadinarosConfig
     algorithm: Algorithm
@@ -40,9 +41,20 @@ class Quadinaros:
     dataset: Dataset
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
+    partition_rules: Sequence[tuple[str, P]] = ()
+
+    def __post_init__(self):
+        self.config = self.config.replace(batch_shape=tuple(self.config.batch_shape))
+
+    def pin(self, state: QuadinarosState) -> QuadinarosState:
+        return pin(state, self.config.mesh, self.partition_rules)
+
+    def init(self, key: Key) -> QuadinarosState:
+        return put(self.start(key), self.config.mesh, self.partition_rules, may_alias=False)
 
     def step(self, state: QuadinarosState, key):
         update_key, sample_key, pit_key, call_key = jax.random.split(key, 4)
+        state = self.pin(state)
         dataset_state, batch = self.dataset.sample(
             state.dataset_state, sample_key, self.config.batch_shape
         )
@@ -86,7 +98,7 @@ class Quadinaros:
         )
         return state, None
 
-    def init(self, key: Key) -> QuadinarosState:
+    def start(self, key: Key) -> QuadinarosState:
         environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
         pit_key, call_key = jax.random.split(pit_key)
         lap_key, step_key = jax.random.split(lap_key)
@@ -109,10 +121,13 @@ class Quadinaros:
     def batch_size(self) -> int:
         return math.prod(self.config.batch_shape)
 
+    @partial(jax.jit, static_argnums=(0, 3), donate_argnames="state")
+    @lox.spool
+    @partial(lox.strip, tags=["evaluation"])
     def fit(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(self.step, state, keys)
-        return state
+        return self.pin(state)
 
     def train(self, state: QuadinarosState, key: Key, num_updates: int) -> PyTree:
         sharding = jax.tree.map(lambda leaf: leaf.sharding, state.dataset_state)
@@ -121,6 +136,9 @@ class Quadinaros:
         )
         return self.fit(state.replace(dataset_state=dataset_state), key, num_updates)
 
+    @partial(jax.jit, static_argnums=(0, 3))
+    @lox.spool
+    @partial(lox.strip, tags=["training"])
     def evaluate(self, state: QuadinarosState, key: Key, num_steps: int) -> PyTree:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
@@ -138,51 +156,13 @@ class Quadinaros:
             ),
         )
         state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), state, rollout_keys
+            partial(self.rollout, temperature=0.0), self.pin(state), rollout_keys
         )
         self.environment.close(state.environment_state)
-        return state
+        return self.pin(state)
 
     def close(self, state: QuadinarosState) -> QuadinarosState:
         self.environment.close(state.environment_state)
         self.dataset.close()
         return state
 
-
-def make(
-    config: QuadinarosConfig,
-    algorithm: Algorithm,
-    environment: Environment,
-    dataset: Dataset,
-    pit: Pit = Pit(),
-    lap: Lap = Lap(),
-) -> Quadinaros:
-    config = config.replace(batch_shape=tuple(config.batch_shape))
-    podracer = Quadinaros(config, algorithm, environment, dataset, pit, lap)
-
-    init = podracer.init
-    fit = lox.spool(lox.strip(podracer.fit, tags=["evaluation"]))
-    evaluate = lox.spool(lox.strip(podracer.evaluate, tags=["training"]))
-
-    replicated = NamedSharding(config.mesh, P())
-    axes = sharded(jax.eval_shape(init, jax.random.key(0)))
-
-    shardings = jax.tree.map(
-        lambda axis: NamedSharding(config.mesh, P(axis)) if axis else replicated, axes
-    )
-
-    podracer.init = lambda key: jax.device_put(init(key), shardings, may_alias=False)
-    podracer.fit = jax.jit(
-        fit,
-        static_argnums=(2,),
-        donate_argnames=("state",),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    podracer.evaluate = jax.jit(
-        evaluate,
-        static_argnums=(2,),
-        in_shardings=(shardings, replicated),
-        out_shardings=(shardings, replicated),
-    )
-    return podracer

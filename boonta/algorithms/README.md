@@ -30,7 +30,7 @@ class PPOState:
     optimizer_state: optax.OptState
 ```
 
-A field that holds one row per environment is marked `struct.field(metadata={"axis": "data"})`. It is then sharded with the environments across devices. Everything else is replicated. The replay buffers in [`recurrent_dqn.py`](recurrent_dqn.py) are marked this way. The recurrent carry is not part of the state. It belongs to the rollout, and the podracer holds it.
+A field that holds one row per environment is marked `struct.field(metadata={"axis": "batch"})`. It is then sharded with the environments across devices. Everything else is replicated. The replay buffers in [`recurrent_dqn.py`](recurrent_dqn.py) are marked this way. The recurrent carry is not part of the state. It belongs to the rollout, and the podracer holds it.
 
 ## What update receives
 

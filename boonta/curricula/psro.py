@@ -220,7 +220,7 @@ def lineages(learners: list[Learner], pool: tuple[Member, ...]) -> tuple[str, ..
 @struct.dataclass(frozen=True)
 class LearnerState:
     opponent: Array
-    returns: Array = struct.field(metadata={"axis": "data"})
+    returns: Array = struct.field(metadata={"axis": "batch"})
     resets: Array
 
 

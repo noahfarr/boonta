@@ -246,7 +246,7 @@ def test_plr_fills_its_buffer_beneath_the_episode_statistics():
     )
     environment = RecordEpisodeStatistics(environment)
     config = anakin.AnakinConfig(num_steps=8, mesh=mesh(1))
-    podracer = anakin.make(config, algorithm, environment, pit, lap)
+    podracer = anakin.Anakin(config, algorithm, environment, pit, lap)
     state = podracer.init(jax.random.key(0))
     state, logs = podracer.train(state, jax.random.key(1), 12)
     sizes = np.asarray(logs["buffer/num_levels"])

@@ -33,7 +33,7 @@ class DQNState:
     params: PyTree
     target_params: PyTree
     optimizer_state: optax.OptState
-    buffer_state: BufferState = struct.field(metadata={"axis": "data"})
+    buffer_state: BufferState = struct.field(metadata={"axis": "batch"})
 
 
 @dataclass
