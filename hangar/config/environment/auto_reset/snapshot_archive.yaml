@@ -1,0 +1,11 @@
+defaults:
+  - optional archive/eligibility_fn@eligibility_fn: ${environment}
+  - optional archive/refresh_fn@refresh_fn: ${environment}
+  - _self_
+
+_target_: boonta.environments.wrappers.archive_auto_reset.SnapshotAutoReset
+num_envs: ${environment.num_envs}
+archive_size: 16384
+stride: 32
+max_writes_per_step: 32
+gamma: ${algorithm.gamma}

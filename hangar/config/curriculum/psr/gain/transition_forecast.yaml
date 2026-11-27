@@ -1,0 +1,10 @@
+# @package _global_.curriculum.selector.gain
+# Transition-level forecast gain: multiplies log-prob progress and advantage per transition
+# before pooling into cells, preserving within-cell state-action covariance.
+_target_: boonta.curricula.psr.TransitionForecastAdvantage
+gamma: ${algorithm.gamma}
+gae_lambda: ${algorithm.gae_lambda}
+rate: 0.2
+horizon: 10
+kappa: 1.0
+clip: 2.0

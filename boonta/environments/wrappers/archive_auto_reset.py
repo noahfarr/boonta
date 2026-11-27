@@ -202,6 +202,110 @@ def pool(env, num_envs: int, size: int, seed: int = 0) -> Callable[[Key], PyTree
     return fresh
 
 
+def optimistic(env, num_envs: int, ratio: int = 16) -> Callable[[Key], PyTree]:
+    """Generates `num_envs // ratio` brand-new worlds per step, preserving infinite procedural
+    world diversity at 1/ratio the cost of resetting all `num_envs` environments."""
+    num_resets = max(1, num_envs // ratio)
+
+    def fresh(key: Key) -> PyTree:
+        init_key, draw_key = jax.random.split(key)
+        states, _ = jax.vmap(env.init)(jax.random.split(init_key, num_resets))
+        drawn = jax.random.randint(draw_key, (num_envs,), 0, num_resets)
+        return jax.tree.map(lambda leaf: jnp.take(leaf, drawn, axis=0), states)
+
+    return fresh
+
+
+@dataclass
+class SnapshotArchive:
+    """A `cell_fn`-free rotating ring archive of snapshots for arbitrary state/action spaces."""
+
+    archive_size: int
+    stride: int = 32
+    max_writes_per_step: int = 32
+    num_probes: int = 1
+
+    def init(self, env_state: PyTree) -> ArchiveState:
+        snapshot = jax.eval_shape(
+            lambda tree: jax.tree.map(remove_batch_axis, tree), env_state
+        )
+        cell_state = CellState(
+            snapshot=snapshot,
+            time=jax.ShapeDtypeStruct((), jnp.int32),
+            rho=jax.ShapeDtypeStruct((), jnp.bool),
+            eligible=jax.ShapeDtypeStruct((), jnp.bool),
+            age=jax.ShapeDtypeStruct((), jnp.int32),
+        )
+        return ArchiveState(
+            keys=jnp.arange(self.archive_size, dtype=jnp.int32)[:, None],
+            mask=jnp.zeros(self.archive_size, jnp.bool),
+            cell_states=jax.tree.map(
+                lambda leaf: jnp.zeros((self.archive_size, *leaf.shape), leaf.dtype),
+                cell_state,
+            ),
+            clock=jnp.zeros((), jnp.int32),
+        )
+
+    def add(
+        self,
+        state: ArchiveState,
+        env_state: PyTree,
+        done: Array,
+        rho: Array | None = None,
+        eligible: Array | None = None,
+        age: Array | None = None,
+    ) -> tuple[ArchiveState, Array, Array, Array]:
+        num_envs = jnp.shape(done)[0]
+        is_init = age is None
+        rho = jnp.ones_like(done) if rho is None else rho
+        eligible = jnp.ones_like(done) if eligible is None else eligible
+        age_arr = jnp.zeros(num_envs, jnp.int32) if is_init else age.astype(jnp.int32)
+
+        env_ids = jnp.arange(num_envs, dtype=jnp.int32)
+        if is_init:
+            admit = done & eligible & (env_ids < min(num_envs, self.archive_size))
+        else:
+            stagger = jnp.mod(age_arr + env_ids, self.stride) == 0
+            candidates = done & eligible & (age_arr > 0) & stagger
+            cand_rank = jnp.cumsum(candidates.astype(jnp.int32)) - 1
+            admit = candidates & (cand_rank < self.max_writes_per_step)
+
+        rank = jnp.cumsum(admit.astype(jnp.int32)) - 1
+        target_slots = jnp.mod(state.clock + jnp.maximum(rank, 0), self.archive_size)
+        write_slots = jnp.where(admit, target_slots, self.archive_size)
+        timestamps = state.clock + jnp.maximum(rank, 0) + 1
+
+        was_occupied = state.mask[target_slots]
+        evicted_slots = jnp.where(admit & was_occupied, target_slots, -1)
+        claimed_slots = jnp.where(admit, target_slots, -1)
+
+        new_cell = CellState(
+            snapshot=env_state,
+            time=timestamps.astype(jnp.int32),
+            rho=rho,
+            eligible=eligible,
+            age=age_arr,
+        )
+        cell_states = jax.tree.map(
+            lambda held, new: held.at[write_slots].set(new, mode="drop"),
+            state.cell_states,
+            new_cell,
+        )
+        new_mask = state.mask.at[write_slots].set(True, mode="drop")
+        num_written = jnp.sum(admit, dtype=jnp.int32)
+        new_clock = jnp.mod(state.clock + num_written, jnp.int32(1 << 30))
+        new_state = state.replace(mask=new_mask, cell_states=cell_states, clock=new_clock)
+        return new_state, claimed_slots, admit, evicted_slots
+
+    def take(self, state: ArchiveState, slot: Array) -> PyTree:
+        return jax.tree.map(
+            lambda leaf: leaf[jnp.clip(slot, 0)], state.cell_states.snapshot
+        )
+
+    def eligible(self, state: ArchiveState) -> Array:
+        return state.mask & state.cell_states.eligible
+
+
 @struct.dataclass
 class ArchiveAutoResetState(WrapperState):
     archive_state: ArchiveState = struct.field(metadata={"axis": None})
@@ -502,3 +606,34 @@ class ArchiveAutoReset(AutoReset):
 
     def observe_cells(self, archive_state: ArchiveState) -> PyTree:
         return super().observe(archive_state.cell_states.snapshot)
+
+
+class SnapshotAutoReset(ArchiveAutoReset):
+    """Domain-agnostic `ArchiveAutoReset` requiring no `cell_fn`."""
+
+    def __init__(
+        self,
+        env,
+        num_envs: int,
+        archive_size: int = 16384,
+        stride: int = 32,
+        max_writes_per_step: int = 32,
+        eligibility_fn: Callable = anywhere,
+        gamma: float = 0.99,
+        refresh_fn: Callable[[PyTree, Key], PyTree] = lambda env_state, key: env_state,
+        fresh_fn: Callable = reinitialize,
+    ):
+        AutoReset.__init__(self, env, num_envs=num_envs)
+        self.fresh = fresh_fn(env=env, num_envs=num_envs)
+        action_space = env.action_space()
+        discrete = jnp.issubdtype(getattr(action_space, "dtype", jnp.int32), jnp.integer)
+        num_actions = getattr(action_space, "num_actions", 1) if discrete else 1
+        self.num_actions = num_actions if isinstance(num_actions, int) else 1
+        self.archive = SnapshotArchive(
+            archive_size=archive_size,
+            stride=stride,
+            max_writes_per_step=max_writes_per_step,
+        )
+        self.eligibility_fn = eligibility_fn(env=env)
+        self.gamma = gamma
+        self.refresh_fn = refresh_fn

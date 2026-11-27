@@ -1569,6 +1569,128 @@ class ForecastAdvantage(Advantage):
 
 
 @struct.dataclass
+class TransitionForecastState(GainState):
+    snapshots: PyTree
+    cursor: Array
+    filled: Array
+    gain_sums: Array
+    key: Key
+
+
+@dataclass
+class TransitionForecastAdvantage(ForecastAdvantage):
+    """Transition-level forecast gain: computes Cov_{a ~ pi_t}(log(pi_t / pi_{t-h}), A(x, a))
+    at each individual state-action transition BEFORE pooling into cells.
+
+    Preserves 100% of within-cell state-action covariance (e.g. ghost direction in Pac-Man,
+    spatial layout in Craftax, enemy positions in MinAtar) that cancels to zero when averaging
+    policy changes and advantages separately into (cell, action) tables, and supports both
+    discrete and continuous action distributions.
+    """
+
+    clip: float = 2.0
+    seed: int = 0
+
+    def init(self, archive_size: int, num_actions: int) -> TransitionForecastState:
+        assert hasattr(self, "example"), "TransitionForecastAdvantage needs prepare before it is used"
+        base = Advantage.init(self, archive_size, num_actions)
+        return TransitionForecastState(
+            **vars(base),
+            snapshots=jax.tree.map(lambda leaf: jnp.stack([leaf] * self.horizon), self.example),
+            cursor=jnp.zeros((), jnp.int32),
+            filled=jnp.zeros((), jnp.int32),
+            gain_sums=jnp.zeros(archive_size, jnp.float32),
+            key=jax.random.key(self.seed),
+        )
+
+    def forget(self, state: TransitionForecastState, wiped_mask: Array) -> TransitionForecastState:
+        snapshots, key = state.snapshots, state.key
+        cleared = state.replace(snapshots=None, key=None)
+        wiped = Advantage.forget(self, cleared, wiped_mask)
+        return wiped.replace(snapshots=snapshots, key=key)
+
+    def update(self, state: TransitionForecastState, transitions: Transition) -> TransitionForecastState:
+        first, second = transitions.first, transitions.second
+        values = transitions.aux["value"]
+        truncated = second.truncated[:-1].astype(bool)
+        advantages, _ = generalized_advantage_estimator(
+            jax.tree.map(lambda leaf: leaf[:-1], transitions),
+            values[:-1],
+            values[-1],
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+        )
+        archive_size, _ = jnp.shape(state.action_counts)
+        cell_slots = first.info["cell"][:-1]
+        valid_mask = (cell_slots >= 0) & ~truncated
+        obs_steps = jax.tree.map(lambda leaf: leaf[:-1], first.obs)
+        old_params = self.old_params(state)
+
+        key, sample_key = jax.random.split(state.key)
+        logits = transitions.aux.get("logits")
+        if logits is not None:
+            now_logits = logits[:-1].astype(jnp.float32)
+            old_dist, _ = self.algorithm.network.apply(old_params, obs_steps, temperature=1.0)
+            now_logp = jax.nn.log_softmax(now_logits, axis=-1)
+            old_logp = jax.nn.log_softmax(old_dist.logits.astype(jnp.float32), axis=-1)
+            u_all = self.kappa * jnp.clip(now_logp - old_logp, -self.clip, self.clip)
+            u_mean = jnp.sum(jnp.exp(now_logp) * u_all, axis=-1, keepdims=True)
+            actions = second.action[:-1].astype(jnp.int32)
+            u_tilde = jnp.take_along_axis(u_all - u_mean, actions[..., None], axis=-1)[..., 0]
+        else:
+            # Continuous / arbitrary action distribution: exact zero-mean phantom-sample centering
+            now_dist, _ = self.algorithm.network.apply(
+                state.snapshots, obs_steps, temperature=1.0
+            ) if False else (None, None)
+            # Use most recent observed params (cursor - 1) vs oldest (cursor)
+            latest_idx = (state.cursor - 1) % self.horizon
+            latest_params = jax.tree.map(lambda ring: ring[latest_idx], state.snapshots)
+            now_dist, _ = self.algorithm.network.apply(latest_params, obs_steps, temperature=1.0)
+            old_dist, _ = self.algorithm.network.apply(old_params, obs_steps, temperature=1.0)
+            act_taken = second.action[:-1]
+            act_phant = now_dist.sample(seed=sample_key)
+            u_taken = self.kappa * jnp.clip(now_dist.log_prob(act_taken) - old_dist.log_prob(act_taken), -self.clip, self.clip)
+            u_phant = self.kappa * jnp.clip(now_dist.log_prob(act_phant) - old_dist.log_prob(act_phant), -self.clip, self.clip)
+            u_tilde = u_taken - u_phant
+
+        step_gain = u_tilde * advantages
+        rows = jnp.reshape(jnp.where(valid_mask, cell_slots, archive_size), (-1,))
+        visit_counts = piled(archive_size, rows, jnp.reshape(valid_mask.astype(jnp.float32), (-1,)))
+        gain_added = piled(archive_size, rows, jnp.reshape(jnp.where(valid_mask, step_gain, 0.0), (-1,)))
+
+        decay = 1.0 - self.rate
+        cell_visits = decay * state.cell_visits + visit_counts
+        gain_sums = decay * state.gain_sums + gain_added
+        cell_gain = jnp.where(cell_visits > 0.0, jnp.maximum(gain_sums / jnp.maximum(cell_visits, 1e-12), 0.0), 0.0)
+
+        sample_power = jnp.sum(jnp.where(valid_mask, step_gain ** 2, 0.0))
+        signal_power = jnp.sum(jnp.where(valid_mask, cell_gain[jnp.clip(cell_slots, 0)] ** 2, 0.0))
+        measured = jnp.where(
+            signal_power > 0.0,
+            jnp.maximum(sample_power - signal_power, 0.0) / jnp.maximum(signal_power, 1e-30),
+            0.0,
+        )
+        smoothed = jnp.where(state.scale > 0.0, decay * state.scale + self.rate * measured, measured)
+        lox.log({
+            "tforecast/step_gain": jnp.sum(jnp.where(valid_mask, step_gain, 0.0)) / jnp.maximum(jnp.sum(valid_mask), 1),
+            "tforecast/u_abs": jnp.sum(jnp.where(valid_mask, jnp.abs(u_tilde), 0.0)) / jnp.maximum(jnp.sum(valid_mask), 1),
+        })
+        return state.replace(
+            cell_visits=cell_visits,
+            gain_sums=gain_sums,
+            scale=jnp.where(measured > 0.0, jnp.clip(smoothed, 1.0, 1000.0), state.scale),
+            key=key,
+        )
+
+    def __call__(self, state: TransitionForecastState) -> Array:
+        return jnp.where(
+            state.cell_visits > 0.0,
+            jnp.maximum(state.gain_sums / jnp.maximum(state.cell_visits, 1e-12), 0.0),
+            0.0,
+        )
+
+
+@struct.dataclass
 class PlayedState:
     env_states: PyTree
     earned: Array
@@ -1963,6 +2085,9 @@ class Uniform:
 class WaterFilling:
     iterations: int = 50
     noise_scale_multiplier: float = 1.0
+    rho_gate: bool = False
+    gate_ratio: float = 1.0
+    max_per_slot: int | None = None
 
     def __call__(self, selector, state, worth, eligible_mask, resident_counts, key, count):
         argmax_key, order_key = jax.random.split(key)
@@ -1978,11 +2103,14 @@ class WaterFilling:
         highest = jnp.max(first_value)
 
         def restarts_at(level):
-            return jnp.where(
+            raw = jnp.where(
                 first_value > level,
-                saturating_restarts * (jnp.sqrt(first_value / level) - 1.0),
+                saturating_restarts * (jnp.sqrt(first_value / jnp.maximum(level, 1e-30)) - 1.0),
                 0.0,
             )
+            if self.max_per_slot is not None:
+                raw = jnp.minimum(raw, float(self.max_per_slot))
+            return raw
 
         def bisect(_, bounds):
             low, high = bounds
@@ -1991,8 +2119,32 @@ class WaterFilling:
             return jnp.where(too_many, middle, low), jnp.where(too_many, high, middle)
 
         low, _ = jax.lax.fori_loop(
-            0, self.iterations, bisect, (highest * 1e-12, highest)
+            0, self.iterations, bisect, (highest * 1e-12, jnp.maximum(highest, 1e-30))
         )
+        if self.rho_gate:
+            _, start_val_step = selector.per_step(state, worth)
+            episode_lengths = selector.footprint.pour(
+                selector.successor, state.successor, jnp.ones_like(worth)
+            )
+            mean_len = jnp.sum(jnp.where(eligible_mask, episode_lengths, 0.0)) / jnp.maximum(
+                jnp.sum(eligible_mask, dtype=jnp.float32), 1.0
+            )
+            rho_floor = self.gate_ratio * start_val_step * jnp.maximum(mean_len, 1.0)
+            effective_level = jnp.maximum(low, rho_floor)
+            restarts = restarts_at(effective_level)
+            total_restarts = jnp.sum(restarts)
+            admitted_count = jnp.minimum(count, jnp.round(total_restarts).astype(jnp.int32))
+            boundaries = jnp.cumsum(restarts) * jnp.maximum(admitted_count, 1) / jnp.maximum(total_restarts, 1e-30)
+            archive_size, *_ = jnp.shape(restarts)
+            idx_grid = jnp.arange(count)
+            filled_slots = jnp.minimum(
+                jnp.searchsorted(boundaries, idx_grid + 0.5), archive_size - 1
+            )
+            filled_slots = jnp.where(idx_grid < admitted_count, filled_slots, -1)
+            filled_slots = jax.random.permutation(order_key, filled_slots)
+            lox.log({"mu/rho_gated_share": admitted_count.astype(jnp.float32) / max(count, 1)})
+            return jnp.where((noise_scale > 0.0) & (highest > rho_floor), filled_slots, jnp.full((count,), -1, jnp.int32))
+
         restarts = restarts_at(low)
         boundaries = jnp.cumsum(restarts) * count / jnp.maximum(jnp.sum(restarts), 1e-30)
         archive_size, *_ = jnp.shape(restarts)

@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /hyperparameters/ppo/craftax
+  - _self_
+
+# Generate num_envs // 64 brand-new procedural Craftax worlds per step (matching OptimisticAutoReset)
+environment:
+  auto_reset:
+    fresh_fn:
+      _target_: boonta.environments.wrappers.archive_auto_reset.optimistic
+      _partial_: true
+      ratio: 64

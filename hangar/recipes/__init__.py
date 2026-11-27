@@ -77,6 +77,7 @@ register = {
     ("ppo", "gymnasium", "gymnasium"): ppo_gymnasium.make,
     ("ppo", "gymnax", "bsuite"): ppo_deep_sea.make,
     ("ppo", "gymnax", "classic_control"): ppo_cartpole.make,
+    ("ppo", "gymnax", "continuous_control"): ppo_mujoco.make,
     ("ppo", "gymnax", "minatar"): ppo_minatar.make,
     ("ppo", "jaxtari", "jaxtari"): ppo_jaxtari.make,
     ("ppo", "jumanji", "sokoban"): ppo_sokoban.make,

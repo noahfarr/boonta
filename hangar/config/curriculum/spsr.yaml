@@ -1,0 +1,21 @@
+# @package _global_
+
+defaults:
+  - override /environment/auto_reset@_global_.environment.auto_reset: snapshot_archive
+  - _self_
+
+curriculum:
+  _target_: boonta.curricula.spsr.make
+  _partial_: true
+  k: 4.0
+  restart_at: rollout
+  proj_dim: 128
+  horizon: 10
+  kappa: 1.0
+  clip: 2.0
+  rate: 0.15
+  rho_rate: 0.05
+  refresh_chunk: 1024
+  gate_ratio: 1.0
+  rho_gate: true
+  max_per_slot: 8
