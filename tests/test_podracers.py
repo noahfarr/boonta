@@ -399,7 +399,7 @@ def test_quadinaros_never_gathers_the_whole_dataset_onto_one_device():
     rows = 64
     podracer = on_quadinaros()
     state = podracer.init(jax.random.key(0))
-    text = podracer.fit.lower(state, jax.random.key(1), 4).compile().as_text()
+    text = type(podracer).fit.lower(podracer, state, jax.random.key(1), 4).compile().as_text()
 
     assert f"f32[{rows},3]" not in text
     assert f"f32[{rows // 2},3]" in text
@@ -492,17 +492,19 @@ def test_partition_rules_leave_the_batch_dimension_to_the_environments():
 
 
 def test_a_model_axis_without_partition_rules_is_refused():
+    built = zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, model=2, rules=()))
     with pytest.raises(AssertionError, match="partition rules"):
-        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, model=2, rules=()))
+        built.init(jax.random.key(0))
 
 
 def test_a_parameter_no_partition_rule_covers_is_refused():
-    rules = MEGATRON[:-1]
+    built = zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, rules=MEGATRON[:-1]))
     with pytest.raises(ValueError, match="no partition rule matches .*layers_2/bias"):
-        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, rules=rules))
+        built.init(jax.random.key(0))
 
 
 def test_a_partition_rule_that_cannot_split_a_dimension_evenly_is_refused():
     rules = ((r"head/critic/kernel$", P(None, "data")),) + MEGATRON
+    built = zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, rules=rules))
     with pytest.raises(ValueError, match="head/critic/kernel has shape \\(32, 1\\)"):
-        zoo.ppo(corridor(), num_envs=8, podracer=partial(sharded_anakin, rules=rules))
+        built.init(jax.random.key(0))

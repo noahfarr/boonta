@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from functools import partial
 
 import jax
+import lox
 import jax.numpy as jnp
 from boonta.algorithms import Algorithm
 from boonta.algorithms.wrappers.population import Population
@@ -13,10 +14,10 @@ from flax import struct
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from boonta.utils import (Key, PyTree, Timestep, Transition, concatenate,
-                          partition, pin, take)
+                          pin, put, take)
 from boonta.utils.typing import Environment, EnvState
 
-from .podracer import Lap, Pit, sharded_jit
+from .podracer import Lap, Pit
 
 
 @struct.dataclass(frozen=True)
@@ -70,7 +71,7 @@ class SebulbaState:
     pit_state: PyTree = None
 
 
-@dataclass
+@dataclass(eq=False)
 class Sebulba:
     config: SebulbaConfig
     algorithm: Algorithm
@@ -78,7 +79,6 @@ class Sebulba:
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
     partition_rules: Sequence[tuple[str, P]] = ()
-    shardings: PyTree = field(init=False, repr=False)
 
     def __post_init__(self):
         assert (
@@ -92,21 +92,9 @@ class Sebulba:
             f"their step counts never reach the learner, and the league would credit each rollout to "
             f"the opponent drawn one update after the one that played it. Use anakin."
         )
-        specs = partition(
-            jax.eval_shape(self._learner_state, jax.random.key(0)), self.mesh, self.partition_rules
-        )
-        self.shardings = jax.tree.map(lambda spec: NamedSharding(self.mesh, spec), specs)
 
-    @property
-    def mesh(self) -> Mesh:
-        return self.config.learner
-
-    def _learner_state(self, key):
-        timesteps = [
-            self.environment.init(jax.random.fold_in(key, index))[1]
-            for index in range(self.config.actor.size)
-        ]
-        return self.algorithm.init(key, concatenate(timesteps))[0]
+    def pin(self, algorithm_state: PyTree) -> PyTree:
+        return pin(algorithm_state, self.config.learner, self.partition_rules)
 
     def rollout(self, state: RolloutState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -139,7 +127,9 @@ class Sebulba:
         )
         return state, transition
 
-    @sharded_jit(strip="evaluation")
+    @partial(jax.jit, static_argnums=0)
+    @lox.spool
+    @partial(lox.strip, tags=["evaluation"])
     def unroll(self, state: RolloutState, key: Key):
         call_key, rollout_key = jax.random.split(key)
         state = self.pit(call_key, state)
@@ -152,7 +142,8 @@ class Sebulba:
             carry=jax.tree.map(lambda *carry: jnp.stack(carry), initial_carry, state.carry)
         )
 
-    @sharded_jit(outputs=(("state", "replicated"), "replicated"), spool=True)
+    @partial(jax.jit, static_argnums=0)
+    @lox.spool
     def update(
         self,
         algorithm_state: PyTree,
@@ -162,10 +153,10 @@ class Sebulba:
     ):
         algorithm_key, pit_key = jax.random.split(key)
         algorithm_state = self.algorithm.update(
-            pin(algorithm_state, self.shardings), algorithm_key, transitions
+            self.pin(algorithm_state), algorithm_key, transitions
         )
         pit_state = self.pit.update(pit_state, pit_key, transitions, algorithm_state)
-        return algorithm_state, pit_state
+        return self.pin(algorithm_state), pit_state
 
     def init(self, key: Key) -> SebulbaState:
         replicated = NamedSharding(self.config.learner, P())
@@ -184,9 +175,13 @@ class Sebulba:
                 for _, actor_timestep in environments
             ]
         )
-        algorithm_state, carry = jax.jit(
-            self.algorithm.init, out_shardings=(self.shardings, None)
-        )(jax.device_put(algorithm_key, replicated), timestep)
+        def learn(key, timestep):
+            algorithm_state, carry = self.algorithm.init(key, timestep)
+            return self.pin(algorithm_state), carry
+
+        algorithm_state, carry = jax.jit(learn)(
+            jax.device_put(algorithm_key, replicated), timestep
+        )
         pit_state = jax.jit(self.pit.init)(
             jax.device_put(pit_key, replicated),
             RolloutState(timestep, None, carry, algorithm_state),
@@ -305,7 +300,7 @@ class Sebulba:
                 algorithm_state = algorithm_state.replace(
                     step=algorithm_state.step + num_laps
                 )
-                algorithm_state = jax.device_put(algorithm_state, self.shardings)
+                algorithm_state = put(algorithm_state, self.config.learner, self.partition_rules)
                 update_key = jax.device_put(
                     jax.random.fold_in(learner_key, update), replicated
                 )
@@ -338,7 +333,9 @@ class Sebulba:
         rollout_state, key = jax.device_put((rollout_state, key), device)
         return self.assess(rollout_state, key, num_steps)
 
-    @sharded_jit(static_argnums=(2,), strip="training")
+    @partial(jax.jit, static_argnums=(0, 3))
+    @lox.spool
+    @partial(lox.strip, tags=["training"])
     def assess(self, state: RolloutState, key: Key, num_steps: int) -> PyTree:
         env_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         environment_state, timestep = self.environment.init(env_key)

@@ -40,7 +40,7 @@ from .quantization import (
 )
 from .checkpoint import load_checkpoint, resolve_checkpoint
 from .system_monitor import SystemMonitor
-from .sharding import mesh, partition, pin, sharded, vary
+from .sharding import mesh, partition, pin, put, sharded, vary
 from .timestep import Timestep
 from .transition import Transition
 from .typing import Array, Key, PyTree
@@ -75,6 +75,7 @@ __all__ = [
     "mesh",
     "partition",
     "pin",
+    "put",
     "place",
     "quantize",
     "quantized_dot_general",

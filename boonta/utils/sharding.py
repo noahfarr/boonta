@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 import jax
 import jax.numpy as jnp
-from jax.sharding import AxisType, Mesh
+from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 
 def mesh(count: int, start: int = 0, model: int = 1) -> Mesh:
@@ -80,17 +80,23 @@ def _resolve(name, leaf, axis, mesh, rules) -> P | None:
     raise ValueError(f"no partition rule matches {name} with shape {shape}")
 
 
-def pin(tree, shardings):
-    if shardings is None:
-        return tree
+def _shardings(tree, mesh: Mesh, rules: Sequence[tuple[str, P]]):
+    return jax.tree.map(lambda spec: NamedSharding(mesh, spec), partition(tree, mesh, rules))
+
+
+def pin(tree, mesh: Mesh, rules: Sequence[tuple[str, P]] = ()):
     is_none = lambda value: value is None
     leaves, treedef = jax.tree_util.tree_flatten(tree, is_leaf=is_none)
-    targets = jax.tree_util.tree_leaves(shardings, is_leaf=is_none)
+    targets = jax.tree_util.tree_leaves(_shardings(tree, mesh, rules), is_leaf=is_none)
     pinned = [
         leaf if leaf is None or target is None else jax.lax.with_sharding_constraint(leaf, target)
         for leaf, target in zip(leaves, targets, strict=True)
     ]
     return jax.tree_util.tree_unflatten(treedef, pinned)
+
+
+def put(tree, mesh: Mesh, rules: Sequence[tuple[str, P]] = (), may_alias: bool | None = None):
+    return jax.device_put(tree, _shardings(tree, mesh, rules), may_alias=may_alias)
 
 
 def partition(node, mesh: Mesh, rules: Sequence[tuple[str, P]] = ()):

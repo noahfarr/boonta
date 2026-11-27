@@ -4,14 +4,15 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import lox
 from boonta.algorithms import Algorithm
 from flax import struct
-from jax.sharding import Mesh, NamedSharding
+from jax.sharding import Mesh
 from jax.sharding import PartitionSpec as P
-from boonta.utils import Key, PyTree, Timestep, Transition, partition, pin
+from boonta.utils import Key, PyTree, Timestep, Transition, pin
 from boonta.utils.typing import Environment, EnvState
 
-from .podracer import Lap, Pit, sharded_jit
+from .podracer import Lap, Pit
 
 
 @struct.dataclass(frozen=True)
@@ -30,7 +31,7 @@ class AnakinState:
     lap_state: PyTree = None
 
 
-@dataclass
+@dataclass(eq=False)
 class Anakin:
     config: AnakinConfig
     algorithm: Algorithm
@@ -38,16 +39,9 @@ class Anakin:
     pit: Pit = field(default_factory=Pit)
     lap: Lap = field(default_factory=Lap)
     partition_rules: Sequence[tuple[str, P]] = ()
-    shardings: PyTree = field(init=False, repr=False)
 
-    def __post_init__(self):
-        initial = jax.eval_shape(Anakin.init.raw(self), jax.random.key(0))
-        specs = partition(initial, self.mesh, self.partition_rules)
-        self.shardings = jax.tree.map(lambda spec: NamedSharding(self.mesh, spec), specs)
-
-    @property
-    def mesh(self) -> Mesh:
-        return self.config.mesh
+    def pin(self, state: AnakinState) -> AnakinState:
+        return pin(state, self.config.mesh, self.partition_rules)
 
     def rollout(self, state: AnakinState, key, temperature):
         algorithm_key, environment_key, lap_key = jax.random.split(key, 3)
@@ -80,7 +74,7 @@ class Anakin:
         )
         return state, transition
 
-    @sharded_jit(outputs="state")
+    @partial(jax.jit, static_argnums=0)
     def init(self, key: Key) -> AnakinState:
         environment_key, algorithm_key, pit_key, lap_key = jax.random.split(key, 4)
         pit_key, call_key = jax.random.split(pit_key)
@@ -97,7 +91,7 @@ class Anakin:
             pit_state=self.pit.init(pit_key, state),
             lap_state=self.lap.init(lap_key, state),
         )
-        return self.pit(call_key, self.lap(step_key, state))
+        return self.pin(self.pit(call_key, self.lap(step_key, state)))
 
     @property
     def batch_size(self) -> int:
@@ -107,18 +101,14 @@ class Anakin:
             * self.environment.num_agents
         )
 
-    @sharded_jit(
-        inputs=("state", "replicated"),
-        outputs=("state", "replicated"),
-        static_argnums=(2,),
-        donate_argnames=("state",),
-        strip="evaluation",
-    )
+    @partial(jax.jit, static_argnums=(0, 3), donate_argnames="state")
+    @lox.spool
+    @partial(lox.strip, tags=["evaluation"])
     def train(self, state: AnakinState, key: Key, num_updates: int) -> PyTree:
         def step(state: AnakinState, key):
             rollout_key, update_key, pit_key, call_key = jax.random.split(key, 4)
 
-            state = pin(state, self.shardings)
+            state = self.pin(state)
             rollout_keys = jax.random.split(rollout_key, self.config.num_steps)
             initial_carry = state.carry
             state, transitions = jax.lax.scan(
@@ -134,18 +124,15 @@ class Anakin:
                 state.pit_state, pit_key, transitions, algorithm_state
             )
             state = state.replace(algorithm_state=algorithm_state, pit_state=pit_state)
-            return pin(self.pit(call_key, state), self.shardings), None
+            return self.pit(call_key, state), None
 
         keys = jax.random.split(key, num_updates)
         state, _ = jax.lax.scan(step, state, keys)
-        return state
+        return self.pin(state)
 
-    @sharded_jit(
-        inputs=("state", "replicated"),
-        outputs=("state", "replicated"),
-        static_argnums=(2,),
-        strip="training",
-    )
+    @partial(jax.jit, static_argnums=(0, 3))
+    @lox.spool
+    @partial(lox.strip, tags=["training"])
     def evaluate(self, state: AnakinState, key: Key, num_steps: int) -> PyTree:
         reset_key, rollout_key, lap_key, call_key = jax.random.split(key, 4)
         rollout_keys = jax.random.split(rollout_key, num_steps)
@@ -163,12 +150,12 @@ class Anakin:
             ),
         )
         state, _ = jax.lax.scan(
-            partial(self.rollout, temperature=0.0), pin(state, self.shardings), rollout_keys
+            partial(self.rollout, temperature=0.0), self.pin(state), rollout_keys
         )
         self.environment.close(state.environment_state)
-        return state
+        return self.pin(state)
 
-    @sharded_jit(inputs=("state",))
+    @partial(jax.jit, static_argnums=0)
     def close(self, state: AnakinState) -> AnakinState:
         self.environment.close(state.environment_state)
         return state
